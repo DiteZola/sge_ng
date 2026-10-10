@@ -1,0 +1,6 @@
+{
+  "name": "SGE-NG - Sistema de Gestão Escolar",
+  "description": "Sistema Completo de Gestão Escolar (SGE-NG) adaptado às normas do Ministério da Educação de Angola, com motor dinâmico de cálculo de MAC, offline-first e perfis pedagógicos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

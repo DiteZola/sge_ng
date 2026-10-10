@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@layer utilities {
+  @media print {
+    .no-print {
+      display: none !important;
+    }
+    .print-only {
+      display: block !important;
+    }
+    body {
+      background: white !important;
+      color: black !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .page-break {
+      page-break-after: always;
+      break-after: page;
+    }
+  }
+}
+
+/* Print thermal receipts */
+@media print {
+  .thermal-receipt {
+    width: 58mm;
+    max-width: 58mm;
+    margin: 0 auto;
+    font-family: monospace;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .thermal-receipt-80 {
+    width: 80mm;
+    max-width: 80mm;
+    margin: 0 auto;
+    font-family: monospace;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+}

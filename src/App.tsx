@@ -1,0 +1,1256 @@
+import React, { useState, useEffect } from 'react';
+import { ShieldCheck } from 'lucide-react';
+import { dbService } from './services/storage';
+import { verificarIntegridadeSistema, SystemIntegrityStatus } from './services/firebaseClient';
+import { 
+  Escola, 
+  Turma, 
+  Disciplina, 
+  Funcionario, 
+  Aluno, 
+  TipoAvaliacaoConfig, 
+  RegraCalculoMAC, 
+  AvaliacaoCriada, 
+  NotaEstudante, 
+  NotaTrimestralConsolidada, 
+  SolicitacaoAlteracaoNota, 
+  RegistoAssiduidade, 
+  Mensagem, 
+  DocumentoBiblioteca, 
+  LogAuditoria, 
+  ComissaoJuri,
+  UserRole
+} from './types';
+
+import { Header } from './components/Header';
+import { Sidebar, NavTab } from './components/Sidebar';
+import { DashboardView } from './components/DashboardView';
+import { AcademicManagementView } from './components/AcademicManagementView';
+import { EvaluationMacView } from './components/EvaluationMacView';
+import { StudentsView } from './components/StudentsView';
+import { HumanResourcesView } from './components/HumanResourcesView';
+import { PrintingDocumentsView } from './components/PrintingDocumentsView';
+import { CommunicationLibraryView } from './components/CommunicationLibraryView';
+import { SystemAuditBackupView } from './components/SystemAuditBackupView';
+import { ArchitectureDocsView } from './components/ArchitectureDocsView';
+import { AdminGlobalSchoolsView } from './components/AdminGlobalSchoolsView';
+import { AdministrativeFinanceView } from './components/AdministrativeFinanceView';
+import { InitialSetupModal } from './components/InitialSetupModal';
+import { SystemInitialSetupView } from './components/SystemInitialSetupView';
+import { RealtimeSecurityModal } from './components/RealtimeSecurityModal';
+import { securityEngine } from './services/securityEngine';
+import { cryptoService } from './services/cryptoService';
+import { LoginView } from './components/LoginView';
+import { UserProfileView } from './components/UserProfileView';
+import { TechnicalSupportView } from './components/TechnicalSupportView';
+import { PatrimonyView } from './components/PatrimonyView';
+import { JuryCommissionView } from './components/JuryCommissionView';
+import { ScheduleTimetableView } from './components/ScheduleTimetableView';
+import { StudentAttendanceReportView } from './components/StudentAttendanceReportView';
+import { StudentPassesView } from './components/StudentPassesView';
+import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
+import { SchoolCalendarView } from './components/SchoolCalendarView';
+import { ShieldAlert, ArrowLeft } from 'lucide-react';
+
+export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('sge_authenticated') === 'true';
+  });
+
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    try {
+      const u = dbService.getCurrentUser();
+      return u?.role === 'AdminGeral' ? 'dashboard' : 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
+
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [integrity, setIntegrity] = useState<SystemIntegrityStatus>(verificarIntegridadeSistema());
+  const [showSetupModal, setShowSetupModal] = useState<boolean>(() => !dbService.isSetupInicialConcluido());
+  const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
+  const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
+
+  // Estado Multi-Escola & Multi-Ano Lectivo
+  const [escolas, setEscolas] = useState<Escola[]>(() => dbService.getEscolas());
+  const [anosLectivos, setAnosLectivos] = useState<string[]>(() => dbService.getAnosLectivos());
+  const [escola, setEscola] = useState<Escola>(() => dbService.getEscolaAtiva());
+
+  // Estado Geral do SGE-NG
+  const [turmas, setTurmas] = useState<Turma[]>(() => dbService.obterTurmas());
+  const [disciplinas, setDisciplinas] = useState<Disciplina[]>(() => dbService.obterDisciplinas());
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>(() => dbService.obterFuncionarios());
+  const [alunos, setAlunos] = useState<Aluno[]>(() => dbService.obterAlunos());
+  const [tiposAvaliacao, setTiposAvaliacao] = useState<TipoAvaliacaoConfig[]>(() => dbService.obterTiposAvaliacao());
+  const [regrasMAC, setRegrasMAC] = useState<RegraCalculoMAC[]>(() => dbService.obterRegrasMAC());
+  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoCriada[]>(() => dbService.obterAvaliacoes());
+  const [notas, setNotas] = useState<NotaEstudante[]>(() => dbService.obterNotas());
+  const [notasConsolidadas, setNotasConsolidadas] = useState<NotaTrimestralConsolidada[]>(() => dbService.obterNotasConsolidadas());
+  const [solicitacoes, setSolicitacoes] = useState<SolicitacaoAlteracaoNota[]>(() => dbService.obterSolicitacoes());
+  const [assiduidade, setAssiduidade] = useState<RegistoAssiduidade[]>(() => dbService.obterAssiduidade());
+  const [mensagens, setMensagens] = useState<Mensagem[]>(() => dbService.obterMensagens());
+  const [livros, setLivros] = useState<DocumentoBiblioteca[]>(() => dbService.obterLivros());
+  const [logs, setLogs] = useState<LogAuditoria[]>(() => dbService.obterLogs());
+  const [juris, setJuris] = useState<ComissaoJuri[]>(() => dbService.obterJuris());
+  const [atribuicoes, setAtribuicoes] = useState(() => dbService.obterAtribuicoes());
+
+  // Utilizador Ativo
+  const [authenticatedUser, setAuthenticatedUser] = useState<Funcionario | null>(() => {
+    try {
+      return dbService.getCurrentUser();
+    } catch {
+      return null;
+    }
+  });
+
+  const currentUser: Funcionario = authenticatedUser || (funcionarios[0] || {
+    id: 'user-default',
+    escolaId: escola.id,
+    nomeCompleto: 'Dr. Eng. Alberto Domingos Kwanza',
+    numeroBI: '001928374LA049',
+    cargo: 'Administrador Geral',
+    role: 'AdminGeral',
+    ehProfessor: false,
+    ehAdministrativoQueLeciona: false,
+    genero: 'M',
+    habilitacoes: 'Mestrado em Engenharia Informática',
+    fotoUrl: '',
+    dataAdmissao: '2020-01-15',
+    telefone: '+244 923 000 001',
+    email: 'admin.geral@med.gov.ao',
+    ativo: true,
+    statusConta: 'Ativa'
+  });
+
+  // Listener para status online/offline e verificação do Administrador Geral
+  useEffect(() => {
+    const verificarAdmin = async () => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const res = await dbService.verificarAdminGeralOnline();
+        if (!res.existe) {
+          setTemAdminGeral(false);
+        } else {
+          setTemAdminGeral(true);
+        }
+      }
+    };
+
+    verificarAdmin();
+
+    const handleOnline = () => {
+      setIntegrity(verificarIntegridadeSistema());
+      verificarAdmin();
+    };
+    const handleOffline = () => setIntegrity(verificarIntegridadeSistema());
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Listener contínuo do securityEngine para notificar o AdminGeral via RealtimeSecurityModal
+  useEffect(() => {
+    const handleSecurityAnomaly = () => {
+      if (currentUser?.role === 'AdminGeral') {
+        setShowSecurityModal(true);
+      }
+    };
+
+    window.addEventListener('sge_notify_admin_security_modal', handleSecurityAnomaly);
+    window.addEventListener('sge_security_anomaly_detected', handleSecurityAnomaly);
+    return () => {
+      window.removeEventListener('sge_notify_admin_security_modal', handleSecurityAnomaly);
+      window.removeEventListener('sge_security_anomaly_detected', handleSecurityAnomaly);
+    };
+  }, [currentUser?.role]);
+
+  // Alternância Multi-Escola
+  const handleSelectEscola = (escolaId: string) => {
+    dbService.setEscolaAtiva(escolaId);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    setEscola(escolaAtiva);
+    setTurmas(dbService.obterTurmas());
+    setDisciplinas(dbService.obterDisciplinas());
+    setAlunos(dbService.obterAlunos());
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
+    setFuncionarios(dbService.obterFuncionarios());
+    setLogs(dbService.obterLogs());
+  };
+
+  // Alternância de Ano Lectivo Multi-Ano
+  const handleSelectAnoLectivo = (ano: string) => {
+    dbService.setAnoLectivoActivo(ano);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    setEscola({ ...escolaAtiva, anoLectivoActivo: ano });
+    setAnosLectivos(dbService.getAnosLectivos());
+    setTurmas(dbService.obterTurmas());
+    setAlunos(dbService.obterAlunos());
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
+  };
+
+  // Alternância de Trimestre
+  const handleSelectTrimestre = (trimestre: '1' | '2' | '3') => {
+    const escolaAtualizada: Escola = { ...escola, trimestreActivo: trimestre };
+    dbService.salvarEscola(escolaAtualizada);
+    setEscola(escolaAtualizada);
+  };
+
+  // RBAC Rigoroso por Perfil conforme a nova arquitetura de menus:
+  const allowedTabsPorRole: Record<UserRole, NavTab[]> = {
+    AdminGeral: [
+      'dashboard',
+      'admin_escolas',
+      'ano_lectivo',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'professores',
+      'coordenacao',
+      'direcao',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'pagamentos',
+      'relatorios_financeiros',
+      'biblioteca',
+      'patrimonio',
+      'usuarios_perfis',
+      'configuracoes',
+      'auditoria_logs',
+      'backup_restauro',
+      'apoio_tecnico',
+      'meu_perfil',
+      'financeiro',
+      'sistema',
+      'arquitetura',
+      'academico',
+      'estudantes',
+      'avaliacoes',
+      'rh',
+      'comunicacao',
+      'documentos',
+      'formulas_notas'
+    ],
+    DiretorGeral: [
+      'dashboard',
+      'ano_lectivo',
+      'calendario_escolar',
+      'formulas_notas',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'professores',
+      'coordenacao',
+      'comissao_juri',
+      'direcao',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'pagamentos',
+      'relatorios_financeiros',
+      'biblioteca',
+      'patrimonio',
+      'usuarios_perfis',
+      'configuracoes',
+      'auditoria_logs',
+      'backup_restauro',
+      'apoio_tecnico',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'avaliacoes',
+      'rh',
+      'financeiro',
+      'comunicacao',
+      'documentos',
+      'sistema',
+      'arquitetura'
+    ],
+    SubdiretorPedagogico: [
+      'dashboard',
+      'ano_lectivo',
+      'calendario_escolar',
+      'formulas_notas',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'professores',
+      'coordenacao',
+      'comissao_juri',
+      'direcao',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'biblioteca',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'avaliacoes',
+      'rh',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    CoordenadorPedagogico: [
+      'dashboard',
+      'ano_lectivo',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'professores',
+      'coordenacao',
+      'comissao_juri',
+      'direcao',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'biblioteca',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'avaliacoes',
+      'rh',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    SubdirectorAdministrativo: [
+      'dashboard',
+      'calendario_escolar',
+      'alunos',
+      'direcao',
+      'declaracoes',
+      'boletins',
+      'passes_escolares',
+      'horarios',
+      'presencas',
+      'pagamentos',
+      'relatorios_financeiros',
+      'patrimonio',
+      'meu_perfil',
+      'estudantes',
+      'financeiro',
+      'comunicacao',
+      'documentos',
+      'arquitetura',
+      'comissao_juri'
+    ],
+    SubdiretorAdministrativo: [
+      'dashboard',
+      'calendario_escolar',
+      'alunos',
+      'direcao',
+      'declaracoes',
+      'boletins',
+      'passes_escolares',
+      'horarios',
+      'presencas',
+      'pagamentos',
+      'relatorios_financeiros',
+      'patrimonio',
+      'meu_perfil',
+      'estudantes',
+      'financeiro',
+      'comunicacao',
+      'documentos',
+      'arquitetura',
+      'comissao_juri'
+    ],
+    Professor: [
+      'dashboard',
+      'calendario_escolar',
+      'alunos',
+      'horarios',
+      'presencas',
+      'coordenacao',
+      'comissao_juri',
+      'pautas',
+      'boletins',
+      'biblioteca',
+      'meu_perfil',
+      'estudantes',
+      'avaliacoes',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    Secretaria: [
+      'dashboard',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'comissao_juri',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'pagamentos',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    ChefeSecretaria: [
+      'dashboard',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'comissao_juri',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'pagamentos',
+      'relatorios_financeiros',
+      'usuarios_perfis',
+      'auditoria_logs',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    Secretario: [
+      'dashboard',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'comissao_juri',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'pagamentos',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    CoordenadorTurno: [
+      'dashboard',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'professores',
+      'coordenacao',
+      'comissao_juri',
+      'pautas',
+      'boletins',
+      'meu_perfil',
+      'academico',
+      'estudantes',
+      'avaliacoes',
+      'comunicacao',
+      'documentos',
+      'arquitetura'
+    ],
+    Encarregado: [
+      'dashboard',
+      'calendario_escolar',
+      'alunos',
+      'declaracoes',
+      'boletins',
+      'pagamentos',
+      'meu_perfil',
+      'estudantes',
+      'documentos',
+      'comunicacao'
+    ]
+  };
+
+  // Configuração Inicial do Administrador Geral (sem dependência de escola)
+  const handleSaveSetup = (dadosAdmin: Partial<Funcionario>, dadosEscola?: Partial<Escola>) => {
+    dbService.concluirSetupInicial(dadosAdmin, dadosEscola);
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
+    setFuncionarios(dbService.obterFuncionarios());
+    setAuthenticatedUser(dbService.getCurrentUser());
+    setActiveTab('dashboard');
+    setLogs(dbService.obterLogs());
+  };
+
+  // Handlers do Ciclo de Vida de Escolas e Diretores (AdminGeral)
+  const handleCriarEscola = (dados: Partial<Escola>): Escola => {
+    const nova = dbService.criarEscola(dados);
+    setEscolas(dbService.getEscolas());
+    setLogs(dbService.obterLogs());
+    return nova;
+  };
+
+  const handleSuspenderEscola = (escolaId: string, motivo: string) => {
+    dbService.suspenderEscola(escolaId, motivo);
+    setEscolas(dbService.getEscolas());
+    if (escola.id === escolaId) {
+      setEscola(dbService.getEscolaAtiva());
+    }
+    setLogs(dbService.obterLogs());
+  };
+
+  const handleReativarEscola = (escolaId: string) => {
+    dbService.reativarEscola(escolaId);
+    setEscolas(dbService.getEscolas());
+    setLogs(dbService.obterLogs());
+  };
+
+  const handleEliminarEscola = (escolaId: string) => {
+    dbService.eliminarEscola(escolaId);
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
+    setLogs(dbService.obterLogs());
+  };
+
+  const handleCriarOuAtualizarDiretor = (
+    escolaIdOuDados: string | Partial<Funcionario>,
+    dadosOuSenha?: any
+  ): any => {
+    let f: Funcionario;
+    if (typeof escolaIdOuDados === 'string') {
+      const escolaId = escolaIdOuDados;
+      const dados = dadosOuSenha || {};
+      f = {
+        id: `func-${Date.now()}`,
+        escolaId,
+        nomeCompleto: dados.nomeCompleto,
+        numeroBI: dados.numeroBI,
+        genero: dados.genero || 'M',
+        email: dados.email,
+        telefone: dados.telefone || '+244 923 000 000',
+        password: dados.password || '123456',
+        habilitacoes: dados.habilitacoes || 'Licenciatura em Gestão Escolar',
+        cargo: 'Diretor Geral',
+        role: 'DiretorGeral',
+        statusConta: 'Ativa',
+        ativo: true,
+        ehProfessor: false,
+        ehAdministrativoQueLeciona: false,
+        fotoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        dataAdmissao: new Date().toISOString().split('T')[0]
+      };
+    } else {
+      f = {
+        ...escolaIdOuDados,
+        role: 'DiretorGeral',
+        cargo: 'Diretor Geral',
+        password: dadosOuSenha || escolaIdOuDados.password || '123456',
+        statusConta: 'Ativa',
+        ativo: true
+      } as Funcionario;
+    }
+    dbService.salvarFuncionario(f);
+    setFuncionarios(dbService.obterFuncionarios());
+    setLogs(dbService.obterLogs());
+    return f;
+  };
+
+  const handleRedefinirSenhaDiretor = (funcionarioId: string, novaSenha: string) => {
+    dbService.redefinirSenhaFuncionario(funcionarioId, novaSenha);
+    setFuncionarios(dbService.obterFuncionarios());
+    setLogs(dbService.obterLogs());
+  };
+
+  const handleSelecionarEscolaParaInspecao = (escolaId: string) => {
+    handleSelectEscola(escolaId);
+    setActiveTab('dashboard');
+  };
+
+  // Handlers de Login / Logout
+  const handleLogin = (user: Funcionario, escolaSelecionada: Escola, anoSelecionado: string) => {
+    dbService.setCurrentUser(user);
+    setAuthenticatedUser(user);
+    dbService.setEscolaAtiva(escolaSelecionada.id);
+    dbService.setAnoLectivoActivo(anoSelecionado);
+    setEscola(escolaSelecionada);
+    setIsAuthenticated(true);
+    localStorage.setItem('sge_authenticated', 'true');
+    setActiveTab('dashboard');
+    setLogs(dbService.obterLogs());
+  };
+
+  const handleLogout = () => {
+    dbService.setCurrentUser(null);
+    setAuthenticatedUser(null);
+    setIsAuthenticated(false);
+    localStorage.removeItem('sge_authenticated');
+  };
+
+  // Handler de Atualização de Perfil pelo próprio Usuário
+  const handleSalvarPerfil = (perfilAtualizado: Funcionario) => {
+    dbService.salvarFuncionario(perfilAtualizado);
+    dbService.setCurrentUser(perfilAtualizado);
+    setAuthenticatedUser(perfilAtualizado);
+    setFuncionarios(dbService.obterFuncionarios());
+    setLogs(dbService.obterLogs());
+  };
+
+  // Handlers de dados gerais
+  const handleSalvarEscola = (escolaAtualizada: Escola) => {
+    dbService.salvarEscola(escolaAtualizada);
+    setEscola(escolaAtualizada);
+    setEscolas(dbService.getEscolas());
+  };
+
+  const handleSalvarTurma = (turma: Turma) => {
+    dbService.salvarTurma(turma);
+    setTurmas(dbService.obterTurmas());
+  };
+
+  const handleEliminarTurma = (turmaId: string) => {
+    dbService.eliminarTurma(turmaId);
+    setTurmas(dbService.obterTurmas());
+  };
+
+  const handleSalvarDisciplina = (disc: Disciplina) => {
+    dbService.salvarDisciplina(disc);
+    setDisciplinas(dbService.obterDisciplinas());
+  };
+
+  const handleEliminarDisciplina = (discId: string) => {
+    dbService.eliminarDisciplina(discId);
+    setDisciplinas(dbService.obterDisciplinas());
+  };
+
+  const handleSalvarAtribuicao = (atrib: any) => {
+    dbService.salvarAtribuicao(atrib);
+    setAtribuicoes(dbService.obterAtribuicoes());
+  };
+
+  const handleRemoverAtribuicao = (id: string) => {
+    dbService.removerAtribuicao(id);
+    setAtribuicoes(dbService.obterAtribuicoes());
+  };
+
+  const handleSalvarJuri = (juri: ComissaoJuri) => {
+    dbService.salvarJuri(juri);
+    setJuris(dbService.obterJuris());
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
+  };
+
+  const handleEliminarJuri = (juriId: string) => {
+    dbService.excluirJuri(juriId);
+    setJuris(dbService.obterJuris());
+  };
+
+  const handleSalvarAluno = (aluno: Aluno) => {
+    dbService.salvarAluno(aluno);
+    setAlunos(dbService.obterAlunos());
+  };
+
+  const handleExcluirAluno = (alunoId: string) => {
+    dbService.excluirAluno(alunoId);
+    setAlunos(dbService.obterAlunos());
+  };
+
+  const handleSalvarTipoAvaliacao = (tipo: TipoAvaliacaoConfig) => {
+    dbService.salvarTipoAvaliacao(tipo);
+    setTiposAvaliacao(dbService.obterTiposAvaliacao());
+  };
+
+  const handleSalvarRegraMAC = (regra: RegraCalculoMAC) => {
+    dbService.salvarRegraMAC(regra);
+    setRegrasMAC(dbService.obterRegrasMAC());
+  };
+
+  const handleSalvarAvaliacao = (avaliacao: AvaliacaoCriada) => {
+    dbService.salvarAvaliacao(avaliacao);
+    setAvaliacoes(dbService.obterAvaliacoes());
+  };
+
+  const handleExcluirAvaliacao = (avaliacaoId: string) => {
+    dbService.excluirAvaliacao(avaliacaoId);
+    setAvaliacoes(dbService.obterAvaliacoes());
+  };
+
+  const handleSalvarNota = (nota: NotaEstudante) => {
+    dbService.salvarNota(nota);
+    setNotas(dbService.obterNotas());
+  };
+
+  const handleSalvarNotaConsolidada = (notaCons: NotaTrimestralConsolidada) => {
+    dbService.salvarNotaConsolidada(notaCons);
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
+  };
+
+  const handleSalvarSolicitacao = (solicitacao: SolicitacaoAlteracaoNota) => {
+    dbService.salvarSolicitacao(solicitacao);
+    setSolicitacoes(dbService.obterSolicitacoes());
+  };
+
+  const handleSalvarFuncionario = (func: Funcionario) => {
+    dbService.salvarFuncionario(func);
+    setFuncionarios(dbService.obterFuncionarios());
+  };
+
+  const handleSalvarRegistoAssiduidade = (registo: RegistoAssiduidade) => {
+    dbService.salvarAssiduidade(registo);
+    setAssiduidade(dbService.obterAssiduidade());
+  };
+
+  const handleAtualizarStatusFuncionario = (id: string, status: any, motivo?: string) => {
+    dbService.atualizarStatusContaFuncionario(id, status, motivo);
+    setFuncionarios(dbService.obterFuncionarios());
+  };
+
+  const handleEliminarFuncionario = (id: string) => {
+    dbService.eliminarFuncionario(id);
+    setFuncionarios(dbService.obterFuncionarios());
+  };
+
+  const handleEnviarMensagem = (msg: Mensagem) => {
+    dbService.salvarMensagem(msg);
+    setMensagens(dbService.obterMensagens());
+  };
+
+  const handleAdicionarLivro = (livro: DocumentoBiblioteca) => {
+    dbService.salvarLivro(livro);
+    setLivros(dbService.obterLivros());
+  };
+
+  const handleLimparLogs = () => {
+    dbService.limparLogs();
+    setLogs(dbService.obterLogs());
+  };
+
+  const handleRestaurarBackup = (jsonStr: string) => {
+    dbService.restaurarBackupJSON(jsonStr);
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.obterEscola());
+    setTurmas(dbService.obterTurmas());
+    setDisciplinas(dbService.obterDisciplinas());
+    setFuncionarios(dbService.obterFuncionarios());
+    setAlunos(dbService.obterAlunos());
+    setTiposAvaliacao(dbService.obterTiposAvaliacao());
+    setRegrasMAC(dbService.obterRegrasMAC());
+    setAvaliacoes(dbService.obterAvaliacoes());
+    setNotas(dbService.obterNotas());
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
+    setSolicitacoes(dbService.obterSolicitacoes());
+    setAssiduidade(dbService.obterAssiduidade());
+    setMensagens(dbService.obterMensagens());
+    setLivros(dbService.obterLivros());
+    setLogs(dbService.obterLogs());
+    setJuris(dbService.obterJuris());
+    setAnosLectivos(dbService.getAnosLectivos());
+  };
+
+  // Verificação de permissão de acesso à aba ativa (inclui apoio técnico para Admin Geral, delegações financeiras e comissões de júri)
+  const isMembroJuriAtivo = juris.some(j => 
+    j.escolaId === escola.id && 
+    j.estado !== 'Encerrada' && 
+    (j.membros?.some(m => m.usuarioId === currentUser.id) || j.presidenteId === currentUser.id || j.secretarioId === currentUser.id)
+  );
+
+  const temSessaoApoioAdminGeral = currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva);
+  const temDelegacaoCobranca = dbService.getDelegacoesCobranca(escola.id).some(d => d.funcionarioId === currentUser.id && d.ativo);
+
+  const isAbaPermitida = 
+    currentUser.role === 'AdminGeral' && activeTab === 'comissao_juri'
+      ? false // Administrador geral não precisa ver comissões de júri
+      : (temSessaoApoioAdminGeral // Admin Geral em apoio técnico tem acesso aos outros módulos
+        || (activeTab === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
+        || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
+        || allowedTabsPorRole[currentUser.role]?.includes(activeTab));
+
+  // 1. Verificação Primária: Se não houver Administrador Geral configurado no sistema,
+  // mostra PRIMEIRO a página de configuração inicial do sistema para o cadastro do administrador geral.
+  if (!temAdminGeral) {
+    return (
+      <SystemInitialSetupView
+        onSetupConcluido={(novoAdmin) => {
+          setTemAdminGeral(true);
+          setAuthenticatedUser(novoAdmin);
+          setIsAuthenticated(true);
+          localStorage.setItem('sge_authenticated', 'true');
+          setFuncionarios(dbService.obterFuncionarios());
+          setEscolas(dbService.getEscolas());
+          setEscola(dbService.getEscolaAtiva());
+          setActiveTab('dashboard');
+        }}
+      />
+    );
+  }
+
+  // Ecrã Oficial de Autenticação se não houver sessão ativa
+  if (!isAuthenticated) {
+    return (
+      <>
+        <LoginView
+          escolas={escolas}
+          selectedEscola={escola}
+          onSelectEscola={handleSelectEscola}
+          anosLectivos={anosLectivos}
+          selectedAno={escola.anoLectivoActivo || '2025/2026'}
+          onSelectAno={handleSelectAnoLectivo}
+          funcionarios={funcionarios}
+          onLogin={handleLogin}
+          onOpenSetupModal={() => setTemAdminGeral(false)}
+        />
+        <InitialSetupModal
+          isOpen={showSetupModal}
+          onClose={() => setShowSetupModal(false)}
+          onSaveSetup={handleSaveSetup}
+          escolasExistentes={escolas}
+        />
+      </>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#FFFFFF] text-[#111827] flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+      {/* Header Superior Seguro */}
+      <Header
+        escola={escola}
+        escolas={escolas}
+        onSelectEscola={handleSelectEscola}
+        anosLectivos={anosLectivos}
+        onSelectAnoLectivo={handleSelectAnoLectivo}
+        onSelectTrimestre={handleSelectTrimestre}
+        currentUser={currentUser}
+        integrity={integrity}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        onOpenPublicPortal={() => setActiveTab('alunos')}
+        onNavigateToPerfil={() => setActiveTab('meu_perfil')}
+        onLogout={handleLogout}
+        onOpenSecurityEngine={() => setShowSecurityModal(true)}
+      />
+
+      {/* Banner de Sessão de Apoio Técnico Autorizada pelo Diretor Geral */}
+      {currentUser.role === 'AdminGeral' && escola.sessaoApoioTecnicoAtiva && (
+        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white px-4 py-2.5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-2 z-30 no-print border-b border-amber-500">
+          <div className="flex items-center space-x-2.5">
+            <ShieldCheck className="h-5 w-5 shrink-0 text-amber-200" />
+            <div>
+              <span className="text-xs font-black block">
+                Sessão de Apoio Técnico Autorizada · {escola.nomeOficial}
+              </span>
+              <span className="text-[11px] text-amber-100">
+                Chamado #{escola.sessaoApoioTecnicoAtiva.solicitacaoId.slice(-6)} · Motivo: {escola.sessaoApoioTecnicoAtiva.motivo} · Ações averbadas no Log do Diretor
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              dbService.encerrarSessaoApoioTecnico(escola.id, currentUser);
+              setEscolas(dbService.getEscolas());
+              setEscola(dbService.getEscolaAtiva());
+              setActiveTab('admin_escolas');
+            }}
+            className="px-3 py-1.5 bg-white text-amber-950 font-bold text-xs rounded-xl hover:bg-amber-50 shadow-2xs transition-colors shrink-0 self-end sm:self-auto cursor-pointer"
+          >
+            Encerrar Apoio & Sair da Escola
+          </button>
+        </div>
+      )}
+
+      {/* Main Container */}
+      <div className="flex-1 flex max-w-7xl w-full mx-auto">
+        {/* Sidebar de Navegação Oficial categorizada por grupos e RBAC */}
+        <Sidebar
+          activeTab={activeTab}
+          onTabChange={(tab) => setActiveTab(tab)}
+          userRole={currentUser.role}
+          mobileMenuOpen={mobileMenuOpen}
+          setMobileMenuOpen={setMobileMenuOpen}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
+
+        {/* Content Area com Proteção de Rotas RBAC */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
+          {!isAbaPermitida ? (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-6 text-center space-y-3 max-w-lg mx-auto mt-12">
+              <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+                <ShieldAlert className="h-6 w-6" />
+              </div>
+              <h3 className="text-base font-bold text-amber-900">Acesso Restrito ao Perfil</h3>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                O seu perfil de acesso atual (<strong>{currentUser.cargo || currentUser.role}</strong>) não possui permissões administrativas para trabalhar com este módulo.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab('dashboard')}
+                className="mt-2 inline-flex items-center space-x-2 px-4 py-2 bg-amber-700 text-white text-xs font-bold rounded-lg hover:bg-amber-800 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>Voltar ao Painel Principal</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* 1. PRINCIPAL */}
+              {activeTab === 'dashboard' && (
+                <DashboardView
+                  escola={escola}
+                  escolas={escolas}
+                  currentUser={currentUser}
+                  alunos={alunos}
+                  funcionarios={funcionarios}
+                  turmas={turmas}
+                  notasConsolidadas={notasConsolidadas}
+                  onNavigate={(tab) => setActiveTab(tab)}
+                  onOpenSecurityModal={() => setShowSecurityModal(true)}
+                />
+              )}
+
+              {/* 2. ACADÊMICO (Ano Letivo, Classes, Cursos, Disciplinas, Turmas, Turnos) */}
+              {(activeTab === 'ano_lectivo' || activeTab === 'classes' || activeTab === 'cursos' || activeTab === 'disciplinas' || activeTab === 'turmas' || activeTab === 'turnos' || activeTab === 'academico') && (
+                <AcademicManagementView
+                  escola={escola}
+                  turmas={turmas}
+                  disciplinas={disciplinas}
+                  atribuicoes={atribuicoes}
+                  funcionarios={funcionarios}
+                  juris={juris}
+                  onSalvarEscola={handleSalvarEscola}
+                  onSalvarTurma={handleSalvarTurma}
+                  onEliminarTurma={handleEliminarTurma}
+                  onSalvarDisciplina={handleSalvarDisciplina}
+                  onEliminarDisciplina={handleEliminarDisciplina}
+                  onSalvarAtribuicao={handleSalvarAtribuicao}
+                  onRemoverAtribuicao={handleRemoverAtribuicao}
+                  onSalvarJuri={handleSalvarJuri}
+                  onNavigateToJury={() => setActiveTab('comissao_juri')}
+                  initialSubTab={
+                    activeTab === 'classes' ? 'classes' :
+                    activeTab === 'cursos' ? 'cursos' :
+                    activeTab === 'disciplinas' ? 'disciplinas' :
+                    activeTab === 'turmas' ? 'turmas' :
+                    activeTab === 'turnos' ? 'turnos' : 'anos'
+                  }
+                  onAnoLectivoAlterado={handleSelectAnoLectivo}
+                />
+              )}
+
+              {/* CALENDÁRIO ESCOLAR OFICIAL DO MINISTÉRIO DA EDUCAÇÃO (MED ANGOLA) */}
+              {activeTab === 'calendario_escolar' && (
+                <SchoolCalendarView
+                  escola={escola}
+                  currentUser={currentUser}
+                />
+              )}
+
+              {/* GESTÃO DE HORÁRIOS ESCOLARES SEM CONFLITO & NOTIFICAÇÕES A PROFESSORES */}
+              {activeTab === 'horarios' && (
+                <ScheduleTimetableView
+                  escola={escola}
+                  currentUser={currentUser}
+                  turmas={turmas}
+                  disciplinas={disciplinas}
+                  funcionarios={funcionarios}
+                />
+              )}
+
+              {/* FICHAS DE PRESENÇAS DOS ALUNOS (DOWNLOAD & IMPRESSÃO OFICIAL) */}
+              {activeTab === 'presencas' && (
+                <StudentAttendanceReportView
+                  escola={escola}
+                  currentUser={currentUser}
+                  turmas={turmas}
+                  alunos={alunos}
+                  disciplinas={disciplinas}
+                  funcionarios={funcionarios}
+                />
+              )}
+
+              {/* PASSES ESCOLARES (8 POR FOLHA A4 & CONFIGURADOR DE ELEMENTOS/CORES) */}
+              {activeTab === 'passes_escolares' && (
+                <StudentPassesView
+                  escola={escola}
+                  alunos={alunos}
+                  turmas={turmas}
+                  currentUser={currentUser}
+                  onSalvarEscola={handleSalvarEscola}
+                />
+              )}
+
+              {/* 3. GESTÃO: Alunos */}
+              {(activeTab === 'alunos' || activeTab === 'estudantes') && (
+                <StudentsView
+                  alunos={alunos}
+                  turmas={turmas}
+                  onSalvarAluno={handleSalvarAluno}
+                  onExcluirAluno={handleExcluirAluno}
+                />
+              )}
+
+              {/* 3. GESTÃO: Professores, RH */}
+              {(activeTab === 'professores' || activeTab === 'rh') && (
+                <HumanResourcesView
+                  escola={escola}
+                  currentUser={currentUser}
+                  funcionarios={funcionarios}
+                  assiduidade={assiduidade}
+                  onSalvarFuncionario={handleSalvarFuncionario}
+                  onSalvarRegistoAssiduidade={handleSalvarRegistoAssiduidade}
+                  onAtualizarStatusFuncionario={handleAtualizarStatusFuncionario}
+                  onRedefinirSenhaFuncionario={handleRedefinirSenhaDiretor}
+                  onEliminarFuncionario={handleEliminarFuncionario}
+                />
+              )}
+
+              {/* 3.0 PRESIDÊNCIA & DIREÇÃO EXECUTIVA (DESPACHOS, ATAS & DECISÃO) */}
+              {activeTab === 'direcao' && (
+                <ExecutiveDirectionView
+                  escola={escola}
+                  currentUser={currentUser}
+                  funcionarios={funcionarios}
+                  turmas={turmas}
+                  alunos={alunos}
+                  onSalvarEscola={handleSalvarEscola}
+                  onNavigate={(tab) => setActiveTab(tab)}
+                />
+              )}
+
+              {/* 3. GESTÃO: Coordenação (MAC / Avaliações) */}
+              {(activeTab === 'coordenacao' || activeTab === 'avaliacoes') && (
+                <EvaluationMacView
+                  escola={escola}
+                  currentUser={currentUser}
+                  turmas={turmas}
+                  disciplinas={disciplinas}
+                  alunos={alunos}
+                  tiposAvaliacao={tiposAvaliacao}
+                  regrasMAC={regrasMAC}
+                  avaliacoes={avaliacoes}
+                  notas={notas}
+                  notasConsolidadas={notasConsolidadas}
+                  solicitacoes={solicitacoes}
+                  onSalvarTipoAvaliacao={handleSalvarTipoAvaliacao}
+                  onSalvarRegraMAC={handleSalvarRegraMAC}
+                  onSalvarAvaliacao={handleSalvarAvaliacao}
+                  onExcluirAvaliacao={handleExcluirAvaliacao}
+                  onSalvarNota={handleSalvarNota}
+                  onSalvarNotaConsolidada={handleSalvarNotaConsolidada}
+                  onSalvarSolicitacao={handleSalvarSolicitacao}
+                />
+              )}
+
+              {/* 3.1 GESTÃO & DELIBERAÇÃO: Comissão de Júri Oficial do SGE */}
+              {activeTab === 'comissao_juri' && (
+                <JuryCommissionView
+                  escola={escola}
+                  currentUser={currentUser}
+                  comissoes={juris}
+                  turmas={turmas}
+                  disciplinas={disciplinas}
+                  alunos={alunos}
+                  notasConsolidadas={notasConsolidadas}
+                  atribuicoes={atribuicoes}
+                  funcionarios={funcionarios}
+                  onSalvarComissao={handleSalvarJuri}
+                  onEliminarComissao={handleEliminarJuri}
+                  onVoltarParaPainel={() => setActiveTab('dashboard')}
+                />
+              )}
+
+              {/* 4. DOCUMENTOS: Declarações, Certificados, Pautas, Boletins, Termos de Exame */}
+              {(activeTab === 'declaracoes' || activeTab === 'certificados' || activeTab === 'pautas' || activeTab === 'boletins' || activeTab === 'termos_exame' || activeTab === 'documentos') && (
+                <PrintingDocumentsView
+                  escola={escola}
+                  alunos={alunos}
+                  turmas={turmas}
+                  disciplinas={disciplinas}
+                  notasConsolidadas={notasConsolidadas}
+                  initialDocType={
+                    activeTab === 'pautas' ? 'pautas' :
+                    activeTab === 'certificados' ? 'certificado_ciclo' :
+                    activeTab === 'declaracoes' ? 'declaracao_notas' :
+                    activeTab === 'boletins' ? 'boletim_oficial' :
+                    activeTab === 'termos_exame' ? 'termos_exame' : undefined
+                  }
+                />
+              )}
+
+              {/* 5. FINANCEIRO: Pagamentos e Relatórios Financeiros */}
+              {(activeTab === 'pagamentos' || activeTab === 'relatorios_financeiros' || activeTab === 'financeiro') && (
+                <AdministrativeFinanceView
+                  escola={escola}
+                  currentUser={currentUser}
+                  alunos={alunos}
+                  turmas={turmas}
+                  initialSubTab={
+                    activeTab === 'pagamentos' ? 'pagamentos' :
+                    activeTab === 'relatorios_financeiros' ? 'relatorios' : 'visao_geral'
+                  }
+                />
+              )}
+
+              {/* 6. OUTROS: Biblioteca */}
+              {(activeTab === 'biblioteca' || activeTab === 'comunicacao') && (
+                <CommunicationLibraryView
+                  escola={escola}
+                  currentUser={currentUser}
+                  funcionarios={funcionarios}
+                  mensagens={mensagens}
+                  livros={livros}
+                  onEnviarMensagem={handleEnviarMensagem}
+                  onAdicionarLivro={handleAdicionarLivro}
+                />
+              )}
+
+              {/* 6. OUTROS: Património Escolar */}
+              {activeTab === 'patrimonio' && (
+                <PatrimonyView
+                  escola={escola}
+                  currentUser={currentUser}
+                />
+              )}
+
+              {/* 7. SISTEMA: Usuários e Perfis, Configurações, Auditoria / Logs, Backup / Restauro */}
+              {(activeTab === 'usuarios_perfis' || activeTab === 'configuracoes' || activeTab === 'auditoria_logs' || activeTab === 'auditoria' || activeTab === 'backup_restauro' || activeTab === 'sistema' || activeTab === 'formulas_notas') && (
+                <SystemAuditBackupView
+                  escola={escola}
+                  currentUser={currentUser}
+                  logs={logs}
+                  alunos={alunos}
+                  funcionarios={funcionarios}
+                  onLimparLogs={handleLimparLogs}
+                  onRestaurarBackup={handleRestaurarBackup}
+                  onAtualizarEscola={handleSalvarEscola}
+                  onSalvarFuncionario={handleSalvarFuncionario}
+                  initialTab={
+                    activeTab === 'formulas_notas' ? 'formulas_notas' :
+                    activeTab === 'usuarios_perfis' ? 'usuarios_perfis' :
+                    activeTab === 'configuracoes' ? 'interruptores_configuracao' :
+                    (activeTab === 'auditoria_logs' || activeTab === 'auditoria') ? 'auditoria' :
+                    activeTab === 'backup_restauro' ? 'backup_restauracao' : 'backup_restauracao'
+                  }
+                />
+              )}
+
+              {/* 7. SISTEMA: Apoio Técnico DTI */}
+              {activeTab === 'apoio_tecnico' && (
+                <TechnicalSupportView
+                  escola={escola}
+                  currentUser={currentUser}
+                  onEscolaInspecionada={(escId: string) => {
+                    handleSelectEscola(escId);
+                    setActiveTab('dashboard');
+                  }}
+                />
+              )}
+
+              {/* 8. CONTA & PERFIL: Meu Perfil */}
+              {activeTab === 'meu_perfil' && (
+                <UserProfileView
+                  currentUser={currentUser}
+                  escola={escola}
+                  onSalvarPerfil={handleSalvarPerfil}
+                />
+              )}
+
+              {/* Submódulos Administrativos Especiais */}
+              {activeTab === 'admin_escolas' && (
+                <AdminGlobalSchoolsView
+                  escolas={escolas}
+                  funcionarios={funcionarios}
+                  alunos={alunos}
+                  turmas={turmas}
+                  onCriarEscola={handleCriarEscola}
+                  onAtualizarEscola={handleSalvarEscola}
+                  onSuspenderEscola={handleSuspenderEscola}
+                  onReativarEscola={handleReativarEscola}
+                  onEliminarEscola={handleEliminarEscola}
+                  onCriarOuAtualizarDiretor={handleCriarOuAtualizarDiretor}
+                  onRedefinirSenhaDiretor={handleRedefinirSenhaDiretor}
+                  onSelecionarEscolaParaInspecao={handleSelecionarEscolaParaInspecao}
+                />
+              )}
+
+              {activeTab === 'arquitetura' && (
+                <ArchitectureDocsView />
+              )}
+            </>
+          )}
+        </main>
+      </div>
+
+      {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
+      <InitialSetupModal
+        isOpen={showSetupModal}
+        onClose={() => setShowSetupModal(false)}
+        onSaveSetup={handleSaveSetup}
+        escolasExistentes={escolas}
+      />
+
+      {/* Motor de Segurança & Criptografia AES-256 em Tempo Real */}
+      <RealtimeSecurityModal
+        isOpen={showSecurityModal}
+        onClose={() => setShowSecurityModal(false)}
+        onAbrirSetupInicial={() => setTemAdminGeral(false)}
+      />
+    </div>
+  );
+}
