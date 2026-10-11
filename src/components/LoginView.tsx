@@ -21,6 +21,8 @@ import { cryptoService } from '../services/cryptoService';
 import { securityEngine } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
+import { Footer } from './Footer';
+import { firestoreSyncService } from '../services/firebaseClient';
 
 interface LoginViewProps {
   escolas: Escola[];
@@ -93,13 +95,31 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
     setIsLoading(true);
 
-    setTimeout(async () => {
-      // Buscar funcionário correspondente
-      let utilizadorEncontrado: Funcionario | undefined = funcionarios.find(
-        f => f.email?.toLowerCase() === idLimpo || 
-             f.numeroBI?.toLowerCase() === idLimpo ||
-             f.nomeCompleto.toLowerCase() === idLimpo
-      );
+    try {
+      // 1. Tentar buscar perfil do utilizador diretamente no Firebase (Online)
+      let utilizadorEncontrado: Funcionario | undefined;
+      
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        try {
+          const userFirebase = await firestoreSyncService.buscarUsuarioFirebase(idLimpo);
+          if (userFirebase) {
+            utilizadorEncontrado = userFirebase as Funcionario;
+            // Sincronizar imediatamente para o armazenamento do dispositivo local
+            dbService.salvarFuncionario(utilizadorEncontrado);
+          }
+        } catch (e) {
+          console.warn('[Login] Firebase offline temporariamente, usando dados do dispositivo:', e);
+        }
+      }
+
+      // 2. Fallback nos dados do dispositivo local (Offline-first)
+      if (!utilizadorEncontrado) {
+        utilizadorEncontrado = funcionarios.find(
+          f => f.email?.toLowerCase() === idLimpo || 
+               f.numeroBI?.toLowerCase() === idLimpo ||
+               f.nomeCompleto.toLowerCase() === idLimpo
+        );
+      }
 
       // Se for encarregado
       if (!utilizadorEncontrado && (idLimpo.includes('encarregado') || idLimpo.includes('pai'))) {
@@ -172,7 +192,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
       dbService.registarTentativaLogin(identificador, true);
       setIsLoading(false);
       onLogin(utilizadorEncontrado, selectedEscola, selectedAno);
-    }, 350);
+    } catch (err: any) {
+      setIsLoading(false);
+      setErroLogin(err?.message || 'Erro durante a autenticação.');
+    }
   };
 
   // Pesquisa de Aluno para o Encarregado
@@ -536,15 +559,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
         </div>
       )}
 
-      {/* Rodapé Oficial Sóbrio */}
-      <footer className="py-4 px-4 text-center text-[11px] text-slate-500 z-10 space-y-1">
-        <p>
-          © {new Date().getFullYear()} Governo da República de Angola • Ministério da Educação (MED). Todos os direitos reservados.
-        </p>
-        <p className="text-slate-400">
-          Desenvolvido por <strong className="text-slate-600 font-semibold">Dite Zola NG</strong> • Versão {new Date().getFullYear()}
-        </p>
-      </footer>
+      {/* Rodapé Oficial da Aplicação com Copyright, Ano Atual e Desenvolvedor Dite Zola NG */}
+      <Footer variant="dark" />
     </div>
   );
 };

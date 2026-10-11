@@ -576,7 +576,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* Offline & MED Compliance Notice in Footer */}
+        {/* Informações Oficiais e Desenvolvedor no Rodapé do Menu */}
         <div className="p-2.5 border-t border-gray-200 bg-gray-50/70 text-xs text-gray-600 space-y-1">
           <div className="flex items-center justify-between text-[11px] font-semibold text-gray-700">
             <span>SGE-NG Angola</span>
@@ -584,9 +584,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Offline-First
             </span>
           </div>
-          <p className="text-[10px] text-gray-500 leading-tight">
-            Base de dados local encriptada no navegador.
-          </p>
+          <div className="flex items-center justify-between text-[10px] text-gray-500">
+            <span>© {new Date().getFullYear()} MED Angola</span>
+            <span className="font-semibold text-gray-600">Dite Zola NG</span>
+          </div>
         </div>
       </aside>
     </>

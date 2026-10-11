@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Perfil de funcionário, docente ou administrador do sistema escolar SGE-NG",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nomeCompleto": { "type": "string", "maxLength": 200 },
+        "email": { "type": "string", "maxLength": 150 },
+        "numeroBI": { "type": "string", "maxLength": 50 },
+        "telefone": { "type": "string", "maxLength": 50 },
+        "cargo": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["AdminGeral", "DiretorGeral", "SubdiretorPedagogico", "SubdirectorAdministrativo", "SubdiretorAdministrativo", "Professor", "Secretaria", "Encarregado"] },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "password": { "type": "string", "maxLength": 500 },
+        "ativo": { "type": "boolean" },
+        "statusConta": { "type": "string", "enum": ["Ativa", "Suspensa"] },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "nomeCompleto", "email", "role"]
+    },
+    "School": {
+      "title": "School",
+      "description": "Instituição de ensino cadastrada na rede",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nomeOficial": { "type": "string", "maxLength": 250 },
+        "codigoEscola": { "type": "string", "maxLength": 50 },
+        "provincia": { "type": "string", "maxLength": 100 },
+        "municipio": { "type": "string", "maxLength": 100 },
+        "ativo": { "type": "boolean" },
+        "anoLectivoActivo": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "nomeOficial"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Estudante matriculado na instituição escolar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "codigoMatricula": { "type": "string", "maxLength": 100 },
+        "nomeCompleto": { "type": "string", "maxLength": 200 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "turmaId": { "type": "string", "maxLength": 128 },
+        "classeId": { "type": "string", "maxLength": 50 },
+        "estado": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "nomeCompleto", "codigoMatricula"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Configurações gerais do sistema e insígnia nacional",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 50 },
+        "insigniaNacionalUrl": { "type": "string", "maxLength": 500000 },
+        "nomeSistema": { "type": "string", "maxLength": 150 },
+        "ministerioNome": { "type": "string", "maxLength": 150 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Perfis dos utilizadores e funcionários do sistema SGE-NG"
+    },
+    "/schools/{schoolId}": {
+      "schema": "School",
+      "description": "Instituições escolares da rede nacional de Angola"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Registos e matrículas de alunos"
+    },
+    "/system_config/{configId}": {
+      "schema": "SystemConfig",
+      "description": "Configurações globais e insígnia oficial do sistema"
+    }
+  }
+}

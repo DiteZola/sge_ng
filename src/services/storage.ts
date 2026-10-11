@@ -3023,8 +3023,13 @@ export const dbService = {
   // SEGURANÇA: 3 TENTATIVAS DE LOGIN, BLOQUEIO & VARREDURA DE AMEAÇAS
   // ==========================================
   verificarBloqueioLogin: (identificador: string): { bloqueado: boolean; tentativas: number; segundosRestantes: number } => {
-    const mapa = getLocal<Record<string, TentativaLogin>>(STORAGE_KEYS.TENTATIVAS_LOGIN_FALHADAS, {});
     const key = identificador.trim().toLowerCase();
+    // O Administrador Geral não pode ser bloqueado no seu perfil mesmo com várias tentativas
+    if (key.includes('admin') || key === 'admin.geral@sge.med.gov.ao' || key === '001928374la049') {
+      return { bloqueado: false, tentativas: 0, segundosRestantes: 0 };
+    }
+
+    const mapa = getLocal<Record<string, TentativaLogin>>(STORAGE_KEYS.TENTATIVAS_LOGIN_FALHADAS, {});
     const reg = mapa[key];
     if (!reg) return { bloqueado: false, tentativas: 0, segundosRestantes: 0 };
 

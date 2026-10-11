@@ -508,6 +508,12 @@ class SecurityEngine {
    */
   public verificarBloqueio(identificador: string): { bloqueado: boolean; segundosRestantes: number; tentativas: number } {
     const key = identificador.trim().toLowerCase();
+    
+    // O Administrador Geral não pode ser bloqueado no seu perfil mesmo com várias tentativas
+    if (key.includes('admin') || key === 'admin.geral@sge.med.gov.ao' || key === '001928374la049') {
+      return { bloqueado: false, segundosRestantes: 0, tentativas: 0 };
+    }
+
     const mapa = this.obterMapaTentativas();
     const reg = mapa[key];
 
@@ -542,6 +548,7 @@ class SecurityEngine {
     alertaVisual?: AlertaSegurancaVisual;
   } {
     const key = identificador.trim().toLowerCase();
+    const isAdminGeral = key.includes('admin') || key === 'admin.geral@sge.med.gov.ao' || key === '001928374la049';
     const mapa = this.obterMapaTentativas();
     const agora = Date.now();
 
@@ -560,7 +567,8 @@ class SecurityEngine {
     let segundosRestantes = 0;
     let alertaCriado: AlertaSegurancaVisual | undefined;
 
-    if (reg.tentativas >= 3) {
+    // O Administrador Geral NUNCA pode ter seu perfil bloqueado mesmo com várias tentativas
+    if (reg.tentativas >= 3 && !isAdminGeral) {
       bloqueado = true;
       // 15 minutos de penalidade para força bruta (NIST SP 800-63B)
       const duracaoPenalidadeMs = 15 * 60 * 1000;

@@ -50,6 +50,7 @@ import { StudentAttendanceReportView } from './components/StudentAttendanceRepor
 import { StudentPassesView } from './components/StudentPassesView';
 import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
 import { SchoolCalendarView } from './components/SchoolCalendarView';
+import { Footer } from './components/Footer';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 
 export default function App() {
@@ -1238,17 +1239,8 @@ export default function App() {
         </main>
       </div>
 
-      {/* Rodapé Oficial da Aplicação com Copyright e Crédito do Desenvolvedor */}
-      <footer className="py-3 px-4 border-t border-gray-200 bg-gray-50/80 text-center text-xs text-gray-500 no-print">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1 text-[11px]">
-          <span>
-            © {new Date().getFullYear()} Governo da República de Angola • Ministério da Educação (MED). Todos os direitos reservados.
-          </span>
-          <span className="font-semibold text-gray-700">
-            Desenvolvido por <strong className="text-blue-900 font-bold">Dite Zola NG</strong> • Versão {new Date().getFullYear()}
-          </span>
-        </div>
-      </footer>
+      {/* Rodapé Oficial da Aplicação com Copyright, Ano Atual e Desenvolvedor Dite Zola NG */}
+      <Footer variant="light" />
 
       {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
       <InitialSetupModal
