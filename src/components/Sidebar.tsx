@@ -31,7 +31,9 @@ import {
   ChevronRight,
   Gavel,
   CreditCard,
-  Calculator
+  Calculator,
+  MessageSquare,
+  BarChart3
 } from 'lucide-react';
 import { UserRole, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -207,6 +209,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: ClipboardList,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario'],
           badge: 'Diário & Faltas'
+        },
+        {
+          id: 'avaliacoes',
+          label: 'Lançamento de Notas (MAC)',
+          icon: BarChart3,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor'],
+          badge: 'Notas MED'
         }
       ]
     },
@@ -314,8 +323,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
-      categoria: 'LOGÍSTICA & PATRIMÓNIO',
+      categoria: 'COMUNICAÇÃO & LOGÍSTICA',
       items: [
+        {
+          id: 'comunicacao',
+          label: 'Comunicação & Mensagens Internas',
+          icon: MessageSquare,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado'],
+          badge: 'Mensagens'
+        },
         {
           id: 'biblioteca',
           label: 'Biblioteca Escolar',

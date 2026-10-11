@@ -1027,30 +1027,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </p>
               </div>
 
-              {/* Ações Estratégicas do Admin Geral */}
+              {/* Menus Rápidos Mais Importantes e Prioritários (Apenas 2) */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
+                  onClick={() => onNavigate('admin_escolas')}
+                  className="px-4 py-2.5 text-xs font-black text-blue-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
+                  title="Gestão da Rede de Instituições e Nomeação de Diretores Gerais"
+                >
+                  <Building2 className="h-4 w-4 text-blue-950 shrink-0" />
+                  <span>1. Rede de Escolas & Diretores</span>
+                </button>
+                <button
                   onClick={handleDescarregarRelatorioNacional}
-                  className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
                   title="Descarregar folha de cálculo oficial com todos os dados consolidados do país"
                 >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  <span>Balanço Nacional (.xlsx)</span>
-                </button>
-                <button
-                  onClick={() => onNavigate('admin_escolas')}
-                  className="px-3.5 py-2 text-xs font-bold text-blue-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
-                >
-                  <Building2 className="h-4 w-4" />
-                  <span>Rede de Escolas & Diretores</span>
-                </button>
-                <button
-                  onClick={handleSimularFalhasTeste}
-                  className="px-3.5 py-2 text-xs font-bold text-red-100 bg-red-900/60 hover:bg-red-800 border border-red-500/50 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
-                  title="Simula 3 tentativas de login falhadas consecutivas para validar o alerta visual em tempo real no Dashboard"
-                >
-                  <ShieldAlert className="h-4 w-4 text-red-400" />
-                  <span>Simular 3 Falhas (Teste)</span>
+                  <FileSpreadsheet className="h-4 w-4 shrink-0" />
+                  <span>2. Balanço Nacional (.xlsx)</span>
                 </button>
               </div>
             </div>
@@ -1705,21 +1698,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </p>
             </div>
 
+            {/* Menus Rápidos Mais Importantes e Prioritários da Escola (Apenas 2) */}
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={handleEnviarLembreteNotas}
-                className="px-3.5 py-2 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl transition-colors flex items-center space-x-1.5"
-                title="Disparar comunicado oficial a todos os professores sobre os prazos de lançamento"
+                onClick={() => onNavigate('avaliacoes')}
+                className="px-4 py-2.5 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
+                title="Lançamento e Homologação de Notas da Avaliação Contínua (MAC)"
               >
-                <Send className="h-3.5 w-3.5 text-amber-700" />
-                <span>Notificar Docentes</span>
+                <Award className="h-4 w-4 text-amber-300 shrink-0" />
+                <span>1. Lançamento & Coordenação MAC</span>
               </button>
               <button
                 onClick={() => onNavigate('documentos')}
-                className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                className="px-4 py-2.5 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-2 cursor-pointer"
+                title="Validação oficial de pautas trimestrais e emissão de boletins de notas"
               >
-                <FileText className="h-3.5 w-3.5" />
-                <span>Validar Pautas & Boletins</span>
+                <FileText className="h-4 w-4 text-blue-700 shrink-0" />
+                <span>2. Validar Pautas & Boletins</span>
               </button>
             </div>
           </div>

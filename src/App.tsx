@@ -882,6 +882,7 @@ export default function App() {
         setMobileMenuOpen={setMobileMenuOpen}
         onOpenPublicPortal={() => setActiveTab('alunos')}
         onNavigateToPerfil={() => setActiveTab('meu_perfil')}
+        onNavigateToComunicacao={() => setActiveTab('comunicacao')}
         onLogout={handleLogout}
         onOpenSecurityEngine={() => setShowSecurityModal(true)}
       />
@@ -1236,6 +1237,18 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Rodapé Oficial da Aplicação com Copyright e Crédito do Desenvolvedor */}
+      <footer className="py-3 px-4 border-t border-gray-200 bg-gray-50/80 text-center text-xs text-gray-500 no-print">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1 text-[11px]">
+          <span>
+            © {new Date().getFullYear()} Governo da República de Angola • Ministério da Educação (MED). Todos os direitos reservados.
+          </span>
+          <span className="font-semibold text-gray-700">
+            Desenvolvido por <strong className="text-blue-900 font-bold">Dite Zola NG</strong> • Versão {new Date().getFullYear()}
+          </span>
+        </div>
+      </footer>
 
       {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
       <InitialSetupModal

@@ -537,9 +537,12 @@ export const LoginView: React.FC<LoginViewProps> = ({
       )}
 
       {/* Rodapé Oficial Sóbrio */}
-      <footer className="py-4 px-4 text-center text-[11px] text-slate-500 z-10">
+      <footer className="py-4 px-4 text-center text-[11px] text-slate-500 z-10 space-y-1">
         <p>
           © {new Date().getFullYear()} Governo da República de Angola • Ministério da Educação (MED). Todos os direitos reservados.
+        </p>
+        <p className="text-slate-400">
+          Desenvolvido por <strong className="text-slate-600 font-semibold">Dite Zola NG</strong> • Versão {new Date().getFullYear()}
         </p>
       </footer>
     </div>

@@ -9,12 +9,15 @@ import {
   LogOut,
   User,
   LifeBuoy,
-  Cpu
+  Cpu,
+  Bell,
+  MessageSquare
 } from 'lucide-react';
 import { Escola, Funcionario } from '../types';
 import { SystemIntegrityStatus } from '../services/firebaseClient';
 import { OfflineStatusWidget } from './OfflineStatusWidget';
 import { PWAInstallButton } from './PWAInstallButton';
+import { PeriodNotificationBell } from './PeriodNotificationBell';
 import { dbService } from '../services/storage';
 
 interface HeaderProps {
@@ -30,6 +33,7 @@ interface HeaderProps {
   setMobileMenuOpen: (open: boolean) => void;
   onOpenPublicPortal: () => void;
   onNavigateToPerfil: () => void;
+  onNavigateToComunicacao?: () => void;
   onLogout?: () => void;
   onOpenSecurityEngine?: () => void;
 }
@@ -47,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   setMobileMenuOpen,
   onOpenPublicPortal,
   onNavigateToPerfil,
+  onNavigateToComunicacao,
   onLogout,
   onOpenSecurityEngine
 }) => {
@@ -180,6 +185,29 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Widget Interativo de Estado Offline */}
             <OfflineStatusWidget />
+
+            {/* Notificações no Topo do Aplicativo & Avisos em Tempo Real */}
+            <div className="flex items-center space-x-1">
+              {/* Sino acústico e visual de períodos e horários */}
+              <PeriodNotificationBell escola={escola} currentUser={currentUser} />
+
+              {/* Botão de Notificações / Mensagens Internas da Escola */}
+              {onNavigateToComunicacao && (
+                <button
+                  type="button"
+                  onClick={onNavigateToComunicacao}
+                  className="relative p-2 rounded-lg text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-gray-200 transition-colors cursor-pointer"
+                  title="Comunicação e Mensagens Internas da Escola"
+                >
+                  <MessageSquare className="w-4 h-4 text-gray-700 hover:text-blue-700" />
+                  {dbService.obterMensagens().filter(m => m.escolaId === escola.id && !m.lida).length > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs animate-bounce">
+                      {dbService.obterMensagens().filter(m => m.escolaId === escola.id && !m.lida).length}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
 
             {/* Motor de Segurança & Criptografia AES-256 */}
             {onOpenSecurityEngine && (
