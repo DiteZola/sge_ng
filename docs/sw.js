@@ -90,7 +90,7 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "revision": "a5c54e034b26c7583b844dbf9890ca57"
   }, {
     "url": "index.html",
-    "revision": "84cf76075cf3387d7d476d98fe43487d"
+    "revision": "23b8e921de2e92aa4d836679cd49c699"
   }, {
     "url": "icon.svg",
     "revision": "293309fdc038c89ab9bbbe70fd91b917"

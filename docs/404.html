@@ -20,7 +20,34 @@
     <link rel="stylesheet" crossorigin href="./assets/index-DdLWpI9B.css">
   <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
   <body class="bg-white text-gray-900 antialiased selection:bg-blue-100 selection:text-blue-900">
-    <div id="root"></div>
+    <div id="root">
+      <div id="sge-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0F2942; color: white; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px;">SGE-NG</div>
+        <div style="font-size: 13px; color: #94a3b8; margin-bottom: 24px; text-align: center; max-width: 320px;">Sistema Integrado de Gestão Escolar de Angola</div>
+        <div style="width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #38bdf8; border-radius: 50%; animation: sgeSpin 0.75s linear infinite;"></div>
+        <style>@keyframes sgeSpin{to{transform:rotate(360deg)}}</style>
+        <p style="margin-top: 18px; font-size: 12px; color: #cbd5e1; font-weight: 500;">A inicializar sistema...</p>
+      </div>
+    </div>
+
+    <!-- Inicializador e Redirecionamento Automático para GitHub Pages se for HTML raiz não-compilado -->
+    <script>
+      (function() {
+        var isLocal = window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1' || 
+                      (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
+        
+        // Se este documento for o HTML bruto da raiz (sem bundle compilado em assets/) no GitHub Pages
+        var isCompiled = Boolean(document.querySelector('script[src*="assets/"]'));
+        if (!isCompiled && !isLocal && !window.location.pathname.includes('/docs/')) {
+          var cleanPath = window.location.pathname.replace(/\/index\.html$/, '');
+          if (!cleanPath.endsWith('/')) {
+            cleanPath += '/';
+          }
+          window.location.replace(cleanPath + 'docs/' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
   </body>
 </html>
 
