@@ -19,6 +19,7 @@ import { OfflineStatusWidget } from './OfflineStatusWidget';
 import { PWAInstallButton } from './PWAInstallButton';
 import { PeriodNotificationBell } from './PeriodNotificationBell';
 import { dbService } from '../services/storage';
+import { InsigniaAngola } from '../constants/insignia';
 
 interface HeaderProps {
   escola: Escola;
@@ -78,12 +79,19 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             <div className="flex items-center space-x-2.5">
-              <div className="h-10 w-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold shadow-xs shrink-0">
-                <Building2 className="h-6 w-6" />
+              {/* Insígnia do Administrador Geral como Logótipo Oficial do Sistema */}
+              <div className="h-10 w-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center shadow-xs shrink-0 p-1 overflow-hidden" title="Logótipo Oficial do Sistema">
+                <InsigniaAngola 
+                  size={36} 
+                  customUrl={dbService.getConfiguracaoSistema().insigniaNacionalUrl} 
+                  className="object-contain" 
+                />
               </div>
               <div>
                 <div className="flex items-center space-x-2">
-                  <span className="font-extrabold text-gray-950 text-base sm:text-lg tracking-tight">SGE-NG</span>
+                  <span className="font-extrabold text-gray-950 text-base sm:text-lg tracking-tight">
+                    {dbService.getConfiguracaoSistema().nomeSistema || 'SGE-NG'}
+                  </span>
                   <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
                     MED Angola
                   </span>

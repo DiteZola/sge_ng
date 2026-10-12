@@ -70,6 +70,7 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import { securityEngine, AlertaSegurancaVisual } from '../services/securityEngine';
+import { InsigniaAngola } from '../constants/insignia';
 import * as XLSX from 'xlsx';
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
 
@@ -105,6 +106,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const atribuicoes = dbService.getAtribuicoes();
   const mensagens = dbService.getMensagens();
   const recibos = dbService.getRecibos();
+  const configSistema = dbService.getConfiguracaoSistema();
 
   const [avisoSucesso, setAvisoSucesso] = useState<string | null>(null);
 
@@ -1010,21 +1012,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* Cabeçalho Ministerial Executivo */}
           <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-2xl p-6 shadow-md border border-blue-800">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30">
-                    República de Angola · Ministério da Educação (MED)
-                  </span>
-                  <span className="text-[11px] text-blue-300 font-semibold">
-                    Direcção Nacional do Ensino Geral / DTI
-                  </span>
+              <div className="flex items-start sm:items-center space-x-4">
+                <div className="p-2.5 rounded-2xl bg-white/10 border border-white/20 shrink-0 shadow-inner flex items-center justify-center">
+                  <InsigniaAngola 
+                    size={56} 
+                    customUrl={configSistema.insigniaNacionalUrl} 
+                    className="object-contain" 
+                  />
                 </div>
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight mt-1.5 text-white">
-                  Centro de Comando & Controlo Geral do Sistema SGE-NG
-                </h1>
-                <p className="text-xs sm:text-sm text-blue-200 mt-1 max-w-3xl">
-                  Supervisão executiva da rede nacional de instituições de ensino, nomeação de Diretores Gerais, auditoria operacional e homologação de pautas.
-                </p>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30">
+                      República de Angola · Ministério da Educação (MED)
+                    </span>
+                    <span className="text-[11px] text-blue-300 font-semibold">
+                      Direcção Nacional do Ensino Geral / DTI
+                    </span>
+                  </div>
+                  <h1 className="text-xl sm:text-2xl font-black tracking-tight mt-1 text-white">
+                    {configSistema.nomeSistema || 'SGE-NG'} — Centro de Comando & Controlo Geral
+                  </h1>
+                  <p className="text-xs sm:text-sm text-blue-200 mt-0.5 max-w-3xl">
+                    Supervisão executiva da rede nacional de instituições de ensino, nomeação de Diretores Gerais, auditoria operacional e homologação de pautas.
+                  </p>
+                </div>
               </div>
 
               {/* Menus Rápidos Mais Importantes e Prioritários (Apenas 2) */}

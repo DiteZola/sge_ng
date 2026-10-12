@@ -221,6 +221,10 @@ class SecurityEngine {
       let ipAmeaca = '';
 
       for (const [userKey, dados] of Object.entries(mapaTentativas)) {
+        // O Administrador Geral NUNCA é bloqueado nem marcado sob ameaça de bloqueio
+        if (this.isIdentificadorAdminGeral(userKey)) {
+          continue;
+        }
         if (dados.tentativas >= 3 || (dados.bloqueadoAte && dados.bloqueadoAte > agora)) {
           usuarioSobAmeaca = userKey;
           tentativasAmeaca = dados.tentativas;
@@ -504,16 +508,72 @@ class SecurityEngine {
   }
 
   /**
-   * Verifica se um utilizador está bloqueado por tentativas falhadas
+   * Verifica se o identificador corresponde ao Administrador Geral do Sistema.
+   * Por regra institucional soberana, o perfil do Administrador Geral NÃO PODE ser bloqueado.
+   */
+  public isIdentificadorAdminGeral(identificador: string): boolean {
+    if (!identificador) return false;
+    const clean = identificador.trim().toLowerCase();
+
+    if (
+      clean === 'admin' ||
+      clean === 'admin.geral' ||
+      clean === 'admingeral' ||
+      clean === 'superadmin' ||
+      clean === 'ngongamanuel@gmail.com' ||
+      clean.startsWith('admin@') ||
+      clean.startsWith('admin.') ||
+      clean.includes('admin.geral') ||
+      clean.includes('admingeral')
+    ) {
+      return true;
+    }
+
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const funcsRaw = localStorage.getItem('sge_funcionarios');
+        if (funcsRaw) {
+          const funcs = JSON.parse(funcsRaw);
+          if (Array.isArray(funcs)) {
+            const admin = funcs.find((f: any) => f.role === 'AdminGeral');
+            if (admin) {
+              if (
+                (admin.email && admin.email.toLowerCase() === clean) ||
+                (admin.numeroBI && admin.numeroBI.toLowerCase() === clean) ||
+                (admin.nomeCompleto && admin.nomeCompleto.toLowerCase() === clean) ||
+                (admin.id && admin.id.toLowerCase() === clean) ||
+                (admin.telefone && admin.telefone.toLowerCase() === clean)
+              ) {
+                return true;
+              }
+            }
+          }
+        }
+        const configRaw = localStorage.getItem('sge_configuracao_sistema');
+        if (configRaw) {
+          const config = JSON.parse(configRaw);
+          if (config?.criadoPorAdminEmail?.toLowerCase() === clean) {
+            return true;
+          }
+        }
+      }
+    } catch {
+      // Ignora erro
+    }
+
+    return false;
+  }
+
+  /**
+   * Verifica se um utilizador está bloqueado por tentativas falhadas.
+   * O Administrador Geral NUNCA é bloqueado.
    */
   public verificarBloqueio(identificador: string): { bloqueado: boolean; segundosRestantes: number; tentativas: number } {
-    const key = identificador.trim().toLowerCase();
-    
-    // O Administrador Geral não pode ser bloqueado no seu perfil mesmo com várias tentativas
-    if (key.includes('admin') || key === 'admin.geral@sge.med.gov.ao' || key === '001928374la049') {
+    if (this.isIdentificadorAdminGeral(identificador)) {
       return { bloqueado: false, segundosRestantes: 0, tentativas: 0 };
     }
 
+    const key = identificador.trim().toLowerCase();
     const mapa = this.obterMapaTentativas();
     const reg = mapa[key];
 
@@ -532,10 +592,7 @@ class SecurityEngine {
 
   /**
    * REGISTRO E MONITORIZAÇÃO DE FALHAS DE LOGIN
-   * Quando o contador atinge 3 tentativas falhadas:
-   * - Bloqueia temporariamente o utilizador (15 min)
-   * - Gera Alerta Visual de Segurança de Alta Prioridade
-   * - Dispara evento para o Dashboard em tempo real
+   * O perfil do Administrador Geral NÃO PODE ser bloqueado mesmo com várias tentativas.
    */
   public registarFalhaLogin(
     identificador: string, 
@@ -548,7 +605,6 @@ class SecurityEngine {
     alertaVisual?: AlertaSegurancaVisual;
   } {
     const key = identificador.trim().toLowerCase();
-    const isAdminGeral = key.includes('admin') || key === 'admin.geral@sge.med.gov.ao' || key === '001928374la049';
     const mapa = this.obterMapaTentativas();
     const agora = Date.now();
 
@@ -563,12 +619,33 @@ class SecurityEngine {
     reg.ultimoErro = agora;
     reg.ip = origemIP;
 
+    // Se for o Administrador Geral, NUNCA é bloqueado
+    if (this.isIdentificadorAdminGeral(identificador)) {
+      reg.bloqueadoAte = 0;
+      mapa[key] = reg;
+      this.salvarMapaTentativas(mapa);
+
+      this.registarEvento({
+        categoria: 'AUTENTICACAO',
+        severidade: 'AVISO',
+        titulo: 'Tentativa Falhada em Conta de Administrador Geral',
+        detalhes: `Tentativa com senha inválida para Administrador Geral "${key}". Perfil soberano mantido desbloqueado sem bloqueio preventivo.`,
+        origemIP
+      });
+
+      this.emitirMetricas();
+      return {
+        tentativas: reg.tentativas,
+        bloqueado: false,
+        segundosRestantes: 0
+      };
+    }
+
     let bloqueado = false;
     let segundosRestantes = 0;
     let alertaCriado: AlertaSegurancaVisual | undefined;
 
-    // O Administrador Geral NUNCA pode ter seu perfil bloqueado mesmo com várias tentativas
-    if (reg.tentativas >= 3 && !isAdminGeral) {
+    if (reg.tentativas >= 3) {
       bloqueado = true;
       // 15 minutos de penalidade para força bruta (NIST SP 800-63B)
       const duracaoPenalidadeMs = 15 * 60 * 1000;

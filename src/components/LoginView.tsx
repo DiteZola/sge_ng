@@ -19,10 +19,11 @@ import { Escola, Funcionario, Aluno } from '../types';
 import { dbService } from '../services/storage';
 import { cryptoService } from '../services/cryptoService';
 import { securityEngine } from '../services/securityEngine';
+import { firebaseSyncEngine } from '../services/firebaseSyncEngine';
 import { InsigniaAngola } from '../constants/insignia';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Footer } from './Footer';
-import { firestoreSyncService } from '../services/firebaseClient';
+import { ConfiguracaoSistema } from '../types';
 
 interface LoginViewProps {
   escolas: Escola[];
@@ -47,7 +48,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   onLogin,
   onOpenSetupModal
 }) => {
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [configSistema, setConfigSistema] = useState<ConfiguracaoSistema>(() => dbService.getConfiguracaoSistema());
+  const [redeOnline, setRedeOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const todosAlunos = dbService.getAlunos();
 
   const [identificador, setIdentificador] = useState('admin.geral@sge.med.gov.ao');
@@ -55,6 +57,27 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Sincronização inicial de parâmetros e insígnia oficial
+  React.useEffect(() => {
+    let ativo = true;
+    firebaseSyncEngine.buscarConfiguracaoSistema().then((cfg) => {
+      if (ativo && cfg) {
+        setConfigSistema(cfg);
+      }
+    });
+
+    const handleOnline = () => setRedeOnline(true);
+    const handleOffline = () => setRedeOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      ativo = false;
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Modal Esqueci a Senha
   const [showEsqueciSenha, setShowEsqueciSenha] = useState(false);
@@ -74,7 +97,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
     // 1. Blindagem Anti-DDoS e Anti-Derrubação: Taxa máxima de 20 logins por minuto
     const statusRateLimit = dbService.verificarRateLimitGlobalLogin();
     if (statusRateLimit.bloqueado) {
-      setErroLogin(statusRateLimit.mensagem || `ALERTA DE SEGURANÇA (BLINDAGEM ANTI-DDoS): Limite de 20 logins por minuto atingido. Para proteger o sistema contra derrubação e ataques massivos, as autenticações foram temporariamente suspensas. Aguarde ${statusRateLimit.segundosRestantes}s.`);
+      setErroLogin(statusRateLimit.mensagem || `ALERTA DE SEGURANÇA: Limite de taxa de logins atingido para proteger o sistema. Aguarde ${statusRateLimit.segundosRestantes}s.`);
       return;
     }
 
@@ -85,43 +108,40 @@ export const LoginView: React.FC<LoginViewProps> = ({
       return;
     }
 
-    // 3. Verificar bloqueio prévio de segurança por tentativas erradas nesta conta
-    const statusBloqueio = dbService.verificarBloqueioLogin(idLimpo);
-    if (statusBloqueio.bloqueado) {
-      const mins = Math.ceil((statusBloqueio.segundosRestantes || 60) / 60);
-      setErroLogin(`ALERTA DE SEGURANÇA: Acesso temporariamente bloqueado após 3 tentativas com credenciais erradas. Por favor, aguarde ${mins} minuto(s) ou solicite desbloqueio junto da DTI.`);
-      return;
+    // 3. Verificação de Imunidade Soberana: O perfil do Administrador Geral NÃO PODE ser bloqueado
+    const ehAdminGeral = securityEngine.isIdentificadorAdminGeral(idLimpo);
+
+    // 4. Verificar bloqueio prévio de segurança por tentativas erradas nesta conta (exceto Admin Geral)
+    if (!ehAdminGeral) {
+      const statusBloqueio = dbService.verificarBloqueioLogin(idLimpo);
+      if (statusBloqueio.bloqueado) {
+        const mins = Math.ceil((statusBloqueio.segundosRestantes || 60) / 60);
+        setErroLogin(`ALERTA DE SEGURANÇA: Acesso temporariamente bloqueado após 3 tentativas com credenciais erradas. Por favor, aguarde ${mins} minuto(s) ou solicite desbloqueio junto da DTI.`);
+        return;
+      }
     }
 
     setIsLoading(true);
 
     try {
-      // 1. Tentar buscar perfil do utilizador diretamente no Firebase (Online)
-      let utilizadorEncontrado: Funcionario | undefined;
-      
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
-          const userFirebase = await firestoreSyncService.buscarUsuarioFirebase(idLimpo);
-          if (userFirebase) {
-            utilizadorEncontrado = userFirebase as Funcionario;
-            // Sincronizar imediatamente para o armazenamento do dispositivo local
-            dbService.salvarFuncionario(utilizadorEncontrado);
-          }
-        } catch (e) {
-          console.warn('[Login] Firebase offline temporariamente, usando dados do dispositivo:', e);
-        }
+      // 5. Busca Real do Perfil: Busca no Firebase (Online) e no Dispositivo (Offline)
+      let utilizadorEncontrado: Funcionario | null = null;
+      try {
+        utilizadorEncontrado = await firebaseSyncEngine.buscarPerfilUsuario(idLimpo);
+      } catch (err) {
+        console.warn('[Login] Falha ao consultar Firebase, buscando no dispositivo:', err);
       }
 
-      // 2. Fallback nos dados do dispositivo local (Offline-first)
+      // Se não encontrou no Firebase ou offline, verificar na lista carregada em memória/dispositivo
       if (!utilizadorEncontrado) {
         utilizadorEncontrado = funcionarios.find(
           f => f.email?.toLowerCase() === idLimpo || 
                f.numeroBI?.toLowerCase() === idLimpo ||
                f.nomeCompleto.toLowerCase() === idLimpo
-        );
+        ) || null;
       }
 
-      // Se for encarregado
+      // Se for encarregado de educação
       if (!utilizadorEncontrado && (idLimpo.includes('encarregado') || idLimpo.includes('pai'))) {
         utilizadorEncontrado = {
           id: 'user-encarregado',
@@ -142,19 +162,21 @@ export const LoginView: React.FC<LoginViewProps> = ({
         };
       }
 
-      // Se ainda não encontrado, permitir fallback de admin se houver senha
+      // Se ainda não encontrado, permitir fallback de admin se credencial bater com admin
       if (!utilizadorEncontrado && funcionarios.length > 0) {
-        if (idLimpo.includes('admin')) {
+        if (idLimpo.includes('admin') || ehAdminGeral) {
           utilizadorEncontrado = funcionarios.find(f => f.role === 'AdminGeral') || funcionarios[0];
-        } else {
-          utilizadorEncontrado = funcionarios[0];
         }
       }
+
+      const ehRealmenteAdminGeral = ehAdminGeral || (utilizadorEncontrado?.role === 'AdminGeral');
 
       if (!utilizadorEncontrado) {
         const tentativa = dbService.registarTentativaLogin(identificador, false);
         setIsLoading(false);
-        if (tentativa.bloqueado) {
+        if (ehRealmenteAdminGeral) {
+          setErroLogin(`Perfil de Administrador Geral não encontrado. (O perfil do Administrador Geral não é bloqueado).`);
+        } else if (tentativa.bloqueado) {
           setErroLogin('ALERTA DE SEGURANÇA: 3 tentativas inválidas consecutivas. Acesso bloqueado por 15 minutos e alerta ministerial emitido.');
         } else {
           setErroLogin(`Utilizador não encontrado. Tentativa inválida ${tentativa.tentativas} de 3.`);
@@ -171,10 +193,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
           console.warn('[Login] Falha ao decifrar senha AES-256:', e);
         }
       }
+
       if (senha.trim() !== senhaValida) {
         const tentativa = dbService.registarTentativaLogin(identificador, false);
         setIsLoading(false);
-        if (tentativa.bloqueado) {
+        if (ehRealmenteAdminGeral) {
+          // O ADMINISTRADOR GERAL NÃO PODE SER BLOQUEADO MESMO COM VÁRIAS TENTATIVAS
+          setErroLogin(`Palavra-passe incorreta para a conta do Administrador Geral (Tentativa ${tentativa.tentativas}). O perfil do Administrador Geral tem imunidade institucional e NÃO PODE ser bloqueado.`);
+        } else if (tentativa.bloqueado) {
           setErroLogin('ALERTA DE SEGURANÇA: 3 tentativas com palavra-passe errada excedidas! Acesso temporariamente bloqueado e ameaça registada para auditoria.');
         } else {
           setErroLogin(`Palavra-passe incorreta. Tentativa falhada ${tentativa.tentativas} de 3 antes do bloqueio de segurança.`);
@@ -182,7 +208,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         return;
       }
 
-      if (utilizadorEncontrado.statusConta === 'Suspensa' || utilizadorEncontrado.ativo === false) {
+      if (!ehRealmenteAdminGeral && (utilizadorEncontrado.statusConta === 'Suspensa' || utilizadorEncontrado.ativo === false)) {
         setIsLoading(false);
         setErroLogin(`A conta de ${utilizadorEncontrado.nomeCompleto} encontra-se suspensa.`);
         return;
@@ -190,11 +216,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       // Sucesso no login - resetar contador de falhas
       dbService.registarTentativaLogin(identificador, true);
+      // Sincronização imediata no dispositivo
+      firebaseSyncEngine.atualizarUsuarioNoDispositivo(utilizadorEncontrado);
       setIsLoading(false);
       onLogin(utilizadorEncontrado, selectedEscola, selectedAno);
     } catch (err: any) {
+      console.error('[Login] Erro ao autenticar:', err);
       setIsLoading(false);
-      setErroLogin(err?.message || 'Erro durante a autenticação.');
+      setErroLogin('Ocorreu uma falha no processamento de login. Tente novamente.');
     }
   };
 
@@ -283,12 +312,34 @@ export const LoginView: React.FC<LoginViewProps> = ({
         <div className="w-full max-w-md bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 p-6 sm:p-8 space-y-5">
           
           <div className="text-center space-y-1">
+            <div className="flex items-center justify-center mb-2">
+              <div className="p-2 rounded-2xl bg-slate-50 border border-slate-200 inline-flex items-center space-x-2.5 shadow-2xs">
+                <InsigniaAngola 
+                  size={38} 
+                  customUrl={configSistema.insigniaNacionalUrl} 
+                  className="object-contain"
+                />
+                <div className="text-left">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Logótipo Oficial do Sistema</span>
+                  <span className="text-xs font-black text-slate-900 block">{configSistema.nomeSistema || 'SGE-NG'} Angola</span>
+                </div>
+              </div>
+            </div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight">
               Acesso ao Sistema
             </h2>
             <p className="text-xs text-slate-500">
               Introduza as suas credenciais para aceder ao portal
             </p>
+            {/* Indicador de Sincronização em Tempo Real (Firebase & Dispositivo) */}
+            <div className="pt-1 flex items-center justify-center space-x-2 text-[10px] font-semibold">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full ${
+                redeOnline ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${redeOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                {redeOnline ? 'Firebase Firestore (Online) · Sincronizado com Dispositivo' : 'Modo Offline: Sincronização no Dispositivo Ativa'}
+              </span>
+            </div>
           </div>
 
           {erroLogin && (

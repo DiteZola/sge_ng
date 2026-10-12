@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { offlineStorage } from './offlineStorage';
 import { cryptoService } from './cryptoService';
 import { securityEngine } from './securityEngine';
+import { firebaseSyncEngine } from './firebaseSyncEngine';
 import { 
   Escola, 
   Aluno, 
@@ -2660,6 +2661,8 @@ export const dbService = {
     if (idxFunc >= 0) funcs[idxFunc] = novoDiretor;
     else funcs.push(novoDiretor);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    // Persistência imediata no Firebase e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(novoDiretor);
 
     if (idxEsc >= 0) {
       escolas[idxEsc].diretorGeralNome = dadosDiretor.nomeCompleto;
@@ -2709,6 +2712,8 @@ export const dbService = {
 
     funcs.push(novoFunc);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    // Persistência imediata no Firebase e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(novoFunc);
     dbService.registarLog('Criação de Funcionário', `Funcionário ${novoFunc.nomeCompleto} (${novoFunc.cargo}) registado com credenciais.`);
     return novoFunc;
   },
@@ -2730,6 +2735,8 @@ export const dbService = {
     if (idx < 0) throw new Error('Funcionário não encontrado');
     funcs[idx].password = novaSenha;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    // Persistência imediata no Firebase Firestore e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(funcs[idx]);
     // Desbloqueia automaticamente se estiver bloqueado
     dbService.desbloquearContaUtilizador(funcs[idx].email || funcs[idx].id, 'Administrador');
     dbService.registarLog('Redefinição de Senha', `Palavra-passe de ${funcs[idx].nomeCompleto} atualizada.`);
@@ -2778,6 +2785,8 @@ export const dbService = {
     target.password = senhaCifrada;
     funcs[idx] = target;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    // Persistência imediata no Firebase Firestore e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(target);
 
     // Reset de tentativas falhadas / desbloqueio de credenciais
     securityEngine.resetarBloqueioCredenciais(target.email || target.id, operador.nomeCompleto);
@@ -3023,13 +3032,13 @@ export const dbService = {
   // SEGURANÇA: 3 TENTATIVAS DE LOGIN, BLOQUEIO & VARREDURA DE AMEAÇAS
   // ==========================================
   verificarBloqueioLogin: (identificador: string): { bloqueado: boolean; tentativas: number; segundosRestantes: number } => {
-    const key = identificador.trim().toLowerCase();
-    // O Administrador Geral não pode ser bloqueado no seu perfil mesmo com várias tentativas
-    if (key.includes('admin') || key === 'admin.geral@sge.med.gov.ao' || key === '001928374la049') {
+    // Imunidade absoluta: O Administrador Geral NUNCA pode ser bloqueado
+    if (securityEngine.isIdentificadorAdminGeral(identificador)) {
       return { bloqueado: false, tentativas: 0, segundosRestantes: 0 };
     }
 
     const mapa = getLocal<Record<string, TentativaLogin>>(STORAGE_KEYS.TENTATIVAS_LOGIN_FALHADAS, {});
+    const key = identificador.trim().toLowerCase();
     const reg = mapa[key];
     if (!reg) return { bloqueado: false, tentativas: 0, segundosRestantes: 0 };
 
@@ -3063,10 +3072,11 @@ export const dbService = {
   ): { bloqueado: boolean; tentativas: number; alertaGerado: boolean; segundosRestantes?: number } => {
     const mapa = getLocal<Record<string, TentativaLogin>>(STORAGE_KEYS.TENTATIVAS_LOGIN_FALHADAS, {});
     const key = identificador.trim().toLowerCase();
+    const ehAdminGeral = securityEngine.isIdentificadorAdminGeral(identificador);
 
     // 1. Registra no motor de taxa limite contra ataques e derrubação (máx 20 logins/min)
     const rateLimitStatus = securityEngine.registarTentativaLoginRateLimit(ip);
-    if (rateLimitStatus.bloqueado) {
+    if (rateLimitStatus.bloqueado && !ehAdminGeral) {
       return {
         bloqueado: true,
         tentativas: rateLimitStatus.loginsNoUltimoMinuto,
@@ -3084,7 +3094,7 @@ export const dbService = {
       return { bloqueado: false, tentativas: 0, alertaGerado: false };
     }
 
-    // Processa no motor de segurança (que gera alerta visual de Dashboard quando atinge 3 falhas)
+    // Processa no motor de segurança
     const secResult = securityEngine.registarFalhaLogin(key, ip, 'Tentativa falhada de autenticação no portal.');
 
     const reg = mapa[key] || {
@@ -3096,6 +3106,14 @@ export const dbService = {
 
     reg.tentativas = secResult.tentativas;
     reg.ultimoErroEm = new Date().toISOString();
+
+    // Se for Administrador Geral, o perfil JAMAIS é bloqueado mesmo após várias tentativas
+    if (ehAdminGeral) {
+      delete reg.bloqueadoAte;
+      mapa[key] = reg;
+      setLocal(STORAGE_KEYS.TENTATIVAS_LOGIN_FALHADAS, mapa);
+      return { bloqueado: false, tentativas: reg.tentativas, alertaGerado: false, segundosRestantes: 0 };
+    }
 
     let bloqueado = secResult.bloqueado;
     let alertaGerado = !!secResult.alertaVisual;
@@ -3348,6 +3366,8 @@ export const dbService = {
 
     funcs[idx] = func;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    // Persistência imediata no Firebase Firestore e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(func);
 
     // Se for o utilizador atualmente autenticado, atualizar sessão ativa
     const current = dbService.getCurrentUser();
@@ -3518,6 +3538,8 @@ export const dbService = {
     setLocal(STORAGE_KEYS.SETUP_MASTER_LOCK, true);
     localStorage.setItem('sge_admin_configured', 'true');
     dbService.setCurrentUser(novoAdmin);
+    // Persistência imediata no Firebase Firestore e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(novoAdmin);
 
     securityEngine.registarEvento({
       categoria: 'AUTENTICACAO',
@@ -4717,6 +4739,8 @@ export const dbService = {
   },
   salvarConfiguracaoSistema: (config: ConfiguracaoSistema): void => {
     setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, config);
+    // Gravação e sincronização imediata no Firebase Firestore e no dispositivo
+    firebaseSyncEngine.salvarConfiguracaoSistema(config);
     dbService.registarLog('Configuração Geral', 'Parâmetros e Insígnia do Sistema atualizados pelo Administrador Geral.');
   },
 
@@ -5163,17 +5187,16 @@ export const dbService = {
     };
   },
 
-  // Sincronização direta com Firebase / Offline Engine
+  // Sincronização direta e real com Firebase Firestore e Motor Offline do Dispositivo
   sincronizarComFirebase: async (): Promise<{ sucesso: boolean; mensagem: string }> => {
     try {
-      // Disparar sincronização no IndexedDB / offlineStorage
-      await offlineStorage.sincronizar();
+      const res = await firebaseSyncEngine.sincronizarTudoImediato();
       const config = dbService.getConfiguracaoSistema();
       config.ultimaSincronizacao = new Date().toISOString();
       setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, config);
-      return { sucesso: true, mensagem: 'Dados locais sincronizados com o repositório em nuvem com sucesso.' };
-    } catch (e) {
-      return { sucesso: false, mensagem: 'Sincronização em segundo plano enfileirada no buffer offline.' };
+      return res;
+    } catch (e: any) {
+      return { sucesso: false, mensagem: 'Sincronização em segundo plano enfileirada no buffer offline do dispositivo.' };
     }
   },
 
