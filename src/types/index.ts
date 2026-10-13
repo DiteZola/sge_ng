@@ -1037,6 +1037,9 @@ export interface ConfiguracaoSistema {
   ultimaSincronizacao?: string;
   criadoPorAdminEmail?: string;
   dataInicializacao?: string;
+  insigniaChunksCount?: number;
+  insigniaOtimizada?: boolean;
+  atualizadoEm?: string;
 }
 
 // ==========================================

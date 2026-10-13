@@ -12,6 +12,7 @@ import {
 import { firestoreDb } from "./firebaseClient";
 import { offlineStorage } from "./offlineStorage";
 import { Funcionario, ConfiguracaoSistema, Escola, Aluno, Turma } from "../types";
+import { comprimirImagemBase64 } from "../utils/imageOptimizer";
 
 export interface SyncStatus {
   isOnline: boolean;
@@ -38,7 +39,45 @@ class FirebaseSyncEngine {
   private listeners: Array<(status: SyncStatus) => void> = [];
 
   constructor() {
-    this.iniciarObservadoresDeRede();
+    // Auto-reparação imediata para imagens que excedam limites antes de qualquer sincronização
+    this.repararConfiguracaoMuitoGrande().then(() => {
+      this.iniciarObservadoresDeRede();
+    });
+  }
+
+  /**
+   * Corrige automaticamente qualquer insígnia gigante que possa estar no localStorage do dispositivo
+   * prevenindo o erro de limite de 1MB (1,048,576 bytes) do Firestore.
+   */
+  public async repararConfiguracaoMuitoGrande(): Promise<void> {
+    try {
+      if (typeof window === 'undefined') return;
+      const raw = localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA);
+      if (!raw) return;
+      const config: any = JSON.parse(raw);
+      let alterado = false;
+
+      for (const [key, val] of Object.entries(config)) {
+        if (typeof val === 'string' && val.length > 90000) {
+          console.log(`[SGE Firebase Sync] Otimizando campo "${key}" (${(val.length / 1024).toFixed(1)}KB)...`);
+          if (val.startsWith('data:image/') || val.startsWith('data:application/')) {
+            const otimizada = await comprimirImagemBase64(val, 380, 0.80);
+            if (otimizada && otimizada.length < val.length) {
+              config[key] = otimizada;
+              alterado = true;
+            }
+          }
+        }
+      }
+
+      if (alterado) {
+        config.insigniaOtimizada = true;
+        localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(config));
+        console.log('[SGE Firebase Sync] Auto-reparação de imagens concluída com sucesso no dispositivo.');
+      }
+    } catch (e) {
+      console.warn('[SGE Firebase Sync] Falha na auto-reparação inicial de insígnia:', e);
+    }
   }
 
   private iniciarObservadoresDeRede() {
@@ -106,6 +145,27 @@ class FirebaseSyncEngine {
           this.atualizarUsuarioNoDispositivo(userFromFirebase);
           return userFromFirebase;
         }
+
+        // Tentar também coleção alternativa "users"
+        const usersRef = collection(firestoreDb, "users");
+        let q2 = query(usersRef, where("email", "==", termo), limit(1));
+        let snap2 = await getDocs(q2);
+        if (snap2.empty) {
+          q2 = query(usersRef, where("numeroBI", "==", identificador.trim().toUpperCase()), limit(1));
+          snap2 = await getDocs(q2);
+        }
+        if (!snap2.empty) {
+          const userFromFirebase = snap2.docs[0].data() as Funcionario;
+          this.atualizarUsuarioNoDispositivo(userFromFirebase);
+          return userFromFirebase;
+        } else {
+          const docDirectUser = await getDoc(doc(firestoreDb, "users", identificador.trim()));
+          if (docDirectUser.exists()) {
+            const userFromFirebase = docDirectUser.data() as Funcionario;
+            this.atualizarUsuarioNoDispositivo(userFromFirebase);
+            return userFromFirebase;
+          }
+        }
       } catch (err) {
         console.warn('[SGE Firebase Sync] Falha ao consultar perfil no Firestore, recorrendo ao dispositivo:', err);
       }
@@ -149,11 +209,16 @@ class FirebaseSyncEngine {
     // 2. Se online, enviar imediatamente para o Firebase Firestore
     if (this.canUseFirestore() && firestoreDb) {
       try {
-        const docRef = doc(firestoreDb, "funcionarios", funcionario.id);
-        await setDoc(docRef, {
+        const payload = {
           ...funcionario,
           atualizadoEm: new Date().toISOString()
-        }, { merge: true });
+        };
+        const docRef1 = doc(firestoreDb, "funcionarios", funcionario.id);
+        const docRef2 = doc(firestoreDb, "users", funcionario.id);
+        await Promise.allSettled([
+          setDoc(docRef1, payload, { merge: true }),
+          setDoc(docRef2, payload, { merge: true })
+        ]);
 
         offlineStorage.registarMutacao(
           'Utilizador', 
@@ -199,15 +264,58 @@ class FirebaseSyncEngine {
 
   /**
    * Buscar Configuração do Sistema (incluindo Insígnia do Administrador Geral)
-   * no Firebase (online) e no dispositivo (offline)
+   * no Firebase (online) e no dispositivo (offline).
+   * Suporta reconstrução de insígnias grandes divididas em chunks.
    */
   public async buscarConfiguracaoSistema(): Promise<ConfiguracaoSistema | null> {
     if (this.canUseFirestore() && firestoreDb) {
       try {
+        let configFromFirebase: ConfiguracaoSistema | null = null;
         const docRef = doc(firestoreDb, "configuracao_sistema", "global");
         const docSnap = await getDoc(docRef);
+
         if (docSnap.exists()) {
-          const configFromFirebase = docSnap.data() as ConfiguracaoSistema;
+          configFromFirebase = docSnap.data() as ConfiguracaoSistema;
+        } else {
+          // Tentar coleção alternativa system_config
+          const docRefAlt = doc(firestoreDb, "system_config", "global");
+          const docSnapAlt = await getDoc(docRefAlt);
+          if (docSnapAlt.exists()) {
+            configFromFirebase = docSnapAlt.data() as ConfiguracaoSistema;
+          }
+        }
+
+        if (configFromFirebase) {
+          // Se a insígnia estiver dividida em chunks
+          if (configFromFirebase.insigniaChunksCount && configFromFirebase.insigniaChunksCount > 0) {
+            try {
+              const chunks: string[] = [];
+              for (let i = 0; i < configFromFirebase.insigniaChunksCount; i++) {
+                const cSnap = await getDoc(doc(firestoreDb, "configuracao_sistema", `insignia_chunk_${i}`));
+                if (cSnap.exists()) {
+                  chunks.push(cSnap.data().chunk || '');
+                }
+              }
+              if (chunks.length === configFromFirebase.insigniaChunksCount) {
+                configFromFirebase.insigniaNacionalUrl = chunks.join('');
+              }
+            } catch (chunkErr) {
+              console.warn('[SGE Firebase Sync] Falha ao reconstruir chunks da insígnia:', chunkErr);
+            }
+          }
+
+          if (configFromFirebase.insigniaNacionalUrl === '[CHUNKED]') {
+            try {
+              const rawLocal = localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA);
+              if (rawLocal) {
+                const parsed = JSON.parse(rawLocal);
+                if (parsed.insigniaNacionalUrl && parsed.insigniaNacionalUrl !== '[CHUNKED]') {
+                  configFromFirebase.insigniaNacionalUrl = parsed.insigniaNacionalUrl;
+                }
+              }
+            } catch {}
+          }
+
           // Atualiza dispositivo
           if (typeof window !== 'undefined') {
             localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(configFromFirebase));
@@ -232,6 +340,100 @@ class FirebaseSyncEngine {
   }
 
   /**
+   * Salva a configuração no Firestore com garantia estrita de tamanho inferior a 1MB (1,048,576 bytes).
+   * Otimiza a imagem via canvas e fragmenta em subdocumentos de 200KB se necessário.
+   */
+  public async gravarConfiguracaoNoFirestore(config: ConfiguracaoSistema): Promise<boolean> {
+    if (!this.canUseFirestore() || !firestoreDb) return false;
+
+    try {
+      let insigniaFinal = config.insigniaNacionalUrl || '';
+
+      // 1. Otimizar e comprimir imagem se for maior que 40KB
+      if (insigniaFinal && insigniaFinal.length > 40000 && (insigniaFinal.startsWith('data:') || insigniaFinal.includes(';base64,'))) {
+        try {
+          const comprimida = await comprimirImagemBase64(insigniaFinal, 360, 0.78);
+          if (comprimida && comprimida.length < insigniaFinal.length) {
+            insigniaFinal = comprimida;
+            config.insigniaNacionalUrl = comprimida;
+            config.insigniaOtimizada = true;
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(config));
+            }
+          }
+        } catch (compErr) {
+          console.warn('[SGE Firebase Sync] Compressão canvas:', compErr);
+        }
+      }
+
+      const CHUNK_SIZE = 180000; // 180KB por chunk para margem de segurança garantida
+      let chunksCount = 0;
+      let payloadInsignia = insigniaFinal;
+
+      // 2. Se a imagem ultrapassar 60KB, NUNCA guardar no documento global; dividir em sub-documentos
+      if (insigniaFinal && insigniaFinal.length > 60000) {
+        chunksCount = Math.ceil(insigniaFinal.length / CHUNK_SIZE);
+        for (let i = 0; i < chunksCount; i++) {
+          try {
+            const chunkStr = insigniaFinal.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+            const chunkRef = doc(firestoreDb, "configuracao_sistema", `insignia_chunk_${i}`);
+            await setDoc(chunkRef, { chunk: chunkStr, index: i, total: chunksCount });
+          } catch (chunkErr) {
+            console.warn(`[SGE Firebase Sync] Falha ao gravar chunk ${i}:`, chunkErr);
+          }
+        }
+        payloadInsignia = "[CHUNKED]";
+      }
+
+      // 3. Montar payload limpo e estritamente limitado em tamanho
+      const payload: Record<string, any> = {
+        id: 'global',
+        nomeSistema: String(config.nomeSistema || 'SGE-NG').slice(0, 150),
+        subtituloSistema: String(config.subtituloSistema || '').slice(0, 250),
+        ministerioNome: String(config.ministerioNome || '').slice(0, 250),
+        pais: String(config.pais || 'República de Angola').slice(0, 100),
+        modoProducao: !!config.modoProducao,
+        sincronizacaoFirebaseAtiva: true,
+        insigniaNacionalUrl: payloadInsignia,
+        insigniaChunksCount: chunksCount,
+        modoAuditoriaForense: !!config.modoAuditoriaForense,
+        validarBIComAlgoritmoNacional: !!config.validarBIComAlgoritmoNacional,
+        permitirAutoRegistoEscolas: !!config.permitirAutoRegistoEscolas,
+        bloqueioPorFalhasLogin: !!config.bloqueioPorFalhasLogin,
+        criadoPorAdminEmail: String(config.criadoPorAdminEmail || '').slice(0, 150),
+        dataInicializacao: String(config.dataInicializacao || '').slice(0, 80),
+        atualizadoEm: new Date().toISOString()
+      };
+
+      // 4. Auditoria de tamanho final: NENHUM campo pode ultrapassar 70KB no documento global
+      for (const [k, v] of Object.entries(payload)) {
+        if (typeof v === 'string' && v.length > 70000) {
+          payload[k] = '[CHUNKED]';
+        }
+      }
+
+      const docRef1 = doc(firestoreDb, "configuracao_sistema", "global");
+      const docRef2 = doc(firestoreDb, "system_config", "global");
+      // NÃO utilizar { merge: true } aqui para garantir que documentos antigos que excediam 1MB
+      // sejam totalmente substituídos pelo payload limpo e leve (< 60KB)
+      await Promise.allSettled([
+        setDoc(docRef1, payload),
+        setDoc(docRef2, payload)
+      ]);
+
+      offlineStorage.registarMutacao(
+        'Configuracao', 
+        'ATUALIZAR', 
+        'Insígnia e parâmetros do sistema sincronizados com o Firebase com proteção rigorosa de quota (<60KB).'
+      );
+      return true;
+    } catch (e) {
+      console.warn('[SGE Firebase Sync] Erro ao gravar configuração no Firestore:', e);
+      return false;
+    }
+  }
+
+  /**
    * Salvar Configuração do Sistema (com a insígnia nacional) no Firebase e no dispositivo
    */
   public async salvarConfiguracaoSistema(config: ConfiguracaoSistema): Promise<boolean> {
@@ -240,26 +442,8 @@ class FirebaseSyncEngine {
       localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(config));
     }
 
-    // 2. Firebase
-    if (this.canUseFirestore() && firestoreDb) {
-      try {
-        const docRef = doc(firestoreDb, "configuracao_sistema", "global");
-        await setDoc(docRef, {
-          ...config,
-          atualizadoEm: new Date().toISOString()
-        }, { merge: true });
-
-        offlineStorage.registarMutacao(
-          'Configuracao', 
-          'ATUALIZAR', 
-          'Insígnia e parâmetros do sistema sincronizados com o Firebase.'
-        );
-        return true;
-      } catch (e) {
-        console.warn('[SGE Firebase Sync] Erro ao gravar configuração no Firestore:', e);
-      }
-    }
-
+    // 2. Firebase protegido contra limite de 1MB
+    await this.gravarConfiguracaoNoFirestore(config);
     return true;
   }
 
@@ -275,12 +459,11 @@ class FirebaseSyncEngine {
     this.notificarStatus();
 
     try {
-      // 1. Sincronizar Configuração do Sistema e Insígnia
+      // 1. Sincronizar Configuração do Sistema e Insígnia com proteção de tamanho
       if (this.canUseFirestore() && firestoreDb) {
         const configLocal = await this.buscarConfiguracaoSistema();
         if (configLocal) {
-          const docRef = doc(firestoreDb, "configuracao_sistema", "global");
-          await setDoc(docRef, configLocal, { merge: true });
+          await this.gravarConfiguracaoNoFirestore(configLocal);
         }
 
         // 2. Sincronizar Usuários / Funcionários

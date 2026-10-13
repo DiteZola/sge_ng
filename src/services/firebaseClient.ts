@@ -1,15 +1,18 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore } from "firebase/firestore";
+import appletConfig from "../../firebase-applet-config.json";
 
-// Configuração oficial do projeto SGE-NG
+// Configuração oficial do projeto SGE-NG integrada com o Cloud Firebase
 export const firebaseConfig = {
-  apiKey: "AIzaSyC_c7wygc3GgSiWsZgNSZvrh7xnxajK8Do",
-  authDomain: "sge4-8b772.firebaseapp.com",
-  projectId: "sge4-8b772",
-  storageBucket: "sge4-8b772.firebasestorage.app",
-  messagingSenderId: "311536152950",
-  appId: "1:311536152950:web:c9d1600e9dad04921b4a57"
+  apiKey: appletConfig.apiKey || "AIzaSyDoCDEYIjvgUcDS00hw6RoET3NgssBH5gk",
+  authDomain: appletConfig.authDomain || "poetic-sun-4gtt6.firebaseapp.com",
+  projectId: appletConfig.projectId || "poetic-sun-4gtt6",
+  storageBucket: appletConfig.storageBucket || "poetic-sun-4gtt6.firebasestorage.app",
+  messagingSenderId: appletConfig.messagingSenderId || "26933016368",
+  appId: appletConfig.appId || "1:26933016368:web:d1c75aa13cbfd78ee07af5"
 };
+
+const customDatabaseId = appletConfig.firestoreDatabaseId || "ai-studio-sgengsistemadege-e0481ed1-d3d7-455d-9835-a0f827249578";
 
 // Inicialização segura do Firebase e Firestore
 let appInstance: FirebaseApp | null = null;
@@ -18,7 +21,16 @@ let firestoreInstance: Firestore | null = null;
 try {
   appInstance = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
   if (appInstance) {
-    firestoreInstance = getFirestore(appInstance);
+    if (customDatabaseId && customDatabaseId !== "(default)") {
+      try {
+        firestoreInstance = getFirestore(appInstance, customDatabaseId);
+      } catch (dbErr) {
+        console.warn("[Firebase] Inicialização com banco nomeado falhou, tentando padrão:", dbErr);
+        firestoreInstance = getFirestore(appInstance);
+      }
+    } else {
+      firestoreInstance = getFirestore(appInstance);
+    }
   }
 } catch (e) {
   console.warn("[Firebase] Inicialização em modo contingência offline:", e);

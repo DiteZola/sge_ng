@@ -6,36 +6,48 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
+    // Coleção de Funcionários / Utilizadores do Sistema SGE-NG
+    match /funcionarios/{funcionarioId} {
+      allow read, write: if true;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Coleção de Perfis de Utilizadores
     match /users/{userId} {
-      allow read: if true; // Permite consulta de perfis de utilizador para verificação de credenciais e sincronização online/offline
-      allow write: if true; // Permite guardar e atualizar perfis diretamente sincronizados com o dispositivo
-    }
-
-    // Coleção de Escolas
-    match /schools/{schoolId} {
       allow read, write: if true;
     }
 
-    // Coleção de Estudantes
-    match /students/{studentId} {
+    // Coleção de Configurações do Sistema e Insígnia Nacional Oficial
+    match /configuracao_sistema/{configId} {
       allow read, write: if true;
     }
 
-    // Configuração Geral do Sistema e Insígnia
     match /system_config/{configId} {
       allow read, write: if true;
     }
 
-    // Coleção de Teste de Conexão
+    // Coleção de Escolas / Instituições de Ensino
+    match /escolas/{escolaId} {
+      allow read, write: if true;
+    }
+
+    match /schools/{schoolId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Alunos / Estudantes
+    match /alunos/{alunoId} {
+      allow read, write: if true;
+    }
+
+    match /students/{studentId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Turmas
+    match /turmas/{turmaId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Teste de Conectividade
     match /test/{docId} {
       allow read, write: if true;
     }

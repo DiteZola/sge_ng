@@ -46,6 +46,7 @@ import { locationService } from '../services/locationService';
 import { InsigniaAngola } from '../constants/insignia';
 import { DocumentTemplateConfigModal } from './DocumentTemplateConfigModal';
 import { avaliarExpressaoNota } from '../services/macEngine';
+import { comprimirImagemBase64 } from '../utils/imageOptimizer';
 
 interface SystemAuditBackupViewProps {
   escola: Escola;
@@ -507,14 +508,16 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       const base64 = evt.target?.result as string;
       if (base64) {
-        setInsigniaPreview(base64);
-        const novaConfig = { ...configSistema, insigniaNacionalUrl: base64 };
+        // Compressão automática com canvas para evitar estouro de 1MB do Firestore e acelerar o app
+        const base64Otimizado = await comprimirImagemBase64(base64, 440, 0.82);
+        setInsigniaPreview(base64Otimizado);
+        const novaConfig = { ...configSistema, insigniaNacionalUrl: base64Otimizado, insigniaOtimizada: true };
         dbService.salvarConfiguracaoSistema(novaConfig);
         setConfigSistema(novaConfig);
-        notificar('Insígnia da República de Angola carregada e definida para todos os documentos oficiais.');
+        notificar('Insígnia da República de Angola carregada, otimizada e sincronizada com sucesso.');
       }
     };
     reader.readAsDataURL(file);
@@ -523,7 +526,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   // Restaurar Insígnia Padrão Vetorial do MED
   const handleRestaurarInsigniaPadrao = () => {
     setInsigniaPreview('');
-    const novaConfig = { ...configSistema, insigniaNacionalUrl: '' };
+    const novaConfig = { ...configSistema, insigniaNacionalUrl: '', insigniaChunksCount: 0 };
     dbService.salvarConfiguracaoSistema(novaConfig);
     setConfigSistema(novaConfig);
     notificar('Restaurada a Insígnia Nacional vetorial oficial padrão.');
@@ -540,15 +543,17 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       const base64 = evt.target?.result as string;
       if (base64) {
-        setLogotipoPreview(base64);
-        const escolaAtualizada: Escola = { ...escolaData, logotipo: base64, logotipoUrl: base64 };
+        // Compressão automática com canvas para logótipos escolares
+        const base64Otimizado = await comprimirImagemBase64(base64, 400, 0.82);
+        setLogotipoPreview(base64Otimizado);
+        const escolaAtualizada: Escola = { ...escolaData, logotipo: base64Otimizado, logotipoUrl: base64Otimizado };
         dbService.salvarEscola(escolaAtualizada);
         setEscolaData(escolaAtualizada);
         if (onAtualizarEscola) onAtualizarEscola(escolaAtualizada);
-        notificar(`Logotipo de "${escola.nomeOficial}" atualizado com sucesso para exibição em passes e boletins.`);
+        notificar(`Logotipo de "${escola.nomeOficial}" otimizado e atualizado para exibição em passes e boletins.`);
       }
     };
     reader.readAsDataURL(file);

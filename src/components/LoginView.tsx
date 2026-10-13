@@ -13,7 +13,8 @@ import {
   X,
   Phone,
   Building2,
-  Calendar
+  Calendar,
+  ShieldCheck
 } from 'lucide-react';
 import { Escola, Funcionario, Aluno } from '../types';
 import { dbService } from '../services/storage';
@@ -312,17 +313,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
         <div className="w-full max-w-md bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 p-6 sm:p-8 space-y-5">
           
           <div className="text-center space-y-1">
-            <div className="flex items-center justify-center mb-2">
-              <div className="p-2 rounded-2xl bg-slate-50 border border-slate-200 inline-flex items-center space-x-2.5 shadow-2xs">
+            {/* Logótipo Oficial Sem Palavras (Apenas o Símbolo) */}
+            <div className="flex items-center justify-center mb-3">
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 inline-flex items-center justify-center shadow-xs">
                 <InsigniaAngola 
-                  size={38} 
+                  size={52} 
                   customUrl={configSistema.insigniaNacionalUrl} 
                   className="object-contain"
                 />
-                <div className="text-left">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Logótipo Oficial do Sistema</span>
-                  <span className="text-xs font-black text-slate-900 block">{configSistema.nomeSistema || 'SGE-NG'} Angola</span>
-                </div>
               </div>
             </div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight">
@@ -435,18 +433,23 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <span>Consultar (Para os Encarregados)</span>
           </button>
 
-          {/* Atalho para Configuração Inicial - Apenas visível no primeiro arranque antes do cadastro do Administrador Geral */}
-          {!dbService.isSetupInicialConcluido() && (
-            <div className="pt-2 text-center">
-              <button
-                type="button"
-                onClick={onOpenSetupModal}
-                className="text-[11px] text-slate-500 hover:text-blue-700 font-medium transition-colors cursor-pointer"
-              >
-                Configuração Inicial do Sistema (Primeiro Acesso)
-              </button>
-            </div>
-          )}
+          {/* Ação Imediata: Criar / Configurar o Administrador Geral Agora (Guardado no Firebase) */}
+          <div className="pt-2 border-t border-slate-100 text-center space-y-1">
+            <button
+              type="button"
+              onClick={() => {
+                dbService.redefinirAdminGeralParaTestes();
+                onOpenSetupModal();
+              }}
+              className="w-full py-2 px-3 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-800 border border-slate-300 hover:border-blue-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+              <span>Criar Administrador Geral Agora (Salvar no Firebase)</span>
+            </button>
+            <p className="text-[10px] text-slate-400">
+              Permite o registo soberano e imediato do Administrador Geral e sincronização no Firebase.
+            </p>
+          </div>
         </div>
       </main>
 

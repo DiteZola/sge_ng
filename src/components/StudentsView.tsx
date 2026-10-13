@@ -31,8 +31,10 @@ import {
   CreditCard,
   MessageSquare,
   DollarSign,
-  Edit2
+  Edit2,
+  Trophy
 } from 'lucide-react';
+import { StudentRankingSection } from './StudentRankingSection';
 import { 
   Aluno, 
   Turma, 
@@ -130,6 +132,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [selectedSalaFilter, setSelectedSalaFilter] = useState('TODAS');
   const [selectedCursoFilter, setSelectedCursoFilter] = useState('TODOS');
   const [selectedEstadoFilter, setSelectedEstadoFilter] = useState('TODOS');
+  const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking'>('lista');
   
   // Modal de Matrícula: Associação Estrita Classe -> Turma -> Sala -> Curso
   const [modalClasse, setModalClasse] = useState('1ª');
@@ -1446,8 +1449,46 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         </div>
       </div>
 
-      {/* Filter Bar com Hierarquia Coerente: Classe -> Turma -> Sala -> Curso e Proteções Anti-DDoS/ReDoS */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs space-y-3">
+      {/* Abas Principais: Quadro Geral de Estudantes vs Ranking Oficial de Desempenho */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3 no-print">
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('lista')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-2 ${
+            abaAtiva === 'lista'
+              ? 'bg-blue-700 text-white shadow-xs'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+          }`}
+        >
+          <Users className="h-4 w-4" />
+          <span>Quadro Geral de Estudantes ({alunos.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAbaAtiva('ranking')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-2 ${
+            abaAtiva === 'ranking'
+              ? 'bg-gradient-to-r from-amber-500 to-yellow-600 text-white shadow-xs'
+              : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+          }`}
+        >
+          <Trophy className="h-4 w-4" />
+          <span>Ranking de Desempenho (Top 5 & Menor Rendimento)</span>
+        </button>
+      </div>
+
+      {abaAtiva === 'ranking' ? (
+        <StudentRankingSection 
+          escola={escola} 
+          alunos={alunos} 
+          turmas={turmas} 
+          isDiretorPanel={false} 
+        />
+      ) : (
+        <>
+          {/* Filter Bar com Hierarquia Coerente: Classe -> Turma -> Sala -> Curso e Proteções Anti-DDoS/ReDoS */}
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
           <div className="flex items-center space-x-2">
             <span className="text-xs font-bold text-gray-900">Pesquisa Coerente & Filtros Acadêmicos:</span>
@@ -1704,6 +1745,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           );
         })}
       </div>
+        </>
+      )}
 
       {/* Modal Matricular / Editar Aluno - Formulário Completo Oficial MED */}
       {showAlunoModal && (

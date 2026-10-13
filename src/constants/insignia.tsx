@@ -160,7 +160,7 @@ export const InsigniaAngola: React.FC<{
         strokeWidth="1" 
       />
 
-      {/* Faixa Dourada com REPÚBLICA DE ANGOLA */}
+      {/* Faixa Dourada Heráldica Sem Palavras */}
       <g>
         <path 
           d="M 32,156 Q 100,146 168,156 L 164,174 Q 100,164 36,174 Z" 
@@ -171,23 +171,9 @@ export const InsigniaAngola: React.FC<{
         {/* Pontas dobradas da faixa */}
         <polygon points="32,156 22,166 36,174 34,163" fill="#F57F17" stroke="#E65100" strokeWidth="1" />
         <polygon points="168,156 178,166 164,174 166,163" fill="#F57F17" stroke="#E65100" strokeWidth="1" />
-        
-        {/* Texto "REPÚBLICA DE ANGOLA" */}
-        <text 
-          x="100" 
-          y="166" 
-          textAnchor="middle" 
-          fill="#B71C1C" 
-          fontSize="9.5" 
-          fontWeight="900" 
-          fontFamily="system-ui, -apple-system, sans-serif" 
-          letterSpacing="0.8"
-        >
-          REPÚBLICA DE ANGOLA
-        </text>
       </g>
     </svg>
   );
 };
 
-export const DEFAULT_INSIGNIA_SVG_DATA_URL = `data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="95" r="88" fill="%23FFFDE7" stroke="%23F57F17" stroke-width="2"/><circle cx="100" cy="95" r="28" fill="%23FBC02D" stroke="%23E65100" stroke-width="2"/><path d="M 100,20 A 75,75 0 0,0 35,135 L 50,132 A 60,60 0 0,1 100,35 Z" fill="%23FBC02D" stroke="%23BF360C" stroke-width="2"/><line x1="55" y1="145" x2="145" y2="55" stroke="%235D4037" stroke-width="5" stroke-linecap="round"/><path d="M 128,128 L 65,65 Q 52,50 50,42 Q 62,48 78,68 L 132,122 Z" fill="%23ECEFF1" stroke="%2337474F" stroke-width="1.5"/><path d="M 100,122 C 85,116 65,117 52,124 L 52,148 C 65,141 85,140 100,146 C 115,140 135,141 148,148 L 148,124 C 135,117 115,116 100,122 Z" fill="%23FFFFFF" stroke="%23263238" stroke-width="1.5"/><polygon points="100,14 103.5,23 113,23.5 105.5,29 108.5,38 100,32.5 91.5,38 94.5,29 87,23.5 96.5,23" fill="%23D32F2F"/><path d="M 32,156 Q 100,146 168,156 L 164,174 Q 100,164 36,174 Z" fill="%23FBC02D" stroke="%23E65100" stroke-width="1.5"/><text x="100" y="166" text-anchor="middle" fill="%23B71C1C" font-size="9.5" font-weight="900" font-family="sans-serif">REPÚBLICA DE ANGOLA</text></svg>`;
+export const DEFAULT_INSIGNIA_SVG_DATA_URL = `data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" width="200" height="200" xmlns="http://www.w3.org/2000/svg"><circle cx="100" cy="95" r="88" fill="%23FFFDE7" stroke="%23F57F17" stroke-width="2"/><circle cx="100" cy="95" r="28" fill="%23FBC02D" stroke="%23E65100" stroke-width="2"/><path d="M 100,20 A 75,75 0 0,0 35,135 L 50,132 A 60,60 0 0,1 100,35 Z" fill="%23FBC02D" stroke="%23BF360C" stroke-width="2"/><line x1="55" y1="145" x2="145" y2="55" stroke="%235D4037" stroke-width="5" stroke-linecap="round"/><path d="M 128,128 L 65,65 Q 52,50 50,42 Q 62,48 78,68 L 132,122 Z" fill="%23ECEFF1" stroke="%2337474F" stroke-width="1.5"/><path d="M 100,122 C 85,116 65,117 52,124 L 52,148 C 65,141 85,140 100,146 C 115,140 135,141 148,148 L 148,124 C 135,117 115,116 100,122 Z" fill="%23FFFFFF" stroke="%23263238" stroke-width="1.5"/><polygon points="100,14 103.5,23 113,23.5 105.5,29 108.5,38 100,32.5 91.5,38 94.5,29 87,23.5 96.5,23" fill="%23D32F2F"/><path d="M 32,156 Q 100,146 168,156 L 164,174 Q 100,164 36,174 Z" fill="%23FBC02D" stroke="%23E65100" stroke-width="1.5"/></svg>`;

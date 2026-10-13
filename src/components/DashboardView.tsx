@@ -71,6 +71,7 @@ import {
 import { dbService } from '../services/storage';
 import { securityEngine, AlertaSegurancaVisual } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
+import { StudentRankingSection } from './StudentRankingSection';
 import * as XLSX from 'xlsx';
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
 
@@ -1694,19 +1695,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="space-y-6">
           {/* Banner da Direção Escolar */}
           <div className="bg-white border-2 border-blue-600 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                  {currentUser.cargo || (isDiretor ? 'Diretor Geral' : 'Subdiretor Pedagógico')}
-                </span>
-                <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
+            <div className="flex items-start sm:items-center space-x-4">
+              <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 shrink-0 shadow-2xs flex items-center justify-center">
+                <InsigniaAngola 
+                  size={48} 
+                  customUrl={configSistema.insigniaNacionalUrl} 
+                  className="object-contain" 
+                />
               </div>
-              <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
-                Gabinete da Direção · {escola.nomeOficial}
-              </h1>
-              <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
-                Ano Lectivo {escola.anoLectivoActivo} · {escola.trimestreActivo}º Trimestre · Despacho MED: {escola.codigoEscola || '1045'}
-              </p>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                    {currentUser.cargo || (isDiretor ? 'Diretor Geral' : 'Subdiretor Pedagógico')}
+                  </span>
+                  <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
+                </div>
+                <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
+                  Gabinete da Direção · {escola.nomeOficial}
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
+                  Ano Lectivo {escola.anoLectivoActivo} · {escola.trimestreActivo}º Trimestre · Despacho MED: {escola.codigoEscola || '1045'}
+                </p>
+              </div>
             </div>
 
             {/* Menus Rápidos Mais Importantes e Prioritários da Escola (Apenas 2) */}
@@ -2198,6 +2208,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           })()}
 
           {/* ========================================================================= */}
+          {/* RANKING OFICIAL DO PAINEL DO DIRETOR: 5 MELHORES & 5 PIORES ALUNOS         */}
+          {/* ========================================================================= */}
+          <StudentRankingSection 
+            escola={escola} 
+            alunos={alunos} 
+            turmas={turmas} 
+            isDiretorPanel={true} 
+          />
+
+          {/* ========================================================================= */}
           {/* ESTATÍSTICAS COMPLETAS: ESCOLA, NÍVEL E CADA CLASSE (MED ANGOLA)          */}
           {/* ========================================================================= */}
           <div className="bg-white rounded-2xl border-2 border-indigo-100 shadow-sm p-6 space-y-6">
@@ -2665,19 +2685,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {isProfessor && (
         <div className="space-y-6">
           <div className="bg-white border-2 border-emerald-600 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Professor / Coordenador de Disciplina
-                </span>
-                <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
+            <div className="flex items-start sm:items-center space-x-4">
+              <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 shrink-0 shadow-2xs flex items-center justify-center">
+                <InsigniaAngola 
+                  size={48} 
+                  customUrl={configSistema.insigniaNacionalUrl} 
+                  className="object-contain" 
+                />
               </div>
-              <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
-                Olá, Professor {currentUser.nomeCompleto}
-              </h1>
-              <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
-                Aceda às suas turmas atribuídas, registo diário de faltas e lançamento da Avaliação Contínua (MAC).
-              </p>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Professor / Coordenador de Disciplina
+                  </span>
+                  <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
+                </div>
+                <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
+                  Olá, Professor {currentUser.nomeCompleto}
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
+                  Aceda às suas turmas atribuídas, registo diário de faltas e lançamento da Avaliação Contínua (MAC).
+                </p>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
