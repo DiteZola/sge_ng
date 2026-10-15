@@ -62,6 +62,37 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Mensagens internas, circulares e comunicados escolares",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "remetenteId": { "type": "string", "maxLength": 128 },
+        "remetenteNome": { "type": "string", "maxLength": 200 },
+        "assunto": { "type": "string", "maxLength": 300 },
+        "conteudo": { "type": "string" },
+        "lida": { "type": "boolean" },
+        "dataHora": { "type": "string" }
+      },
+      "required": ["id", "escolaId", "conteudo"]
+    },
+    "TechnicalSupport": {
+      "title": "TechnicalSupport",
+      "description": "Chamados e solicitações de apoio técnico emitidos pelas direções escolares ao Administrador Geral (DTI/MED)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nomeEscola": { "type": "string", "maxLength": 250 },
+        "motivo": { "type": "string", "maxLength": 300 },
+        "descricaoProblema": { "type": "string" },
+        "urgencia": { "type": "string", "enum": ["Baixa", "Media", "Alta", "Critica"] },
+        "status": { "type": "string", "enum": ["Pendente", "Em_Atendimento", "Concluido", "Recusado"] }
+      },
+      "required": ["id", "escolaId", "motivo"]
     }
   },
   "firestore": {
@@ -80,6 +111,14 @@
     "/system_config/{configId}": {
       "schema": "SystemConfig",
       "description": "Configurações globais e insígnia oficial do sistema"
+    },
+    "/mensagens/{mensagemId}": {
+      "schema": "Message",
+      "description": "Mensagens e comunicados escolares sincronizados"
+    },
+    "/solicitacoes_apoio/{solId}": {
+      "schema": "TechnicalSupport",
+      "description": "Solicitações de apoio técnico e autorizações ministeriais"
     }
   }
 }

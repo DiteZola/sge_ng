@@ -57,6 +57,26 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Coleção de Mensagens e Comunicados
+    match /mensagens/{mensagemId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Documentos da Biblioteca Digital
+    match /biblioteca/{docId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Logs de Auditoria
+    match /auditoria/{logId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Recibos Financeiros
+    match /recibos/{reciboId} {
+      allow read, write: if true;
+    }
+
     // Coleção de Teste de Conectividade
     match /test/{docId} {
       allow read, write: if true;
