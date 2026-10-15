@@ -419,23 +419,6 @@ export const DEFAULT_DISCIPLINAS: Disciplina[] = [
 
 export const DEFAULT_FUNCIONARIOS: Funcionario[] = [
   {
-    id: 'func-000',
-    escolaId: 'todas',
-    nomeCompleto: 'Dr. Eng. Alberto Domingos Kwanza',
-    genero: 'M',
-    numeroBI: '001928374LA049',
-    telefone: '+244 923 000 111',
-    email: 'admin.geral@sge.med.gov.ao',
-    cargo: 'Administrador Geral do Sistema',
-    ehProfessor: false,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Mestrado em Engenharia Informática & Gestão Escolar',
-    fotoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2014-01-10',
-    ativo: true,
-    role: 'AdminGeral'
-  },
-  {
     id: 'func-subadmin-01',
     escolaId: 'esc-001',
     nomeCompleto: 'Dr. Paulo Afonso Quipungo',
@@ -3290,6 +3273,7 @@ export const dbService = {
     };
     list.unshift(nova);
     setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, list);
+    firebaseSyncEngine.salvarSolicitacaoApoio(nova);
     dbService.registarLog(
       'Solicitação de Apoio Técnico',
       `Chamado de suporte "${nova.assunto}" registado para a escola ${nova.escolaNome}.`
@@ -3302,6 +3286,7 @@ export const dbService = {
     if (idx >= 0) list[idx] = solicitacao;
     else list.unshift(solicitacao);
     setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, list);
+    firebaseSyncEngine.salvarSolicitacaoApoio(solicitacao);
   },
   adicionarSolicitacaoApoioTecnico: (solicitacao: SolicitacaoApoioTecnico) => {
     dbService.atualizarSolicitacaoApoioTecnico(solicitacao);
@@ -3456,9 +3441,23 @@ export const dbService = {
     mensagem: string;
   }> => {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-    const temLocal = dbService.temAdminGeral();
-    const funcs = dbService.getFuncionarios();
-    const admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
+    let temLocal = dbService.temAdminGeral();
+    let funcs = dbService.getFuncionarios();
+    let admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
+
+    // Se localmente não temos admin, mas estamos online, tenta recuperar do Firebase Firestore
+    if (!temLocal && isOnline) {
+      try {
+        const adminRemoto = await firebaseSyncEngine.buscarAdminGeralRemoto();
+        if (adminRemoto) {
+          temLocal = true;
+          admin = adminRemoto;
+          funcs = dbService.getFuncionarios();
+        }
+      } catch (e) {
+        console.warn('[Storage] Falha ao verificar admin no Firestore:', e);
+      }
+    }
 
     securityEngine.registarEvento({
       categoria: 'SISTEMA',
@@ -3619,10 +3618,12 @@ export const dbService = {
     if (idx >= 0) alunos[idx] = aluno;
     else alunos.push(aluno);
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
+    firebaseSyncEngine.salvarAluno(aluno);
     dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${aluno.nomeCompleto} (${aluno.codigoMatricula}) gravado.`);
   },
   salvarAlunos: (alunos: Aluno[]) => {
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
+    alunos.forEach(a => firebaseSyncEngine.salvarAluno(a));
   },
   excluirAluno: (id: string) => {
     const alunos = dbService.getAlunos().filter(a => a.id !== id);
@@ -3679,10 +3680,12 @@ export const dbService = {
     if (idx >= 0) turmas[idx] = turma;
     else turmas.push(turma);
     setLocal(STORAGE_KEYS.TURMAS, turmas);
+    firebaseSyncEngine.salvarTurma(turma);
     dbService.registarLog('Gestão de Turma', `Turma "${turma.nome}" (${turma.classe}) guardada com sucesso.`);
   },
   salvarTurmas: (turmas: Turma[]) => {
     setLocal(STORAGE_KEYS.TURMAS, turmas);
+    turmas.forEach(t => firebaseSyncEngine.salvarTurma(t));
   },
   eliminarTurma: (id: string): boolean => {
     const turmas = dbService.getTurmas();
@@ -3830,9 +3833,11 @@ export const dbService = {
     if (idx >= 0) lista[idx] = cons;
     else lista.push(cons);
     setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, lista);
+    firebaseSyncEngine.salvarNota(cons);
   },
   salvarNotasConsolidadas: (lista: NotaTrimestralConsolidada[]) => {
     setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, lista);
+    lista.forEach(c => firebaseSyncEngine.salvarNota(c));
   },
 
   // Solicitações de Nota
@@ -4075,7 +4080,27 @@ export const dbService = {
     const msgs = dbService.getMensagens();
     msgs.unshift(msg);
     setLocal(STORAGE_KEYS.MENSAGENS, msgs);
+    firebaseSyncEngine.salvarMensagem(msg);
     dbService.registarLog('Comunicação Interna', `Mensagem "${msg.titulo}" enviada.`);
+  },
+  marcarMensagemLida: (id: string) => {
+    const msgs = dbService.getMensagens();
+    const idx = msgs.findIndex(m => m.id === id);
+    if (idx !== -1) {
+      msgs[idx].lida = true;
+      setLocal(STORAGE_KEYS.MENSAGENS, msgs);
+      firebaseSyncEngine.salvarMensagem(msgs[idx]);
+    }
+  },
+  marcarTodasMensagensLidas: (escolaId?: string) => {
+    const msgs = dbService.getMensagens();
+    msgs.forEach(m => {
+      if (!escolaId || m.escolaId === escolaId) {
+        m.lida = true;
+        firebaseSyncEngine.salvarMensagem(m);
+      }
+    });
+    setLocal(STORAGE_KEYS.MENSAGENS, msgs);
   },
 
   // Biblioteca
@@ -4619,6 +4644,7 @@ export const dbService = {
     const list = dbService.getMensagens();
     list.unshift(msg);
     setLocal(STORAGE_KEYS.MENSAGENS, list);
+    firebaseSyncEngine.salvarMensagem(msg);
   },
   salvarLivro: (livro: any) => dbService.salvarDocumento(livro),
   limparLogs: () => dbService.limparLogsAntigos(),

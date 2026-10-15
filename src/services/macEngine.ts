@@ -24,14 +24,14 @@ export interface ResultadoCalculoMAC {
 }
 
 /**
- * Converte valor numérico de comportamento (0-20) em conceito qualitativo oficial
+ * Converte valor numérico de comportamento (0-20) em conceito qualitativo oficial (de Medíocre a Excelente)
  */
 export function converterComportamentoParaConceito(nota: number): string {
-  if (nota >= 18) return 'Exemplar';
-  if (nota >= 14) return 'Muito Bom';
-  if (nota >= 10) return 'Bom';
-  if (nota >= 7) return 'Suficiente';
-  return 'Mau';
+  if (nota >= 17) return 'Excelente';
+  if (nota >= 14) return 'Bom';
+  if (nota >= 10) return 'Suficiente';
+  if (nota >= 7) return 'Insuficiente';
+  return 'Medíocre';
 }
 
 /**

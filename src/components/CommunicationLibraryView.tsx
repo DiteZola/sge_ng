@@ -10,7 +10,11 @@ import {
   Download, 
   Plus, 
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  CheckCircle2,
+  Mail,
+  MailOpen,
+  Bell
 } from 'lucide-react';
 import { Mensagem, DocumentoBiblioteca, Funcionario, Escola } from '../types';
 
@@ -22,6 +26,8 @@ interface CommunicationLibraryViewProps {
   livros: DocumentoBiblioteca[];
   onEnviarMensagem: (msg: Mensagem) => void;
   onAdicionarLivro: (livro: DocumentoBiblioteca) => void;
+  onMarcarComoLida?: (id: string) => void;
+  onMarcarTodasComoLidas?: () => void;
 }
 
 export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> = ({
@@ -31,9 +37,20 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   mensagens,
   livros,
   onEnviarMensagem,
-  onAdicionarLivro
+  onAdicionarLivro,
+  onMarcarComoLida,
+  onMarcarTodasComoLidas
 }) => {
   const [activeTab, setActiveTab] = useState<'mensagens' | 'biblioteca'>('mensagens');
+  const [filtroMensagens, setFiltroMensagens] = useState<'todas' | 'nao_lidas' | 'lidas'>('todas');
+
+  const totalNaoLidas = mensagens.filter(m => !m.lida).length;
+  const totalLidas = mensagens.filter(m => !!m.lida).length;
+  const mensagensExibidas = mensagens.filter(m => {
+    if (filtroMensagens === 'nao_lidas') return !m.lida;
+    if (filtroMensagens === 'lidas') return !!m.lida;
+    return true;
+  });
 
   // Estado envio de mensagem
   const [tipoDestino, setTipoDestino] = useState<'Todos' | 'Docentes' | 'Secretaria' | 'Individual'>('Todos');
@@ -131,38 +148,148 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
       {/* 1. MENSAGENS */}
       {activeTab === 'mensagens' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Caixa de Entrada / Comunicados */}
-          <div className="lg:col-span-2 space-y-4">
-            <h3 className="font-bold text-gray-900 text-sm">Comunicados & Notificações Ativas</h3>
-
-            <div className="space-y-3">
-              {mensagens.map((msg) => (
-                <div key={msg.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                        {msg.destinatarioTipo === 'Todos' ? 'Geral para Todos' : msg.destinatarioTipo}
-                      </span>
-                      <h4 className="font-bold text-gray-900 text-sm mt-1">{msg.assunto}</h4>
-                    </div>
-                    <span className="text-[10px] text-gray-400 font-mono">
-                      {new Date(msg.criadaEm || msg.dataHora || Date.now()).toLocaleDateString('pt-AO')}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-gray-700 leading-relaxed">{msg.conteudo}</p>
-
-                  <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
-                    <span className="font-medium text-gray-700">Por: {msg.remetenteNome} ({msg.remetenteCargo})</span>
-                    <span className="flex items-center text-green-700 font-medium">
-                      <CheckCheck className="h-3.5 w-3.5 mr-1 text-green-600" />
-                      Entregue
-                    </span>
-                  </div>
+            {/* Caixa de Entrada / Comunicados */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
+                <div className="flex items-center space-x-2">
+                  <Bell className="w-4 h-4 text-blue-600" />
+                  <h3 className="font-bold text-gray-900 text-sm">Comunicados & Notificações Ativas</h3>
                 </div>
-              ))}
+
+                {/* Botão Marcar Todas como Lidas */}
+                {totalNaoLidas > 0 && onMarcarTodasComoLidas && (
+                  <button
+                    type="button"
+                    onClick={onMarcarTodasComoLidas}
+                    className="flex items-center space-x-1.5 px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Marcar todas como lidas</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Filtro de Abas: Todas, Não Lidas, Lidas */}
+              <div className="flex items-center space-x-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFiltroMensagens('todas')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                    filtroMensagens === 'todas'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Todas ({mensagens.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFiltroMensagens('nao_lidas')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                    filtroMensagens === 'nao_lidas'
+                      ? 'bg-amber-600 text-white shadow-2xs'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200'
+                  }`}
+                >
+                  <Mail className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Não Lidas ({totalNaoLidas})</span>
+                  {totalNaoLidas > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping inline-block" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFiltroMensagens('lidas')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                    filtroMensagens === 'lidas'
+                      ? 'bg-emerald-700 text-white shadow-2xs'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  <MailOpen className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Lidas ({totalLidas})</span>
+                </button>
+              </div>
+
+              {/* Lista de Mensagens */}
+              <div className="space-y-3">
+                {mensagensExibidas.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-gray-500 text-xs">
+                    {filtroMensagens === 'nao_lidas'
+                      ? 'Parabéns! Todas as notificações e comunicados já foram visualizados.'
+                      : 'Nenhuma mensagem encontrada nesta pasta.'}
+                  </div>
+                ) : (
+                  mensagensExibidas.map((msg) => {
+                    const naoLida = !msg.lida;
+
+                    return (
+                      <div 
+                        key={msg.id} 
+                        className={`rounded-xl p-4 shadow-2xs space-y-2 transition-all border ${
+                          naoLida 
+                            ? 'bg-blue-50/40 border-blue-300 ring-1 ring-blue-200' 
+                            : 'bg-white border-gray-200'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                                {msg.destinatarioTipo === 'Todos' ? 'Geral para Todos' : msg.destinatarioTipo}
+                              </span>
+
+                              {naoLida ? (
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs flex items-center space-x-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                  <span>Novo • Não Lido</span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                                  Visualizado
+                                </span>
+                              )}
+                            </div>
+                            <h4 className="font-bold text-gray-900 text-sm mt-1">{msg.assunto}</h4>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              {new Date(msg.criadaEm || msg.dataHora || Date.now()).toLocaleDateString('pt-AO')}
+                            </span>
+
+                            {naoLida && onMarcarComoLida && (
+                              <button
+                                type="button"
+                                onClick={() => onMarcarComoLida(msg.id)}
+                                className="flex items-center space-x-1 px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-lg text-[10px] font-bold transition-all shadow-2xs cursor-pointer"
+                                title="Marcar este comunicado como lido"
+                              >
+                                <CheckCheck className="w-3 h-3 text-emerald-600" />
+                                <span>Marcar como lida</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.conteudo}</p>
+
+                        <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+                          <span className="font-medium text-gray-700">Por: {msg.remetenteNome} ({msg.remetenteCargo})</span>
+                          <span className="flex items-center text-green-700 font-medium">
+                            <CheckCheck className="h-3.5 w-3.5 mr-1 text-green-600" />
+                            Entregue
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
 
           {/* Formulário Novo Comunicado */}
           <div className="bg-white border-2 border-blue-600 rounded-xl p-5 shadow-xs space-y-4 h-fit">

@@ -12,7 +12,8 @@ import {
   Eye, 
   RotateCcw,
   UserCheck,
-  FileText
+  FileText,
+  ShieldCheck
 } from 'lucide-react';
 import { Escola, Funcionario, SolicitacaoApoioTecnico } from '../types';
 import { dbService } from '../services/storage';
@@ -23,6 +24,7 @@ interface TechnicalSupportViewProps {
   escolas?: Escola[];
   onSelecionarEscolaParaApoio?: (escolaId: string) => void;
   onEscolaInspecionada?: (escolaId: string) => void;
+  onIniciarApoioTecnico?: (escolaId: string, solicitacaoId: string) => void;
 }
 
 export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
@@ -30,7 +32,8 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
   escola,
   escolas = [],
   onSelecionarEscolaParaApoio,
-  onEscolaInspecionada
+  onEscolaInspecionada,
+  onIniciarApoioTecnico
 }) => {
   const [solicitacoes, setSolicitacoes] = useState<SolicitacaoApoioTecnico[]>(() => 
     dbService.getSolicitacoesApoioTecnico()
@@ -283,12 +286,24 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
 
                   {/* Ações para o Admin Geral */}
                   {isAdminGeral && (
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {onIniciarApoioTecnico && (
+                        <button
+                          type="button"
+                          onClick={() => onIniciarApoioTecnico(sol.escolaId, sol.id)}
+                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                          title="Aceder diretamente a todos os menus e funcionalidades do Diretor desta escola sem outras credenciais"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-yellow-300" />
+                          <span>Aceder aos Menus do Diretor (Modo Suporte)</span>
+                        </button>
+                      )}
+
                       {sol.autorizacaoAcessoValida && onSelecionarEscolaParaApoio && (
                         <button
                           type="button"
                           onClick={() => onSelecionarEscolaParaApoio(sol.escolaId)}
-                          className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                          className="flex items-center space-x-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                           title="Inspecionar dados desta instituição sob autorização formal"
                         >
                           <Eye className="w-3.5 h-3.5" />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { dbService } from './services/storage';
 import { verificarIntegridadeSistema, SystemIntegrityStatus } from './services/firebaseClient';
@@ -51,7 +51,7 @@ import { StudentPassesView } from './components/StudentPassesView';
 import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
 import { SchoolCalendarView } from './components/SchoolCalendarView';
 import { Footer } from './components/Footer';
-import { ShieldAlert, ArrowLeft } from 'lucide-react';
+import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -123,6 +123,26 @@ export default function App() {
     ativo: true,
     statusConta: 'Ativa'
   });
+
+  // Modo de Apoio Técnico Emergencial (Admin Geral assumindo o papel de Diretor Geral)
+  const [modoApoioTecnico, setModoApoioTecnico] = useState<{
+    escolaId: string;
+    solicitacaoId?: string;
+    escolaNome: string;
+    escolaOriginalId?: string;
+  } | null>(null);
+
+  const effectiveUser: Funcionario = useMemo(() => {
+    if (modoApoioTecnico) {
+      return {
+        ...currentUser,
+        role: 'DiretorGeral' as UserRole,
+        cargo: `Diretor Geral (Apoio Técnico DTI/MED)`,
+        escolaId: modoApoioTecnico.escolaId,
+      };
+    }
+    return currentUser;
+  }, [modoApoioTecnico, currentUser]);
 
   // Listener para status online/offline e verificação do Administrador Geral
   useEffect(() => {
@@ -805,6 +825,68 @@ export default function App() {
     setAnosLectivos(dbService.getAnosLectivos());
   };
 
+  // Handlers de Apoio Técnico Emergencial (Admin Geral assumindo o papel de Diretor Geral)
+  const handleIniciarApoioTecnico = (escolaId: string, solicitacaoId: string) => {
+    const esc = escolas.find(e => e.id === escolaId);
+    if (!esc) return;
+
+    dbService.setEscolaAtiva(escolaId);
+    setEscola(esc);
+
+    setModoApoioTecnico({
+      escolaId,
+      solicitacaoId,
+      escolaNome: esc.nomeOficial,
+      escolaOriginalId: escola.id
+    });
+
+    try {
+      dbService.responderSolicitacaoApoioTecnico(
+        solicitacaoId,
+        'Em_Atendimento',
+        currentUser.nomeCompleto,
+        `Sessão de intervenção e apoio técnico iniciada diretamente pelo Administrador Geral às ${new Date().toLocaleTimeString('pt-AO')}.`
+      );
+    } catch {}
+
+    setActiveTab('dashboard');
+  };
+
+  const handleEncerrarModoApoio = () => {
+    if (modoApoioTecnico?.solicitacaoId) {
+      try {
+        dbService.responderSolicitacaoApoioTecnico(
+          modoApoioTecnico.solicitacaoId,
+          'Concluido',
+          currentUser.nomeCompleto,
+          `Intervenção técnica ministerial concluída com sucesso às ${new Date().toLocaleTimeString('pt-AO')}.`
+        );
+      } catch {}
+    }
+
+    const originalEscolaId = modoApoioTecnico?.escolaOriginalId;
+    setModoApoioTecnico(null);
+
+    if (originalEscolaId) {
+      const escOrig = escolas.find(e => e.id === originalEscolaId);
+      if (escOrig) {
+        dbService.setEscolaAtiva(originalEscolaId);
+        setEscola(escOrig);
+      }
+    }
+    setActiveTab('apoio_tecnico');
+  };
+
+  const handleMarcarMensagemLida = (id: string) => {
+    dbService.marcarMensagemLida(id);
+    setMensagens(dbService.obterMensagens());
+  };
+
+  const handleMarcarTodasMensagensLidas = () => {
+    dbService.marcarTodasMensagensLidas(escola.id);
+    setMensagens(dbService.obterMensagens());
+  };
+
   // Verificação de permissão de acesso à aba ativa (inclui apoio técnico para Admin Geral, delegações financeiras e comissões de júri)
   const isMembroJuriAtivo = juris.some(j => 
     j.escolaId === escola.id && 
@@ -812,16 +894,18 @@ export default function App() {
     (j.membros?.some(m => m.usuarioId === currentUser.id) || j.presidenteId === currentUser.id || j.secretarioId === currentUser.id)
   );
 
-  const temSessaoApoioAdminGeral = currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva);
+  const temSessaoApoioAdminGeral = Boolean(modoApoioTecnico) || (currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva));
   const temDelegacaoCobranca = dbService.getDelegacoesCobranca(escola.id).some(d => d.funcionarioId === currentUser.id && d.ativo);
 
   const isAbaPermitida = 
-    currentUser.role === 'AdminGeral' && activeTab === 'comissao_juri'
-      ? false // Administrador geral não precisa ver comissões de júri
-      : (temSessaoApoioAdminGeral // Admin Geral em apoio técnico tem acesso aos outros módulos
-        || (activeTab === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
-        || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
-        || allowedTabsPorRole[currentUser.role]?.includes(activeTab));
+    Boolean(modoApoioTecnico)
+      ? true // No modo de apoio técnico o Administrador Geral possui acesso irrestrito a todos os menus do Diretor Geral da escola
+      : (currentUser.role === 'AdminGeral' && activeTab === 'comissao_juri'
+        ? false // Administrador geral não precisa ver comissões de júri
+        : (temSessaoApoioAdminGeral // Admin Geral em apoio técnico tem acesso aos outros módulos
+          || (activeTab === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
+          || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
+          || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
   // 1. Verificação Primária: Se não houver Administrador Geral configurado no sistema,
   // mostra PRIMEIRO a página de configuração inicial do sistema para o cadastro do administrador geral.
@@ -877,7 +961,7 @@ export default function App() {
         anosLectivos={anosLectivos}
         onSelectAnoLectivo={handleSelectAnoLectivo}
         onSelectTrimestre={handleSelectTrimestre}
-        currentUser={currentUser}
+        currentUser={effectiveUser}
         integrity={integrity}
         mobileMenuOpen={mobileMenuOpen}
         setMobileMenuOpen={setMobileMenuOpen}
@@ -888,30 +972,33 @@ export default function App() {
         onOpenSecurityEngine={() => setShowSecurityModal(true)}
       />
 
-      {/* Banner de Sessão de Apoio Técnico Autorizada pelo Diretor Geral */}
-      {currentUser.role === 'AdminGeral' && escola.sessaoApoioTecnicoAtiva && (
-        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white px-4 py-2.5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-2 z-30 no-print border-b border-amber-500">
-          <div className="flex items-center space-x-2.5">
-            <ShieldCheck className="h-5 w-5 shrink-0 text-amber-200" />
+      {/* Banner de Sessão de Apoio Técnico Ativa (Admin Geral no papel de Diretor Geral da Escola) */}
+      {(modoApoioTecnico || (currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva))) && (
+        <div className="bg-gradient-to-r from-amber-600 via-indigo-950 to-slate-900 text-white px-4 py-3 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 z-30 no-print border-b-2 border-amber-400 sticky top-0">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-amber-500/20 rounded-xl border border-amber-300/40 shrink-0">
+              <LifeBuoy className="h-5 w-5 text-amber-300 animate-spin-slow" />
+            </div>
             <div>
-              <span className="text-xs font-black block">
-                Sessão de Apoio Técnico Autorizada · {escola.nomeOficial}
-              </span>
-              <span className="text-[11px] text-amber-100">
-                Chamado #{escola.sessaoApoioTecnicoAtiva.solicitacaoId.slice(-6)} · Motivo: {escola.sessaoApoioTecnicoAtiva.motivo} · Ações averbadas no Log do Diretor
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-300 block">
+                  🛠️ Sessão de Apoio Técnico Ativa · Acesso Direto como Diretor Geral
+                </span>
+                <span className="text-[10px] bg-amber-400 text-gray-950 px-2 py-0.5 rounded-full font-black">
+                  SEM NECESSIDADE DE CREDENCIAIS
+                </span>
+              </div>
+              <span className="text-xs text-amber-100 block mt-0.5">
+                Instituição: <strong>{modoApoioTecnico?.escolaNome || escola.nomeOficial}</strong> · Menus pedagógicos, turmas, pautas e configurações desbloqueados.
               </span>
             </div>
           </div>
           <button
-            onClick={() => {
-              dbService.encerrarSessaoApoioTecnico(escola.id, currentUser);
-              setEscolas(dbService.getEscolas());
-              setEscola(dbService.getEscolaAtiva());
-              setActiveTab('admin_escolas');
-            }}
-            className="px-3 py-1.5 bg-white text-amber-950 font-bold text-xs rounded-xl hover:bg-amber-50 shadow-2xs transition-colors shrink-0 self-end sm:self-auto cursor-pointer"
+            onClick={handleEncerrarModoApoio}
+            className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-gray-950 font-black text-xs rounded-xl shadow-md transition-all shrink-0 self-end sm:self-auto cursor-pointer flex items-center space-x-1.5"
           >
-            Encerrar Apoio & Sair da Escola
+            <LogOut className="w-3.5 h-3.5 text-gray-950" />
+            <span>Encerrar Apoio & Retornar ao DTI</span>
           </button>
         </div>
       )}
@@ -922,10 +1009,10 @@ export default function App() {
         <Sidebar
           activeTab={activeTab}
           onTabChange={(tab) => setActiveTab(tab)}
-          userRole={currentUser.role}
+          userRole={effectiveUser.role}
           mobileMenuOpen={mobileMenuOpen}
           setMobileMenuOpen={setMobileMenuOpen}
-          currentUser={currentUser}
+          currentUser={effectiveUser}
           onLogout={handleLogout}
         />
 
@@ -1153,12 +1240,14 @@ export default function App() {
               {(activeTab === 'biblioteca' || activeTab === 'comunicacao') && (
                 <CommunicationLibraryView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                   funcionarios={funcionarios}
                   mensagens={mensagens}
                   livros={livros}
                   onEnviarMensagem={handleEnviarMensagem}
                   onAdicionarLivro={handleAdicionarLivro}
+                  onMarcarComoLida={handleMarcarMensagemLida}
+                  onMarcarTodasComoLidas={handleMarcarTodasMensagensLidas}
                 />
               )}
 
@@ -1166,7 +1255,7 @@ export default function App() {
               {activeTab === 'patrimonio' && (
                 <PatrimonyView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                 />
               )}
 
@@ -1174,7 +1263,7 @@ export default function App() {
               {(activeTab === 'usuarios_perfis' || activeTab === 'configuracoes' || activeTab === 'auditoria_logs' || activeTab === 'auditoria' || activeTab === 'backup_restauro' || activeTab === 'sistema' || activeTab === 'formulas_notas') && (
                 <SystemAuditBackupView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                   logs={logs}
                   alunos={alunos}
                   funcionarios={funcionarios}
@@ -1196,11 +1285,17 @@ export default function App() {
               {activeTab === 'apoio_tecnico' && (
                 <TechnicalSupportView
                   escola={escola}
+                  escolas={escolas}
                   currentUser={currentUser}
                   onEscolaInspecionada={(escId: string) => {
                     handleSelectEscola(escId);
                     setActiveTab('dashboard');
                   }}
+                  onSelecionarEscolaParaApoio={(escId: string) => {
+                    handleSelectEscola(escId);
+                    setActiveTab('dashboard');
+                  }}
+                  onIniciarApoioTecnico={handleIniciarApoioTecnico}
                 />
               )}
 

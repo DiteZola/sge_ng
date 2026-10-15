@@ -40,7 +40,7 @@ import {
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Escola, Aluno, Turma, Disciplina, NotaTrimestralConsolidada, ComissaoJuri, Funcionario } from '../types';
-import { formatarTextoPorGenero, validarElegibilidadeCertificado } from '../services/macEngine';
+import { formatarTextoPorGenero, validarElegibilidadeCertificado, converterComportamentoParaConceito } from '../services/macEngine';
 import { converterNotaParaExtensoMED, numeroParaExtenso } from '../utils/numberToWords';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
@@ -1130,6 +1130,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <th className="p-1 border-r border-black w-10 text-emerald-800" title="Disciplinas Positivas">Pos.</th>
                   <th className="p-1 border-r border-black w-10 text-red-800" title="Disciplinas Negativas">Neg.</th>
                   <th className="p-1 border-r border-black w-12 bg-gray-200">Média</th>
+                  <th className="p-1 border-r border-black w-24 bg-green-50" title="Somatório / Média das Avaliações Comportamentais dos Professores">Comportamento Geral</th>
                   <th className="p-1 min-w-[110px]">Resultado Final</th>
                 </tr>
               </thead>
@@ -1189,6 +1190,25 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                         <td className="p-1 border-r border-black font-bold text-red-700">{totalNegativas}</td>
                         <td className="p-1 border-r border-black font-bold bg-gray-50">
                           {disciplinasComNota > 0 ? (somaNotas / disciplinasComNota).toFixed(1) : '-'}
+                        </td>
+                        <td className="p-1 border-r border-black font-bold text-[9px] bg-green-50/30">
+                          {(() => {
+                            const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
+                            const notasComp = notasAluno.filter(n => typeof n.comportamentoNota === 'number' && n.comportamentoNota > 0).map(n => n.comportamentoNota);
+                            const mediaComp = notasComp.length > 0 ? (notasComp.reduce((a, b) => a + b, 0) / notasComp.length) : 16;
+                            const conceito = converterComportamentoParaConceito(mediaComp);
+                            return (
+                              <span className={`inline-block px-1.5 py-0.5 rounded font-black ${
+                                conceito === 'Excelente' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                conceito === 'Bom' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
+                                conceito === 'Suficiente' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                                conceito === 'Insuficiente' ? 'bg-orange-100 text-orange-800 border border-orange-300' :
+                                'bg-rose-100 text-rose-800 border border-rose-300'
+                              }`}>
+                                {conceito} ({mediaComp.toFixed(0)}v)
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="p-1 text-center font-bold">
                           {juriTurmaSelecionada ? (

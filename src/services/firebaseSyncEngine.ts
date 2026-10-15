@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import { firestoreDb } from "./firebaseClient";
 import { offlineStorage } from "./offlineStorage";
-import { Funcionario, ConfiguracaoSistema, Escola, Aluno, Turma } from "../types";
+import { Funcionario, ConfiguracaoSistema, Escola, Aluno, Turma, NotaTrimestralConsolidada, SolicitacaoApoioTecnico, Mensagem } from "../types";
 import { comprimirImagemBase64 } from "../utils/imageOptimizer";
 
 export interface SyncStatus {
@@ -30,6 +30,9 @@ const STORAGE_KEYS = {
   ESCOLAS: 'sge_escolas',
   ALUNOS: 'sge_alunos',
   TURMAS: 'sge_turmas',
+  NOTAS: 'sge_notas_consolidadas',
+  SOLICITACOES_APOIO: 'sge_solicitacoes_apoio',
+  MENSAGENS: 'sge_mensagens',
   AUDITORIA: 'sge_auditoria'
 };
 
@@ -511,6 +514,68 @@ class FirebaseSyncEngine {
             } catch {}
           }
         }
+
+        // 5. Sincronizar Alunos
+        const alunosRaw = localStorage.getItem(STORAGE_KEYS.ALUNOS);
+        if (alunosRaw) {
+          const alunos: Aluno[] = JSON.parse(alunosRaw);
+          for (const al of alunos) {
+            try {
+              const alRef = doc(firestoreDb, "alunos", al.id);
+              await setDoc(alRef, al, { merge: true });
+            } catch (alErr) {
+              console.warn('[SGE Firebase Sync] Falha ao enviar aluno:', al.nomeCompleto, alErr);
+            }
+          }
+        }
+
+        // 6. Sincronizar Turmas
+        const turmasRaw = localStorage.getItem(STORAGE_KEYS.TURMAS);
+        if (turmasRaw) {
+          const turmas: Turma[] = JSON.parse(turmasRaw);
+          for (const t of turmas) {
+            try {
+              const tRef = doc(firestoreDb, "turmas", t.id);
+              await setDoc(tRef, t, { merge: true });
+            } catch {}
+          }
+        }
+
+        // 7. Sincronizar Notas Consolidadas
+        const notasRaw = localStorage.getItem(STORAGE_KEYS.NOTAS);
+        if (notasRaw) {
+          const notas: NotaTrimestralConsolidada[] = JSON.parse(notasRaw);
+          for (const n of notas) {
+            try {
+              const nRef = doc(firestoreDb, "notas", n.id);
+              await setDoc(nRef, n, { merge: true });
+            } catch {}
+          }
+        }
+
+        // 8. Sincronizar Solicitações de Apoio Técnico
+        const apoioRaw = localStorage.getItem(STORAGE_KEYS.SOLICITACOES_APOIO);
+        if (apoioRaw) {
+          const apoios: SolicitacaoApoioTecnico[] = JSON.parse(apoioRaw);
+          for (const ap of apoios) {
+            try {
+              const apRef = doc(firestoreDb, "solicitacoes_apoio", ap.id);
+              await setDoc(apRef, ap, { merge: true });
+            } catch {}
+          }
+        }
+
+        // 9. Sincronizar Mensagens & Comunicados
+        const msgRaw = localStorage.getItem(STORAGE_KEYS.MENSAGENS);
+        if (msgRaw) {
+          const msgs: Mensagem[] = JSON.parse(msgRaw);
+          for (const m of msgs) {
+            try {
+              const mRef = doc(firestoreDb, "mensagens", m.id);
+              await setDoc(mRef, { ...m, atualizadoEm: new Date().toISOString() }, { merge: true });
+            } catch {}
+          }
+        }
       }
 
       // Snapshot de redundância no dispositivo (IndexedDB)
@@ -533,6 +598,107 @@ class FirebaseSyncEngine {
         mensagem: 'Dados preservados com segurança no dispositivo. A sincronização com o Firebase será retomada automaticamente.'
       };
     }
+  }
+
+  /**
+   * Grava imediatamente um aluno no Firestore e no dispositivo
+   */
+  public async salvarAluno(aluno: Aluno): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref = doc(firestoreDb, "alunos", aluno.id);
+        await setDoc(ref, { ...aluno, atualizadoEm: new Date().toISOString() }, { merge: true });
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar aluno:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Grava imediatamente uma turma no Firestore
+   */
+  public async salvarTurma(turma: Turma): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref = doc(firestoreDb, "turmas", turma.id);
+        await setDoc(ref, { ...turma, atualizadoEm: new Date().toISOString() }, { merge: true });
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar turma:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Grava imediatamente uma nota consolidada no Firestore
+   */
+  public async salvarNota(nota: NotaTrimestralConsolidada): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref = doc(firestoreDb, "notas", nota.id);
+        await setDoc(ref, { ...nota, atualizadoEm: new Date().toISOString() }, { merge: true });
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar nota:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Grava solicitação de apoio técnico no Firestore
+   */
+  public async salvarSolicitacaoApoio(sol: SolicitacaoApoioTecnico): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref = doc(firestoreDb, "solicitacoes_apoio", sol.id);
+        await setDoc(ref, { ...sol, atualizadoEm: new Date().toISOString() }, { merge: true });
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar apoio técnico:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Grava mensagem interna ou comunicado no Firestore
+   */
+  public async salvarMensagem(msg: Mensagem): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref = doc(firestoreDb, "mensagens", msg.id);
+        await setDoc(ref, { ...msg, atualizadoEm: new Date().toISOString() }, { merge: true });
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar mensagem:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Buscar Administrador Geral remoto no Firestore
+   */
+  public async buscarAdminGeralRemoto(): Promise<Funcionario | null> {
+    if (!this.canUseFirestore() || !firestoreDb) return null;
+    try {
+      const q = query(
+        collection(firestoreDb, "funcionarios"), 
+        where("role", "==", "AdminGeral"), 
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const adminData = snap.docs[0].data() as Funcionario;
+        this.atualizarUsuarioNoDispositivo(adminData);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sge_admin_configured', 'true');
+        }
+        return adminData;
+      }
+    } catch (e) {
+      console.warn('[SGE Firebase Sync] Erro ao buscar Admin Geral remoto:', e);
+    }
+    return null;
   }
 
   public getStatus(): SyncStatus {

@@ -19,8 +19,10 @@ import {
   School,
   ShieldCheck,
   UserCheck,
-  FileText
+  FileText,
+  Trophy
 } from 'lucide-react';
+import { StudentRankingSection } from './StudentRankingSection';
 import {
   getTurmasPorClasse,
   normalizarClasse,
@@ -81,7 +83,7 @@ interface EvaluationMacViewProps {
   onSalvarNota: (nota: NotaEstudante) => void;
   onSalvarNotaConsolidada: (cons: NotaTrimestralConsolidada) => void;
   onSalvarSolicitacao: (sol: SolicitacaoAlteracaoNota) => void;
-  initialSubTab?: 'lancamento' | 'governanca_mac' | 'solicitacoes' | 'pauta';
+  initialSubTab?: 'lancamento' | 'governanca_mac' | 'solicitacoes' | 'pauta' | 'ranking_turmas';
 }
 
 export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
@@ -105,7 +107,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   onSalvarNotaConsolidada,
   onSalvarSolicitacao
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'lancamento' | 'governanca_mac' | 'solicitacoes' | 'pauta'>(initialSubTab || 'lancamento');
+  const [activeSubTab, setActiveSubTab] = useState<'lancamento' | 'governanca_mac' | 'solicitacoes' | 'pauta' | 'ranking_turmas'>(initialSubTab || 'lancamento');
 
   useEffect(() => {
     if (initialSubTab) {
@@ -582,6 +584,43 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     setTimeout(() => setRetificacaoSucessoMsg(null), 5000);
   };
 
+  // Atualização em tempo real do Comportamento do Aluno (0 a 20 valores por cada professor)
+  const handleComportamentoChange = (alunoId: string, valor: number) => {
+    const notasConsolid = [...notasConsolidadas];
+    const idx = notasConsolid.findIndex(c => 
+      c.alunoId === alunoId && 
+      c.disciplinaId === selectedDisciplinaId && 
+      c.trimestre === selectedTrimestre
+    );
+
+    const conceito = converterComportamentoParaConceito(valor);
+    if (idx >= 0) {
+      notasConsolid[idx] = {
+        ...notasConsolid[idx],
+        comportamentoNota: valor,
+        comportamentoConceito: conceito
+      };
+      dbService.salvarNotasConsolidadas(notasConsolid);
+    } else {
+      const nova: NotaTrimestralConsolidada = {
+        id: `nota-consol-${Date.now()}-${alunoId.slice(-4)}`,
+        alunoId,
+        turmaId: selectedTurmaId,
+        disciplinaId: selectedDisciplinaId,
+        trimestre: selectedTrimestre,
+        anoLectivo: escola.anoLectivoActivo,
+        mac: 10,
+        provaTrimestral: 10,
+        mediaTrimestral: 10,
+        comportamentoNota: valor,
+        comportamentoConceito: conceito,
+        faltas: 0,
+        validadaPelaDirecao: false
+      };
+      dbService.salvarNotaConsolidada(nova);
+    }
+  };
+
   // Salvar Regra de Cálculo MAC (Direção)
   const handleSalvarRegraMAC = (e: React.FormEvent) => {
     e.preventDefault();
@@ -673,7 +712,31 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         >
           Pauta Oficial (5 Assinaturas MED)
         </button>
+
+        <button
+          onClick={() => setActiveSubTab('ranking_turmas')}
+          className={`px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-colors border-2 flex items-center space-x-1.5 cursor-pointer ${
+            activeSubTab === 'ranking_turmas'
+              ? 'bg-amber-50 text-amber-900 border-amber-600'
+              : 'text-gray-700 hover:bg-gray-100 border-transparent'
+          }`}
+        >
+          <Trophy className="h-4 w-4 text-amber-600" />
+          <span>{currentUser?.ehProfessor ? 'Ranking das Minhas Turmas' : 'Rankings Académicos'}</span>
+        </button>
       </div>
+
+      {/* 0. RANKINGS ACADÉMICOS & TURMAS DO PROFESSOR */}
+      {activeSubTab === 'ranking_turmas' && (
+        <StudentRankingSection
+          escola={escola}
+          alunos={alunos}
+          turmas={turmas}
+          disciplinas={disciplinas}
+          currentUser={currentUser}
+          isDiretorPanel={isDirecao}
+        />
+      )}
 
       {/* 1. LANÇAMENTO DE NOTAS & AUTONOMIA DO PROFESSOR */}
       {activeSubTab === 'lancamento' && (
@@ -958,9 +1021,26 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                           </td>
 
                           {/* Comportamento 0-20 e Conversão Qualitativa */}
-                          <td className="p-3 bg-green-50/50 border-l border-green-300">
-                            <span className="font-bold text-green-900 text-xs">{compNota}/20</span>
-                            <div className="text-[10px] font-semibold text-green-700">{compConceito}</div>
+                          <td className="p-2.5 bg-green-50/50 border-l border-green-300 text-center">
+                            <div className="flex items-center justify-center space-x-1">
+                              <input
+                                type="number"
+                                min="0"
+                                max="20"
+                                step="1"
+                                value={compNota}
+                                onChange={(e) => {
+                                  const val = Math.max(0, Math.min(20, Math.round(Number(e.target.value) || 0)));
+                                  handleComportamentoChange(aluno.id, val);
+                                }}
+                                className="w-12 text-center text-xs font-black p-1 bg-white border border-green-400 rounded focus:ring-2 focus:ring-green-600 focus:outline-none text-green-950 shadow-2xs"
+                                title="Atribuir nota comportamental de 0 a 20 valores"
+                              />
+                              <span className="text-[10px] text-green-800 font-bold">/20</span>
+                            </div>
+                            <div className="text-[10px] font-bold text-green-800 mt-1 uppercase tracking-wide">
+                              {compConceito}
+                            </div>
                           </td>
 
                           <td className="p-3 text-right space-x-1.5 whitespace-nowrap">

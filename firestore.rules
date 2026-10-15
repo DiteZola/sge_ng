@@ -47,6 +47,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Coleção de Notas Consolidadas e Avaliações
+    match /notas/{notaId} {
+      allow read, write: if true;
+    }
+
+    // Coleção de Solicitações de Apoio Técnico Ministerial
+    match /solicitacoes_apoio/{solId} {
+      allow read, write: if true;
+    }
+
     // Coleção de Teste de Conectividade
     match /test/{docId} {
       allow read, write: if true;

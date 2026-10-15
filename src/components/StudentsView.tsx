@@ -147,6 +147,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   // Modal Novo / Edição de Aluno
   const [showAlunoModal, setShowAlunoModal] = useState(false);
   const [editingAluno, setEditingAluno] = useState<Aluno | null>(null);
+  const [alunoDossieModal, setAlunoDossieModal] = useState<Aluno | null>(null);
 
   // Campos do formulário de matrícula oficial MED Angola
   const [codigoMatricula, setCodigoMatricula] = useState('');
@@ -1713,6 +1714,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               )}
 
               <div className="flex flex-wrap justify-end gap-1.5 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setAlunoDossieModal(aluno)}
+                  className="px-2.5 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                  title="Aceder ao dossiê biográfico e cadastral completo do aluno"
+                >
+                  <FileText className="h-3 w-3 text-indigo-600" />
+                  <span>Dossiê</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -3721,6 +3731,251 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               >
                 Fechar Consulta
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Dossiê e Ficha Cadastral Oficial Completa do Aluno (Normas MED) */}
+      {alunoDossieModal && (
+        <div className="fixed inset-0 bg-gray-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto print:p-0 print:bg-white">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 sm:p-8 border border-gray-200 shadow-2xl space-y-6 my-6 max-h-[92vh] overflow-y-auto print:max-h-none print:shadow-none print:border-none print:my-0">
+            {/* Header de Ações no Topo (Oculto na Impressão) */}
+            <div className="flex items-center justify-between border-b pb-4 border-gray-200 print:hidden">
+              <div className="flex items-center space-x-2 text-indigo-700">
+                <FileText className="w-6 h-6" />
+                <h3 className="text-base font-extrabold text-gray-900">
+                  Dossiê Oficial e Ficha Biográfica do Estudante
+                </h3>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir Dossiê (PDF)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAlunoDossieModal(null)}
+                  className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  ✕ Fechar
+                </button>
+              </div>
+            </div>
+
+            {/* Cabeçalho Oficial da República de Angola */}
+            <div className="text-center space-y-1.5 border-b-2 border-gray-900 pb-4">
+              <div className="flex justify-center">
+                <InsigniaAngola className="h-14 w-14" />
+              </div>
+              <div className="text-xs font-black uppercase tracking-widest text-gray-900">
+                República de Angola
+              </div>
+              <div className="text-xs font-bold uppercase tracking-wider text-gray-800">
+                Governo Provincial de Luanda • Ministério da Educação
+              </div>
+              <div className="text-sm font-black text-gray-950 uppercase mt-1">
+                {escola.nomeOficial}
+              </div>
+              <div className="inline-block mt-2 px-4 py-1 bg-gray-900 text-white rounded-md text-xs font-black uppercase tracking-wider">
+                Ficha Individual & Dossiê Biográfico do Aluno
+              </div>
+            </div>
+
+            {/* Identificação Geral com Foto */}
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="shrink-0 text-center">
+                {alunoDossieModal.fotoUrl ? (
+                  <img
+                    src={alunoDossieModal.fotoUrl}
+                    alt={alunoDossieModal.nomeCompleto}
+                    className="w-28 h-32 rounded-xl object-cover border-2 border-gray-300 shadow-sm mx-auto"
+                  />
+                ) : (
+                  <div className="w-28 h-32 rounded-xl bg-indigo-100 border-2 border-dashed border-indigo-300 flex flex-col items-center justify-center text-indigo-700 mx-auto">
+                    <UserCheck className="w-10 h-10 opacity-70 mb-1" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Foto 3x4</span>
+                  </div>
+                )}
+                <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                  alunoDossieModal.estado === 'Ativo' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {alunoDossieModal.estado}
+                </span>
+              </div>
+
+              <div className="flex-1 space-y-2 text-xs w-full">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Nome Completo do Aluno</span>
+                  <div className="text-base font-black text-gray-950">{alunoDossieModal.nomeCompleto}</div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Nº de Matrícula</span>
+                    <div className="font-mono font-bold text-gray-900">{alunoDossieModal.codigoMatricula}</div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Nº do Processo</span>
+                    <div className="font-mono font-bold text-gray-900">{alunoDossieModal.numeroProcesso || alunoDossieModal.codigoMatricula}</div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Ano de Ingresso</span>
+                    <div className="font-bold text-gray-900">{alunoDossieModal.anoMatricula || '2024/2025'}</div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Turma Ativa</span>
+                    <div className="font-bold text-gray-900">
+                      {turmas.find(t => t.id === alunoDossieModal.turmaId)?.nome || 'Turma A'}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Classe Curricular</span>
+                    <div className="font-bold text-gray-900">
+                      {turmas.find(t => t.id === alunoDossieModal.turmaId)?.classe || alunoDossieModal.classeId || '7ª Classe'}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Turno / Período</span>
+                    <div className="font-bold text-gray-900">
+                      {turmas.find(t => t.id === alunoDossieModal.turmaId)?.periodo || alunoDossieModal.periodo || 'Manhã'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Seção 1: Identificação Civil e Dados Pessoais */}
+            <div className="space-y-2">
+              <div className="border-b border-gray-300 pb-1 flex items-center space-x-2">
+                <FileText className="w-4 h-4 text-indigo-700" />
+                <h4 className="text-xs font-black text-gray-900 uppercase tracking-wide">
+                  1. Identificação Civil & Naturalidade
+                </h4>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50 p-3 rounded-lg text-xs">
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Tipo de Documento:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.tipoDocumento || 'Bilhete de Identidade (BI)'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Nº do Documento:</span>
+                  <strong className="text-gray-900 font-mono">{alunoDossieModal.numeroDocumento || 'Pendente'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Local de Emissão:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.arquivoIdentificacao || 'Arquivo de Identificação de Luanda'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Data de Emissão:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.dataEmissaoBI ? new Date(alunoDossieModal.dataEmissaoBI).toLocaleDateString('pt-AO') : 'Não averbada'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Data de Nascimento:</span>
+                  <strong className="text-gray-900">
+                    {alunoDossieModal.dataNascimento ? new Date(alunoDossieModal.dataNascimento).toLocaleDateString('pt-AO') : 'Não averbada'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Idade:</span>
+                  <strong className="text-gray-900">
+                    {alunoDossieModal.dataNascimento 
+                      ? Math.max(5, Math.floor((new Date().getTime() - new Date(alunoDossieModal.dataNascimento).getTime()) / (365.25 * 24 * 60 * 60 * 1000)))
+                      : 14} anos
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Género:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.genero === 'M' ? 'Masculino' : 'Feminino'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Naturalidade:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.naturalidade || 'Luanda'} ({alunoDossieModal.municipioNascimento || 'Luanda'})</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Seção 2: Filiação e Família */}
+            <div className="space-y-2">
+              <div className="border-b border-gray-300 pb-1 flex items-center space-x-2">
+                <Users className="w-4 h-4 text-indigo-700" />
+                <h4 className="text-xs font-black text-gray-900 uppercase tracking-wide">
+                  2. Filiação & Encarregados de Educação
+                </h4>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg text-xs">
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Filho de (Pai):</span>
+                  <strong className="text-gray-900">{alunoDossieModal.nomePai || 'Não declarado'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">E de (Mãe):</span>
+                  <strong className="text-gray-900">{alunoDossieModal.nomeMae || 'Não declarado'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Encarregado de Educação:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.nomeEncarregado || alunoDossieModal.nomePai || 'Pendente'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Grau de Parentesco / Profissão:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.encarregadoParentesco || 'Pai'} • {alunoDossieModal.encarregadoProfissao || 'Funcionário'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Contacto Telefónico:</span>
+                  <strong className="text-gray-900 font-mono">{alunoDossieModal.telefoneEncarregado || '+244 923 000 000'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Morada de Residência / Bairro:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.endereco || 'Município de Luanda, Bairro Central'}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Seção 3: Ficha Médica e de Saúde */}
+            <div className="space-y-2">
+              <div className="border-b border-gray-300 pb-1 flex items-center space-x-2">
+                <HeartPulse className="w-4 h-4 text-rose-600" />
+                <h4 className="text-xs font-black text-gray-900 uppercase tracking-wide">
+                  3. Ficha Médica & Dados de Saúde
+                </h4>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-rose-50/50 p-3 rounded-lg text-xs border border-rose-200">
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Grupo Sanguíneo:</span>
+                  <strong className="text-rose-900 font-extrabold">{alunoDossieModal.grupoSanguineo || 'Não testado'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Alergias Declaradas:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.alergias || 'Nenhuma alergia registada'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Doenças Crónicas:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.doencasCronicas || 'Nenhuma'}</strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Necessidades Especiais (NEE):</span>
+                  <strong className="text-gray-900">{alunoDossieModal.necessidadesEspeciais || 'Nenhuma'}</strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Assinaturas Oficiais para Impressão */}
+            <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-2 gap-8 text-center text-xs">
+              <div className="space-y-8">
+                <p className="font-bold text-gray-700">O(A) Chefe da Secretaria Pedagógica</p>
+                <div className="border-b border-gray-900 w-48 mx-auto" />
+                <p className="text-[10px] text-gray-500 uppercase">Assinatura e Carimbo Oficial</p>
+              </div>
+
+              <div className="space-y-8">
+                <p className="font-bold text-gray-700">O(A) Diretor(a) Geral da Instituição</p>
+                <div className="border-b border-gray-900 w-48 mx-auto" />
+                <p className="text-[10px] text-gray-500 uppercase">Visto Ministerial & Homologação</p>
+              </div>
             </div>
           </div>
         </div>

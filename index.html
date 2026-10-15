@@ -28,24 +28,25 @@
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
-
-    <!-- Inicializador e Redirecionamento Automático para GitHub Pages se for HTML raiz não-compilado -->
     <script>
-      (function() {
-        var isLocal = window.location.hostname === 'localhost' || 
-                      window.location.hostname === '127.0.0.1' || 
-                      (window.location.port !== '' && window.location.port !== '80' && window.location.port !== '443');
-        
-        // Se este documento for o HTML bruto da raiz (sem bundle compilado em assets/) no GitHub Pages
-        var isCompiled = Boolean(document.querySelector('script[src*="assets/"]'));
-        if (!isCompiled && !isLocal && !window.location.pathname.includes('/docs/')) {
-          var cleanPath = window.location.pathname.replace(/\/index\.html$/, '');
-          if (!cleanPath.endsWith('/')) {
-            cleanPath += '/';
+      // Failsafe: se por qualquer motivo o carregamento demorar mais de 3.5s, oferece botão de desbloqueio imediato
+      setTimeout(function() {
+        var loader = document.getElementById('sge-loader');
+        if (loader && loader.parentNode) {
+          var emergencyDiv = document.getElementById('sge-emergency-action');
+          if (!emergencyDiv) {
+            emergencyDiv = document.createElement('div');
+            emergencyDiv.id = 'sge-emergency-action';
+            emergencyDiv.style.cssText = 'margin-top: 24px; text-align: center;';
+            emergencyDiv.innerHTML = '<button id="btn-force-start" style="padding: 10px 22px; background: #2563eb; color: #fff; border: 1px solid #60a5fa; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s;">Iniciar Aplicação Agora</button><div style="font-size: 11px; color: #94a3b8; margin-top: 8px;">Caso a rede esteja lenta, clique para inicializar diretamente.</div>';
+            loader.appendChild(emergencyDiv);
+            document.getElementById('btn-force-start').onclick = function() {
+              sessionStorage.setItem('sge_force_mount', 'true');
+              window.location.reload();
+            };
           }
-          window.location.replace(cleanPath + 'docs/' + window.location.search + window.location.hash);
         }
-      })();
+      }, 3000);
     </script>
   </body>
 </html>
