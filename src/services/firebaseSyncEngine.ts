@@ -120,10 +120,32 @@ class FirebaseSyncEngine {
     const termo = identificador.trim().toLowerCase();
     if (!termo) return null;
 
+    const isAdminKeyword = termo === 'admin' || termo === 'admin.geral' || termo === 'admingeral' || termo === 'superadmin' || termo === 'administrador';
+
     // 1. Tentar busca no Firebase (Online)
     if (this.canUseFirestore() && firestoreDb) {
       try {
         const funcsRef = collection(firestoreDb, "funcionarios");
+        const usersRef = collection(firestoreDb, "users");
+
+        // Se o utilizador escreveu um termo de administrador
+        if (isAdminKeyword) {
+          const qAdmin = query(funcsRef, where("role", "==", "AdminGeral"), limit(1));
+          const snapAdmin = await getDocs(qAdmin);
+          if (!snapAdmin.empty) {
+            const userFromFirebase = snapAdmin.docs[0].data() as Funcionario;
+            this.atualizarUsuarioNoDispositivo(userFromFirebase);
+            return userFromFirebase;
+          }
+
+          const qAdminUsers = query(usersRef, where("role", "==", "AdminGeral"), limit(1));
+          const snapAdminUsers = await getDocs(qAdminUsers);
+          if (!snapAdminUsers.empty) {
+            const userFromFirebase = snapAdminUsers.docs[0].data() as Funcionario;
+            this.atualizarUsuarioNoDispositivo(userFromFirebase);
+            return userFromFirebase;
+          }
+        }
 
         // Buscar por email
         let q = query(funcsRef, where("email", "==", termo), limit(1));
@@ -150,7 +172,6 @@ class FirebaseSyncEngine {
         }
 
         // Tentar também coleção alternativa "users"
-        const usersRef = collection(firestoreDb, "users");
         let q2 = query(usersRef, where("email", "==", termo), limit(1));
         let snap2 = await getDocs(q2);
         if (snap2.empty) {
@@ -189,10 +210,17 @@ class FirebaseSyncEngine {
       const funcs: Funcionario[] = JSON.parse(raw);
       if (!Array.isArray(funcs)) return null;
 
+      // Se termo for termo de admin, prioriza o AdminGeral ativo
+      if (termo === 'admin' || termo === 'admin.geral' || termo === 'admingeral' || termo === 'superadmin' || termo === 'administrador') {
+        const adminFound = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
+        if (adminFound) return adminFound;
+      }
+
       const found = funcs.find(f => 
         (f.email && f.email.toLowerCase() === termo) ||
         (f.numeroBI && f.numeroBI.toLowerCase() === termo) ||
         (f.nomeCompleto && f.nomeCompleto.toLowerCase() === termo) ||
+        (f.nomeCompleto && f.nomeCompleto.toLowerCase().includes(termo)) ||
         (f.id && f.id.toLowerCase() === termo)
       );
 
@@ -676,6 +704,104 @@ class FirebaseSyncEngine {
   }
 
   /**
+   * Grava imediatamente uma escola no Firestore e no dispositivo
+   */
+  public async salvarEscola(escola: Escola): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref1 = doc(firestoreDb, "escolas", escola.id);
+        const ref2 = doc(firestoreDb, "schools", escola.id);
+        const payload = { ...escola, atualizadoEm: new Date().toISOString() };
+        await Promise.allSettled([
+          setDoc(ref1, payload, { merge: true }),
+          setDoc(ref2, payload, { merge: true })
+        ]);
+        console.log('[SGE Firebase Sync] Escola sincronizada com Firestore:', escola.nomeOficial);
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar escola:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Remove uma escola do Firestore
+   */
+  public async eliminarEscola(id: string): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        await Promise.allSettled([
+          deleteDoc(doc(firestoreDb, "escolas", id)),
+          deleteDoc(doc(firestoreDb, "schools", id))
+        ]);
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao eliminar escola no Firestore:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Grava imediatamente uma disciplina no Firestore
+   */
+  public async salvarDisciplina(disc: any): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const ref = doc(firestoreDb, "disciplinas", disc.id);
+        await setDoc(ref, { ...disc, atualizadoEm: new Date().toISOString() }, { merge: true });
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao sincronizar disciplina:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Remove uma disciplina do Firestore
+   */
+  public async eliminarDisciplina(id: string): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        await deleteDoc(doc(firestoreDb, "disciplinas", id));
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao eliminar disciplina:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Remove uma turma do Firestore
+   */
+  public async eliminarTurma(id: string): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        await deleteDoc(doc(firestoreDb, "turmas", id));
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao eliminar turma:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Remove um aluno do Firestore
+   */
+  public async excluirAluno(id: string): Promise<boolean> {
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        await Promise.allSettled([
+          deleteDoc(doc(firestoreDb, "alunos", id)),
+          deleteDoc(doc(firestoreDb, "students", id))
+        ]);
+      } catch (e) {
+        console.warn('[SGE Firebase Sync] Erro ao eliminar aluno no Firestore:', e);
+      }
+    }
+    return true;
+  }
+
+  /**
    * Buscar Administrador Geral remoto no Firestore
    */
   public async buscarAdminGeralRemoto(): Promise<Funcionario | null> {
@@ -692,6 +818,23 @@ class FirebaseSyncEngine {
         this.atualizarUsuarioNoDispositivo(adminData);
         if (typeof window !== 'undefined') {
           localStorage.setItem('sge_admin_configured', 'true');
+          localStorage.setItem('sge_setup_inicial_concluido', 'true');
+        }
+        return adminData;
+      }
+
+      const q2 = query(
+        collection(firestoreDb, "users"), 
+        where("role", "==", "AdminGeral"), 
+        limit(1)
+      );
+      const snap2 = await getDocs(q2);
+      if (!snap2.empty) {
+        const adminData = snap2.docs[0].data() as Funcionario;
+        this.atualizarUsuarioNoDispositivo(adminData);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('sge_admin_configured', 'true');
+          localStorage.setItem('sge_setup_inicial_concluido', 'true');
         }
         return adminData;
       }

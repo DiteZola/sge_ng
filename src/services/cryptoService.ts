@@ -53,14 +53,10 @@ class CryptoService {
     }
 
     try {
-      // Recupera ou cria um salt persistente institucional
-      let saltStr = localStorage.getItem(MASTER_KEY_STORAGE_KEY);
-      if (!saltStr) {
-        saltStr = Array.from(window.crypto.getRandomValues(new Uint8Array(16)))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-        localStorage.setItem(MASTER_KEY_STORAGE_KEY, saltStr);
-      }
+      // Salt institucional determinístico para garantir que contas e credenciais cifradas
+      // sejam decifradas com consistência em qualquer dispositivo e após qualquer sessão
+      const saltStr = 'SGE-NG-ANGOLA-MED-SALT-2025-SYSTEM';
+      localStorage.setItem(MASTER_KEY_STORAGE_KEY, saltStr);
 
       const enc = new TextEncoder();
       const saltBytes = enc.encode(saltStr + SYSTEM_MASTER_SALT);
@@ -292,7 +288,7 @@ class CryptoService {
    */
   public async protegerCamposSensiveis<T extends Record<string, any>>(
     registro: T, 
-    camposSensiveis: string[] = ['password', 'numeroBI', 'ibanEscola', 'valorKz', 'valorTotalKz']
+    camposSensiveis: string[] = ['password', 'ibanEscola', 'valorKz', 'valorTotalKz']
   ): Promise<T> {
     if (!registro || typeof registro !== 'object') return registro;
 
@@ -313,7 +309,7 @@ class CryptoService {
    */
   public async restaurarCamposSensiveis<T extends Record<string, any>>(
     registro: T,
-    camposSensiveis: string[] = ['password', 'numeroBI', 'ibanEscola', 'valorKz', 'valorTotalKz']
+    camposSensiveis: string[] = ['password', 'ibanEscola', 'valorKz', 'valorTotalKz']
   ): Promise<T> {
     if (!registro || typeof registro !== 'object') return registro;
 

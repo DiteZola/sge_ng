@@ -59,3 +59,28 @@ export function verificarIntegridadeSistema(): SystemIntegrityStatus {
     ultimaSincronizacao: new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })
   };
 }
+
+/**
+ * Operação atômica e resiliente de gravação no Firestore com logging robusto e tolerância a falhas.
+ */
+export async function firestoreWriteWithLogging(
+  colecao: string,
+  id: string,
+  dados: Record<string, any>,
+  merge: boolean = true
+): Promise<boolean> {
+  if (!firestoreDb) {
+    console.warn(`[Firestore Offline] '${colecao}/${id}' guardado apenas no dispositivo.`);
+    return false;
+  }
+  try {
+    const { doc, setDoc } = await import("firebase/firestore");
+    const docRef = doc(firestoreDb, colecao, id);
+    await setDoc(docRef, { ...dados, atualizadoEm: new Date().toISOString() }, { merge });
+    console.log(`[Firestore Write OK] Gravado '${colecao}/${id}' com sucesso.`);
+    return true;
+  } catch (err: any) {
+    console.error(`[Firestore Write ERROR] Falha ao gravar em '${colecao}/${id}':`, err?.message || err);
+    return false;
+  }
+}

@@ -45,7 +45,7 @@ import { converterNotaParaExtensoMED, numeroParaExtenso } from '../utils/numberT
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { DocumentTemplateConfigModal } from './DocumentTemplateConfigModal';
 
 export type DocumentType = 
@@ -300,7 +300,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   };
 
   const handlePrint = () => {
-    handleBaixarPDF();
+    const el = document.getElementById('documento-para-impressao');
+    if (el) {
+      imprimirElementoDiretamente(el, `${docType.toUpperCase()} - ${escola.nomeOficial}`);
+    } else {
+      handleBaixarPDF();
+    }
   };
 
   const handleBaixarHTML = () => {

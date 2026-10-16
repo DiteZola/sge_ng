@@ -147,12 +147,22 @@ export default function App() {
   // Listener para status online/offline e verificação do Administrador Geral
   useEffect(() => {
     const verificarAdmin = async () => {
+      // Verifica primeiro o estado local
+      const localExiste = dbService.temAdminGeral();
+      if (localExiste) {
+        setTemAdminGeral(true);
+      }
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        const res = await dbService.verificarAdminGeralOnline();
-        if (!res.existe) {
-          setTemAdminGeral(false);
-        } else {
-          setTemAdminGeral(true);
+        try {
+          const res = await dbService.verificarAdminGeralOnline();
+          if (res.existe) {
+            setTemAdminGeral(true);
+            setFuncionarios(dbService.obterFuncionarios());
+          } else if (!localExiste) {
+            setTemAdminGeral(false);
+          }
+        } catch {
+          // Mantém estado local caso a rede falhe
         }
       }
     };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Building2,
   LayoutDashboard, 
@@ -33,7 +33,8 @@ import {
   CreditCard,
   Calculator,
   MessageSquare,
-  BarChart3
+  BarChart3,
+  Search
 } from 'lucide-react';
 import { UserRole, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -407,6 +408,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   ];
 
+  const [filtroMenu, setFiltroMenu] = useState('');
+
   const handleSelect = (tab: NavTab) => {
     onTabChange(tab);
     setMobileMenuOpen(false);
@@ -429,6 +432,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
         transition-transform duration-200 ease-in-out no-print
         ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
+        {/* Barra de Pesquisa Rápida de Módulos */}
+        <div className="p-2.5 pb-0 border-b border-gray-100 bg-white">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
+            <input
+              type="text"
+              value={filtroMenu}
+              onChange={(e) => setFiltroMenu(e.target.value)}
+              placeholder="Pesquisar módulo ou menu..."
+              className="w-full pl-8 pr-7 py-1.5 bg-gray-50 hover:bg-gray-100/70 focus:bg-white border border-gray-200 rounded-lg text-xs placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all font-medium"
+            />
+            {filtroMenu && (
+              <button
+                type="button"
+                onClick={() => setFiltroMenu('')}
+                className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-700 text-xs font-bold px-1"
+                title="Limpar pesquisa"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="p-3 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
           {menuGrupos.map((grupo) => {
             const escolaAtiva = dbService.getEscolaAtiva();
@@ -450,6 +477,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ];
 
             const itensPermitidos = grupo.items.filter(item => {
+              // Filtro por texto digitado na pesquisa
+              if (filtroMenu.trim()) {
+                const termo = filtroMenu.toLowerCase().trim();
+                const bateu = item.label.toLowerCase().includes(termo) || 
+                              (item.badge && item.badge.toLowerCase().includes(termo)) ||
+                              grupo.categoria.toLowerCase().includes(termo);
+                if (!bateu) return false;
+              }
+
               // 1. Regra MED: Admin Geral sem Pedido de Apoio Técnico Ativo só vê menus da administração dele
               if (userRole === 'AdminGeral') {
                 // Norma do Sistema: Administrador Geral não precisa ver comissões de júri

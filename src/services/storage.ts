@@ -2494,10 +2494,12 @@ export const dbService = {
     if (idx >= 0) escolas[idx] = escola;
     else escolas.push(escola);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    firebaseSyncEngine.salvarEscola(escola);
     dbService.registarLog('Atualização da Instituição', `Dados da escola ${escola.nomeOficial} atualizados.`);
   },
   salvarEscolas: (escolas: Escola[]) => {
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    escolas.forEach(e => firebaseSyncEngine.salvarEscola(e));
   },
 
   // Operações do Administrador Geral: Criar, Suspender, Reativar, Eliminar Escolas
@@ -2532,6 +2534,7 @@ export const dbService = {
     };
     escolas.push(novaEscola);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    firebaseSyncEngine.salvarEscola(novaEscola);
     dbService.registarLog('Criação de Escola', `Escola "${novaEscola.nomeOficial}" criada no sistema pelo Administrador Geral.`);
     return novaEscola;
   },
@@ -2549,6 +2552,7 @@ export const dbService = {
     };
     escolas[idx] = esc;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    firebaseSyncEngine.salvarEscola(esc);
     dbService.registarLog('Suspensão de Escola', `Escola "${esc.nomeOficial}" suspensa pelo Administrador Geral. Motivo: ${motivo}`);
     return esc;
   },
@@ -2566,6 +2570,7 @@ export const dbService = {
     };
     escolas[idx] = esc;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    firebaseSyncEngine.salvarEscola(esc);
     dbService.registarLog('Reativação de Escola', `Escola "${esc.nomeOficial}" reativada com sucesso pelo Administrador Geral.`);
     return esc;
   },
@@ -2580,6 +2585,7 @@ export const dbService = {
     };
     escolas[idx] = atualizada;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    firebaseSyncEngine.salvarEscola(atualizada);
 
     dbService.registarLog('Edição de Escola', `Dados institucionais da escola "${atualizada.nomeOficial}" atualizados pelo Administrador Geral.`);
     return atualizada;
@@ -2591,6 +2597,7 @@ export const dbService = {
     if (!esc) return false;
     escolas = escolas.filter(e => e.id !== escolaId);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    firebaseSyncEngine.eliminarEscola(escolaId);
 
     const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
     if (idAtivo === escolaId && escolas.length > 0) {
@@ -3423,14 +3430,16 @@ export const dbService = {
   // ==========================================
   temAdminGeral: (): boolean => {
     if (typeof window === 'undefined') return false;
-    const adminConfigurado = localStorage.getItem('sge_admin_configured') === 'true';
-    // Se o Administrador Geral ainda não foi configurado pelo utilizador, retorna rigorosamente falso
-    if (!adminConfigurado) {
-      return false;
-    }
     const funcs = dbService.getFuncionarios();
     const adminAtivo = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
-    return !!adminAtivo;
+    if (adminAtivo) {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_admin_configured') !== 'true') {
+        localStorage.setItem('sge_admin_configured', 'true');
+        setLocal(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, true);
+      }
+      return true;
+    }
+    return localStorage.getItem('sge_admin_configured') === 'true';
   },
 
   verificarAdminGeralOnline: async (): Promise<{
@@ -3494,11 +3503,11 @@ export const dbService = {
     const novoAdmin: Funcionario = {
       id: adminId,
       escolaId: 'todas',
-      nomeCompleto: dadosAdmin.nomeCompleto || 'Dr. Eng. Alberto Domingos Kwanza',
+      nomeCompleto: dadosAdmin.nomeCompleto?.trim() || 'Dr. Eng. Alberto Domingos Kwanza',
       genero: dadosAdmin.genero || 'M',
-      numeroBI: dadosAdmin.numeroBI || '001928374LA049',
-      telefone: dadosAdmin.telefone || '+244 923 000 111',
-      email: dadosAdmin.email || 'admin.geral@sge.med.gov.ao',
+      numeroBI: (dadosAdmin.numeroBI?.trim() || '001928374LA049').toUpperCase(),
+      telefone: dadosAdmin.telefone?.trim() || '+244 923 000 111',
+      email: (dadosAdmin.email?.trim() || 'admin.geral@sge.med.gov.ao').toLowerCase(),
       cargo: 'Administrador Geral do Sistema',
       ehProfessor: false,
       ehAdministrativoQueLeciona: false,
@@ -3537,8 +3546,14 @@ export const dbService = {
     setLocal(STORAGE_KEYS.SETUP_MASTER_LOCK, true);
     localStorage.setItem('sge_admin_configured', 'true');
     dbService.setCurrentUser(novoAdmin);
-    // Persistência imediata no Firebase Firestore e no dispositivo
-    firebaseSyncEngine.salvarPerfilUsuario(novoAdmin);
+    
+    // Persistência com await no Firebase Firestore e no dispositivo
+    try {
+      await firebaseSyncEngine.salvarPerfilUsuario(novoAdmin);
+      console.log('[Setup Inicial] Administrador Geral persistido no Firestore com sucesso.');
+    } catch (syncErr) {
+      console.warn('[Setup Inicial] Falha de rede ao persistir no Firestore, salvo localmente:', syncErr);
+    }
 
     securityEngine.registarEvento({
       categoria: 'AUTENTICACAO',
@@ -3628,6 +3643,7 @@ export const dbService = {
   excluirAluno: (id: string) => {
     const alunos = dbService.getAlunos().filter(a => a.id !== id);
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
+    firebaseSyncEngine.excluirAluno(id);
   },
   confirmarRenovacaoMatricula: (dados: {
     alunoId: string;
@@ -3668,6 +3684,7 @@ export const dbService = {
 
     alunos[idx] = alunoAtualizado;
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
+    firebaseSyncEngine.salvarAluno(alunoAtualizado);
     dbService.registarLog('Confirmação de Matrícula', `Renovação de matrícula do estudante ${aluno.nomeCompleto} para a ${dados.novaClasse}, Turma ${dados.novaTurmaId} (${dados.anoLectivo}).`);
     return alunoAtualizado;
   },
@@ -3693,6 +3710,7 @@ export const dbService = {
     if (!target) return false;
     const filtradas = turmas.filter(t => t.id !== id);
     setLocal(STORAGE_KEYS.TURMAS, filtradas);
+    firebaseSyncEngine.eliminarTurma(id);
     dbService.registarLog('Exclusão de Turma', `Turma "${target.nome}" (${target.classe}) eliminada do sistema.`);
     return true;
   },
@@ -3705,10 +3723,12 @@ export const dbService = {
     if (idx >= 0) discs[idx] = disc;
     else discs.push(disc);
     setLocal(STORAGE_KEYS.DISCIPLINAS, discs);
+    firebaseSyncEngine.salvarDisciplina(disc);
     dbService.registarLog('Disciplina', `Disciplina "${disc.nome}" (${disc.codigo}) guardada.`);
   },
   salvarDisciplinas: (disciplinas: Disciplina[]) => {
     setLocal(STORAGE_KEYS.DISCIPLINAS, disciplinas);
+    disciplinas.forEach(d => firebaseSyncEngine.salvarDisciplina(d));
   },
   eliminarDisciplina: (id: string): boolean => {
     const discs = dbService.getDisciplinas();
@@ -3716,6 +3736,7 @@ export const dbService = {
     if (!target) return false;
     const filtradas = discs.filter(d => d.id !== id);
     setLocal(STORAGE_KEYS.DISCIPLINAS, filtradas);
+    firebaseSyncEngine.eliminarDisciplina(id);
     dbService.registarLog('Exclusão de Disciplina', `Disciplina "${target.nome}" (${target.codigo}) eliminada da grelha curricular.`);
     return true;
   },
@@ -3765,7 +3786,13 @@ export const dbService = {
     if (idx >= 0) funcs[idx] = func;
     else funcs.push(func);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    dbService.registarLog('Gestão de Funcionários', `Funcionário ${func.nomeCompleto} atualizado.`);
+    // Sincronização e persistência no Firebase Firestore e no dispositivo
+    firebaseSyncEngine.salvarPerfilUsuario(func);
+    dbService.registarLog('Gestão de Funcionários', `Funcionário ${func.nomeCompleto} atualizado e sincronizado no Firestore.`);
+  },
+  salvarFuncionarios: (funcs: Funcionario[]) => {
+    setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    funcs.forEach(f => firebaseSyncEngine.salvarPerfilUsuario(f));
   },
 
   // Regras de Cálculo da MAC
