@@ -4,15 +4,15 @@ import appletConfig from "../../firebase-applet-config.json";
 
 // Configuração oficial do projeto SGE-NG integrada com o Cloud Firebase
 export const firebaseConfig = {
-  apiKey: appletConfig.apiKey || "AIzaSyDoCDEYIjvgUcDS00hw6RoET3NgssBH5gk",
-  authDomain: appletConfig.authDomain || "poetic-sun-4gtt6.firebaseapp.com",
-  projectId: appletConfig.projectId || "poetic-sun-4gtt6",
-  storageBucket: appletConfig.storageBucket || "poetic-sun-4gtt6.firebasestorage.app",
-  messagingSenderId: appletConfig.messagingSenderId || "26933016368",
-  appId: appletConfig.appId || "1:26933016368:web:d1c75aa13cbfd78ee07af5"
+  apiKey: appletConfig.apiKey || "AIzaSyC_c7wygc3GgSiWsZgNSZvrh7xnxajK8Do",
+  authDomain: appletConfig.authDomain || "sge4-8b772.firebaseapp.com",
+  projectId: appletConfig.projectId || "sge4-8b772",
+  storageBucket: appletConfig.storageBucket || "sge4-8b772.firebasestorage.app",
+  messagingSenderId: appletConfig.messagingSenderId || "311536152950",
+  appId: appletConfig.appId || "1:311536152950:web:c9d1600e9dad04921b4a57"
 };
 
-const customDatabaseId = appletConfig.firestoreDatabaseId || "ai-studio-sgengsistemadege-e0481ed1-d3d7-455d-9835-a0f827249578";
+const customDatabaseId = appletConfig.firestoreDatabaseId || "(default)";
 
 // Inicialização segura do Firebase e Firestore
 let appInstance: FirebaseApp | null = null;

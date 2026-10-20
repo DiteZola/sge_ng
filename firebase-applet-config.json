@@ -1,12 +1,12 @@
 {
-  "projectId": "poetic-sun-4gtt6",
-  "appId": "1:26933016368:web:d1c75aa13cbfd78ee07af5",
-  "apiKey": "AIzaSyDoCDEYIjvgUcDS00hw6RoET3NgssBH5gk",
-  "authDomain": "poetic-sun-4gtt6.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-sgengsistemadege-e0481ed1-d3d7-455d-9835-a0f827249578",
-  "storageBucket": "poetic-sun-4gtt6.firebasestorage.app",
-  "messagingSenderId": "26933016368",
+  "projectId": "sge4-8b772",
+  "appId": "1:311536152950:web:c9d1600e9dad04921b4a57",
+  "apiKey": "AIzaSyC_c7wygc3GgSiWsZgNSZvrh7xnxajK8Do",
+  "authDomain": "sge4-8b772.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "sge4-8b772.firebasestorage.app",
+  "messagingSenderId": "311536152950",
   "measurementId": "",
-  "oAuthClientId": "26933016368-1if8v5ki22263s54sd4sps5tf9m1l6ao.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }

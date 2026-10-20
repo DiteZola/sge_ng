@@ -13,8 +13,7 @@ import {
   X,
   Phone,
   Building2,
-  Calendar,
-  ShieldCheck
+  Calendar
 } from 'lucide-react';
 import { Escola, Funcionario, Aluno } from '../types';
 import { dbService } from '../services/storage';
@@ -35,7 +34,7 @@ interface LoginViewProps {
   onSelectAno: (ano: string) => void;
   funcionarios: Funcionario[];
   onLogin: (user: Funcionario, escola: Escola, anoLectivo: string) => void;
-  onOpenSetupModal: () => void;
+  onOpenSetupModal?: () => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
@@ -46,13 +45,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
   selectedAno,
   onSelectAno,
   funcionarios,
-  onLogin,
-  onOpenSetupModal
+  onLogin
 }) => {
   const [configSistema, setConfigSistema] = useState<ConfiguracaoSistema>(() => dbService.getConfiguracaoSistema());
   const [redeOnline, setRedeOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const todosAlunos = dbService.getAlunos();
-  const adminConfigurado = dbService.obterAdminGeral() || funcionarios.find(f => f.role === 'AdminGeral' && f.ativo) || null;
 
   const [identificador, setIdentificador] = useState('');
   const [senha, setSenha] = useState('');
@@ -505,53 +502,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
             <Search className="h-4 w-4 text-emerald-600" />
             <span>Consultar (Para os Encarregados)</span>
           </button>
-
-          {/* Informações e Atalho Rápido de Preenchimento para Contas Criadas */}
-          <div className="pt-2 border-t border-slate-100 space-y-1.5">
-            {dbService.temAdminGeral() ? (
-              <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-1.5 text-left">
-                <div className="flex items-center justify-between text-xs font-bold text-blue-900">
-                  <span className="flex items-center space-x-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Administrador Geral Registado</span>
-                  </span>
-                  <span className="text-[10px] bg-blue-200/80 text-blue-800 px-1.5 py-0.2 rounded-full font-bold">
-                    Guardado
-                  </span>
-                </div>
-                <p className="text-[11px] text-blue-800/80">
-                  Conta soberana persistida no Firestore e no dispositivo local.
-                </p>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-0.5">
-                  <span className="text-[11px] text-blue-900 font-medium truncate">
-                    {adminConfigurado ? `Admin: ${adminConfigurado.nomeCompleto}` : 'Sistema configurado'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onOpenSetupModal()}
-                    className="py-1 px-2.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer text-center shrink-0"
-                    title="Editar ou reconfigurar dados do Administrador Geral"
-                  >
-                    Reconfigurar
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center space-y-1">
-                <button
-                  type="button"
-                  onClick={() => onOpenSetupModal()}
-                  className="w-full py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-2xs"
-                >
-                  <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
-                  <span>Cadastrar Administrador Geral Agora (Salvar no Firestore)</span>
-                </button>
-                <p className="text-[10px] text-slate-400">
-                  Registo soberano com persistência imediata no Firestore e no dispositivo.
-                </p>
-              </div>
-            )}
-          </div>
         </div>
       </main>
 

@@ -31,12 +31,12 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
   const [salvando, setSalvando] = useState(false);
 
   // Form Administrador Geral
-  const [adminNome, setAdminNome] = useState('Dr. Eng. Alberto Domingos Kwanza');
-  const [adminEmail, setAdminEmail] = useState('admin.geral@sge.med.gov.ao');
-  const [adminTelefone, setAdminTelefone] = useState('+244 923 000 111');
-  const [adminBI, setAdminBI] = useState('001928374LA049');
-  const [adminSenha, setAdminSenha] = useState('Admin@2025');
-  const [adminConfirmarSenha, setAdminConfirmarSenha] = useState('Admin@2025');
+  const [adminNome, setAdminNome] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminTelefone, setAdminTelefone] = useState('');
+  const [adminBI, setAdminBI] = useState('');
+  const [adminSenha, setAdminSenha] = useState('');
+  const [adminConfirmarSenha, setAdminConfirmarSenha] = useState('');
 
   if (!isOpen) return null;
 

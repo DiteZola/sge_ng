@@ -355,7 +355,7 @@ class FirebaseSyncEngine {
     try {
       if (typeof window === 'undefined') return;
       const raw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
-      const funcs: Funcionario[] = raw ? JSON.parse(raw) : [];
+      const funcs: Funcionario[] = (raw && raw !== 'undefined' && raw !== 'null') ? JSON.parse(raw) : [];
       const idx = funcs.findIndex(f => f.id === user.id || (f.email && f.email.toLowerCase() === user.email?.toLowerCase()));
       if (idx >= 0) {
         funcs[idx] = { ...funcs[idx], ...user };
@@ -414,7 +414,7 @@ class FirebaseSyncEngine {
           if (configFromFirebase.insigniaNacionalUrl === '[CHUNKED]') {
             try {
               const rawLocal = localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA);
-              if (rawLocal) {
+              if (rawLocal && rawLocal !== 'undefined' && rawLocal !== 'null') {
                 const parsed = JSON.parse(rawLocal);
                 if (parsed.insigniaNacionalUrl && parsed.insigniaNacionalUrl !== '[CHUNKED]') {
                   configFromFirebase.insigniaNacionalUrl = parsed.insigniaNacionalUrl;
@@ -438,7 +438,7 @@ class FirebaseSyncEngine {
     try {
       if (typeof window !== 'undefined') {
         const raw = localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA);
-        return raw ? JSON.parse(raw) : null;
+        return (raw && raw !== 'undefined' && raw !== 'null') ? JSON.parse(raw) : null;
       }
     } catch {
       return null;
@@ -1196,7 +1196,7 @@ class FirebaseSyncEngine {
     try {
       if (typeof window !== 'undefined') {
         const raw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
-        if (raw) totalUsers = JSON.parse(raw).length;
+        if (raw && raw !== 'undefined' && raw !== 'null') totalUsers = JSON.parse(raw).length;
       }
     } catch {}
 

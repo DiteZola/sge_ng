@@ -76,8 +76,9 @@ export default function App() {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [integrity, setIntegrity] = useState<SystemIntegrityStatus>(verificarIntegridadeSistema());
-  const [showSetupModal, setShowSetupModal] = useState<boolean>(() => !dbService.isSetupInicialConcluido());
+  const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
   const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
+  const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(true);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
 
   // Estado Multi-Escola & Multi-Ano Lectivo
@@ -140,26 +141,29 @@ export default function App() {
     return currentUser;
   }, [modoApoioTecnico, currentUser]);
 
-  // Listener para status online/offline e verificação do Administrador Geral
+  // Listener para status online/offline e verificação do Administrador Geral no Firebase
   useEffect(() => {
+    let ativo = true;
+
     const verificarAdmin = async () => {
-      // Verifica primeiro o estado local
-      const localExiste = dbService.temAdminGeral();
-      if (localExiste) {
-        setTemAdminGeral(true);
-      }
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
+      try {
+        const localExiste = dbService.temAdminGeral();
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
           const res = await dbService.verificarAdminGeralOnline();
-          if (res.existe) {
-            setTemAdminGeral(true);
-            setFuncionarios(dbService.obterFuncionarios());
-          } else if (!localExiste) {
-            setTemAdminGeral(false);
+          if (ativo) {
+            setTemAdminGeral(res.existe);
+            if (res.existe) {
+              setFuncionarios(dbService.obterFuncionarios());
+            }
           }
-        } catch {
-          // Mantém estado local caso a rede falhe
+        } else {
+          if (ativo) setTemAdminGeral(localExiste);
         }
+      } catch (err) {
+        console.warn('Erro ao verificar Administrador Geral no Firebase:', err);
+        if (ativo) setTemAdminGeral(dbService.temAdminGeral());
+      } finally {
+        if (ativo) setVerificandoAdminOnline(false);
       }
     };
 
@@ -177,11 +181,18 @@ export default function App() {
 
     verificarAdmin();
 
+    // Timeout de segurança de 2s para que a aplicação nunca fique presa na verificação inicial
+    const timer = setTimeout(() => {
+      if (ativo) setVerificandoAdminOnline(false);
+    }, 2000);
+
     // Descarregar base de dados em tempo real do Firestore para suportar múltiplos dispositivos
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       firebaseSyncEngine.puxarTudoDoFirebase().then(() => {
-        recarregarDados();
-        verificarAdmin();
+        if (ativo) {
+          recarregarDados();
+          verificarAdmin();
+        }
       });
     }
 
@@ -199,7 +210,10 @@ export default function App() {
     const handleOffline = () => setIntegrity(verificarIntegridadeSistema());
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+
     return () => {
+      ativo = false;
+      clearTimeout(timer);
       window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -949,8 +963,33 @@ export default function App() {
           || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
           || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
-  // 1. Verificação Primária: Se não houver Administrador Geral configurado no sistema,
-  // mostra PRIMEIRO a página de configuração inicial do sistema para o cadastro do administrador geral.
+  // Ecrã de Verificação Soberana Inicial contra o Firebase
+  if (verificandoAdminOnline) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans relative">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950 pointer-events-none" />
+        <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-4 relative z-10">
+          <div className="w-12 h-12 rounded-xl bg-blue-500/20 text-blue-400 mx-auto flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">
+              REPÚBLICA DE ANGOLA · MINISTÉRIO DA EDUCAÇÃO
+            </p>
+            <h2 className="text-sm font-bold text-white">
+              SGE-NG — Sistema de Gestão Escolar
+            </h2>
+          </div>
+          <p className="text-xs text-slate-400">
+            A verificar existência de conta do Administrador Geral no Firestore online...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 1. Verificação Primária: Se verificado que não existe conta do Administrador Geral no Firebase online (nem local),
+  // a página de configuração DEVE aparecer ANTES da página de login.
   if (!temAdminGeral) {
     return (
       <SystemInitialSetupView
@@ -968,28 +1007,19 @@ export default function App() {
     );
   }
 
-  // Ecrã Oficial de Autenticação se não houver sessão ativa
+  // Ecrã Oficial de Autenticação se não houver sessão ativa (virgem e sem secção de configuração do administrador)
   if (!isAuthenticated) {
     return (
-      <>
-        <LoginView
-          escolas={escolas}
-          selectedEscola={escola}
-          onSelectEscola={handleSelectEscola}
-          anosLectivos={anosLectivos}
-          selectedAno={escola.anoLectivoActivo || '2025/2026'}
-          onSelectAno={handleSelectAnoLectivo}
-          funcionarios={funcionarios}
-          onLogin={handleLogin}
-          onOpenSetupModal={() => setTemAdminGeral(false)}
-        />
-        <InitialSetupModal
-          isOpen={showSetupModal}
-          onClose={() => setShowSetupModal(false)}
-          onSaveSetup={handleSaveSetup}
-          escolasExistentes={escolas}
-        />
-      </>
+      <LoginView
+        escolas={escolas}
+        selectedEscola={escola}
+        onSelectEscola={handleSelectEscola}
+        anosLectivos={anosLectivos}
+        selectedAno={escola.anoLectivoActivo || '2025/2026'}
+        onSelectAno={handleSelectAnoLectivo}
+        funcionarios={funcionarios}
+        onLogin={handleLogin}
+      />
     );
   }
 
