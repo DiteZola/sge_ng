@@ -165,8 +165,16 @@ class OfflineStorageEngine {
 
     try {
       // Gravar no localStorage (histórico recente)
-      const existingStr = localStorage.getItem('sge_offline_journal') || '[]';
-      const list: OfflineJournalEntry[] = JSON.parse(existingStr);
+      const existingStr = localStorage.getItem('sge_offline_journal');
+      let list: OfflineJournalEntry[] = [];
+      if (existingStr && existingStr !== 'undefined' && existingStr !== 'null') {
+        try {
+          const parsed = JSON.parse(existingStr);
+          if (Array.isArray(parsed)) list = parsed;
+        } catch {
+          list = [];
+        }
+      }
       list.unshift(entry);
       // Manter últimos 100 registos em localStorage
       const trimmed = list.slice(0, 100);
@@ -199,7 +207,9 @@ class OfflineStorageEngine {
   public obterDiario(): OfflineJournalEntry[] {
     try {
       const raw = localStorage.getItem('sge_offline_journal');
-      return raw ? JSON.parse(raw) : [];
+      if (!raw || raw === 'undefined' || raw === 'null') return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }

@@ -59,6 +59,7 @@ interface SystemAuditBackupViewProps {
   onRestaurarBackup?: (jsonStr: string) => void;
   onAtualizarEscola?: (escola: Escola) => void;
   onSalvarFuncionario?: (func: Funcionario) => void;
+  onEliminarFuncionario?: (funcionarioId: string) => void;
 }
 
 export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
@@ -71,7 +72,8 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   onLimparLogs,
   onRestaurarBackup,
   onAtualizarEscola,
-  onSalvarFuncionario
+  onSalvarFuncionario,
+  onEliminarFuncionario
 }) => {
   const isAdminGeral = currentUser.role === 'AdminGeral';
   const isDiretorGeral = currentUser.role === 'DiretorGeral' || isAdminGeral;
@@ -422,6 +424,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   const [filtroRoleUsuario, setFiltroRoleUsuario] = useState<string>('TODOS');
   const [filtroStatusUsuario, setFiltroStatusUsuario] = useState<string>('TODOS');
   const [usuarioParaRedefinir, setUsuarioParaRedefinir] = useState<Funcionario | null>(null);
+  const [usuarioParaEliminar, setUsuarioParaEliminar] = useState<Funcionario | null>(null);
   const [novaSenhaInput, setNovaSenhaInput] = useState('');
   const [showNovoUsuarioModal, setShowNovoUsuarioModal] = useState(false);
   const [novoUserNome, setNovoUserNome] = useState('');
@@ -431,6 +434,24 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   const [novoUserCargo, setNovoUserCargo] = useState('Professor');
   const [novoUserRole, setNovoUserRole] = useState<UserRole>('Professor');
   const [novoUserSenha, setNovoUserSenha] = useState('Educa2026!');
+
+  const handleConfirmarEliminarUsuario = () => {
+    if (!usuarioParaEliminar) return;
+    const nome = usuarioParaEliminar.nomeCompleto;
+    try {
+      if (onEliminarFuncionario) {
+        onEliminarFuncionario(usuarioParaEliminar.id);
+      } else {
+        dbService.eliminarFuncionario(usuarioParaEliminar.id);
+      }
+      setListaUsuarios(prev => prev.filter(u => u.id !== usuarioParaEliminar.id));
+      notificar(`Utilizador "${nome}" eliminado com sucesso do sistema e do Firebase.`);
+    } catch {
+      notificar('Erro ao eliminar utilizador. Verifique a conexão com o Firebase.');
+    } finally {
+      setUsuarioParaEliminar(null);
+    }
+  };
 
   const handleAlternarStatusUsuario = (usuario: Funcionario) => {
     const novoStatus: 'Ativa' | 'Suspensa' = usuario.statusConta === 'Suspensa' ? 'Ativa' : 'Suspensa';
@@ -442,7 +463,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
       setListaUsuarios(atualizados);
       notificar(`Conta de ${usuario.nomeCompleto} definida como "${novoStatus}".`);
     } catch {
-      alert('Erro ao atualizar status do usuário.');
+      notificar('Erro ao atualizar status do usuário.');
     }
   };
 
@@ -459,14 +480,14 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
       setUsuarioParaRedefinir(null);
       setNovaSenhaInput('');
     } catch {
-      alert('Erro ao redefinir palavra-passe.');
+      notificar('Erro ao redefinir palavra-passe.');
     }
   };
 
   const handleCriarNovoUsuario = (e: React.FormEvent) => {
     e.preventDefault();
     if (!novoUserNome.trim() || !novoUserEmail.trim() || !novoUserBI.trim()) {
-      alert('Preencha os campos obrigatórios (Nome, BI e Email).');
+      notificar('Preencha os campos obrigatórios (Nome, BI e Email).');
       return;
     }
     try {
@@ -493,7 +514,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
       setNovoUserEmail('');
       notificar(`Utilizador ${novo.nomeCompleto} cadastrado com perfil ${novo.role}.`);
     } catch (err: any) {
-      alert(err.message || 'Erro ao cadastrar novo usuário.');
+      notificar(err.message || 'Erro ao cadastrar novo usuário.');
     }
   };
 
@@ -577,10 +598,9 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
         const sucesso = dbService.restaurarBackupJSON(content);
         if (sucesso) {
           if (onRestaurarBackup) onRestaurarBackup(content);
-          alert('Cópia de segurança restaurada com sucesso! A aplicação será reiniciada.');
-          window.location.reload();
+          notificar('Cópia de segurança restaurada com sucesso!');
         } else {
-          alert('Erro ao restaurar cópia de segurança. O ficheiro não possui um formato JSON válido do SGE-NG.');
+          notificar('Erro ao restaurar cópia de segurança. O ficheiro não possui um formato JSON válido do SGE-NG.');
         }
       }
     };
@@ -626,10 +646,9 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
 
     dbService.importarDeExcel(file).then(sucesso => {
       if (sucesso) {
-        alert('Dados importados com sucesso a partir da folha de cálculo Excel!');
-        window.location.reload();
+        notificar('Dados importados com sucesso a partir da folha de cálculo Excel!');
       } else {
-        alert('Erro ao importar ficheiro Excel. Verifique a estrutura das colunas.');
+        notificar('Erro ao importar ficheiro Excel. Verifique a estrutura das colunas.');
       }
     });
   };
@@ -1876,6 +1895,16 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                             >
                               {usuario.statusConta === 'Suspensa' ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                             </button>
+
+                            {(isAdminGeral || isDiretorGeral) && usuario.id !== currentUser.id && (
+                              <button
+                                onClick={() => setUsuarioParaEliminar(usuario)}
+                                className="p-1.5 rounded-lg text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 transition-all cursor-pointer"
+                                title="Eliminar Utilizador do Sistema e do Firebase"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2046,6 +2075,50 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL ELIMINAR UTILIZADOR */}
+          {usuarioParaEliminar && (
+            <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-red-200 space-y-4 animate-in zoom-in-95">
+                <div className="flex items-center space-x-3 pb-3 border-b border-gray-100">
+                  <div className="p-2.5 bg-red-100 text-red-700 rounded-xl">
+                    <Trash2 className="h-6 w-6 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-gray-900">Eliminar Conta de Utilizador</h3>
+                    <p className="text-xs text-red-600 font-semibold">Exclusão Permanente no Sistema e no Firebase</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  Tem a certeza de que deseja eliminar o utilizador <strong>{usuarioParaEliminar.nomeCompleto}</strong> ({usuarioParaEliminar.cargo} - {usuarioParaEliminar.role})?
+                </p>
+
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 space-y-1">
+                  <p>• O acesso ({usuarioParaEliminar.email}) será revogado imediatamente.</p>
+                  <p>• O perfil será apagado de todos os dispositivos e do banco de dados na Cloud.</p>
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => setUsuarioParaEliminar(null)}
+                    className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmarEliminarUsuario}
+                    className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Confirmar Eliminação</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

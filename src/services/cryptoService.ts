@@ -242,13 +242,17 @@ class CryptoService {
       const iv = this.base64ToBuffer(ivBase64);
       const cipherBytes = this.base64ToBuffer(cipherBase64);
 
+      // Garantir ArrayBuffer com bounds exatos
+      const ivBuffer = iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer;
+      const cipherBuffer = cipherBytes.buffer.slice(cipherBytes.byteOffset, cipherBytes.byteOffset + cipherBytes.byteLength) as ArrayBuffer;
+
       const decryptedBuffer = await window.crypto.subtle.decrypt(
         {
           name: 'AES-GCM',
-          iv: iv.buffer as ArrayBuffer
+          iv: ivBuffer
         },
         key,
-        cipherBytes.buffer as ArrayBuffer
+        cipherBuffer
       );
 
       this.totalDecifragens++;
@@ -257,7 +261,7 @@ class CryptoService {
       const dec = new TextDecoder();
       return dec.decode(decryptedBuffer);
     } catch (err) {
-      console.error('[AES-256] Erro de integridade/decifração AES-GCM (Tag de autenticação inválida ou dados adulterados):', err);
+      console.warn('[AES-256] Decifração AES-GCM falhou (possível variação de chave/salt ou texto plano):', err);
       return textoCifrado;
     }
   }

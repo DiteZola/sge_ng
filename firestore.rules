@@ -1,84 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Catch-all default deny
+    // Permitir leitura e escrita para as coleções do sistema educacional SGE-NG
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Coleção de Funcionários / Utilizadores do Sistema SGE-NG
-    match /funcionarios/{funcionarioId} {
-      allow read, write: if true;
-    }
-
-    match /users/{userId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Configurações do Sistema e Insígnia Nacional Oficial
-    match /configuracao_sistema/{configId} {
-      allow read, write: if true;
-    }
-
-    match /system_config/{configId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Escolas / Instituições de Ensino
-    match /escolas/{escolaId} {
-      allow read, write: if true;
-    }
-
-    match /schools/{schoolId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Alunos / Estudantes
-    match /alunos/{alunoId} {
-      allow read, write: if true;
-    }
-
-    match /students/{studentId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Turmas
-    match /turmas/{turmaId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Notas Consolidadas e Avaliações
-    match /notas/{notaId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Solicitações de Apoio Técnico Ministerial
-    match /solicitacoes_apoio/{solId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Mensagens e Comunicados
-    match /mensagens/{mensagemId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Documentos da Biblioteca Digital
-    match /biblioteca/{docId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Logs de Auditoria
-    match /auditoria/{logId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Recibos Financeiros
-    match /recibos/{reciboId} {
-      allow read, write: if true;
-    }
-
-    // Coleção de Teste de Conectividade
-    match /test/{docId} {
       allow read, write: if true;
     }
   }

@@ -39,6 +39,7 @@ export interface Escola {
   telefone?: string;
   subdirectorAdministrativoNome?: string;
   subdiretorAdministrativoNome?: string;
+  nome?: string;
   nomeOficial: string;
   denominacao?: string; // ex: "Ciências Humanas" ou "Daniel Vemba"
   sigla: string;

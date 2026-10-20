@@ -41,14 +41,20 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
   const [senhaCifradaPreview, setSenhaCifradaPreview] = useState<string>('');
   const [hashPreview, setHashPreview] = useState<string>('');
 
-  // 1. Dados do Administrador Geral
-  const [adminNome, setAdminNome] = useState('Dr. Eng. Alberto Domingos Kwanza');
-  const [adminEmail, setAdminEmail] = useState('admin.geral@sge.med.gov.ao');
-  const [adminTelefone, setAdminTelefone] = useState('+244 923 000 111');
-  const [adminBI, setAdminBI] = useState('001928374LA049');
-  const [adminSenha, setAdminSenha] = useState('Admin@2025');
-  const [adminConfirmarSenha, setAdminConfirmarSenha] = useState('Admin@2025');
-  const [adminHabilitacoes, setAdminHabilitacoes] = useState('Mestrado em Engenharia Informática & Gestão de Sistemas Educativos (MED)');
+  // 1. Dados do Administrador Geral (Inicialmente virgem)
+  const [adminNome, setAdminNome] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminTelefone, setAdminTelefone] = useState('');
+  const [adminBI, setAdminBI] = useState('');
+  const [adminSenha, setAdminSenha] = useState('');
+  const [adminConfirmarSenha, setAdminConfirmarSenha] = useState('');
+  const [adminHabilitacoes, setAdminHabilitacoes] = useState('');
+
+  // 2. Primeira Escola da Rede (Opcional)
+  const [cadastrarEscolaAgora, setCadastrarEscolaAgora] = useState(false);
+  const [escolaNome, setEscolaNome] = useState('');
+  const [escolaProvincia, setEscolaProvincia] = useState('Luanda');
+  const [escolaMunicipio, setEscolaMunicipio] = useState('');
 
   // Monitorar conectividade
   useEffect(() => {
@@ -128,9 +134,14 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
         password: adminSenha
       };
 
-      // Executa o setup com cifragem AES-256 e gravação do Master Lock
-      // O Administrador Geral não depende de nenhuma escola
-      const adminCriado = await dbService.concluirSetupInicial(dadosAdmin);
+      const dadosEscola = (cadastrarEscolaAgora && escolaNome.trim()) ? {
+        nomeOficial: escolaNome.trim(),
+        provincia: escolaProvincia,
+        municipio: escolaMunicipio.trim() || 'Luanda'
+      } : undefined;
+
+      // Executa o setup e sincroniza com Firebase Firestore imediatamente
+      const adminCriado = await dbService.concluirSetupInicial(dadosAdmin, dadosEscola);
 
       // Regista log no motor de segurança
       securityEngine.registarEvento({
@@ -366,6 +377,60 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* Opção para cadastrar a primeira escola imediatamente */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Database className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">
+                      Cadastrar Primeira Escola da Rede (Opcional)
+                    </span>
+                  </div>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={cadastrarEscolaAgora}
+                      onChange={e => setCadastrarEscolaAgora(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                    />
+                    <span className="ml-2 text-xs text-slate-600 font-medium">
+                      {cadastrarEscolaAgora ? 'Ativado' : 'Adicionar depois pelo Painel'}
+                    </span>
+                  </label>
+                </div>
+
+                {cadastrarEscolaAgora && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Nome Oficial da Instituição Escolar *
+                      </label>
+                      <input
+                        type="text"
+                        value={escolaNome}
+                        onChange={e => setEscolaNome(e.target.value)}
+                        placeholder="Ex: Complexo Escolar n.º 5055"
+                        className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Província
+                      </label>
+                      <select
+                        value={escolaProvincia}
+                        onChange={e => setEscolaProvincia(e.target.value)}
+                        className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                      >
+                        {['Bengo', 'Benguela', 'Bié', 'Cabinda', 'Cuando Cubango', 'Cuanza Norte', 'Cuanza Sul', 'Cunene', 'Huambo', 'Huíla', 'Luanda', 'Lunda Norte', 'Lunda Sul', 'Malanje', 'Moxico', 'Namibe', 'Uíge', 'Zaire'].map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Pré-visualização da Blindagem Criptográfica AES-256 */}

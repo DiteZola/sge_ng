@@ -52,6 +52,7 @@ interface AdminGlobalSchoolsViewProps {
   }) => void;
   onRedefinirSenhaDiretor: (funcionarioId: string, novaSenha: string) => void;
   onSelecionarEscolaParaInspecao: (escolaId: string) => void;
+  onEliminarFuncionario?: (funcionarioId: string) => void;
 }
 
 export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
@@ -66,7 +67,8 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   onEliminarEscola,
   onCriarOuAtualizarDiretor,
   onRedefinirSenhaDiretor,
-  onSelecionarEscolaParaInspecao
+  onSelecionarEscolaParaInspecao,
+  onEliminarFuncionario
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'Todas' | 'Ativas' | 'Suspensas'>('Todas');
@@ -78,6 +80,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const [modalEliminarOpen, setModalEliminarOpen] = useState(false);
   const [modalSenhaOpen, setModalSenhaOpen] = useState(false);
   const [modalEditarEscolaOpen, setModalEditarEscolaOpen] = useState(false);
+  const [modalEliminarDiretorOpen, setModalEliminarDiretorOpen] = useState(false);
 
   // Estados dos Formulários
   const [escolaSelecionada, setEscolaSelecionada] = useState<Escola | null>(null);
@@ -354,6 +357,35 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
     }
   };
 
+  const abrirModalEliminarDiretor = (esc: Escola, dir: Funcionario) => {
+    setEscolaSelecionada(esc);
+    setDiretorSelecionado(dir);
+    setModalEliminarDiretorOpen(true);
+  };
+
+  const handleConfirmarEliminarDiretor = () => {
+    if (!diretorSelecionado || !escolaSelecionada) return;
+    const nomeDir = diretorSelecionado.nomeCompleto;
+    if (onEliminarFuncionario) {
+      onEliminarFuncionario(diretorSelecionado.id);
+    } else {
+      dbService.eliminarFuncionario(diretorSelecionado.id);
+    }
+    // Desvincular o diretor da escola
+    const escAtualizada: Escola = {
+      ...escolaSelecionada,
+      diretorGeralNome: 'Não Atribuído',
+      diretorGeralId: undefined
+    };
+    if (onAtualizarEscola) {
+      onAtualizarEscola(escAtualizada);
+    } else {
+      dbService.salvarEscola(escAtualizada);
+    }
+    setModalEliminarDiretorOpen(false);
+    mostrarSucesso(`Diretor Geral "${nomeDir}" foi eliminado com sucesso do sistema e do Firebase.`);
+  };
+
   const gerarSenhaForte = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
     let pass = 'Dir';
@@ -525,14 +557,34 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
       <div className="space-y-4">
         {escolasFiltradas.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-            <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-base font-bold text-gray-700">Nenhuma escola encontrada</p>
-            <p className="text-xs text-gray-500 mt-1">Ajuste os filtros de busca ou adicione uma nova instituição de ensino.</p>
+            <Building2 className="h-12 w-12 text-indigo-400 mx-auto mb-3" />
+            <p className="text-base font-bold text-gray-800">
+              {totalEscolas === 0 ? 'Nenhuma instituição registada na rede nacional' : 'Nenhuma escola encontrada com este filtro'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+              {totalEscolas === 0 
+                ? 'O sistema encontra-se no estado virgem inicial. Clique no botão abaixo para cadastrar a primeira instituição de ensino da rede.' 
+                : 'Ajuste os filtros de busca ou província para localizar a instituição.'}
+            </p>
+            {totalEscolas === 0 && (
+              <button
+                type="button"
+                onClick={() => setModalNovaEscolaOpen(true)}
+                className="mt-4 inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Registar Primeira Escola Agora</span>
+              </button>
+            )}
           </div>
         ) : (
           escolasFiltradas.map(esc => {
             const isSuspensa = esc.ativo === false || esc.estadoEscola === 'Suspensa';
-            const diretorFunc = funcionarios.find(f => f.escolaId === esc.id && f.role === 'DiretorGeral');
+            const diretorFunc = funcionarios.find(f => 
+              (esc.diretorGeralId && f.id === esc.diretorGeralId) || 
+              (f.escolaId === esc.id && f.role === 'DiretorGeral') || 
+              (esc.diretorGeralNome && esc.diretorGeralNome !== 'Não Atribuído' && f.nomeCompleto.toLowerCase() === esc.diretorGeralNome.toLowerCase())
+            );
             const totalAlunosEscola = alunos.filter(a => a.escolaId === esc.id).length;
             const totalTurmasEscola = turmas.filter(t => t.escolaId === esc.id).length;
 
@@ -747,6 +799,16 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                             >
                               <UserCheck className="h-3.5 w-3.5 text-blue-600" />
                               <span>Editar Diretor</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => abrirModalEliminarDiretor(esc, diretorFunc)}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+                              title="Eliminar Diretor Geral do sistema e do Firebase"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                              <span>Eliminar Diretor</span>
                             </button>
                           </>
                         ) : (
@@ -1743,6 +1805,54 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
               >
                 <Unlock className="h-4 w-4" />
                 <span>Iniciar Apoio & Aceder com Acesso Total</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 3: ELIMINAR DIRETOR GERAL */}
+      {modalEliminarDiretorOpen && escolaSelecionada && diretorSelecionado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-red-200 space-y-4">
+            <div className="flex items-center space-x-3 pb-3 border-b border-gray-100">
+              <div className="p-2.5 bg-red-100 text-red-700 rounded-xl">
+                <Trash2 className="h-6 w-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900">
+                  Eliminar Diretor Geral
+                </h3>
+                <p className="text-xs text-red-600 font-semibold">
+                  Ação Irreversível de Gestão Ministerial
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-700 leading-relaxed">
+              Tem a certeza de que deseja eliminar o perfil do Diretor Geral <strong>{diretorSelecionado.nomeCompleto}</strong> da instituição <strong>{escolaSelecionada.nomeOficial}</strong>?
+            </p>
+
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800 space-y-1">
+              <p>• As credenciais de acesso ({diretorSelecionado.email}) serão revogadas imediatamente.</p>
+              <p>• O registo será removido permanentemente do dispositivo e do Firebase Firestore.</p>
+              <p>• A escola ficará temporariamente sem Diretor até que uma nova nomeação seja efetuada.</p>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setModalEliminarDiretorOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmarEliminarDiretor}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Confirmar Eliminação</span>
               </button>
             </div>
           </div>

@@ -172,215 +172,45 @@ export const DEFAULT_CLASSES: ClasseEscolar[] = [
   { id: 'classe-13', nome: '13ª Classe', nivelEnsino: 'EnsinoTecnico', descricao: 'Ensino Técnico-Profissional e Formação de Professores', ordem: 13 }
 ];
 
-export const DEFAULT_SOLICITACOES_APOIO: SolicitacaoApoioTecnico[] = [
-  {
-    id: 'sol-001',
-    escolaId: 'esc-002',
-    escolaNome: 'MAGISTÉRIO N.º 146 ZRE - "DANIEL VEMBA"',
-    diretorId: 'func-008',
-    diretorNome: 'Soares Lucas António',
-    assunto: 'Homologação e Validação Técnica do Boletim de Notas do IIº Trimestre',
-    descricao: 'Solicitamos apoio técnico da DTI/Admin Geral para verificação dos critérios de cálculo e validação da pauta de aproveitamento.',
-    categoria: 'Configuração de Pautas',
-    prioridade: 'Alta',
-    estado: 'Pendente',
-    dataSolicitacao: '2026-03-20 10:15',
-    autorizacaoAcessoConcedida: true
-  }
-];
+export const DEFAULT_SOLICITACOES_APOIO: SolicitacaoApoioTecnico[] = [];
 
-// Initial Seed Data compliant with Angola MED standards
-export const DEFAULT_ESCOLA_MAGISTERIO: Escola = {
-  id: 'esc-002',
-  codigoEscola: '146 ZRE',
-  nomeOficial: 'MAGISTÉRIO N.º 146 ZRE - "DANIEL VEMBA"',
-  denominacao: 'Daniel Vemba',
-  sigla: 'MAG-146',
-  logotipo: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=150&auto=format&fit=crop&q=80',
-  nif: '5418129034',
-  endereco: 'Bairro Sagrada Esperança, Estrada Principal',
-  municipio: 'Mbanza Kongo',
-  provincia: 'Zaire',
-  governoProvincial: 'GOVERNO PROVINCIAL DO ZAIRE',
-  gabineteEducacao: 'GABINETE DA EDUCAÇÃO',
-  contactos: '+244 923 881 992',
-  email: 'magisterio.danielvemba@med.gov.ao',
-  decretoCriacao: 'Decreto Executivo n.º 112/15 de 18 de Maio',
-  artigoLegal: 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto',
-  diretorGeralNome: 'Dr. Soares Lucas António',
-  subdiretorPedagogicoNome: 'Manuel Almeida Lula',
-  chefeSecretariaNome: 'Afonso Garcia',
-  anoLectivoActivo: '2025/2026',
-  trimestreActivo: '2',
-  estadoAno: 'Aberto',
-  ativo: true
-};
-
-export const DEFAULT_ESCOLA_COMPLEXO151: Escola = {
-  id: 'esc-003',
-  codigoEscola: '151',
-  nomeOficial: 'Complexo Escolar n.º 151',
-  denominacao: 'Ciências Humanas',
-  sigla: 'CE-151',
-  logotipo: 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=150&auto=format&fit=crop&q=80',
-  nif: '5419902311',
-  endereco: 'Bairro Nkiende',
-  municipio: 'Mbanza Kongo',
-  provincia: 'Zaire',
-  governoProvincial: 'GOVERNO PROVINCIAL DO ZAIRE',
-  gabineteEducacao: 'GABINETE DA EDUCAÇÃO',
-  contactos: '+244 931 772 110',
-  email: 'complexo151.nkiende@med.gov.ao',
-  decretoCriacao: 'Decreto Executivo n.º 250/18 de 06 de Outubro',
-  artigoLegal: 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto',
-  diretorGeralNome: 'Manuel Zola',
-  subdiretorPedagogicoNome: 'Tusamba Verónica',
-  chefeSecretariaNome: 'Kiala Pedro',
+// Modelo para estado inicial virgem do sistema (sem escolas pré-cadastradas)
+export const DEFAULT_ESCOLA_VAZIA: Escola = {
+  id: '',
+  codigoEscola: '',
+  nome: 'Nenhuma Escola Registada',
+  nomeOficial: 'Nenhuma Escola Registada no Sistema',
+  denominacao: '',
+  sigla: 'MED',
+  logotipo: '',
+  nif: '',
+  endereco: '',
+  municipio: 'Luanda',
+  provincia: 'Luanda',
+  governoProvincial: 'GOVERNO PROVINCIAL',
+  gabineteEducacao: 'GABINETE PROVINCIAL DA EDUCAÇÃO',
+  contactos: '',
+  email: '',
+  decretoCriacao: '',
+  artigoLegal: '',
+  diretorGeralNome: '',
+  subdiretorPedagogicoNome: '',
+  chefeSecretariaNome: '',
   anoLectivoActivo: '2025/2026',
   trimestreActivo: '1',
   estadoAno: 'Aberto',
-  ativo: true
+  ativo: true,
+  estadoEscola: 'Ativa'
 };
 
-export const DEFAULT_ESCOLA: Escola = DEFAULT_ESCOLA_MAGISTERIO;
+export const DEFAULT_ESCOLA: Escola = DEFAULT_ESCOLA_VAZIA;
+export const DEFAULT_ESCOLA_MAGISTERIO: Escola = DEFAULT_ESCOLA_VAZIA;
+export const DEFAULT_ESCOLA_COMPLEXO151: Escola = DEFAULT_ESCOLA_VAZIA;
+export const DEFAULT_ESCOLA_PRODUCAO: Escola = DEFAULT_ESCOLA_VAZIA;
 
-export const DEFAULT_ESCOLAS: Escola[] = [
-  DEFAULT_ESCOLA_MAGISTERIO,
-  DEFAULT_ESCOLA_COMPLEXO151,
-  {
-    id: 'esc-001',
-    codigoEscola: '1045 LA',
-    nomeOficial: 'Escola Primária e do Iº Ciclo nº 1045 "Comandante Gika"',
-    denominacao: 'Comandante Gika',
-    sigla: 'EPC-1045',
-    logotipo: 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=150&auto=format&fit=crop&q=60',
-    nif: '5418902341',
-    endereco: 'Rua Comandante Gika, Bairro Alvalade',
-    municipio: 'Maianga',
-    provincia: 'Luanda',
-    governoProvincial: 'GOVERNO PROVINCIAL DE LUANDA',
-    gabineteEducacao: 'GABINETE PROVINCIAL DA EDUCAÇÃO',
-    contactos: '+244 923 456 789 / +244 945 112 233',
-    email: 'direcao.epc1045@med.gov.ao',
-    decretoCriacao: 'Decreto Executivo nº 412/18 de 14 de Novembro do MED',
-    artigoLegal: 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto',
-    diretorGeralNome: 'Prof. Dr. Mateus Sebastião Ngonga',
-    subdiretorPedagogicoNome: 'Lic. Esperança Domingos Manuel',
-    anoLectivoActivo: '2025/2026',
-    trimestreActivo: '1',
-    estadoAno: 'Aberto',
-    ativo: true
-  }
-];
+export const DEFAULT_ESCOLAS: Escola[] = [];
 
-export const DEFAULT_TURMAS: Turma[] = [
-  // Turmas do Magistério Daniel Vemba
-  {
-    id: 'turma-mag-12a',
-    escolaId: 'esc-002',
-    nome: 'Turma Única',
-    classe: '12.ª classe',
-    nivelEnsino: 'IICiclo',
-    curso: 'Formação de Professores do 1.º Ciclo',
-    turno: 'Manhã',
-    sala: 'Sala 01',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-008'
-  },
-  // Turmas do Complexo 151
-  {
-    id: 'turma-151-10a',
-    escolaId: 'esc-003',
-    nome: 'Única/Regular',
-    classe: 'Décima (10ª) Classe',
-    nivelEnsino: 'IICiclo',
-    curso: 'Ciências Humanas',
-    turno: 'Manhã',
-    sala: 'Sala 04',
-    anoLectivo: '2021/2022',
-    coordenadorId: 'func-006'
-  },
-  {
-    id: 'turma-151-12a',
-    escolaId: 'esc-003',
-    nome: '12ª Classe Única',
-    classe: '12.ª classe',
-    nivelEnsino: 'IICiclo',
-    curso: 'Ciências Económicas e Jurídicas',
-    turno: 'Manhã',
-    sala: 'Sala 08',
-    anoLectivo: '2024/2025',
-    coordenadorId: 'func-006'
-  },
-  // Iniciação Obrigatória Escola 1045
-  {
-    id: 'turma-ini-a',
-    escolaId: 'esc-001',
-    nome: 'Iniciação A',
-    classe: 'Iniciação',
-    nivelEnsino: 'Iniciacao',
-    turno: 'Manhã',
-    sala: 'Sala 01',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-003'
-  },
-  {
-    id: 'turma-1a',
-    escolaId: 'esc-001',
-    nome: '1ª Classe A',
-    classe: '1ª',
-    nivelEnsino: 'Primario',
-    turno: 'Manhã',
-    sala: 'Sala 02',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-003'
-  },
-  {
-    id: 'turma-6a',
-    escolaId: 'esc-001',
-    nome: '6ª Classe A (Final Primário)',
-    classe: '6ª',
-    nivelEnsino: 'Primario',
-    turno: 'Tarde',
-    sala: 'Sala 05',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-004'
-  },
-  {
-    id: 'turma-7a',
-    escolaId: 'esc-001',
-    nome: '7ª Classe A',
-    classe: '7ª',
-    nivelEnsino: 'ICiclo',
-    turno: 'Manhã',
-    sala: 'Sala 08',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-005'
-  },
-  {
-    id: 'turma-9a',
-    escolaId: 'esc-001',
-    nome: '9ª Classe A (Final Iº Ciclo)',
-    classe: '9ª',
-    nivelEnsino: 'ICiclo',
-    turno: 'Tarde',
-    sala: 'Sala 09',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-005'
-  },
-  {
-    id: 'turma-12a',
-    escolaId: 'esc-001',
-    nome: '12ª Classe A - Ciências Físicas e Biológicas',
-    classe: '12ª',
-    nivelEnsino: 'IICiclo',
-    curso: 'Ciências Físicas e Biológicas',
-    turno: 'Manhã',
-    sala: 'Laboratório 2',
-    anoLectivo: '2025/2026',
-    coordenadorId: 'func-005'
-  }
-];
+export const DEFAULT_TURMAS: Turma[] = [];
 
 export const DEFAULT_DISCIPLINAS: Disciplina[] = [
   // Primário / Iniciação
@@ -417,597 +247,35 @@ export const DEFAULT_DISCIPLINAS: Disciplina[] = [
   { id: 'disc-psicologia', nome: 'Psicologia', sigla: 'PSI', nivelEnsino: 'IICiclo' }
 ];
 
-export const DEFAULT_FUNCIONARIOS: Funcionario[] = [
-  {
-    id: 'func-subadmin-01',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Dr. Paulo Afonso Quipungo',
-    genero: 'M',
-    numeroBI: '005829103LA048',
-    telefone: '+244 924 880 120',
-    email: 'administrativo@sge.med.gov.ao',
-    cargo: 'Subdirector Administrativo e Financeiro',
-    ehProfessor: false,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Licenciatura em Gestão e Administração Financeira',
-    fotoUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2019-01-15',
-    ativo: true,
-    role: 'SubdirectorAdministrativo'
-  },
-  {
-    id: 'func-008',
-    escolaId: 'esc-002',
-    nomeCompleto: 'Soares Lucas António',
-    genero: 'M',
-    numeroBI: '003819283ZE045',
-    telefone: '+244 923 881 992',
-    email: 'soares.antonio@med.gov.ao',
-    cargo: 'Diretor de Turma / Professor',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Licenciatura em Ciências da Educação',
-    fotoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2018-02-15',
-    ativo: true,
-    role: 'Professor'
-  },
-  {
-    id: 'func-006',
-    escolaId: 'esc-003',
-    nomeCompleto: 'Manuel Zola',
-    genero: 'M',
-    numeroBI: '002198273ZE039',
-    telefone: '+244 931 772 110',
-    email: 'manuel.zola@med.gov.ao',
-    cargo: 'Diretor Geral',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: true,
-    habilitacoes: 'Mestrado em Gestão Educativa',
-    fotoUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2016-04-01',
-    ativo: true,
-    role: 'DiretorGeral'
-  },
-  {
-    id: 'func-007',
-    escolaId: 'esc-003',
-    nomeCompleto: 'Tusamba Verónica',
-    genero: 'F',
-    numeroBI: '003928174ZE041',
-    telefone: '+244 931 772 111',
-    email: 'tusamba.veronica@med.gov.ao',
-    cargo: 'Subdiretora Pedagógica',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Licenciatura em Ciências Humanas',
-    fotoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2018-05-10',
-    ativo: true,
-    role: 'SubdiretorPedagogico'
-  },
-  {
-    id: 'func-001',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Prof. Dr. Mateus Sebastião Ngonga',
-    genero: 'M',
-    numeroBI: '004928172LA041',
-    telefone: '+244 923 456 789',
-    email: 'mateus.ngonga@med.gov.ao',
-    cargo: 'Diretor Geral',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: true,
-    habilitacoes: 'Doutoramento em Ciências da Educação',
-    fotoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2015-02-01',
-    ativo: true,
-    role: 'DiretorGeral'
-  },
-  {
-    id: 'func-002',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Lic. Esperança Domingos Manuel',
-    genero: 'F',
-    numeroBI: '007129381LA039',
-    telefone: '+244 931 998 877',
-    email: 'esperanca.manuel@med.gov.ao',
-    cargo: 'Subdiretora Pedagógica',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Licenciatura em Pedagogia Escolar',
-    fotoUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2017-03-15',
-    ativo: true,
-    role: 'SubdiretorPedagogico'
-  },
-  {
-    id: 'func-003',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Profª. Ana Paula dos Santos Afonso',
-    genero: 'F',
-    numeroBI: '009231845LA048',
-    telefone: '+244 944 223 344',
-    email: 'ana.afonso@med.gov.ao',
-    cargo: 'Professora do Ensino Primário e Iniciação',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Bacharelato em Magistério Primário',
-    fotoUrl: 'https://images.unsplash.com/photo-1580894732444-8ecded7900cd?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2019-01-10',
-    ativo: true,
-    role: 'Professor'
-  },
-  {
-    id: 'func-004',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Dr. João Bernardo Kiala',
-    genero: 'M',
-    numeroBI: '002819284LA035',
-    telefone: '+244 912 334 455',
-    email: 'joao.kiala@med.gov.ao',
-    cargo: 'Chefe de Secretaria e Professor',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: true, // Funcionário administrativo que leciona
-    habilitacoes: 'Licenciatura em Língua Portuguesa e Gestão',
-    fotoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2016-09-01',
-    ativo: true,
-    role: 'Secretaria'
-  },
-  {
-    id: 'func-005',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Prof. Garcia António Vunge',
-    genero: 'M',
-    numeroBI: '008920192LA044',
-    telefone: '+244 928 887 766',
-    email: 'garcia.vunge@med.gov.ao',
-    cargo: 'Professor de Matemática e Física',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Licenciatura em Ensino da Matemática',
-    fotoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2018-05-20',
-    ativo: true,
-    role: 'Professor'
-  },
-  {
-    id: 'func-010',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Dr. Sebastião Bento Capita',
-    genero: 'M',
-    numeroBI: '006129841LA043',
-    telefone: '+244 923 555 888',
-    email: 'subdiretor.admin@med.gov.ao',
-    cargo: 'Subdiretor Administrativo e Financeiro',
-    ehProfessor: false,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Licenciatura em Economia e Gestão Escolar',
-    fotoUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2018-02-01',
-    ativo: true,
-    role: 'SubdiretorAdministrativo'
-  },
-  {
-    id: 'func-011',
-    escolaId: 'esc-001',
-    nomeCompleto: 'Profª. Maria Teresa Kivuva',
-    genero: 'F',
-    numeroBI: '004829103LA040',
-    telefone: '+244 931 444 777',
-    email: 'coordenacao.pedagogica@med.gov.ao',
-    cargo: 'Coordenadora Pedagógica Geral',
-    ehProfessor: true,
-    ehAdministrativoQueLeciona: false,
-    habilitacoes: 'Mestrado em Supervisão e Coordenação Pedagógica',
-    fotoUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-    dataAdmissao: '2017-06-15',
-    ativo: true,
-    role: 'CoordenadorPedagogico'
-  }
-];
+export const DEFAULT_ADMIN_GERAL_PRODUCAO: Funcionario = {
+  id: 'func-admin-sistema',
+  nomeCompleto: 'Administrador Geral',
+  email: 'admin@med.gov.ao',
+  numeroBI: '',
+  telefone: '',
+  cargo: 'Administrador Geral do Sistema',
+  role: 'AdminGeral',
+  escolaId: 'todas',
+  habilitacoes: '',
+  fotoUrl: '',
+  dataAdmissao: new Date().toISOString().split('T')[0],
+  ativo: true,
+  statusConta: 'Ativa',
+  ehProfessor: false,
+  ehAdministrativoQueLeciona: false,
+  genero: 'M'
+};
 
-export const DEFAULT_ATRIBUICOES: AtribuicaoDocente[] = [
-  {
-    id: 'atrib-01',
-    escolaId: 'esc-001',
-    professorId: 'func-003',
-    turmaId: 'turma-ini-a',
-    disciplinaId: 'disc-com-ling',
-    ehCoordenadorTurma: true,
-    anoLectivo: '2025/2026'
-  },
-  {
-    id: 'atrib-02',
-    escolaId: 'esc-001',
-    professorId: 'func-003',
-    turmaId: 'turma-1a',
-    disciplinaId: 'disc-lp-prim',
-    ehCoordenadorTurma: true,
-    anoLectivo: '2025/2026'
-  },
-  {
-    id: 'atrib-03',
-    escolaId: 'esc-001',
-    professorId: 'func-004', // Administrativo que leciona
-    turmaId: 'turma-6a',
-    disciplinaId: 'disc-lp-prim',
-    ehCoordenadorTurma: true,
-    anoLectivo: '2025/2026'
-  },
-  {
-    id: 'atrib-04',
-    escolaId: 'esc-001',
-    professorId: 'func-005',
-    turmaId: 'turma-7a',
-    disciplinaId: 'disc-mat-ciclo',
-    ehCoordenadorTurma: true,
-    anoLectivo: '2025/2026'
-  },
-  {
-    id: 'atrib-05',
-    escolaId: 'esc-001',
-    professorId: 'func-005',
-    turmaId: 'turma-9a',
-    disciplinaId: 'disc-mat-ciclo',
-    ehCoordenadorTurma: true,
-    anoLectivo: '2025/2026'
-  },
-  {
-    id: 'atrib-06',
-    escolaId: 'esc-001',
-    professorId: 'func-005',
-    turmaId: 'turma-12a',
-    disciplinaId: 'disc-fisica',
-    ehCoordenadorTurma: true,
-    anoLectivo: '2025/2026'
-  }
-];
+export const DEFAULT_FUNCIONARIOS: Funcionario[] = [];
 
-export const DEFAULT_ALUNOS: Aluno[] = [
-  // Aluna 1 (Screenshot 1: Magistério Daniel Vemba - Boletim II Trimestre)
-  {
-    id: 'aluno-ndilu',
-    codigoMatricula: '7419ANGOS2205',
-    numeroInterno: '7419ANGOS2205',
-    numeroProcesso: '7419ANGOS2205',
-    numeroOrdem: 1,
-    nomeCompleto: 'Ana Paula Afonso Ndilu',
-    genero: 'F',
-    dataNascimento: '2005-07-14',
-    naturalidade: 'Mbanza Kongo',
-    municipioNascimento: 'Mbanza Kongo',
-    provinciaOrigem: 'Zaire',
-    numeroBI: '005819234ZE048',
-    arquivoIdentificacao: 'arquivo de identificação de Mbanza Kongo',
-    dataEmissaoBI: '12/03/2021',
-    telefone: '+244 923 777 888',
-    fotoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Afonso Ndilu',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 923 777 888',
-    encarregadoEmail: 'afonso.ndilu@gmail.com',
-    estado: 'Ativo',
-    turmaId: 'turma-mag-12a',
-    classeId: '12.ª classe',
-    escolaId: 'esc-002',
-    curso: 'Formação de Professores do 1.º Ciclo',
-    opcaoCurso: 'Língua Portuguesa e EMC',
-    periodo: 'Matinal',
-    propinaStatus: 'Regularizada',
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    historicoAnterior: [
-      { classe: '10.ª classe', anoLectivo: '2023/2024', mediaFinal: 13, aprovado: true },
-      { classe: '11.ª classe', anoLectivo: '2024/2025', mediaFinal: 13, aprovado: true }
-    ],
-    cadastradoEm: '2023-09-01'
-  },
-  // Aluno 2 (Screenshots 2 e 3: Complexo Escolar 151 - Declaração de Habilitações com Notas)
-  {
-    id: 'aluno-goncalves',
-    codigoMatricula: '159/2021',
-    numeroProcesso: '159/2021',
-    numeroInterno: '159/2021',
-    numeroOrdem: 2,
-    nomeCompleto: 'Manuel Gonçalves Júnior',
-    genero: 'M',
-    dataNascimento: '2004-03-06',
-    naturalidade: 'Mbanza Kongo',
-    municipioNascimento: 'Mbanza Kongo',
-    provinciaOrigem: 'Zaire',
-    numeroBI: '023119241ZE059',
-    arquivoIdentificacao: 'arquivo de identificação de Luanda',
-    dataEmissaoBI: '15/02/2022',
-    nomePai: 'Manuel Gonçalves',
-    nomeMae: 'Ponteciana Kilandamoko',
-    telefone: '+244 924 555 666',
-    fotoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Manuel Gonçalves',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 924 555 666',
-    estado: 'Ativo',
-    turmaId: 'turma-151-10a',
-    classeId: 'Décima (10ª) Classe',
-    escolaId: 'esc-003',
-    curso: 'Ciências Humanas',
-    opcaoCurso: 'Ciências Humanas',
-    periodo: 'Matinal',
-    livroRegisto: '02',
-    folhaRegisto: '64',
-    propinaStatus: 'Regularizada',
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    historicoAnterior: [
-      { classe: '9.ª classe', anoLectivo: '2020/2021', mediaFinal: 12, aprovado: true }
-    ],
-    cadastradoEm: '2021-09-10'
-  },
-  // Aluna 3 (Screenshot 4: Complexo Escolar 151 - Certificado de Conclusão Multi-Classe)
-  {
-    id: 'aluno-nzinga',
-    codigoMatricula: '220518E1396',
-    numeroProcesso: '220518E1396',
-    numeroInterno: '220518E1396',
-    numeroOrdem: 3,
-    nomeCompleto: 'Madalena Fineza Nzinga',
-    genero: 'F',
-    dataNascimento: '2003-04-03',
-    naturalidade: 'Mbanza Kongo',
-    municipioNascimento: 'Mbanza Kongo',
-    provinciaOrigem: 'Zaire',
-    numeroBI: '009631356ZE043',
-    arquivoIdentificacao: 'arquivo de identificação de Luanda',
-    dataEmissaoBI: '29/08/2018',
-    nomePai: 'André Nzinga',
-    nomeMae: 'Maria Carlota',
-    telefone: '+244 931 444 333',
-    fotoUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'André Nzinga',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 931 444 333',
-    estado: 'Ativo',
-    turmaId: 'turma-151-12a',
-    classeId: '12.ª classe',
-    escolaId: 'esc-003',
-    curso: 'Ciências Económicas e Jurídicas',
-    opcaoCurso: 'Ciências Económicas e Jurídicas',
-    periodo: 'Matinal',
-    livroRegisto: '220518MA2003',
-    folhaRegisto: 'EJ-2024/2025',
-    propinaStatus: 'Regularizada',
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    historicoAnterior: [
-      { classe: '10.ª classe', anoLectivo: '2022/2023', mediaFinal: 12, aprovado: true },
-      { classe: '11.ª classe', anoLectivo: '2023/2024', mediaFinal: 12, aprovado: true },
-      { classe: '12.ª classe', anoLectivo: '2024/2025', mediaFinal: 12, aprovado: true }
-    ],
-    historicoMultiAno: [
-      { disciplinaNome: 'Língua Portuguesa', categoria: 'Formação Geral', nota10: 12, nota11: 11, nota12: 11, mediaFinal: 11 },
-      { disciplinaNome: 'Francês', categoria: 'Formação Geral', nota10: 11, nota11: 10, nota12: 12, mediaFinal: 11 },
-      { disciplinaNome: 'Matemática', categoria: 'Formação Geral', nota10: 13, nota11: 16, nota12: '-', mediaFinal: 15 },
-      { disciplinaNome: 'Informática', categoria: 'Formação Geral', nota10: 11, nota11: '-', nota12: '-', mediaFinal: 11 },
-      { disciplinaNome: 'Educação Física', categoria: 'Formação Geral', nota10: 11, nota11: 13, nota12: 14, mediaFinal: 13 },
-      { disciplinaNome: 'Filosofia', categoria: 'Formação Geral', nota10: '-', nota11: 10, nota12: 10, mediaFinal: 10 },
-      { disciplinaNome: 'Empreendedorismo', categoria: 'Formação Geral', nota10: 10, nota11: 11, nota12: 11, mediaFinal: 11 },
-      { disciplinaNome: 'Introdução ao Direito', categoria: 'Formação Específica', nota10: 10, nota11: 10, nota12: 10, mediaFinal: 10 },
-      { disciplinaNome: 'Introdução à Economia', categoria: 'Formação Específica', nota10: 10, nota11: 10, nota12: 13, mediaFinal: 11 },
-      { disciplinaNome: 'História', categoria: 'Formação Específica', nota10: 13, nota11: 12, nota12: 14, mediaFinal: 13 },
-      { disciplinaNome: 'Geografia', categoria: 'Formação Específica', nota10: 10, nota11: 13, nota12: 10, mediaFinal: 11 },
-      { disciplinaNome: 'Desenvolvimento Económico e Social', categoria: 'Formação Específica', nota10: '-', nota11: '-', nota12: 11, mediaFinal: 11 },
-      { disciplinaNome: 'Psicologia', categoria: 'Disciplina Opcional', nota10: '-', nota11: 14, nota12: 13, mediaFinal: 14 }
-    ],
-    cadastradoEm: '2022-09-01'
-  },
-  {
-    id: 'aluno-001',
-    codigoMatricula: 'MED-2025-0104',
-    numeroOrdem: 1,
-    nomeCompleto: 'António Francisco Panzo',
-    genero: 'M',
-    dataNascimento: '2019-04-12',
-    naturalidade: 'Ingombota',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '009871234LA055',
-    telefone: '+244 923 111 222',
-    fotoUrl: 'https://images.unsplash.com/photo-1543610892-0b1f7e6d8ac1?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Francisco Panzo',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 923 111 222',
-    encarregadoEmail: 'f.panzo@gmail.com',
-    estado: 'Ativo',
-    turmaId: 'turma-ini-a',
-    classeId: 'Iniciação',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [],
-    cadastradoEm: '2025-01-15'
-  },
-  {
-    id: 'aluno-002',
-    codigoMatricula: 'MED-2025-0105',
-    numeroOrdem: 2,
-    nomeCompleto: 'Beatriz Teresa dos Santos',
-    genero: 'F',
-    dataNascimento: '2019-08-20',
-    naturalidade: 'Maianga',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '009871235LA056',
-    telefone: '+244 931 222 333',
-    fotoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Helena Teresa dos Santos',
-    encarregadoParentesco: 'Mãe',
-    encarregadoTelefone: '+244 931 222 333',
-    estado: 'Ativo',
-    turmaId: 'turma-ini-a',
-    classeId: 'Iniciação',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [],
-    cadastradoEm: '2025-01-15'
-  },
-  {
-    id: 'aluno-003',
-    codigoMatricula: 'MED-2025-0601',
-    numeroOrdem: 1,
-    nomeCompleto: 'Carlos Eduardo Ndongala',
-    genero: 'M',
-    dataNascimento: '2013-05-18',
-    naturalidade: 'Samba',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '007812938LA042',
-    telefone: '+244 945 990 011',
-    fotoUrl: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Eduardo Ndongala',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 945 990 011',
-    estado: 'Ativo',
-    turmaId: 'turma-6a', // Classe Final do Primário
-    classeId: '6ª',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [
-      { classe: '1ª', anoLectivo: '2020/2021', mediaFinal: 8, aprovado: true },
-      { classe: '2ª', anoLectivo: '2021/2022', mediaFinal: 7, aprovado: true },
-      { classe: '3ª', anoLectivo: '2022/2023', mediaFinal: 8, aprovado: true },
-      { classe: '4ª', anoLectivo: '2023/2024', mediaFinal: 8, aprovado: true },
-      { classe: '5ª', anoLectivo: '2024/2025', mediaFinal: 9, aprovado: true }
-    ],
-    cadastradoEm: '2025-01-10'
-  },
-  {
-    id: 'aluno-004',
-    codigoMatricula: 'MED-2025-0602',
-    numeroOrdem: 2,
-    nomeCompleto: 'Delfina Maria Capoco',
-    genero: 'F',
-    dataNascimento: '2013-11-02',
-    naturalidade: 'Rangel',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '007812939LA043',
-    telefone: '+244 912 445 566',
-    fotoUrl: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Margarida Capoco',
-    encarregadoParentesco: 'Mãe',
-    encarregadoTelefone: '+244 912 445 566',
-    estado: 'Ativo',
-    turmaId: 'turma-6a',
-    classeId: '6ª',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [
-      { classe: '1ª', anoLectivo: '2020/2021', mediaFinal: 7, aprovado: true },
-      { classe: '2ª', anoLectivo: '2021/2022', mediaFinal: 7, aprovado: true },
-      { classe: '3ª', anoLectivo: '2022/2023', mediaFinal: 8, aprovado: true },
-      // Falta a 4ª e 5ª para testar o Histórico Inteligente
-    ],
-    cadastradoEm: '2025-01-10'
-  },
-  {
-    id: 'aluno-005',
-    codigoMatricula: 'MED-2025-0701',
-    numeroOrdem: 1,
-    nomeCompleto: 'Emanuel Domingos Gaspar',
-    genero: 'M',
-    dataNascimento: '2012-02-14',
-    naturalidade: 'Viana',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '006712391LA039',
-    telefone: '+244 928 332 211',
-    fotoUrl: 'https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Domingos Gaspar',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 928 332 211',
-    estado: 'Ativo',
-    turmaId: 'turma-7a',
-    classeId: '7ª',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [],
-    cadastradoEm: '2025-01-12'
-  },
-  {
-    id: 'aluno-006',
-    codigoMatricula: 'MED-2025-0702',
-    numeroOrdem: 2,
-    nomeCompleto: 'Fátima Esperança Lutumba',
-    genero: 'F',
-    dataNascimento: '2012-09-09',
-    naturalidade: 'Cazenga',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '006712392LA040',
-    telefone: '+244 945 667 788',
-    fotoUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Albertina Lutumba',
-    encarregadoParentesco: 'Mãe',
-    encarregadoTelefone: '+244 945 667 788',
-    estado: 'Ativo',
-    turmaId: 'turma-7a',
-    classeId: '7ª',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [],
-    cadastradoEm: '2025-01-12'
-  },
-  {
-    id: 'aluno-007',
-    codigoMatricula: 'MED-2025-0901',
-    numeroOrdem: 1,
-    nomeCompleto: 'Gabriel Kiala Fernando',
-    genero: 'M',
-    dataNascimento: '2010-06-25',
-    naturalidade: 'Kilamba Kiaxi',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '004519283LA038',
-    telefone: '+244 921 556 677',
-    fotoUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Fernando Kiala',
-    encarregadoParentesco: 'Pai',
-    encarregadoTelefone: '+244 921 556 677',
-    estado: 'Ativo',
-    turmaId: 'turma-9a', // Final do Iº Ciclo
-    classeId: '9ª',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [
-      { classe: '7ª', anoLectivo: '2023/2024', mediaFinal: 14, aprovado: true },
-      { classe: '8ª', anoLectivo: '2024/2025', mediaFinal: 15, aprovado: true }
-    ],
-    cadastradoEm: '2025-01-08'
-  },
-  {
-    id: 'aluno-008',
-    codigoMatricula: 'MED-2025-1201',
-    numeroOrdem: 1,
-    nomeCompleto: 'Helena Lukenia de Oliveira',
-    genero: 'F',
-    dataNascimento: '2007-03-30',
-    naturalidade: 'Ingombota',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '001928374LA032',
-    telefone: '+244 933 778 899',
-    fotoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Teresa de Oliveira',
-    encarregadoParentesco: 'Mãe',
-    encarregadoTelefone: '+244 933 778 899',
-    estado: 'Ativo',
-    turmaId: 'turma-12a', // Final IIº Ciclo
-    classeId: '12ª',
-    escolaId: 'esc-001',
-    propinaStatus: 'Regularizada',
-    historicoAnterior: [
-      { classe: '10ª', anoLectivo: '2023/2024', mediaFinal: 16, aprovado: true },
-      { classe: '11ª', anoLectivo: '2024/2025', mediaFinal: 15, aprovado: true }
-    ],
-    cadastradoEm: '2025-01-05'
-  }
-];
+export const DEFAULT_ATRIBUICOES: AtribuicaoDocente[] = [];
+
+export const DEFAULT_ALUNOS: Aluno[] = [];
 
 export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
   {
     id: 'tipo-01',
-    escolaId: 'esc-001',
+    escolaId: 'esc-003',
     nome: 'Prova do Professor (PP)',
     codigo: 'PP',
     escalaMax: 20,
@@ -1107,826 +375,65 @@ export const DEFAULT_REGRAS_MAC: RegraCalculoMAC[] = [
   }
 ];
 
-export const DEFAULT_AVALIACOES: AvaliacaoCriada[] = [
-  {
-    id: 'av-001',
-    escolaId: 'esc-001',
-    turmaId: 'turma-7a',
-    disciplinaId: 'disc-mat-ciclo',
-    professorId: 'func-005',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    tipoId: 'tipo-01',
-    tipoNome: 'Prova do Professor (PP)',
-    titulo: '1ª Prova Parcial: Equações Lineares',
-    dataAplicacao: '2025-02-15',
-    pontuacaoMaxima: 20,
-    peso: 2,
-    bloqueada: false
-  },
-  {
-    id: 'av-002',
-    escolaId: 'esc-001',
-    turmaId: 'turma-7a',
-    disciplinaId: 'disc-mat-ciclo',
-    professorId: 'func-005',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    tipoId: 'tipo-02',
-    tipoNome: 'Teste de Diagnóstico / Contínuo (TC)',
-    titulo: 'Teste Escrito nº 1: Operações com Frações',
-    dataAplicacao: '2025-02-28',
-    pontuacaoMaxima: 20,
-    peso: 1,
-    bloqueada: false
-  },
-  {
-    id: 'av-003',
-    escolaId: 'esc-001',
-    turmaId: 'turma-7a',
-    disciplinaId: 'disc-mat-ciclo',
-    professorId: 'func-005',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    tipoId: 'tipo-04',
-    tipoNome: 'Trabalho em Grupo / Seminário (TG)',
-    titulo: 'Seminário de Geometria Plana',
-    dataAplicacao: '2025-03-10',
-    pontuacaoMaxima: 20,
-    peso: 1,
-    bloqueada: false
-  },
-  {
-    id: 'av-004',
-    escolaId: 'esc-001',
-    turmaId: 'turma-6a',
-    disciplinaId: 'disc-lp-prim',
-    professorId: 'func-004',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    tipoId: 'tipo-01',
-    tipoNome: 'Prova do Professor (PP)',
-    titulo: 'Compreensão de Texto e Gramática',
-    dataAplicacao: '2025-02-20',
-    pontuacaoMaxima: 10,
-    peso: 1,
-    bloqueada: false
-  },
-  {
-    id: 'av-005',
-    escolaId: 'esc-001',
-    turmaId: 'turma-6a',
-    disciplinaId: 'disc-lp-prim',
-    professorId: 'func-004',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    tipoId: 'tipo-02',
-    tipoNome: 'Teste de Diagnóstico / Contínuo (TC)',
-    titulo: 'Ditado e Vocabulário',
-    dataAplicacao: '2025-03-05',
-    pontuacaoMaxima: 10,
-    peso: 1,
-    bloqueada: false
-  }
-];
+export const DEFAULT_AVALIACOES: AvaliacaoCriada[] = [];
 
-export const DEFAULT_NOTAS: NotaEstudante[] = [
-  // Notas Turma 7ª A - Matemática
-  { id: 'nota-01', avaliacaoId: 'av-001', alunoId: 'aluno-005', valorNota: 14, dataLancamento: '2025-02-16' },
-  { id: 'nota-02', avaliacaoId: 'av-002', alunoId: 'aluno-005', valorNota: 16, dataLancamento: '2025-03-01' },
-  { id: 'nota-03', avaliacaoId: 'av-003', alunoId: 'aluno-005', valorNota: 15, dataLancamento: '2025-03-11' },
+export const DEFAULT_NOTAS: NotaEstudante[] = [];
 
-  { id: 'nota-04', avaliacaoId: 'av-001', alunoId: 'aluno-006', valorNota: 18, dataLancamento: '2025-02-16' },
-  { id: 'nota-05', avaliacaoId: 'av-002', alunoId: 'aluno-006', valorNota: 17, dataLancamento: '2025-03-01' },
-  { id: 'nota-06', avaliacaoId: 'av-003', alunoId: 'aluno-006', valorNota: 19, dataLancamento: '2025-03-11' },
+export const DEFAULT_NOTAS_CONSOLIDADAS: NotaTrimestralConsolidada[] = [];
 
-  // Notas Turma 6ª A - Língua Portuguesa (0 a 10)
-  { id: 'nota-07', avaliacaoId: 'av-004', alunoId: 'aluno-003', valorNota: 8, dataLancamento: '2025-02-21' },
-  { id: 'nota-08', avaliacaoId: 'av-005', alunoId: 'aluno-003', valorNota: 9, dataLancamento: '2025-03-06' },
+export const DEFAULT_JURIS: ComissaoJuri[] = [];
 
-  { id: 'nota-09', avaliacaoId: 'av-004', alunoId: 'aluno-004', valorNota: 7, dataLancamento: '2025-02-21' },
-  { id: 'nota-10', avaliacaoId: 'av-005', alunoId: 'aluno-004', valorNota: 8, dataLancamento: '2025-03-06' }
-];
+export const DEFAULT_SOLICITACOES_NOTA: SolicitacaoAlteracaoNota[] = [];
 
-export const DEFAULT_NOTAS_CONSOLIDADAS: NotaTrimestralConsolidada[] = [
-  // =========================================================================
-  // NOTAS CONSOLIDADAS: Ana Paula Afonso Ndilu (Magistério Daniel Vemba - II Trimestre)
-  // =========================================================================
-  {
-    id: 'cons-ndilu-lp',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-lp-ciclo',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 12.0,
-    npp: 13.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 12.7,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-ing',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-ingles',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 12.0,
-    npp: 11.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 12.0,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-ef',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-ed-fisica',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 17.0,
-    npp: 15.0,
-    npt: 15.0,
-    provaTrimestral: 15.0,
-    mediaTrimestral: 15.7,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-fil',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-filosofia',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 13.0,
-    npp: 11.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 12.3,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-hse',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-higiene-saude',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 13.0,
-    npp: 11.0,
-    npt: 12.0,
-    provaTrimestral: 12.0,
-    mediaTrimestral: 12.0,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-melp',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-metodologia-lp',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 15.0,
-    npp: 13.0,
-    npt: 14.0,
-    provaTrimestral: 14.0,
-    mediaTrimestral: 14.0,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-memc',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-metodologia-emc',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 13.0,
-    npp: 13.0,
-    npt: 12.0,
-    provaTrimestral: 12.0,
-    mediaTrimestral: 12.7,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-psep',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-estagio-pedag',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 15.0,
-    npp: 13.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 13.7,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-eti',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-etica',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 13.0,
-    npp: 11.0,
-    npt: 12.0,
-    provaTrimestral: 12.0,
-    mediaTrimestral: 12.0,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-ndilu-fpsd',
-    alunoId: 'aluno-ndilu',
-    turmaId: 'turma-mag-12a',
-    disciplinaId: 'disc-form-pessoal',
-    trimestre: '2',
-    anoLectivo: '2025/2026',
-    mac: 13.0,
-    npp: 15.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 13.7,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Excelente',
-    assiduidadeConceito: 'Excelente',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
+export const DEFAULT_PRESENCAS: PresencaFuncionario[] = [];
 
-  // =========================================================================
-  // NOTAS CONSOLIDADAS: Manuel Gonçalves Júnior (Complexo 151 - Declaração)
-  // =========================================================================
-  {
-    id: 'cons-goncalves-lp',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-lp-ciclo',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 12.0,
-    npp: 12.0,
-    npt: 12.0,
-    provaTrimestral: 12.0,
-    mediaTrimestral: 12.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-ing',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-ingles',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 11.0,
-    npp: 11.0,
-    npt: 11.0,
-    provaTrimestral: 11.0,
-    mediaTrimestral: 11.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-mat',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-mat-ciclo',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 13.0,
-    npp: 13.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 13.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-inf',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-informatica',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 11.0,
-    npp: 11.0,
-    npt: 11.0,
-    provaTrimestral: 11.0,
-    mediaTrimestral: 11.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-ef',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-ed-fisica',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 11.0,
-    npp: 11.0,
-    npt: 11.0,
-    provaTrimestral: 11.0,
-    mediaTrimestral: 11.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-emp',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-empreendedorismo',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 10.0,
-    npp: 10.0,
-    npt: 10.0,
-    provaTrimestral: 10.0,
-    mediaTrimestral: 10.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-dir',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-intro-direito',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 10.0,
-    npp: 10.0,
-    npt: 10.0,
-    provaTrimestral: 10.0,
-    mediaTrimestral: 10.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-eco',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-intro-economia',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 10.0,
-    npp: 10.0,
-    npt: 10.0,
-    provaTrimestral: 10.0,
-    mediaTrimestral: 10.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-his',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-historia',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 13.0,
-    npp: 13.0,
-    npt: 13.0,
-    provaTrimestral: 13.0,
-    mediaTrimestral: 13.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-goncalves-geo',
-    alunoId: 'aluno-goncalves',
-    turmaId: 'turma-151-10a',
-    disciplinaId: 'disc-geografia',
-    trimestre: '3',
-    anoLectivo: '2021/2022',
-    mac: 10.0,
-    npp: 10.0,
-    npt: 10.0,
-    provaTrimestral: 10.0,
-    mediaTrimestral: 10.0,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Muito Bom',
-    assiduidadeConceito: 'Muito Bom',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-01',
-    alunoId: 'aluno-005',
-    turmaId: 'turma-7a',
-    disciplinaId: 'disc-mat-ciclo',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    mac: 15.0,
-    provaTrimestral: 14.0,
-    mediaTrimestral: 14.5,
-    comportamentoNota: 17, // 0-20
-    comportamentoConceito: 'Muito Bom',
-    faltas: 1,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-02',
-    alunoId: 'aluno-006',
-    turmaId: 'turma-7a',
-    disciplinaId: 'disc-mat-ciclo',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    mac: 18.0,
-    provaTrimestral: 19.0,
-    mediaTrimestral: 18.5,
-    comportamentoNota: 20,
-    comportamentoConceito: 'Exemplar',
-    faltas: 0,
-    validadaPelaDirecao: true
-  },
-  {
-    id: 'cons-03',
-    alunoId: 'aluno-003',
-    turmaId: 'turma-6a',
-    disciplinaId: 'disc-lp-prim',
-    trimestre: '1',
-    anoLectivo: '2025/2026',
-    mac: 8.5,
-    provaTrimestral: 8.0,
-    mediaTrimestral: 8.3,
-    comportamentoNota: 18,
-    comportamentoConceito: 'Exemplar',
-    faltas: 0,
-    validadaPelaDirecao: true
-  }
-];
+export const DEFAULT_AUDITORIA: LogAuditoria[] = [];
 
-export const DEFAULT_JURIS: ComissaoJuri[] = [
-  {
-    id: 'juri-sessao-003',
-    escolaId: 'esc-001',
-    nomeJuri: 'Comissão de Júri de Homologação de Resultados & Exames - 9ª Classe',
-    numeroSessao: 'Sessão nº 003/2026',
-    classe: '9ª',
-    curso: 'Iº Ciclo do Ensino Secundário Geral',
-    turmaId: 'turma-9a',
-    turmasIds: ['turma-9a', 'turma-7a'],
-    anoLectivo: '2025/2026',
-    periodo: 'IIIº Trimestre / Exame de Saída',
-    dataInicio: '2026-09-20',
-    dataEncerramento: '2026-10-30',
-    finalidade: 'Apreciação das pautas de aproveitamento, aplicação de critérios homologados pelo MED e deliberação sobre transições e recursos.',
-    observacoes: 'Sessão oficial com quórum completo nos termos das normas do MED Angola.',
-    estado: 'Aberta',
-    presidenteId: 'func-006',
-    secretarioId: 'func-005',
-    membros: [
-      {
-        usuarioId: 'func-006',
-        nome: 'Manuel Zola',
-        email: 'manuel.zola@med.gov.ao',
-        funcao: 'Presidente',
-        cargoOriginal: 'Diretor Geral'
-      },
-      {
-        usuarioId: 'func-005',
-        nome: 'Garcia António Vunge',
-        email: 'garcia.vunge@med.gov.ao',
-        funcao: 'Secretario',
-        cargoOriginal: 'Professor de Matemática'
-      },
-      {
-        usuarioId: 'func-003',
-        nome: 'Esperança Maria Kwanza',
-        email: 'esperanca.kwanza@med.gov.ao',
-        funcao: 'Membro',
-        cargoOriginal: 'Professora de Língua Portuguesa'
-      },
-      {
-        usuarioId: 'func-008',
-        nome: 'Soares Lucas António',
-        email: 'soares.antonio@med.gov.ao',
-        funcao: 'Membro',
-        cargoOriginal: 'Professor'
-      }
-    ],
-    criterios: [
-      {
-        id: 'crit-01',
-        codigo: 'Critério 01',
-        nome: 'Admissão a Recurso (Aproveitamento 40% a 49% ou 3 Positivas)',
-        descricao: 'Aproveitamento geral entre 40% e 49% ou pelo menos 3 disciplinas positivas para admissão a exame de recurso.',
-        finalidade: 'Recurso',
-        condicoes: [
-          {
-            id: 'c1',
-            campo: 'percentagem',
-            operador: 'between',
-            valorMin: 40,
-            valorMax: 49,
-            operadorLogico: 'E'
-          },
-          {
-            id: 'c2',
-            campo: 'disciplinas_positivas',
-            operador: '>=',
-            valorMin: 3,
-            operadorLogico: 'OU'
-          }
-        ],
-        ativo: true
-      },
-      {
-        id: 'crit-02',
-        codigo: 'Critério 02',
-        nome: 'Aprovação Direta com Média Geral Positiva',
-        descricao: 'Média geral maior ou igual a 10 valores e no máximo 2 disciplinas negativas.',
-        finalidade: 'Aprovacao',
-        condicoes: [
-          {
-            id: 'c3',
-            campo: 'media',
-            operador: '>=',
-            valorMin: 10,
-            operadorLogico: 'E'
-          },
-          {
-            id: 'c4',
-            campo: 'disciplinas_negativas',
-            operador: '<=',
-            valorMax: 2,
-            operadorLogico: 'E'
-          }
-        ],
-        ativo: true
-      },
-      {
-        id: 'crit-03',
-        codigo: 'Critério 03',
-        nome: 'Caso Especial / Reavaliação Pedagógica',
-        descricao: 'Frequência escolar superior a 95% com média ponderada entre 9.0 e 9.9 valores.',
-        finalidade: 'Situacao_Especial',
-        condicoes: [
-          {
-            id: 'c5',
-            campo: 'media',
-            operador: 'between',
-            valorMin: 9,
-            valorMax: 9.9,
-            operadorLogico: 'E'
-          },
-          {
-            id: 'c6',
-            campo: 'frequencia',
-            operador: '>=',
-            valorMin: 95,
-            operadorLogico: 'E'
-          }
-        ],
-        ativo: true
-      }
-    ],
-    deliberacoes: {},
-    ativa: true,
-    criadaEm: '2026-09-20'
-  }
-];
+export const DEFAULT_MENSAGENS: MensagemInterna[] = [];
 
-export const DEFAULT_SOLICITACOES_NOTA: SolicitacaoAlteracaoNota[] = [
-  {
-    id: 'sol-01',
-    escolaId: 'esc-001',
-    professorId: 'func-005',
-    professorNome: 'Prof. Garcia António Vunge',
-    alunoId: 'aluno-005',
-    alunoNome: 'Emanuel Domingos Gaspar',
-    turmaId: 'turma-7a',
-    turmaNome: '7ª Classe A',
-    disciplinaId: 'disc-mat-ciclo',
-    disciplinaNome: 'Matemática',
-    trimestre: '1',
-    avaliacaoId: 'av-001',
-    avaliacaoTitulo: '1ª Prova Parcial: Equações Lineares',
-    notaAnterior: 12,
-    notaProposta: 14,
-    motivo: 'Erro de transcrição na questão nº 3 da prova corrigida com sucesso na revisão pedagógica com o estudante.',
-    estado: 'Aprovado',
-    respostaDirecao: 'Aprovado após conferência da folha de prova física.',
-    dataSolicitacao: '2025-02-17',
-    dataResposta: '2025-02-18'
-  }
-];
+export const DEFAULT_BIBLIOTECA: DocumentoBiblioteca[] = [];
 
-export const DEFAULT_PRESENCAS: PresencaFuncionario[] = [
-  {
-    id: 'pres-01',
-    escolaId: 'esc-001',
-    funcionarioId: 'func-001',
-    funcionarioNome: 'Prof. Dr. Mateus Sebastião Ngonga',
-    cargo: 'Diretor Geral',
-    data: new Date().toISOString().split('T')[0],
-    estado: 'Presente',
-    registadoPor: 'Lic. Esperança Domingos Manuel'
-  },
-  {
-    id: 'pres-02',
-    escolaId: 'esc-001',
-    funcionarioId: 'func-002',
-    funcionarioNome: 'Lic. Esperança Domingos Manuel',
-    cargo: 'Subdiretora Pedagógica',
-    data: new Date().toISOString().split('T')[0],
-    estado: 'Presente',
-    registadoPor: 'Prof. Dr. Mateus Sebastião Ngonga'
-  },
-  {
-    id: 'pres-03',
-    escolaId: 'esc-001',
-    funcionarioId: 'func-003',
-    funcionarioNome: 'Profª. Ana Paula dos Santos Afonso',
-    cargo: 'Professora do Ensino Primário',
-    data: new Date().toISOString().split('T')[0],
-    estado: 'Presente',
-    registadoPor: 'Lic. Esperança Domingos Manuel'
-  },
-  {
-    id: 'pres-04',
-    escolaId: 'esc-001',
-    funcionarioId: 'func-004',
-    funcionarioNome: 'Dr. João Bernardo Kiala',
-    cargo: 'Chefe de Secretaria e Professor',
-    data: new Date().toISOString().split('T')[0],
-    estado: 'Presente',
-    registadoPor: 'Lic. Esperança Domingos Manuel'
-  },
-  {
-    id: 'pres-05',
-    escolaId: 'esc-001',
-    funcionarioId: 'func-005',
-    funcionarioNome: 'Prof. Garcia António Vunge',
-    cargo: 'Professor de Matemática',
-    data: new Date().toISOString().split('T')[0],
-    estado: 'Presente',
-    registadoPor: 'Lic. Esperança Domingos Manuel'
-  }
-];
-
-export const DEFAULT_AUDITORIA: LogAuditoria[] = [
-  {
-    id: 'log-01',
-    escolaId: 'esc-001',
-    utilizadorId: 'func-001',
-    utilizadorNome: 'Prof. Dr. Mateus Sebastião Ngonga',
-    papel: 'Diretor Geral',
-    acao: 'Abertura do Ano Lectivo',
-    detalhe: 'Ano lectivo 2025/2026 aberto oficialmente com 1º Trimestre activo.',
-    ip: '197.234.220.12',
-    dataHora: '2025-01-05 08:30:15'
-  },
-  {
-    id: 'log-02',
-    escolaId: 'esc-001',
-    utilizadorId: 'func-002',
-    utilizadorNome: 'Lic. Esperança Domingos Manuel',
-    papel: 'Subdiretor Pedagógico',
-    acao: 'Aprovação de Alteração de Nota',
-    detalhe: 'Solicitação sol-01 aprovada para o aluno Emanuel Domingos Gaspar na disciplina de Matemática.',
-    ip: '197.234.220.14',
-    dataHora: '2025-02-18 11:20:44'
-  }
-];
-
-export const DEFAULT_MENSAGENS: MensagemInterna[] = [
-  {
-    id: 'msg-01',
-    escolaId: 'esc-001',
-    remetenteId: 'func-001',
-    remetenteNome: 'Prof. Dr. Mateus Sebastião Ngonga',
-    remetentePapel: 'Diretor Geral',
-    tipo: 'GERAL',
-    titulo: 'Aviso: Calendário de Provas do 1º Trimestre',
-    conteudo: 'Caros professores e coordenadores, informamos que o período de realização das Provas do Professor decorre até 25 de Março. As pautas devem ser fechadas impreterivelmente até ao dia 30 de Março.',
-    dataHora: '2025-02-10 09:00:00'
-  }
-];
-
-export const DEFAULT_BIBLIOTECA: DocumentoBiblioteca[] = [
-  {
-    id: 'doc-01',
-    escolaId: 'esc-001',
-    titulo: 'Regulamento Geral das Escolas do Ensino Primário e Secundário de Angola (MED)',
-    autor: 'Ministério da Educação de Angola',
-    categoria: 'Legislação e Regulamentos',
-    tamanhoBytes: 2450000,
-    url: 'https://www.med.gov.ao/regulamento-geral-ensino.pdf',
-    dataUpload: '2025-01-08',
-    uploadPorNome: 'Prof. Dr. Mateus Sebastião Ngonga'
-  },
-  {
-    id: 'doc-02',
-    escolaId: 'esc-001',
-    titulo: 'Manual de Orientação Curricular para a Classe de Iniciação',
-    autor: 'INIDE - Instituto Nacional de Investigação e Desenvolvimento da Educação',
-    categoria: 'Guias Pedagógicos',
-    tamanhoBytes: 3120000,
-    url: 'https://www.med.gov.ao/manual-iniciacao.pdf',
-    dataUpload: '2025-01-09',
-    uploadPorNome: 'Lic. Esperança Domingos Manuel'
-  }
-];
-
-export const DEFAULT_RECIBOS: ReciboPagamento[] = [
-  {
-    id: 'rec-001',
-    escolaId: 'esc-001',
-    numeroRecibo: 'REC-2025/00142',
-    alunoId: 'aluno-001',
-    alunoNome: 'António Francisco Panzo',
-    codigoMatricula: 'MED-2025-0104',
-    turmaNome: 'Iniciação A',
-    mesReferencia: 'Fevereiro / 2025',
-    valorPagoKz: 15000,
-    metodoPagamento: 'Multicaixa / TPA',
-    dataHora: '2025-02-05 10:14:22',
-    operadorNome: 'Dr. João Bernardo Kiala'
-  }
-];
+export const DEFAULT_RECIBOS: ReciboPagamento[] = [];
 
 // LocalStorage Helper
 function getLocal<T>(key: string, fallback: T): T {
   try {
+    if (typeof localStorage === 'undefined') return fallback;
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw);
+    if (!raw || raw === 'undefined' || raw === 'null') {
+      if (raw === 'undefined' || raw === 'null') {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // noop
+        }
+      }
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    if (parsed === null || parsed === undefined) {
+      return fallback;
+    }
+    return parsed;
   } catch (e) {
-    console.error(`Erro ao carregar chave ${key}:`, e);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
+    } catch {
+      // noop
+    }
     return fallback;
   }
 }
 
 function setLocal<T>(key: string, value: T): void {
   try {
+    if (typeof localStorage === 'undefined') return;
+    if (value === undefined || value === null) {
+      localStorage.removeItem(key);
+      return;
+    }
     localStorage.setItem(key, JSON.stringify(value));
     // Notificar motor de persistência offline para espelhamento em IndexedDB
     try {
@@ -1949,276 +456,20 @@ export const DEFAULT_CONFIGURACAO_SISTEMA: ConfiguracaoSistema = {
   subtituloSistema: 'Sistema de Gestão Escolar de Angola',
   ministerioNome: 'Ministério da Educação (MED)',
   pais: 'República de Angola',
-  modoProducao: false,
+  modoProducao: true,
   sincronizacaoFirebaseAtiva: true,
   dataInicializacao: new Date().toISOString()
 };
 
-export const DEFAULT_CONFIGURACOES_FINANCEIRAS: Record<string, ConfiguracaoFinanceiraEscola> = {
-  'esc-001': {
-    escolaId: 'esc-001',
-    propinasPorClasse: {
-      'Iniciação': 7500,
-      '1ª': 8500,
-      '2ª': 8500,
-      '3ª': 8500,
-      '4ª': 8500,
-      '5ª': 9000,
-      '6ª': 9500,
-      '7ª': 12000,
-      '8ª': 12500,
-      '9ª': 13000,
-      '10ª': 16000,
-      '11ª': 17000,
-      '12ª': 18000
-    },
-    taxaMatricula: 5000,
-    taxaConfirmacao: 4000,
-    taxaDeclaracaoComNotas: 3500,
-    taxaDeclaracaoSemNotas: 2000,
-    taxaCertificado: 6000,
-    taxaCartaoEstudante: 2500,
-    taxaExameRecurso: 4500,
-    diaLimitePagamento: 10,
-    multaAtrasoPercentual: 10,
-    ibanEscola: 'AO06.0040.0000.1234.5678.9012.3',
-    bancoNome: 'Banco BAI'
-  }
-};
+export const DEFAULT_CONFIGURACOES_FINANCEIRAS: Record<string, ConfiguracaoFinanceiraEscola> = {};
 
-export const DEFAULT_TRANSACOES_FINANCEIRAS: TransacaoFinanceira[] = [
-  {
-    id: 'trans-001',
-    escolaId: 'esc-001',
-    alunoId: 'aluno-005',
-    alunoNome: 'Emanuel Domingos Gaspar',
-    codigoMatricula: 'MAT-2025-005',
-    turmaNome: '7ª Classe A',
-    classe: '7ª',
-    tipo: 'Propina Mensal',
-    mesReferencia: 'Fevereiro 2025',
-    anoLectivo: '2025/2026',
-    valorKz: 12000,
-    multaKz: 0,
-    valorTotalKz: 12000,
-    metodoPagamento: 'Multicaixa / TPA',
-    numeroComprovativo: 'TPA-991204',
-    numeroRecibo: 'REC-2025-0001',
-    dataHora: '2025-02-05 10:14:00',
-    operadorId: 'func-subadmin-01',
-    operadorNome: 'Dr. Paulo Afonso Quipungo',
-    status: 'Confirmado'
-  },
-  {
-    id: 'trans-002',
-    escolaId: 'esc-001',
-    alunoId: 'aluno-006',
-    alunoNome: 'Madalena Nzinga Mbandi',
-    codigoMatricula: 'MAT-2025-006',
-    turmaNome: '12ª Classe Ciências Humanas',
-    classe: '12ª',
-    tipo: 'Propina Mensal',
-    mesReferencia: 'Fevereiro 2025',
-    anoLectivo: '2025/2026',
-    valorKz: 18000,
-    multaKz: 0,
-    valorTotalKz: 18000,
-    metodoPagamento: 'Transferência Bancária',
-    numeroComprovativo: 'BAI-TRF-44129',
-    numeroRecibo: 'REC-2025-0002',
-    dataHora: '2025-02-07 14:22:00',
-    operadorId: 'func-subadmin-01',
-    operadorNome: 'Dr. Paulo Afonso Quipungo',
-    status: 'Confirmado'
-  },
-  {
-    id: 'trans-003',
-    escolaId: 'esc-001',
-    alunoId: 'aluno-003',
-    alunoNome: 'Bento Pedro Cassule',
-    codigoMatricula: 'MAT-2025-003',
-    turmaNome: '1ª Classe A',
-    classe: '1ª',
-    tipo: 'Confirmação',
-    anoLectivo: '2025/2026',
-    valorKz: 4000,
-    multaKz: 0,
-    valorTotalKz: 4000,
-    metodoPagamento: 'Dinheiro',
-    numeroRecibo: 'REC-2025-0003',
-    dataHora: '2025-01-20 09:30:00',
-    operadorId: 'func-subadmin-01',
-    operadorNome: 'Dr. Paulo Afonso Quipungo',
-    status: 'Confirmado'
-  }
-];
+export const DEFAULT_TRANSACOES_FINANCEIRAS: TransacaoFinanceira[] = [];
 
-export const DEFAULT_DESPESAS_ESCOLARES: DespesaEscolar[] = [
-  {
-    id: 'desp-001',
-    escolaId: 'esc-001',
-    descricao: 'Abastecimento de Combustível (Gasóleo) para Gerador 45kVA',
-    categoria: 'Combustível / Gerador',
-    valorKz: 75000,
-    dataHora: '2025-02-03 11:00:00',
-    beneficiario: 'Posto Sonangol - Morro Bento',
-    metodoPagamento: 'Multicaixa / TPA',
-    numeroComprovativo: 'TPA-772183',
-    registadoPorNome: 'Dr. Paulo Afonso Quipungo',
-    aprovadoPorNome: 'Prof. Dr. Mateus Sebastião Ngonga',
-    observacao: 'Garantir energia ininterrupta durante período matinal e vespertino.'
-  },
-  {
-    id: 'desp-002',
-    escolaId: 'esc-001',
-    descricao: 'Aquisição de 50 Resmas de Papel A4 e Cartuchos de Tinteiro para Secretaria',
-    categoria: 'Material de Escritório & Didáctico',
-    valorKz: 145000,
-    dataHora: '2025-02-10 15:30:00',
-    beneficiario: 'Papelaria & Tipografia Central Lda',
-    metodoPagamento: 'Transferência Bancária',
-    numeroComprovativo: 'TRF-BAI-90114',
-    registadoPorNome: 'Dr. Paulo Afonso Quipungo',
-    aprovadoPorNome: 'Prof. Dr. Mateus Sebastião Ngonga'
-  },
-  {
-    id: 'desp-003',
-    escolaId: 'esc-001',
-    descricao: 'Manutenção e Reparação de 15 Carteiras Escolares e Portas de Salas',
-    categoria: 'Manutenção de Infraestruturas',
-    valorKz: 55000,
-    dataHora: '2025-02-14 16:00:00',
-    beneficiario: 'Carpintaria & Serralharia Progresso',
-    metodoPagamento: 'Dinheiro',
-    registadoPorNome: 'Dr. Paulo Afonso Quipungo',
-    aprovadoPorNome: 'Prof. Dr. Mateus Sebastião Ngonga'
-  }
-];
+export const DEFAULT_DESPESAS_ESCOLARES: DespesaEscolar[] = [];
 
-export const DEFAULT_PATRIMONIO: ItemPatrimonio[] = [
-  {
-    id: 'pat-001',
-    escolaId: 'esc-001',
-    codigoTombamento: 'PAT-ESC01-2024-001',
-    nomeItem: 'Carteiras Escolares Duplas com Banco Acoplado (Lote de 40)',
-    categoria: 'Mobiliário Escolar (Carteiras/Secretárias)',
-    salaLocalizacao: 'Sala 01 e Sala 02',
-    quantidade: 40,
-    estadoConservacao: 'Bom',
-    dataAquisicao: '2024-01-15',
-    valorEstimadoKz: 1200000,
-    responsavelNome: 'Dr. Paulo Afonso Quipungo'
-  },
-  {
-    id: 'pat-002',
-    escolaId: 'esc-001',
-    codigoTombamento: 'PAT-ESC01-2023-018',
-    nomeItem: 'Gerador a Diesel Insonorizado 45kVA Caterpillar',
-    categoria: 'Climatização & Energia (ACs/Geradores)',
-    salaLocalizacao: 'Casota Técnica Exterior',
-    quantidade: 1,
-    estadoConservacao: 'Bom',
-    dataAquisicao: '2023-05-10',
-    valorEstimadoKz: 6500000,
-    responsavelNome: 'Eng. Técnico de Apoio'
-  },
-  {
-    id: 'pat-003',
-    escolaId: 'esc-001',
-    codigoTombamento: 'PAT-ESC01-2024-045',
-    nomeItem: 'Computadores Desktop HP Core i5 com Monitor 22" (Laboratório)',
-    categoria: 'Informática & Equipamentos TIC',
-    salaLocalizacao: 'Laboratório de Informática',
-    quantidade: 20,
-    estadoConservacao: 'Novo',
-    dataAquisicao: '2024-03-20',
-    valorEstimadoKz: 5800000,
-    responsavelNome: 'Prof. de Informática'
-  },
-  {
-    id: 'pat-004',
-    escolaId: 'esc-001',
-    codigoTombamento: 'PAT-ESC01-2023-009',
-    nomeItem: 'Retroprojector Multimédia Epson 3LCD HDMI',
-    categoria: 'Informática & Equipamentos TIC',
-    salaLocalizacao: 'Sala Polivalente / Auditório',
-    quantidade: 2,
-    estadoConservacao: 'Bom',
-    dataAquisicao: '2023-08-14',
-    valorEstimadoKz: 850000,
-    responsavelNome: 'Secretaria Geral'
-  }
-];
+export const DEFAULT_PATRIMONIO: ItemPatrimonio[] = [];
 
-export const DEFAULT_HISTORICO_COMPLETO: Record<string, HistoricoEscolarCompleto> = {
-  'aluno-006': {
-    alunoId: 'aluno-006',
-    ciclo: 'IIº Ciclo Geral (10ª à 12ª)',
-    classesCursadas: ['10.ª Classe', '11.ª Classe', '12.ª Classe'],
-    anosLectivos: {
-      '10.ª Classe': '2022/2023',
-      '11.ª Classe': '2023/2024',
-      '12.ª Classe': '2024/2025'
-    },
-    disciplinas: [
-      { disciplinaNome: 'Língua Portuguesa', categoria: 'Formação Geral', notasPorClasse: { '10.ª Classe': 16, '11.ª Classe': 17, '12.ª Classe': 18 }, mediaFinal: 17, situacao: 'Aprovado' },
-      { disciplinaNome: 'Língua Estrangeira (Inglês)', categoria: 'Formação Geral', notasPorClasse: { '10.ª Classe': 15, '11.ª Classe': 16, '12.ª Classe': 17 }, mediaFinal: 16, situacao: 'Aprovado' },
-      { disciplinaNome: 'Língua Estrangeira (Francês)', categoria: 'Formação Geral', notasPorClasse: { '10.ª Classe': 14, '11.ª Classe': 15, '12.ª Classe': 16 }, mediaFinal: 15, situacao: 'Aprovado' },
-      { disciplinaNome: 'Matemática', categoria: 'Formação Geral', notasPorClasse: { '10.ª Classe': 14, '11.ª Classe': 15, '12.ª Classe': 15 }, mediaFinal: 15, situacao: 'Aprovado' },
-      { disciplinaNome: 'Informática', categoria: 'Formação Geral', notasPorClasse: { '10.ª Classe': 17, '11.ª Classe': 18, '12.ª Classe': 19 }, mediaFinal: 18, situacao: 'Aprovado' },
-      { disciplinaNome: 'Educação Física', categoria: 'Formação Geral', notasPorClasse: { '10.ª Classe': 18, '11.ª Classe': 18, '12.ª Classe': 19 }, mediaFinal: 18, situacao: 'Aprovado' },
-      { disciplinaNome: 'História', categoria: 'Formação Específica', notasPorClasse: { '10.ª Classe': 17, '11.ª Classe': 18, '12.ª Classe': 19 }, mediaFinal: 18, situacao: 'Aprovado' },
-      { disciplinaNome: 'Geografia', categoria: 'Formação Específica', notasPorClasse: { '10.ª Classe': 16, '11.ª Classe': 17, '12.ª Classe': 18 }, mediaFinal: 17, situacao: 'Aprovado' },
-      { disciplinaNome: 'Filosofia', categoria: 'Formação Específica', notasPorClasse: { '10.ª Classe': 17, '11.ª Classe': 18, '12.ª Classe': 19 }, mediaFinal: 18, situacao: 'Aprovado' },
-      { disciplinaNome: 'Introdução ao Direito', categoria: 'Formação Específica', notasPorClasse: { '10.ª Classe': 16, '11.ª Classe': 17, '12.ª Classe': 18 }, mediaFinal: 17, situacao: 'Aprovado' },
-      { disciplinaNome: 'Introdução à Economia', categoria: 'Formação Específica', notasPorClasse: { '10.ª Classe': 15, '11.ª Classe': 16, '12.ª Classe': 17 }, mediaFinal: 16, situacao: 'Aprovado' }
-    ],
-    classes: [
-      {
-        classe: '10ª',
-        anoLectivo: '2022/2023',
-        escolaOrigem: 'Complexo Escolar nº 151',
-        mediaGeralClasse: 16.2,
-        notasDisciplinas: [
-          { disciplinaNome: 'Língua Portuguesa', notaFinal: 16, resultado: 'Aprovado' },
-          { disciplinaNome: 'Matemática', notaFinal: 14, resultado: 'Aprovado' },
-          { disciplinaNome: 'História', notaFinal: 17, resultado: 'Aprovado' },
-          { disciplinaNome: 'Informática', notaFinal: 17, resultado: 'Aprovado' }
-        ]
-      },
-      {
-        classe: '11ª',
-        anoLectivo: '2023/2024',
-        escolaOrigem: 'Complexo Escolar nº 151',
-        mediaGeralClasse: 16.8,
-        notasDisciplinas: [
-          { disciplinaNome: 'Língua Portuguesa', notaFinal: 17, resultado: 'Aprovado' },
-          { disciplinaNome: 'Matemática', notaFinal: 15, resultado: 'Aprovado' },
-          { disciplinaNome: 'História', notaFinal: 18, resultado: 'Aprovado' },
-          { disciplinaNome: 'Informática', notaFinal: 18, resultado: 'Aprovado' }
-        ]
-      },
-      {
-        classe: '12ª',
-        anoLectivo: '2024/2025',
-        escolaOrigem: 'Complexo Escolar nº 151',
-        mediaGeralClasse: 17.5,
-        notasDisciplinas: [
-          { disciplinaNome: 'Língua Portuguesa', notaFinal: 18, resultado: 'Aprovado' },
-          { disciplinaNome: 'Matemática', notaFinal: 15, resultado: 'Aprovado' },
-          { disciplinaNome: 'História', notaFinal: 19, resultado: 'Aprovado' },
-          { disciplinaNome: 'Informática', notaFinal: 19, resultado: 'Aprovado' }
-        ]
-      }
-    ],
-    mediaFinalCiclo: 17.0,
-    resultadoFinal: 'Concluído com Distinção',
-    dataConclusao: '2025-07-15',
-    livroRegisto: '12-CH',
-    folhaRegisto: '48',
-    termoNumero: '089/2025'
-  }
-};
+export const DEFAULT_HISTORICO_COMPLETO: Record<string, HistoricoEscolarCompleto> = {};
 
 export const DEFAULT_CONFIGURACAO_PASSES: ConfiguracaoPassesEscola = {
   corPrimaria: '#1e3a8a', // Azul Real MED
@@ -2255,51 +506,9 @@ export const DEFAULT_CONFIGURACAO_PASSES: ConfiguracaoPassesEscola = {
   ]
 };
 
-export const DEFAULT_HORARIOS: HorarioAulaItem[] = [
-  // Turma 7ª A - Manhã (esc-001) - Sem choque de horários!
-  // Segunda-feira
-  { id: 'hor-7a-seg-1', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Segunda-feira', numeroTempo: 1, horaInicio: '07:15', horaFim: '08:00', disciplinaId: 'disc-lp-ciclo', disciplinaNome: 'Língua Portuguesa', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-seg-2', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Segunda-feira', numeroTempo: 2, horaInicio: '08:05', horaFim: '08:50', disciplinaId: 'disc-lp-ciclo', disciplinaNome: 'Língua Portuguesa', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-seg-3', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Segunda-feira', numeroTempo: 3, horaInicio: '09:10', horaFim: '09:55', disciplinaId: 'disc-mat-ciclo', disciplinaNome: 'Matemática', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-seg-4', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Segunda-feira', numeroTempo: 4, horaInicio: '10:00', horaFim: '10:45', disciplinaId: 'disc-mat-ciclo', disciplinaNome: 'Matemática', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-seg-5', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Segunda-feira', numeroTempo: 5, horaInicio: '10:50', horaFim: '11:35', disciplinaId: 'disc-ed-fisica', disciplinaNome: 'Educação Física', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Campo / Sala 01', anoLectivo: '2025/2026' },
+export const DEFAULT_HORARIOS: HorarioAulaItem[] = [];
 
-  // Terça-feira
-  { id: 'hor-7a-ter-1', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Terça-feira', numeroTempo: 1, horaInicio: '07:15', horaFim: '08:00', disciplinaId: 'disc-fisica', disciplinaNome: 'Física', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-ter-2', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Terça-feira', numeroTempo: 2, horaInicio: '08:05', horaFim: '08:50', disciplinaId: 'disc-quimica', disciplinaNome: 'Química', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-ter-3', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Terça-feira', numeroTempo: 3, horaInicio: '09:10', horaFim: '09:55', disciplinaId: 'disc-biologia', disciplinaNome: 'Biologia', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-ter-4', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Terça-feira', numeroTempo: 4, horaInicio: '10:00', horaFim: '10:45', disciplinaId: 'disc-historia', disciplinaNome: 'História', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-ter-5', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Terça-feira', numeroTempo: 5, horaInicio: '10:50', horaFim: '11:35', disciplinaId: 'disc-geografia', disciplinaNome: 'Geografia', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-
-  // Quarta-feira
-  { id: 'hor-7a-qua-1', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quarta-feira', numeroTempo: 1, horaInicio: '07:15', horaFim: '08:00', disciplinaId: 'disc-lp-ciclo', disciplinaNome: 'Língua Portuguesa', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qua-2', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quarta-feira', numeroTempo: 2, horaInicio: '08:05', horaFim: '08:50', disciplinaId: 'disc-ingles', disciplinaNome: 'Língua Inglesa', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qua-3', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quarta-feira', numeroTempo: 3, horaInicio: '09:10', horaFim: '09:55', disciplinaId: 'disc-mat-ciclo', disciplinaNome: 'Matemática', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qua-4', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quarta-feira', numeroTempo: 4, horaInicio: '10:00', horaFim: '10:45', disciplinaId: 'disc-mat-ciclo', disciplinaNome: 'Matemática', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qua-5', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quarta-feira', numeroTempo: 5, horaInicio: '10:50', horaFim: '11:35', disciplinaId: 'disc-filosofia', disciplinaNome: 'Filosofia', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-
-  // Quinta-feira
-  { id: 'hor-7a-qui-1', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quinta-feira', numeroTempo: 1, horaInicio: '07:15', horaFim: '08:00', disciplinaId: 'disc-fisica', disciplinaNome: 'Física', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qui-2', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quinta-feira', numeroTempo: 2, horaInicio: '08:05', horaFim: '08:50', disciplinaId: 'disc-quimica', disciplinaNome: 'Química', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qui-3', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quinta-feira', numeroTempo: 3, horaInicio: '09:10', horaFim: '09:55', disciplinaId: 'disc-historia', disciplinaNome: 'História', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qui-4', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quinta-feira', numeroTempo: 4, horaInicio: '10:00', horaFim: '10:45', disciplinaId: 'disc-geografia', disciplinaNome: 'Geografia', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-qui-5', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Quinta-feira', numeroTempo: 5, horaInicio: '10:50', horaFim: '11:35', disciplinaId: 'disc-lp-ciclo', disciplinaNome: 'Língua Portuguesa', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-
-  // Sexta-feira
-  { id: 'hor-7a-sex-1', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Sexta-feira', numeroTempo: 1, horaInicio: '07:15', horaFim: '08:00', disciplinaId: 'disc-biologia', disciplinaNome: 'Biologia', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-sex-2', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Sexta-feira', numeroTempo: 2, horaInicio: '08:05', horaFim: '08:50', disciplinaId: 'disc-frances', disciplinaNome: 'Língua Francesa', professorId: 'func-004', professorNome: 'Dr. João Bernardo Kiala', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-sex-3', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Sexta-feira', numeroTempo: 3, horaInicio: '09:10', horaFim: '09:55', disciplinaId: 'disc-lp-ciclo', disciplinaNome: 'Língua Portuguesa', professorId: 'func-003', professorNome: 'Profª. Ana Paula dos Santos Afonso', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-sex-4', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Sexta-feira', numeroTempo: 4, horaInicio: '10:00', horaFim: '10:45', disciplinaId: 'disc-mat-ciclo', disciplinaNome: 'Matemática', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' },
-  { id: 'hor-7a-sex-5', escolaId: 'esc-001', turmaId: 'turma-7a', classe: '7ª', diaSemana: 'Sexta-feira', numeroTempo: 5, horaInicio: '10:50', horaFim: '11:35', disciplinaId: 'disc-empreendedorismo', disciplinaNome: 'Empreendedorismo', professorId: 'func-005', professorNome: 'Prof. Garcia António Vunge', sala: 'Sala 01', anoLectivo: '2025/2026' }
-];
-
-export const DEFAULT_PRESENCAS_ALUNOS: PresencaAlunoItem[] = [
-  { id: 'pres-al-01', escolaId: 'esc-001', turmaId: 'turma-7a', alunoId: 'aluno-005', data: '2026-03-02', tempoLectivo: 1, estado: 'Presente', registadoPorId: 'func-003', registadoPorNome: 'Profª. Ana Paula dos Santos Afonso' },
-  { id: 'pres-al-02', escolaId: 'esc-001', turmaId: 'turma-7a', alunoId: 'aluno-005', data: '2026-03-03', tempoLectivo: 1, estado: 'Presente', registadoPorId: 'func-005', registadoPorNome: 'Prof. Garcia António Vunge' },
-  { id: 'pres-al-03', escolaId: 'esc-001', turmaId: 'turma-7a', alunoId: 'aluno-005', data: '2026-03-04', tempoLectivo: 1, estado: 'Presente', registadoPorId: 'func-003', registadoPorNome: 'Profª. Ana Paula dos Santos Afonso' },
-  { id: 'pres-al-04', escolaId: 'esc-001', turmaId: 'turma-7a', alunoId: 'aluno-005', data: '2026-03-05', tempoLectivo: 1, estado: 'Presente', registadoPorId: 'func-005', registadoPorNome: 'Prof. Garcia António Vunge' },
-  { id: 'pres-al-05', escolaId: 'esc-001', turmaId: 'turma-7a', alunoId: 'aluno-005', data: '2026-03-06', tempoLectivo: 1, estado: 'Presente', registadoPorId: 'func-004', registadoPorNome: 'Dr. João Bernardo Kiala' }
-];
+export const DEFAULT_PRESENCAS_ALUNOS: PresencaAlunoItem[] = [];
 
 // Initializer
 export function inicializarArmazenamento(): void {
@@ -2309,15 +518,11 @@ export function inicializarArmazenamento(): void {
     localStorage.removeItem(STORAGE_KEYS.SETUP_MASTER_LOCK);
     localStorage.removeItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO);
     localStorage.removeItem('sge_authenticated');
-    const funcsSalvos = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
-    if (funcsSalvos.some(f => f.role === 'AdminGeral')) {
-      const funcsSemAdmin = funcsSalvos.filter(f => f.role !== 'AdminGeral');
-      setLocal(STORAGE_KEYS.FUNCIONARIOS, funcsSemAdmin);
-    }
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
   }
 
   if (!localStorage.getItem(STORAGE_KEYS.ESCOLAS)) {
-    setLocal(STORAGE_KEYS.ESCOLAS, [DEFAULT_ESCOLA]);
+    setLocal(STORAGE_KEYS.ESCOLAS, []);
   }
   if (!localStorage.getItem(STORAGE_KEYS.ALUNOS)) {
     setLocal(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS);
@@ -2332,7 +537,7 @@ export function inicializarArmazenamento(): void {
     setLocal(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
   }
   if (!localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS)) {
-    setLocal(STORAGE_KEYS.FUNCIONARIOS, DEFAULT_FUNCIONARIOS);
+    setLocal(STORAGE_KEYS.FUNCIONARIOS, []);
   }
   if (!localStorage.getItem(STORAGE_KEYS.TIPOS_AVALIACAO)) {
     setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, DEFAULT_TIPOS_AVALIACAO);
@@ -2395,67 +600,137 @@ export function inicializarArmazenamento(): void {
     setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
   }
   if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACOES_PASSES)) {
-    setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, { 'esc-001': DEFAULT_CONFIGURACAO_PASSES, 'esc-002': DEFAULT_CONFIGURACAO_PASSES });
+    setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, { 'esc-003': DEFAULT_CONFIGURACAO_PASSES });
   }
   if (!localStorage.getItem(STORAGE_KEYS.ACTIVE_ESCOLA_ID)) {
-    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, 'esc-001');
+    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, 'esc-003');
   }
-  if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) {
-    setLocal(STORAGE_KEYS.CURRENT_USER, DEFAULT_FUNCIONARIOS[0]); // Default to Diretor Geral
+  
+  // Limpar chaves corrompidas ou strings "undefined" / "null"
+  try {
+    const rawCurrentUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    if (rawCurrentUser === 'undefined' || rawCurrentUser === 'null') {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    }
+  } catch {
+    // noop
   }
 
-  // Sanitização de IDs duplicados em cache local legado
+  // Sanitização e purga de dados legados de demonstração no armazenamento do navegador
   try {
+    const rawStoredEscolas = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
+    if (rawStoredEscolas && rawStoredEscolas !== 'undefined' && rawStoredEscolas !== 'null') {
+      try {
+        const parsedEscolas: Escola[] = JSON.parse(rawStoredEscolas);
+        if (Array.isArray(parsedEscolas)) {
+          const escolasReais = parsedEscolas.filter(e => e.id !== 'esc-001' && e.id !== 'esc-002' && e.id !== 'esc-003');
+          if (escolasReais.length !== parsedEscolas.length) {
+            setLocal(STORAGE_KEYS.ESCOLAS, escolasReais);
+          }
+        }
+      } catch {}
+    }
+
     const rawStoredFuncs = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
-    if (rawStoredFuncs) {
-      const parsedFuncs = JSON.parse(rawStoredFuncs);
-      if (Array.isArray(parsedFuncs) && parsedFuncs.length > 0) {
-        let changed = false;
-        const seenIds = new Set<string>();
-        const sanitized = parsedFuncs.map((f: Funcionario, idx: number) => {
-          let updatedId = f.id;
-          if (f.id === 'func-005' && (f.escolaId === 'esc-002' || f.nomeCompleto?.includes('Soares Lucas'))) {
-            updatedId = 'func-008';
-            changed = true;
-          } else if (f.id === 'func-000' && f.email === 'admin.sge@med.gov.ao') {
-            updatedId = 'func-009';
-            changed = true;
-          } else if (seenIds.has(updatedId)) {
-            updatedId = `${updatedId}-dup-${idx}`;
-            changed = true;
+    if (rawStoredFuncs && rawStoredFuncs !== 'undefined' && rawStoredFuncs !== 'null') {
+      try {
+        const parsedFuncs: Funcionario[] = JSON.parse(rawStoredFuncs);
+        if (Array.isArray(parsedFuncs) && parsedFuncs.length > 0) {
+          // Remover contas de demonstração conhecidas
+          const funcsReais = parsedFuncs.filter(f => 
+            !f.id.startsWith('func-00') && 
+            f.id !== 'func-subadmin-01' && 
+            f.id !== 'test_admin' &&
+            f.id !== 'func-admin-1790275106347' &&
+            f.id !== 'func-admin-1791707975841' &&
+            f.id !== 'func-admin-1791899041047' &&
+            f.id !== 'func-admin-1792068950272' &&
+            f.id !== 'func-admin-1792074805403' &&
+            f.id !== 'func-admin-1792142971892' &&
+            f.id !== 'func-1790329119660'
+          );
+          if (funcsReais.length !== parsedFuncs.length) {
+            setLocal(STORAGE_KEYS.FUNCIONARIOS, funcsReais);
           }
-          seenIds.add(updatedId);
-          return updatedId !== f.id ? { ...f, id: updatedId } : f;
-        });
-        if (changed) {
-          setLocal(STORAGE_KEYS.FUNCIONARIOS, sanitized);
         }
-      }
+      } catch {}
     }
-  } catch (e) {
-    console.warn('Erro ao sanitizar funcionários no armazenamento:', e);
-  }
 
-  try {
     const rawStoredTurmas = localStorage.getItem(STORAGE_KEYS.TURMAS);
-    if (rawStoredTurmas) {
-      const parsedTurmas = JSON.parse(rawStoredTurmas);
-      if (Array.isArray(parsedTurmas)) {
-        let changed = false;
-        const sanitized = parsedTurmas.map((t: any) => {
-          if (t.id === 'turma-mag-12a' && t.coordenadorId === 'func-005') {
-            changed = true;
-            return { ...t, coordenadorId: 'func-008' };
+    if (rawStoredTurmas && rawStoredTurmas !== 'undefined' && rawStoredTurmas !== 'null') {
+      try {
+        const parsedTurmas = JSON.parse(rawStoredTurmas);
+        if (Array.isArray(parsedTurmas)) {
+          const turmasReais = parsedTurmas.filter((t: any) => 
+            !t.id.startsWith('turma-1a') && 
+            !t.id.startsWith('turma-6a') && 
+            !t.id.startsWith('turma-7a') && 
+            !t.id.startsWith('turma-9a') && 
+            !t.id.startsWith('turma-12a') && 
+            !t.id.startsWith('turma-ini') && 
+            !t.id.startsWith('turma-mag') &&
+            !t.id.startsWith('turma-151')
+          );
+          if (turmasReais.length !== parsedTurmas.length) {
+            setLocal(STORAGE_KEYS.TURMAS, turmasReais);
           }
-          return t;
-        });
-        if (changed) {
-          setLocal(STORAGE_KEYS.TURMAS, sanitized);
         }
-      }
+      } catch {}
+    }
+
+    const rawStoredAlunos = localStorage.getItem(STORAGE_KEYS.ALUNOS);
+    if (rawStoredAlunos && rawStoredAlunos !== 'undefined' && rawStoredAlunos !== 'null') {
+      try {
+        const parsedAlunos = JSON.parse(rawStoredAlunos);
+        if (Array.isArray(parsedAlunos)) {
+          const alunosReais = parsedAlunos.filter((a: any) => 
+            !a.id.startsWith('aluno-00') &&
+            !a.id.startsWith('aluno-goncalves') &&
+            !a.id.startsWith('aluno-ndilu') &&
+            !a.id.startsWith('aluno-nzinga')
+          );
+          if (alunosReais.length !== parsedAlunos.length) {
+            setLocal(STORAGE_KEYS.ALUNOS, alunosReais);
+          }
+        }
+      } catch {}
+    }
+
+    const rawStoredNotas = localStorage.getItem(STORAGE_KEYS.NOTAS);
+    if (rawStoredNotas && rawStoredNotas !== 'undefined' && rawStoredNotas !== 'null') {
+      try {
+        const parsedNotas = JSON.parse(rawStoredNotas);
+        if (Array.isArray(parsedNotas)) {
+          const notasReais = parsedNotas.filter((n: any) => 
+            !n.id?.startsWith('cons-0') &&
+            !n.id?.startsWith('cons-goncalves') &&
+            !n.id?.startsWith('cons-ndilu')
+          );
+          if (notasReais.length !== parsedNotas.length) {
+            setLocal(STORAGE_KEYS.NOTAS, notasReais);
+          }
+        }
+      } catch {}
+    }
+
+    const rawStoredNotasCons = localStorage.getItem(STORAGE_KEYS.NOTAS_CONSOLIDADAS);
+    if (rawStoredNotasCons && rawStoredNotasCons !== 'undefined' && rawStoredNotasCons !== 'null') {
+      try {
+        const parsedNotasCons = JSON.parse(rawStoredNotasCons);
+        if (Array.isArray(parsedNotasCons)) {
+          const notasConsReais = parsedNotasCons.filter((n: any) => 
+            !n.id?.startsWith('cons-0') &&
+            !n.id?.startsWith('cons-goncalves') &&
+            !n.id?.startsWith('cons-ndilu')
+          );
+          if (notasConsReais.length !== parsedNotasCons.length) {
+            setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, notasConsReais);
+          }
+        }
+      } catch {}
     }
   } catch (e) {
-    console.warn('Erro ao sanitizar turmas no armazenamento:', e);
+    console.warn('Erro ao purgar dados de teste no armazenamento local:', e);
   }
 }
 
@@ -2471,12 +746,11 @@ if (typeof window !== 'undefined') {
 // Data Access API
 export const dbService = {
   // Escolas
-  // Escolas & Multi-Instituições
-  getEscolas: (): Escola[] => getLocal(STORAGE_KEYS.ESCOLAS, DEFAULT_ESCOLAS),
+  getEscolas: (): Escola[] => getLocal(STORAGE_KEYS.ESCOLAS, []),
   getEscolaAtiva: (): Escola => {
     const escolas = dbService.getEscolas();
-    const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, DEFAULT_ESCOLA_MAGISTERIO.id);
-    return escolas.find(e => e.id === idAtivo) || escolas[0] || DEFAULT_ESCOLA_MAGISTERIO;
+    const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
+    return escolas.find(e => e.id === idAtivo) || escolas[0] || DEFAULT_ESCOLA_VAZIA;
   },
   getEscolaPorId: (escolaId: string): Escola | undefined => {
     return dbService.getEscolas().find(e => e.id === escolaId);
@@ -2807,7 +1081,30 @@ export const dbService = {
     if (!f) return false;
     funcs = funcs.filter(item => item.id !== funcionarioId);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    dbService.registarLog('Remoção de Funcionário', `Funcionário ${f.nomeCompleto} (${f.cargo}) removido da instituição.`);
+
+    // Se o funcionário for diretor de alguma escola, desvincula da instituição
+    const escolas = dbService.getEscolas();
+    let escolaAlterada = false;
+    const escolasAtualizadas = escolas.map(esc => {
+      if (esc.diretorGeralId === funcionarioId) {
+        escolaAlterada = true;
+        const atualizada: Escola = {
+          ...esc,
+          diretorGeralId: undefined,
+          diretorGeralNome: 'Não Atribuído'
+        };
+        firebaseSyncEngine.salvarEscola(atualizada);
+        return atualizada;
+      }
+      return esc;
+    });
+    if (escolaAlterada) {
+      setLocal(STORAGE_KEYS.ESCOLAS, escolasAtualizadas);
+    }
+
+    // Eliminação imediata no Firebase Firestore
+    firebaseSyncEngine.eliminarFuncionario(funcionarioId);
+    dbService.registarLog('Remoção de Funcionário', `Utilizador/Diretor ${f.nomeCompleto} (${f.cargo}) removido da instituição e do Firebase Firestore.`);
     return true;
   },
 
@@ -3432,14 +1729,13 @@ export const dbService = {
     if (typeof window === 'undefined') return false;
     const funcs = dbService.getFuncionarios();
     const adminAtivo = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
-    if (adminAtivo) {
-      if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_admin_configured') !== 'true') {
-        localStorage.setItem('sge_admin_configured', 'true');
-        setLocal(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, true);
-      }
-      return true;
-    }
-    return localStorage.getItem('sge_admin_configured') === 'true';
+    return Boolean(adminAtivo);
+  },
+
+  obterAdminGeral: (): Funcionario | null => {
+    if (typeof window === 'undefined') return null;
+    const funcs = dbService.getFuncionarios();
+    return funcs.find(f => f.role === 'AdminGeral' && f.ativo) || null;
   },
 
   verificarAdminGeralOnline: async (): Promise<{
@@ -3493,52 +1789,43 @@ export const dbService = {
   },
 
   concluirSetupInicial: async (dadosAdmin: Partial<Funcionario>, dadosEscola?: Partial<Escola>): Promise<Funcionario> => {
-    // 1. Criptografia AES-256 das credenciais e senha do Administrador Geral
-    const senhaPlana = dadosAdmin.password || 'Admin@2025';
-    const senhaCifrada = await cryptoService.encriptarTexto(senhaPlana);
-
+    // 1. Criptografia e preparação das credenciais do Administrador Geral
+    const senhaPlana = dadosAdmin.password || '';
     const funcs = dbService.getFuncionarios();
-    const adminId = `func-admin-${Date.now()}`;
+    const existingAdmin = funcs.find(f => f.role === 'AdminGeral');
+    const adminId = dadosAdmin.id || existingAdmin?.id || `func-admin-${Date.now()}`;
 
     const novoAdmin: Funcionario = {
       id: adminId,
       escolaId: 'todas',
-      nomeCompleto: dadosAdmin.nomeCompleto?.trim() || 'Dr. Eng. Alberto Domingos Kwanza',
+      nomeCompleto: dadosAdmin.nomeCompleto?.trim() || 'Administrador Geral',
       genero: dadosAdmin.genero || 'M',
-      numeroBI: (dadosAdmin.numeroBI?.trim() || '001928374LA049').toUpperCase(),
-      telefone: dadosAdmin.telefone?.trim() || '+244 923 000 111',
-      email: (dadosAdmin.email?.trim() || 'admin.geral@sge.med.gov.ao').toLowerCase(),
+      numeroBI: (dadosAdmin.numeroBI?.trim() || '').toUpperCase(),
+      telefone: dadosAdmin.telefone?.trim() || '',
+      email: (dadosAdmin.email?.trim() || '').toLowerCase(),
       cargo: 'Administrador Geral do Sistema',
       ehProfessor: false,
       ehAdministrativoQueLeciona: false,
-      habilitacoes: dadosAdmin.habilitacoes || 'Engenharia Informática & Gestão Escolar MED',
-      fotoUrl: dadosAdmin.fotoUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-      dataAdmissao: new Date().toISOString().split('T')[0],
+      habilitacoes: dadosAdmin.habilitacoes || 'Gestão de Sistemas Educativos (MED)',
+      fotoUrl: dadosAdmin.fotoUrl || '',
+      dataAdmissao: existingAdmin?.dataAdmissao || new Date().toISOString().split('T')[0],
       ativo: true,
       role: 'AdminGeral',
-      password: senhaCifrada
+      password: senhaPlana
     };
 
     // Remove qualquer outro admin geral anterior para garantir consistência institucional
+    const outrosAdmins = funcs.filter(f => f.role === 'AdminGeral' && f.id !== adminId);
+    outrosAdmins.forEach(oldAdmin => firebaseSyncEngine.eliminarFuncionario(oldAdmin.id));
+
     const funcsSemAdmin = funcs.filter(f => f.role !== 'AdminGeral');
     funcsSemAdmin.unshift(novoAdmin);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcsSemAdmin);
 
-    // 2. Se foram fornecidos dados de escola, atualiza a instituição; caso contrário, preserva
-    if (dadosEscola && dadosEscola.nomeOficial) {
-      const escolaAtiva = dbService.getEscolaAtiva();
-      const escolaAtualizada: Escola = {
-        ...escolaAtiva,
-        ...dadosEscola,
-        nomeOficial: dadosEscola.nomeOficial || escolaAtiva.nomeOficial,
-        denominacao: dadosEscola.denominacao || escolaAtiva.denominacao,
-        provincia: dadosEscola.provincia || escolaAtiva.provincia,
-        municipio: dadosEscola.municipio || escolaAtiva.municipio,
-        nif: dadosEscola.nif || escolaAtiva.nif,
-        decretoCriacao: dadosEscola.decretoCriacao || escolaAtiva.decretoCriacao,
-        anoLectivoActivo: dadosEscola.anoLectivoActivo || escolaAtiva.anoLectivoActivo || '2025/2026'
-      };
-      dbService.salvarEscola(escolaAtualizada);
+    // 2. Se foram fornecidos dados da primeira escola, cria e registra no sistema e no Firestore
+    if (dadosEscola && dadosEscola.nomeOficial && dadosEscola.nomeOficial.trim()) {
+      const novaEscola = dbService.criarEscola(dadosEscola);
+      dbService.setEscolaAtiva(novaEscola.id);
     }
 
     // 3. Marcar Setup como concluído com Master Lock e chave AES-256 ativa
@@ -3757,28 +2044,7 @@ export const dbService = {
 
   // Funcionarios
   getFuncionarios: (): Funcionario[] => {
-    const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, DEFAULT_FUNCIONARIOS);
-    const seenIds = new Set<string>();
-    let changed = false;
-    const sanitized = funcs.map((f, idx) => {
-      let updatedId = f.id;
-      if (f.id === 'func-005' && (f.escolaId === 'esc-002' || f.nomeCompleto?.includes('Soares Lucas'))) {
-        updatedId = 'func-008';
-        changed = true;
-      } else if (f.id === 'func-000' && f.email === 'admin.sge@med.gov.ao') {
-        updatedId = 'func-009';
-        changed = true;
-      } else if (seenIds.has(updatedId)) {
-        updatedId = `${updatedId}-dup-${idx}`;
-        changed = true;
-      }
-      seenIds.add(updatedId);
-      return updatedId !== f.id ? { ...f, id: updatedId } : f;
-    });
-    if (changed) {
-      setLocal(STORAGE_KEYS.FUNCIONARIOS, sanitized);
-    }
-    return sanitized;
+    return getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
   },
   salvarFuncionario: (func: Funcionario) => {
     const funcs = dbService.getFuncionarios();
@@ -3832,11 +2098,13 @@ export const dbService = {
     if (idx >= 0) avs[idx] = av;
     else avs.push(av);
     setLocal(STORAGE_KEYS.AVALIACOES, avs);
+    firebaseSyncEngine.salvarAvaliacao(av);
     dbService.registarLog('Criação de Avaliação', `Avaliação "${av.titulo}" criada na turma ${av.turmaId}.`);
   },
   excluirAvaliacao: (id: string) => {
     const avs = dbService.getAvaliacoes().filter(a => a.id !== id);
     setLocal(STORAGE_KEYS.AVALIACOES, avs);
+    firebaseSyncEngine.eliminarAvaliacao(id);
     // Remove notas vinculadas
     const notas = dbService.getNotas().filter(n => n.avaliacaoId !== id);
     setLocal(STORAGE_KEYS.NOTAS, notas);
@@ -3850,6 +2118,11 @@ export const dbService = {
     if (idx >= 0) notas[idx] = nota;
     else notas.push(nota);
     setLocal(STORAGE_KEYS.NOTAS, notas);
+    firebaseSyncEngine.salvarNotaEstudante(nota);
+  },
+  salvarNotas: (notas: NotaEstudante[]) => {
+    setLocal(STORAGE_KEYS.NOTAS, notas);
+    notas.forEach(n => firebaseSyncEngine.salvarNotaEstudante(n));
   },
 
   // Notas Consolidadas / Pautas
@@ -4149,8 +2422,26 @@ export const dbService = {
   },
 
   // Utilizador Ativo
-  getCurrentUser: (): Funcionario => getLocal(STORAGE_KEYS.CURRENT_USER, DEFAULT_FUNCIONARIOS[0]),
+  getCurrentUser: (): Funcionario => {
+    const user = getLocal<Funcionario | null>(STORAGE_KEYS.CURRENT_USER, null);
+    if (user && user.id && user.role) return user;
+    const funcs = dbService.getFuncionarios();
+    const admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
+    if (admin) return admin;
+    if (funcs.length > 0 && funcs[0]?.id) return funcs[0];
+    return DEFAULT_ADMIN_GERAL_PRODUCAO;
+  },
   setCurrentUser: (user: Funcionario | null) => {
+    if (!user) {
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+        } catch {
+          // noop
+        }
+      }
+      return;
+    }
     setLocal(STORAGE_KEYS.CURRENT_USER, user);
   },
 

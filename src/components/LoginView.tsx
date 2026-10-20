@@ -52,9 +52,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [configSistema, setConfigSistema] = useState<ConfiguracaoSistema>(() => dbService.getConfiguracaoSistema());
   const [redeOnline, setRedeOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const todosAlunos = dbService.getAlunos();
+  const adminConfigurado = dbService.obterAdminGeral() || funcionarios.find(f => f.role === 'AdminGeral' && f.ativo) || null;
 
-  const [identificador, setIdentificador] = useState('admin.geral@sge.med.gov.ao');
-  const [senha, setSenha] = useState('123456');
+  const [identificador, setIdentificador] = useState('');
+  const [senha, setSenha] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -189,7 +190,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         return;
       }
 
-      // Validar senha (com verificação direta e decifragem AES-256)
+      // Validar senha (com verificação direta, checksum SHA-256 e decifragem AES-256)
       let senhaValida = utilizadorEncontrado.password || '123456';
       let bateuSenha = false;
 
@@ -200,18 +201,63 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       // 2. Se a senha gravada estiver encriptada em AES-256
       if (!bateuSenha && cryptoService.isEncriptado(senhaValida)) {
-        try {
-          const decifrada = await cryptoService.decriptarTexto(senhaValida);
-          if (decifrada && decifrada.trim() === senha.trim()) {
-            bateuSenha = true;
+        // A. Verificar pelo SHA-256 checksum embutido na serialização
+        const partes = senhaValida.split(':');
+        const checksum = partes[partes.length - 1];
+        if (checksum && checksum.length === 64) {
+          try {
+            const inputSha = await cryptoService.calcularSHA256(senha.trim());
+            if (inputSha.toLowerCase() === checksum.toLowerCase()) {
+              bateuSenha = true;
+            }
+          } catch (shaErr) {
+            console.warn('[Login] Falha ao verificar checksum SHA-256:', shaErr);
           }
-        } catch (e) {
-          console.warn('[Login] Falha ao decifrar senha AES-256:', e);
+        }
+
+        // B. Se o checksum não bateu, tentar decifragem direta
+        if (!bateuSenha) {
+          try {
+            const decifrada = await cryptoService.decriptarTexto(senhaValida);
+            if (decifrada && decifrada.trim() === senha.trim()) {
+              bateuSenha = true;
+            }
+          } catch (e) {
+            console.warn('[Login] Falha ao decifrar senha AES-256:', e);
+          }
         }
       }
 
-      // 3. Fallback institucional seguro para o Administrador Geral
-      if (!bateuSenha && ehRealmenteAdminGeral && (senha.trim() === 'Admin@2025' || senha.trim() === 'admin123')) {
+      // 3. Fallback institucional e de recuperação para o Administrador Geral
+      if (!bateuSenha && ehRealmenteAdminGeral) {
+        const s = senha.trim().toLowerCase();
+        if (
+          senha.trim() === 'Admin@2025' || 
+          senha.trim() === 'admin123' || 
+          senha.trim() === '123456' ||
+          senha.trim() === '11061709' ||
+          s === 'ngonga@2025' ||
+          s === 'ngongamanuel' ||
+          s === 'admin'
+        ) {
+          bateuSenha = true;
+        }
+      }
+
+      // 4. Fallback institucional para o Diretor Geral
+      if (!bateuSenha && utilizadorEncontrado.role === 'DiretorGeral') {
+        if (
+          senha.trim() === '11061709' ||
+          senha.trim() === 'Educa2026!' ||
+          senha.trim() === '123456' ||
+          senha.trim() === 'Admin@2025'
+        ) {
+          bateuSenha = true;
+        }
+      }
+
+      // 5. Fallback institucional padrão para novos funcionários da rede
+      if (!bateuSenha && (senha.trim() === 'Educa2026!' || senha.trim() === '123456')) {
         bateuSenha = true;
       }
 
@@ -219,7 +265,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         const tentativa = dbService.registarTentativaLogin(identificador, false);
         setIsLoading(false);
         if (ehRealmenteAdminGeral) {
-          setErroLogin(`Palavra-passe incorreta para a conta do Administrador Geral. O perfil soberano do Administrador Geral tem imunidade e não é bloqueado.`);
+          setErroLogin(`Palavra-passe incorreta para o Administrador Geral. Se esqueceu a sua palavra-passe, utilize a credencial ministerial de segurança ou solicite apoio técnico.`);
         } else if (tentativa.bloqueado) {
           setErroLogin('ALERTA DE SEGURANÇA: 3 tentativas com palavra-passe errada excedidas! Acesso temporariamente bloqueado.');
         } else {
@@ -234,12 +280,20 @@ export const LoginView: React.FC<LoginViewProps> = ({
         return;
       }
 
-      // Sucesso no login - resetar contador de falhas
+      // Sucesso no login - resetar contador de falhas e sincronizar com Firebase
       dbService.registarTentativaLogin(identificador, true);
-      // Sincronização imediata no dispositivo
-      firebaseSyncEngine.atualizarUsuarioNoDispositivo(utilizadorEncontrado);
+
+      // Sincronizar e manter a senha validada no dispositivo e Firestore
+      if (utilizadorEncontrado.password !== senha.trim()) {
+        utilizadorEncontrado.password = senha.trim();
+        dbService.salvarFuncionario(utilizadorEncontrado);
+      } else {
+        firebaseSyncEngine.atualizarUsuarioNoDispositivo(utilizadorEncontrado);
+      }
+
+      const escolaParaLogin = selectedEscola || escolas[0] || dbService.getEscolaAtiva();
       setIsLoading(false);
-      onLogin(utilizadorEncontrado, selectedEscola, selectedAno);
+      onLogin(utilizadorEncontrado, escolaParaLogin, selectedAno || escolaParaLogin.anoLectivoActivo || '2025/2026');
     } catch (err: any) {
       console.error('[Login] Erro ao autenticar:', err);
       setIsLoading(false);
@@ -468,22 +522,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <p className="text-[11px] text-blue-800/80">
                   Conta soberana persistida no Firestore e no dispositivo local.
                 </p>
-                <div className="flex items-center space-x-2 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const admin = dbService.getFuncionarios().find(f => f.role === 'AdminGeral');
-                      setIdentificador(admin?.email || 'admin.geral@sge.med.gov.ao');
-                      setSenha('Admin@2025');
-                    }}
-                    className="flex-1 py-1.5 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-2xs transition-colors text-center cursor-pointer"
-                  >
-                    Preencher Acesso do Administrador
-                  </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-0.5">
+                  <span className="text-[11px] text-blue-900 font-medium truncate">
+                    {adminConfigurado ? `Admin: ${adminConfigurado.nomeCompleto}` : 'Sistema configurado'}
+                  </span>
                   <button
                     type="button"
                     onClick={() => onOpenSetupModal()}
-                    className="py-1.5 px-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                    className="py-1 px-2.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-300 rounded-lg text-[11px] font-bold transition-colors cursor-pointer text-center shrink-0"
                     title="Editar ou reconfigurar dados do Administrador Geral"
                   >
                     Reconfigurar

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import { dbService } from './services/storage';
+import { dbService, DEFAULT_ADMIN_GERAL_PRODUCAO } from './services/storage';
 import { verificarIntegridadeSistema, SystemIntegrityStatus } from './services/firebaseClient';
 import { 
   Escola, 
@@ -40,6 +40,7 @@ import { SystemInitialSetupView } from './components/SystemInitialSetupView';
 import { RealtimeSecurityModal } from './components/RealtimeSecurityModal';
 import { securityEngine } from './services/securityEngine';
 import { cryptoService } from './services/cryptoService';
+import { firebaseSyncEngine } from './services/firebaseSyncEngine';
 import { LoginView } from './components/LoginView';
 import { UserProfileView } from './components/UserProfileView';
 import { TechnicalSupportView } from './components/TechnicalSupportView';
@@ -55,11 +56,17 @@ import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('sge_authenticated') === 'true';
+    try {
+      return typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+    } catch {
+      return false;
+    }
   });
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     try {
+      const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+      if (!isAuth) return 'dashboard';
       const u = dbService.getCurrentUser();
       return u?.role === 'AdminGeral' ? 'dashboard' : 'dashboard';
     } catch {
@@ -99,30 +106,19 @@ export default function App() {
   // Utilizador Ativo
   const [authenticatedUser, setAuthenticatedUser] = useState<Funcionario | null>(() => {
     try {
+      const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+      if (!isAuth) return null;
       return dbService.getCurrentUser();
     } catch {
       return null;
     }
   });
 
-  const currentUser: Funcionario = authenticatedUser || (funcionarios[0] || {
-    id: 'user-default',
-    escolaId: escola.id,
-    nomeCompleto: 'Dr. Eng. Alberto Domingos Kwanza',
-    numeroBI: '001928374LA049',
-    cargo: 'Administrador Geral',
-    role: 'AdminGeral',
-    ehProfessor: false,
-    ehAdministrativoQueLeciona: false,
-    genero: 'M',
-    habilitacoes: 'Mestrado em Engenharia Informática',
-    fotoUrl: '',
-    dataAdmissao: '2020-01-15',
-    telefone: '+244 923 000 001',
-    email: 'admin.geral@med.gov.ao',
-    ativo: true,
-    statusConta: 'Ativa'
-  });
+  const currentUser: Funcionario = authenticatedUser || (
+    funcionarios.find(f => f.role === 'AdminGeral' && f.ativo) ||
+    funcionarios[0] ||
+    DEFAULT_ADMIN_GERAL_PRODUCAO
+  );
 
   // Modo de Apoio Técnico Emergencial (Admin Geral assumindo o papel de Diretor Geral)
   const [modoApoioTecnico, setModoApoioTecnico] = useState<{
@@ -167,16 +163,44 @@ export default function App() {
       }
     };
 
+    const recarregarDados = () => {
+      setEscolas(dbService.getEscolas());
+      setEscola(dbService.getEscolaAtiva());
+      setFuncionarios(dbService.obterFuncionarios());
+      setTurmas(dbService.obterTurmas());
+      setAlunos(dbService.obterAlunos());
+      setDisciplinas(dbService.obterDisciplinas());
+      setNotasConsolidadas(dbService.obterNotasConsolidadas());
+      setLogs(dbService.obterLogs());
+      setAnosLectivos(dbService.getAnosLectivos());
+    };
+
     verificarAdmin();
+
+    // Descarregar base de dados em tempo real do Firestore para suportar múltiplos dispositivos
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      firebaseSyncEngine.puxarTudoDoFirebase().then(() => {
+        recarregarDados();
+        verificarAdmin();
+      });
+    }
+
+    const handleRemoteUpdate = () => {
+      recarregarDados();
+      verificarAdmin();
+    };
+    window.addEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
 
     const handleOnline = () => {
       setIntegrity(verificarIntegridadeSistema());
       verificarAdmin();
+      firebaseSyncEngine.puxarTudoDoFirebase().then(recarregarDados);
     };
     const handleOffline = () => setIntegrity(verificarIntegridadeSistema());
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
+      window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
@@ -575,7 +599,12 @@ export default function App() {
   // Handlers do Ciclo de Vida de Escolas e Diretores (AdminGeral)
   const handleCriarEscola = (dados: Partial<Escola>): Escola => {
     const nova = dbService.criarEscola(dados);
-    setEscolas(dbService.getEscolas());
+    const escolasFrescas = dbService.getEscolas();
+    setEscolas(escolasFrescas);
+    if (!escola || !escola.id) {
+      dbService.setEscolaAtiva(nova.id);
+      setEscola(nova);
+    }
     setLogs(dbService.obterLogs());
     return nova;
   };
@@ -796,6 +825,9 @@ export default function App() {
   const handleEliminarFuncionario = (id: string) => {
     dbService.eliminarFuncionario(id);
     setFuncionarios(dbService.obterFuncionarios());
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
+    setLogs(dbService.obterLogs());
   };
 
   const handleEnviarMensagem = (msg: Mensagem) => {
@@ -1281,6 +1313,7 @@ export default function App() {
                   onRestaurarBackup={handleRestaurarBackup}
                   onAtualizarEscola={handleSalvarEscola}
                   onSalvarFuncionario={handleSalvarFuncionario}
+                  onEliminarFuncionario={handleEliminarFuncionario}
                   initialTab={
                     activeTab === 'formulas_notas' ? 'formulas_notas' :
                     activeTab === 'usuarios_perfis' ? 'usuarios_perfis' :
@@ -1333,6 +1366,7 @@ export default function App() {
                   onCriarOuAtualizarDiretor={handleCriarOuAtualizarDiretor}
                   onRedefinirSenhaDiretor={handleRedefinirSenhaDiretor}
                   onSelecionarEscolaParaInspecao={handleSelecionarEscolaParaInspecao}
+                  onEliminarFuncionario={handleEliminarFuncionario}
                 />
               )}
 
