@@ -248,12 +248,12 @@ export const DEFAULT_DISCIPLINAS: Disciplina[] = [
 ];
 
 export const DEFAULT_ADMIN_GERAL_PRODUCAO: Funcionario = {
-  id: 'func-admin-sistema',
-  nomeCompleto: 'Administrador Geral',
-  email: 'admin@med.gov.ao',
+  id: '',
+  nomeCompleto: '',
+  email: '',
   numeroBI: '',
   telefone: '',
-  cargo: 'Administrador Geral do Sistema',
+  cargo: 'Administrador Geral',
   role: 'AdminGeral',
   escolaId: 'todas',
   habilitacoes: '',
@@ -275,7 +275,7 @@ export const DEFAULT_ALUNOS: Aluno[] = [];
 export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
   {
     id: 'tipo-01',
-    escolaId: 'esc-003',
+    escolaId: 'todas',
     nome: 'Prova do Professor (PP)',
     codigo: 'PP',
     escalaMax: 20,
@@ -285,7 +285,7 @@ export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
   },
   {
     id: 'tipo-02',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nome: 'Teste de Diagnóstico / Contínuo (TC)',
     codigo: 'TC',
     escalaMax: 20,
@@ -295,7 +295,7 @@ export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
   },
   {
     id: 'tipo-03',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nome: 'Trabalho Individual / Pesquisa (TI)',
     codigo: 'TI',
     escalaMax: 20,
@@ -305,7 +305,7 @@ export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
   },
   {
     id: 'tipo-04',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nome: 'Trabalho em Grupo / Seminário (TG)',
     codigo: 'TG',
     escalaMax: 20,
@@ -315,7 +315,7 @@ export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
   },
   {
     id: 'tipo-05',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nome: 'Avaliação Contínua e Participação (ACP)',
     codigo: 'ACP',
     escalaMax: 20,
@@ -328,7 +328,7 @@ export const DEFAULT_TIPOS_AVALIACAO: TipoAvaliacaoConfig[] = [
 export const DEFAULT_REGRAS_MAC: RegraCalculoMAC[] = [
   {
     id: 'regra-primario',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nivelEnsino: 'Primario',
     classe: 'Todas',
     formulaTipo: 'ARITMETICA_SIMPLES',
@@ -338,17 +338,17 @@ export const DEFAULT_REGRAS_MAC: RegraCalculoMAC[] = [
     descartarMenorNota: false,
     versao: 1,
     atualizadoEm: '2025-01-10T10:00:00Z',
-    atualizadoPor: 'Prof. Dr. Mateus Sebastião Ngonga'
+    atualizadoPor: 'Ministério da Educação (MED)'
   },
   {
     id: 'regra-ciclo-i',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nivelEnsino: 'ICiclo',
     classe: 'Todas',
     formulaTipo: 'PONDERADA_POR_TIPO',
     pesosPorTipo: {
-      'tipo-01': 2, // Prova do Professor tem peso 2
-      'tipo-02': 1, // Teste contínuo tem peso 1
+      'tipo-01': 2,
+      'tipo-02': 1,
       'tipo-03': 1,
       'tipo-04': 1,
       'tipo-05': 1
@@ -358,11 +358,11 @@ export const DEFAULT_REGRAS_MAC: RegraCalculoMAC[] = [
     descartarMenorNota: true,
     versao: 1,
     atualizadoEm: '2025-01-10T10:00:00Z',
-    atualizadoPor: 'Prof. Dr. Mateus Sebastião Ngonga'
+    atualizadoPor: 'Ministério da Educação (MED)'
   },
   {
     id: 'regra-ciclo-ii',
-    escolaId: 'esc-001',
+    escolaId: 'todas',
     nivelEnsino: 'IICiclo',
     classe: '12ª',
     formulaTipo: 'ARITMETICA_SIMPLES',
@@ -371,7 +371,7 @@ export const DEFAULT_REGRAS_MAC: RegraCalculoMAC[] = [
     descartarMenorNota: false,
     versao: 1,
     atualizadoEm: '2025-01-10T10:00:00Z',
-    atualizadoPor: 'Prof. Dr. Mateus Sebastião Ngonga'
+    atualizadoPor: 'Ministério da Educação (MED)'
   }
 ];
 
@@ -600,10 +600,10 @@ export function inicializarArmazenamento(): void {
     setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
   }
   if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACOES_PASSES)) {
-    setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, { 'esc-003': DEFAULT_CONFIGURACAO_PASSES });
+    setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, {});
   }
   if (!localStorage.getItem(STORAGE_KEYS.ACTIVE_ESCOLA_ID)) {
-    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, 'esc-003');
+    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
   }
   
   // Limpar chaves corrompidas ou strings "undefined" / "null"
@@ -908,12 +908,12 @@ export const dbService = {
       email: dadosDiretor.email,
       cargo: 'Diretor Geral',
       role: 'DiretorGeral',
-      password: dadosDiretor.password || 'Dir2026!',
+      password: dadosDiretor.password || '',
       statusConta: 'Ativa',
       ehProfessor: false,
       ehAdministrativoQueLeciona: false,
       habilitacoes: dadosDiretor.habilitacoes,
-      fotoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+      fotoUrl: (dadosDiretor as any).fotoUrl || '',
       dataAdmissao: new Date().toISOString().split('T')[0],
       ativo: true,
       criadoPorRole: 'AdminGeral',
@@ -957,16 +957,16 @@ export const dbService = {
       nomeCompleto: dados.nomeCompleto,
       numeroBI: dados.numeroBI,
       genero: dados.genero || 'M',
-      telefone: dados.telefone || '+244 923 000 000',
+      telefone: dados.telefone || '',
       email: dados.email,
-      password: dados.password || 'Educa2026!',
+      password: dados.password || '',
       cargo: dados.cargo,
       role: dados.role,
       statusConta: 'Ativa',
       ehProfessor: dados.ehProfessor ?? (dados.role === 'Professor'),
       ehAdministrativoQueLeciona: dados.ehAdministrativoQueLeciona ?? false,
-      habilitacoes: dados.habilitacoes || 'Licenciatura em Ciências da Educação',
-      fotoUrl: dados.fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      habilitacoes: dados.habilitacoes || '',
+      fotoUrl: dados.fotoUrl || '',
       dataAdmissao: dados.dataAdmissao || new Date().toISOString().split('T')[0],
       ativo: true,
       criadoPorRole: 'DiretorGeral',
@@ -2469,9 +2469,9 @@ export const dbService = {
       'Email Oficial': escola.email || '—',
       'Ano Lectivo Activo': escola.anoLectivoActivo || '2024/2025',
       'Trimestre Activo': `${escola.trimestreActivo || 'II'}º Trimestre`,
-      'Diretor Geral': escola.diretorGeralNome || 'Prof. Dr. Mateus Sebastião Ngonga',
-      'Subdiretor Pedagógico': escola.subdiretorPedagogicoNome || 'Dr. Manuel Domingos',
-      'Subdiretor Administrativo': escola.subdirectorAdministrativoNome || escola.subdiretorAdministrativoNome || 'Dra. Esperança Manuel',
+      'Diretor Geral': escola.diretorGeralNome || 'Pendente de Nomeação',
+      'Subdiretor Pedagógico': escola.subdiretorPedagogicoNome || 'Pendente',
+      'Subdiretor Administrativo': escola.subdirectorAdministrativoNome || escola.subdiretorAdministrativoNome || 'Pendente',
       'Total de Turmas': turmas.length,
       'Total de Estudantes': alunos.length,
       'Total de Professores / Funcionários': funcs.length
@@ -3548,87 +3548,7 @@ export const dbService = {
   // SESSÕES, UTILIZADORES ONLINE E ÚLTIMAS 24 HORAS
   // ==========================================
   getSessoesAtivas: (): SessaoAtivaUsuario[] => {
-    const sessoes = getLocal<SessaoAtivaUsuario[]>(STORAGE_KEYS.SESSOES_ATIVAS, []);
-    if (sessoes.length === 0) {
-      const agora = Date.now();
-      const currentUser = dbService.getCurrentUser();
-      const escola = dbService.getEscolaAtiva();
-      const funcs = dbService.getFuncionarios();
-
-      // Seed inicial realista com utilizadores ativos e recentes
-      const seed: SessaoAtivaUsuario[] = [
-        {
-          id: `sess-${currentUser.id}`,
-          userId: currentUser.id,
-          userName: currentUser.nomeCompleto,
-          userRole: currentUser.role,
-          escolaId: escola.id,
-          escolaNome: escola.nomeOficial,
-          cargo: currentUser.cargo,
-          ip: '197.234.12.89',
-          loginTime: agora - 1000 * 60 * 35,
-          ultimoAcesso: agora,
-          online: true
-        }
-      ];
-
-      // Adicionar colegas da escola e rede
-      const outro1 = funcs.find(f => f.id !== currentUser.id && (f.role === 'Professor' || f.ehProfessor));
-      if (outro1) {
-        seed.push({
-          id: `sess-${outro1.id}`,
-          userId: outro1.id,
-          userName: outro1.nomeCompleto,
-          userRole: outro1.role,
-          escolaId: outro1.escolaId || escola.id,
-          escolaNome: escola.nomeOficial,
-          cargo: outro1.cargo || 'Professor de Matemática',
-          ip: '197.234.45.102',
-          loginTime: agora - 1000 * 60 * 12,
-          ultimoAcesso: agora - 1000 * 60 * 2,
-          online: true
-        });
-      }
-
-      const outro2 = funcs.find(f => f.id !== currentUser.id && (f.role === 'Secretaria' || f.role === 'ChefeSecretaria'));
-      if (outro2) {
-        seed.push({
-          id: `sess-${outro2.id}`,
-          userId: outro2.id,
-          userName: outro2.nomeCompleto,
-          userRole: outro2.role,
-          escolaId: outro2.escolaId || escola.id,
-          escolaNome: escola.nomeOficial,
-          cargo: outro2.cargo || 'Secretária Pedagógica',
-          ip: '197.234.88.211',
-          loginTime: agora - 1000 * 60 * 8,
-          ultimoAcesso: agora - 1000 * 60 * 1,
-          online: true
-        });
-      }
-
-      // Utilizador que acedeu nas últimas 24 horas (ex: há 4 horas)
-      const outro3 = funcs.find(f => f.id !== currentUser.id && f.id !== outro1?.id && f.id !== outro2?.id);
-      if (outro3) {
-        seed.push({
-          id: `sess-${outro3.id}`,
-          userId: outro3.id,
-          userName: outro3.nomeCompleto,
-          userRole: outro3.role,
-          escolaId: outro3.escolaId || escola.id,
-          escolaNome: escola.nomeOficial,
-          cargo: outro3.cargo || 'Subdiretor Pedagógico',
-          ip: '197.234.33.15',
-          loginTime: agora - 1000 * 60 * 60 * 5,
-          ultimoAcesso: agora - 1000 * 60 * 60 * 3.5,
-          online: false
-        });
-      }
-
-      setLocal(STORAGE_KEYS.SESSOES_ATIVAS, seed);
-      return seed;
-    }
-    return sessoes;
+    return getLocal<SessaoAtivaUsuario[]>(STORAGE_KEYS.SESSOES_ATIVAS, []);
   },
 
   registarHeartbeatUsuario: (user: Funcionario, escola?: Escola): void => {

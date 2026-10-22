@@ -80,6 +80,8 @@ export default function App() {
   const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
   const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(true);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
+  const [firebasePermissaoNegada, setFirebasePermissaoNegada] = useState<boolean>(() => firebaseSyncEngine.isPermissaoNegada());
+  const [dispensarAvisoRegras, setDispensarAvisoRegras] = useState<boolean>(false);
 
   // Estado Multi-Escola & Multi-Ano Lectivo
   const [escolas, setEscolas] = useState<Escola[]>(() => dbService.getEscolas());
@@ -211,9 +213,16 @@ export default function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    const unsubStatus = firebaseSyncEngine.subscreverStatus((status) => {
+      if (status.permissaoNegada) {
+        setFirebasePermissaoNegada(true);
+      }
+    });
+
     return () => {
       ativo = false;
       clearTimeout(timer);
+      unsubStatus();
       window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -660,16 +669,16 @@ export default function App() {
         numeroBI: dados.numeroBI,
         genero: dados.genero || 'M',
         email: dados.email,
-        telefone: dados.telefone || '+244 923 000 000',
-        password: dados.password || '123456',
-        habilitacoes: dados.habilitacoes || 'Licenciatura em Gestão Escolar',
+        telefone: dados.telefone || '',
+        password: dados.password || '',
+        habilitacoes: dados.habilitacoes || '',
         cargo: 'Diretor Geral',
         role: 'DiretorGeral',
         statusConta: 'Ativa',
         ativo: true,
         ehProfessor: false,
         ehAdministrativoQueLeciona: false,
-        fotoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        fotoUrl: dados.fotoUrl || '',
         dataAdmissao: new Date().toISOString().split('T')[0]
       };
     } else {
@@ -677,7 +686,7 @@ export default function App() {
         ...escolaIdOuDados,
         role: 'DiretorGeral',
         cargo: 'Diretor Geral',
-        password: dadosOuSenha || escolaIdOuDados.password || '123456',
+        password: dadosOuSenha || escolaIdOuDados.password || '',
         statusConta: 'Ativa',
         ativo: true
       } as Funcionario;
@@ -1043,6 +1052,36 @@ export default function App() {
         onLogout={handleLogout}
         onOpenSecurityEngine={() => setShowSecurityModal(true)}
       />
+
+      {/* Alerta de Regras do Firestore (quando o projeto externo sge4-8b772 tem regras travadas) */}
+      {firebasePermissaoNegada && !dispensarAvisoRegras && (
+        <div className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white px-4 py-3 shadow-md z-30 no-print border-b border-amber-400">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-start space-x-3">
+              <div className="p-1.5 bg-white/20 rounded-lg shrink-0 mt-0.5">
+                <ShieldAlert className="h-5 w-5 text-white" />
+              </div>
+              <div className="text-xs">
+                <p className="font-bold text-white text-sm">
+                  Firebase Firestore (sge4-8b772): Regras de Acesso Requerem Publicação na Consola
+                </p>
+                <p className="text-amber-100 mt-0.5 leading-relaxed">
+                  Para que os dados sejam gravados na nuvem do seu projeto Firebase, aceda a{' '}
+                  <span className="font-mono bg-black/20 px-1 py-0.5 rounded text-white">Firebase Console &gt; Firestore Database &gt; Regras (Rules)</span>{' '}
+                  e publique a regra de escrita: <code className="bg-black/30 px-1.5 py-0.5 rounded font-mono text-white font-bold">allow read, write: if true;</code>. 
+                  Enquanto isso, todas as contas e alterações estão totalmente salvas e protegidas no motor offline do seu dispositivo.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setDispensarAvisoRegras(true)}
+              className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-lg transition-all shrink-0 self-end md:self-auto cursor-pointer"
+            >
+              Compreendi / Dispensar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner de Sessão de Apoio Técnico Ativa (Admin Geral no papel de Diretor Geral da Escola) */}
       {(modoApoioTecnico || (currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva))) && (

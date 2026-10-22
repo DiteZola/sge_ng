@@ -31,121 +31,7 @@ export interface EventoEscolar {
   concluido?: boolean;
 }
 
-const DEFAULT_EVENTOS: EventoEscolar[] = [
-  {
-    id: 'evt-01',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Início Oficial das Aulas do Iº Trimestre',
-    categoria: 'Pedagógico',
-    dataInicio: '2025-09-01',
-    hora: '07:30',
-    local: 'Pátio Central',
-    publicoAlvo: 'Toda a Comunidade',
-    descricao: 'Cerimónia de abertura oficial do ano letivo com entoação do Hino Nacional.',
-    concluido: true
-  },
-  {
-    id: 'evt-02',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Dia do Herói Nacional (Feriado Nacional)',
-    categoria: 'Feriado',
-    dataInicio: '2025-09-17',
-    publicoAlvo: 'Toda a Comunidade',
-    descricao: 'Homenagem ao Dr. António Agostinho Neto. Sem atividades letivas.',
-    concluido: true
-  },
-  {
-    id: 'evt-03',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Reunião Geral com Encarregados de Educação',
-    categoria: 'Reunião',
-    dataInicio: '2025-10-18',
-    hora: '09:00',
-    local: 'Anfiteatro Principal',
-    publicoAlvo: 'Encarregados',
-    descricao: 'Apresentação do regulamento interno, metas pedagógicas e comissões de pais.',
-    concluido: true
-  },
-  {
-    id: 'evt-04',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: '50º Aniversário da Independência Nacional de Angola',
-    categoria: 'Feriado',
-    dataInicio: '2025-11-11',
-    publicoAlvo: 'Toda a Comunidade',
-    descricao: 'Celebração do Jubileu de Ouro da Independência Proclamada em 1975.',
-    concluido: true
-  },
-  {
-    id: 'evt-05',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Provas do Professor e Avaliações Finais do IIº Trimestre',
-    categoria: 'Exame',
-    dataInicio: '2026-03-23',
-    dataFim: '2026-04-03',
-    hora: '08:00',
-    local: 'Salas de Aula',
-    publicoAlvo: 'Estudantes',
-    descricao: 'Período obrigatório de aplicação das provas trimestrais de todas as disciplinas.',
-    concluido: false
-  },
-  {
-    id: 'evt-06',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Dia da Paz e Reconciliação Nacional (Feriado)',
-    categoria: 'Feriado',
-    dataInicio: '2026-04-04',
-    publicoAlvo: 'Toda a Comunidade',
-    descricao: 'Celebração dos acordos de paz firmados a 4 de Abril de 2002.',
-    concluido: false
-  },
-  {
-    id: 'evt-07',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Conselho Pedagógico & Homologação de Pautas Trimestrais',
-    categoria: 'Pedagógico',
-    dataInicio: '2026-04-14',
-    hora: '10:00',
-    local: 'Sala dos Professores',
-    publicoAlvo: 'Professores',
-    descricao: 'Apreciação estatística do rendimento escolar e validação das cadernetas.',
-    concluido: false
-  },
-  {
-    id: 'evt-08',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Feira das Ciências e Inovação Pedagógica',
-    categoria: 'Extracurricular',
-    dataInicio: '2026-05-22',
-    hora: '09:00',
-    local: 'Pátio e Laboratórios',
-    publicoAlvo: 'Toda a Comunidade',
-    descricao: 'Exposição dos trabalhos práticos de biologia, química, física e robótica.',
-    concluido: false
-  },
-  {
-    id: 'evt-09',
-    escolaId: 'esc-002',
-    anoLectivo: '2025/2026',
-    titulo: 'Exames Nacionais e Provas de Equivalência (Classes Finais)',
-    categoria: 'Exame',
-    dataInicio: '2026-06-08',
-    dataFim: '2026-06-19',
-    hora: '08:00',
-    local: 'Salas de Exame Homologadas',
-    publicoAlvo: 'Estudantes',
-    descricao: 'Avaliações finais tuteladas pelas Comissões de Júri legalmente constituídas.',
-    concluido: false
-  }
-];
+const DEFAULT_EVENTOS: EventoEscolar[] = [];
 
 interface SchoolEventsViewProps {
   escola: Escola;
@@ -159,7 +45,12 @@ export const SchoolEventsView: React.FC<SchoolEventsViewProps> = ({
   const [eventos, setEventos] = useState<EventoEscolar[]>(() => {
     try {
       const stored = localStorage.getItem('sge_eventos_escolares');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed: EventoEscolar[] = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(e => e.escolaId !== 'esc-002');
+        }
+      }
     } catch {
       // fallback
     }

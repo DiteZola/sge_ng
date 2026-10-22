@@ -23,6 +23,7 @@ export interface SyncStatus {
   totalUsuariosSincronizados: number;
   configSincronizada: boolean;
   errosRecentes?: string;
+  permissaoNegada?: boolean;
 }
 
 const STORAGE_KEYS = {
@@ -43,7 +44,21 @@ const STORAGE_KEYS = {
 class FirebaseSyncEngine {
   private emSincronizacao = false;
   private ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+  private permissaoNegadaDetectada = false;
   private listeners: Array<(status: SyncStatus) => void> = [];
+
+  public registrarErroPermissao(err: any) {
+    if (err?.code === 'permission-denied' || String(err).includes('PERMISSION_DENIED') || String(err).includes('Missing or insufficient permissions')) {
+      if (!this.permissaoNegadaDetectada) {
+        this.permissaoNegadaDetectada = true;
+        this.notificarStatus();
+      }
+    }
+  }
+
+  public isPermissaoNegada(): boolean {
+    return this.permissaoNegadaDetectada;
+  }
 
   constructor() {
     // Auto-reparação imediata para imagens que excedam limites antes de qualquer sincronização
@@ -126,8 +141,21 @@ class FirebaseSyncEngine {
           if (f && f.id && f.nomeCompleto) funcsRemotos.push(f);
         });
         if (funcsRemotos.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(funcsRemotos));
-          const temAdmin = funcsRemotos.some(f => f.role === 'AdminGeral' && f.ativo);
+          const localRaw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
+          const localFuncs: Funcionario[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+          const map = new Map<string, Funcionario>();
+          localFuncs.forEach(lf => map.set(lf.id, lf));
+          funcsRemotos.forEach(rf => {
+            const existing = map.get(rf.id);
+            map.set(rf.id, {
+              ...existing,
+              ...rf,
+              password: rf.password || existing?.password || ''
+            });
+          });
+          const mesclados = Array.from(map.values());
+          localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(mesclados));
+          const temAdmin = mesclados.some(f => f.role === 'AdminGeral' && f.ativo);
           if (temAdmin) {
             localStorage.setItem('sge_admin_configured', 'true');
             localStorage.setItem('sge_setup_inicial_concluido', 'true');
@@ -144,7 +172,12 @@ class FirebaseSyncEngine {
           if (esc && esc.id) escolasRemotas.push(esc);
         });
         if (escolasRemotas.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolasRemotas));
+          const localRaw = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
+          const localEscolas: Escola[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+          const map = new Map<string, Escola>();
+          localEscolas.forEach(e => map.set(e.id, e));
+          escolasRemotas.forEach(e => map.set(e.id, { ...map.get(e.id), ...e }));
+          localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify(Array.from(map.values())));
           window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
         }
       }, (err) => console.warn('[SGE Realtime] Escuta de escolas:', err));
@@ -322,10 +355,15 @@ class FirebaseSyncEngine {
         };
         const docRef1 = doc(firestoreDb, "funcionarios", funcionario.id);
         const docRef2 = doc(firestoreDb, "users", funcionario.id);
-        await Promise.allSettled([
+        const results = await Promise.allSettled([
           setDoc(docRef1, payload, { merge: true }),
           setDoc(docRef2, payload, { merge: true })
         ]);
+        results.forEach(r => {
+          if (r.status === 'rejected') {
+            this.registrarErroPermissao(r.reason);
+          }
+        });
 
         offlineStorage.registarMutacao(
           'Utilizador', 
@@ -335,6 +373,7 @@ class FirebaseSyncEngine {
         );
         return true;
       } catch (err) {
+        this.registrarErroPermissao(err);
         console.warn('[SGE Firebase Sync] Erro ao sincronizar funcionário no Firestore:', err);
         offlineStorage.registarMutacao(
           'Utilizador', 
@@ -358,7 +397,11 @@ class FirebaseSyncEngine {
       const funcs: Funcionario[] = (raw && raw !== 'undefined' && raw !== 'null') ? JSON.parse(raw) : [];
       const idx = funcs.findIndex(f => f.id === user.id || (f.email && f.email.toLowerCase() === user.email?.toLowerCase()));
       if (idx >= 0) {
-        funcs[idx] = { ...funcs[idx], ...user };
+        funcs[idx] = { 
+          ...funcs[idx], 
+          ...user,
+          password: user.password || funcs[idx].password || ''
+        };
       } else {
         funcs.push(user);
       }
@@ -581,12 +624,23 @@ class FirebaseSyncEngine {
           }
         });
         if (escolasRemotas.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolasRemotas));
+          const localRaw = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
+          const localEscolas: Escola[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+          const map = new Map<string, Escola>();
+          localEscolas.forEach(e => map.set(e.id, e));
+          escolasRemotas.forEach(e => map.set(e.id, { ...map.get(e.id), ...e }));
+          localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify(Array.from(map.values())));
         }
       } else {
-        const localEscolas = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
-        if (localEscolas && (localEscolas.includes('esc-001') || localEscolas.includes('esc-002') || localEscolas.includes('esc-003'))) {
-          localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify([]));
+        // Se o Firestore estiver vazio mas o dispositivo tiver escola criada localmente, envia para o Firestore
+        const localRaw = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
+        if (localRaw && localRaw !== 'undefined' && localRaw !== 'null') {
+          try {
+            const localEscolas: Escola[] = JSON.parse(localRaw);
+            for (const e of localEscolas) {
+              await setDoc(doc(firestoreDb, "escolas", e.id), { ...e, atualizadoEm: new Date().toISOString() }, { merge: true });
+            }
+          } catch {}
         }
       }
 
@@ -599,19 +653,40 @@ class FirebaseSyncEngine {
           if (f && f.id && f.nomeCompleto) funcsRemotos.push(f);
         });
         if (funcsRemotos.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(funcsRemotos));
-          const temAdmin = funcsRemotos.some(f => f.role === 'AdminGeral' && f.ativo !== false);
+          const localRaw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
+          const localFuncs: Funcionario[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+          const map = new Map<string, Funcionario>();
+          // Preservar usuários locais
+          localFuncs.forEach(lf => map.set(lf.id, lf));
+          // Mesclar dados remotos mantendo senha local caso a remota não a traga
+          funcsRemotos.forEach(rf => {
+            const existing = map.get(rf.id);
+            map.set(rf.id, {
+              ...existing,
+              ...rf,
+              password: rf.password || existing?.password || ''
+            });
+          });
+          const mesclados = Array.from(map.values());
+          localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(mesclados));
+          const temAdmin = mesclados.some(f => f.role === 'AdminGeral' && f.ativo !== false);
           if (temAdmin) {
             localStorage.setItem('sge_admin_configured', 'true');
             localStorage.setItem('sge_setup_inicial_concluido', 'true');
           }
         }
       } else {
-        const localFuncs = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
-        if (localFuncs && (localFuncs.includes('test_admin') || localFuncs.includes('func-00') || localFuncs.includes('func-admin-1791707975841') || localFuncs.includes('func-admin-1792142971892'))) {
-          localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify([]));
-          localStorage.removeItem('sge_admin_configured');
-          localStorage.removeItem('sge_setup_inicial_concluido');
+        // Se o Firestore estiver vazio mas o dispositivo tiver funcionários locais (ex: Administrador Geral criado),
+        // envia para o Firestore em vez de apagar do dispositivo!
+        const localRaw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
+        if (localRaw && localRaw !== 'undefined' && localRaw !== 'null') {
+          try {
+            const localFuncs: Funcionario[] = JSON.parse(localRaw);
+            for (const f of localFuncs) {
+              await setDoc(doc(firestoreDb, "funcionarios", f.id), { ...f, atualizadoEm: new Date().toISOString() }, { merge: true });
+              await setDoc(doc(firestoreDb, "users", f.id), { ...f, atualizadoEm: new Date().toISOString() }, { merge: true });
+            }
+          } catch {}
         }
       }
 
@@ -1206,7 +1281,8 @@ class FirebaseSyncEngine {
       emSincronizacao: this.emSincronizacao,
       ultimaSincronizacao: this.ultimaSincronizacao,
       totalUsuariosSincronizados: totalUsers,
-      configSincronizada: true
+      configSincronizada: true,
+      permissaoNegada: this.permissaoNegadaDetectada
     };
   }
 

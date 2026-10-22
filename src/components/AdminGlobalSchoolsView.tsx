@@ -121,8 +121,8 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const [novaEscolaMunicipio, setNovaEscolaMunicipio] = useState('Luanda');
   const [novaEscolaEndereco, setNovaEscolaEndereco] = useState('');
   const [novaEscolaEmail, setNovaEscolaEmail] = useState('');
-  const [novaEscolaTelefone, setNovaEscolaTelefone] = useState('+244 923 000 000');
-  const [novaEscolaDecreto, setNovaEscolaDecreto] = useState('Decreto Executivo n.º 250/18');
+  const [novaEscolaTelefone, setNovaEscolaTelefone] = useState('');
+  const [novaEscolaDecreto, setNovaEscolaDecreto] = useState('');
   const [novaEscolaEnsinoPrimario, setNovaEscolaEnsinoPrimario] = useState(true);
   const [novaEscolaTemIniciacao, setNovaEscolaTemIniciacao] = useState(true);
   const [novaEscolaNiveis, setNovaEscolaNiveis] = useState<string[]>(['Primario']);
@@ -132,9 +132,9 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const [dirBI, setDirBI] = useState('');
   const [dirGenero, setDirGenero] = useState<Genero>('M');
   const [dirEmail, setDirEmail] = useState('');
-  const [dirTelefone, setDirTelefone] = useState('+244 923 000 000');
-  const [dirSenha, setDirSenha] = useState('Dir2026!');
-  const [dirHabilitacoes, setDirHabilitacoes] = useState('Licenciatura em Gestão e Administração Escolar');
+  const [dirTelefone, setDirTelefone] = useState('');
+  const [dirSenha, setDirSenha] = useState('');
+  const [dirHabilitacoes, setDirHabilitacoes] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [novaSenhaInput, setNovaSenhaInput] = useState('');
 
@@ -213,16 +213,16 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
       setDirGenero(diretorAtual.genero || 'M');
       setDirEmail(diretorAtual.email);
       setDirTelefone(diretorAtual.telefone);
-      setDirSenha(diretorAtual.password || 'Dir2026!');
+      setDirSenha(diretorAtual.password || '');
       setDirHabilitacoes(diretorAtual.habilitacoes);
     } else {
       setDirNome(esc.diretorGeralNome && esc.diretorGeralNome !== 'Não Atribuído' ? esc.diretorGeralNome : '');
-      setDirBI('00' + Math.floor(10000000 + Math.random() * 90000000) + 'LA045');
+      setDirBI('');
       setDirGenero('M');
-      setDirEmail(`diretor.${esc.sigla?.toLowerCase() || 'geral'}@med.gov.ao`);
-      setDirTelefone('+244 923 ' + Math.floor(100000 + Math.random() * 900000));
-      setDirSenha('Dir2026!');
-      setDirHabilitacoes('Licenciatura em Ciências da Educação & Administração Escolar');
+      setDirEmail('');
+      setDirTelefone('');
+      setDirSenha('');
+      setDirHabilitacoes('');
     }
     setModalDiretorOpen(true);
   };

@@ -134,34 +134,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
       // Se não encontrou no Firebase ou offline, verificar na lista carregada em memória/dispositivo
       if (!utilizadorEncontrado) {
         const funcsFrescos = dbService.getFuncionarios();
-        utilizadorEncontrado = funcsFrescos.find(
-          f => f.email?.toLowerCase() === idLimpo || 
-               f.numeroBI?.toLowerCase() === idLimpo ||
-               f.nomeCompleto.toLowerCase() === idLimpo ||
-               f.nomeCompleto.toLowerCase().includes(idLimpo) ||
-               (ehAdminGeral && f.role === 'AdminGeral')
-        ) || null;
-      }
-
-      // Se for encarregado de educação
-      if (!utilizadorEncontrado && (idLimpo.includes('encarregado') || idLimpo.includes('pai'))) {
-        utilizadorEncontrado = {
-          id: 'user-encarregado',
-          escolaId: selectedEscola.id,
-          nomeCompleto: 'Encarregado de Educação',
-          numeroBI: '003847291ZA032',
-          cargo: 'Encarregado de Educação',
-          role: 'Encarregado',
-          ehProfessor: false,
-          ehAdministrativoQueLeciona: false,
-          genero: 'M',
-          habilitacoes: 'Ensino Médio',
-          fotoUrl: '',
-          dataAdmissao: new Date().toISOString().split('T')[0],
-          telefone: '+244 923 000 000',
-          email: idLimpo,
-          ativo: true
-        };
+        const idSemEspaco = idLimpo.replace(/\s+/g, '');
+        utilizadorEncontrado = funcsFrescos.find(f => {
+          const fEmail = (f.email || '').trim().toLowerCase();
+          const fBi = (f.numeroBI || '').toLowerCase().replace(/\s+/g, '');
+          const fNome = (f.nomeCompleto || '').toLowerCase();
+          return fEmail === idLimpo ||
+                 fBi === idSemEspaco ||
+                 fNome === idLimpo ||
+                 fNome.includes(idLimpo) ||
+                 (ehAdminGeral && f.role === 'AdminGeral');
+        }) || null;
       }
 
       // Se ainda não encontrado, permitir fallback de admin se credencial bater com admin
@@ -188,16 +171,16 @@ export const LoginView: React.FC<LoginViewProps> = ({
       }
 
       // Validar senha (com verificação direta, checksum SHA-256 e decifragem AES-256)
-      let senhaValida = utilizadorEncontrado.password || '123456';
+      let senhaValida = utilizadorEncontrado.password || '';
       let bateuSenha = false;
 
       // 1. Comparação direta com texto plano
-      if (senha.trim() === senhaValida.trim()) {
+      if (senhaValida && senha.trim() === senhaValida.trim()) {
         bateuSenha = true;
       }
 
       // 2. Se a senha gravada estiver encriptada em AES-256
-      if (!bateuSenha && cryptoService.isEncriptado(senhaValida)) {
+      if (!bateuSenha && senhaValida && cryptoService.isEncriptado(senhaValida)) {
         // A. Verificar pelo SHA-256 checksum embutido na serialização
         const partes = senhaValida.split(':');
         const checksum = partes[partes.length - 1];
@@ -225,16 +208,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
         }
       }
 
-      // 3. Fallback institucional e de recuperação para o Administrador Geral
+      // 3. Fallback institucional e de emergência para o Administrador Geral
       if (!bateuSenha && ehRealmenteAdminGeral) {
         const s = senha.trim().toLowerCase();
         if (
           senha.trim() === 'Admin@2025' || 
           senha.trim() === 'admin123' || 
           senha.trim() === '123456' ||
-          senha.trim() === '11061709' ||
-          s === 'ngonga@2025' ||
-          s === 'ngongamanuel' ||
           s === 'admin'
         ) {
           bateuSenha = true;
