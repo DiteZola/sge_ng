@@ -1223,46 +1223,70 @@ class FirebaseSyncEngine {
   }
 
   /**
-   * Buscar Administrador Geral remoto no Firestore
+   * Buscar Administrador Geral remoto no Firestore com protecção contra internet lenta (timeout)
    */
-  public async buscarAdminGeralRemoto(): Promise<Funcionario | null> {
-    if (!this.canUseFirestore() || !firestoreDb) return null;
+  public async buscarAdminGeralRemoto(timeoutMs: number = 2500): Promise<{ admin: Funcionario | null; timeout: boolean; erro: boolean }> {
+    if (!this.canUseFirestore() || !firestoreDb) {
+      return { admin: null, timeout: false, erro: true };
+    }
+
     try {
-      const q = query(
-        collection(firestoreDb, "funcionarios"), 
-        where("role", "==", "AdminGeral"), 
-        limit(1)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const adminData = snap.docs[0].data() as Funcionario;
-        this.atualizarUsuarioNoDispositivo(adminData);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('sge_admin_configured', 'true');
-          localStorage.setItem('sge_setup_inicial_concluido', 'true');
+      const timeoutPromise = new Promise<{ timeout: true }>((resolve) => {
+        setTimeout(() => resolve({ timeout: true }), timeoutMs);
+      });
+
+      const queryPromise = (async (): Promise<{ admin: Funcionario | null; timeout: false; erro: boolean }> => {
+        try {
+          const q = query(
+            collection(firestoreDb, "funcionarios"), 
+            where("role", "==", "AdminGeral"), 
+            limit(1)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const adminData = snap.docs[0].data() as Funcionario;
+            this.atualizarUsuarioNoDispositivo(adminData);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('sge_admin_configured', 'true');
+              localStorage.setItem('sge_setup_inicial_concluido', 'true');
+            }
+            return { admin: adminData, timeout: false, erro: false };
+          }
+
+          const q2 = query(
+            collection(firestoreDb, "users"), 
+            where("role", "==", "AdminGeral"), 
+            limit(1)
+          );
+          const snap2 = await getDocs(q2);
+          if (!snap2.empty) {
+            const adminData = snap2.docs[0].data() as Funcionario;
+            this.atualizarUsuarioNoDispositivo(adminData);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('sge_admin_configured', 'true');
+              localStorage.setItem('sge_setup_inicial_concluido', 'true');
+            }
+            return { admin: adminData, timeout: false, erro: false };
+          }
+
+          return { admin: null, timeout: false, erro: false };
+        } catch (err) {
+          console.warn('[SGE Firebase Sync] Erro interno ao buscar Admin Geral remoto:', err);
+          return { admin: null, timeout: false, erro: true };
         }
-        return adminData;
+      })();
+
+      const resultado = await Promise.race([queryPromise, timeoutPromise]);
+      if ('timeout' in resultado && resultado.timeout) {
+        console.warn(`[SGE Firebase Sync] Internet lenta detectada: verificação no Firestore excedeu ${timeoutMs}ms.`);
+        return { admin: null, timeout: true, erro: false };
       }
 
-      const q2 = query(
-        collection(firestoreDb, "users"), 
-        where("role", "==", "AdminGeral"), 
-        limit(1)
-      );
-      const snap2 = await getDocs(q2);
-      if (!snap2.empty) {
-        const adminData = snap2.docs[0].data() as Funcionario;
-        this.atualizarUsuarioNoDispositivo(adminData);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('sge_admin_configured', 'true');
-          localStorage.setItem('sge_setup_inicial_concluido', 'true');
-        }
-        return adminData;
-      }
+      return resultado as { admin: Funcionario | null; timeout: boolean; erro: boolean };
     } catch (e) {
       console.warn('[SGE Firebase Sync] Erro ao buscar Admin Geral remoto:', e);
+      return { admin: null, timeout: false, erro: true };
     }
-    return null;
   }
 
   public getStatus(): SyncStatus {

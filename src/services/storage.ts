@@ -1738,10 +1738,12 @@ export const dbService = {
     return funcs.find(f => f.role === 'AdminGeral' && f.ativo) || null;
   },
 
-  verificarAdminGeralOnline: async (): Promise<{
+  verificarAdminGeralOnline: async (timeoutMs: number = 2500): Promise<{
     existe: boolean;
     admin?: Funcionario;
     online: boolean;
+    internetLenta: boolean;
+    deveMostrarSetupInicial: boolean;
     status: string;
     mensagem: string;
   }> => {
@@ -1750,38 +1752,112 @@ export const dbService = {
     let funcs = dbService.getFuncionarios();
     let admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
 
-    // Se localmente não temos admin, mas estamos online, tenta recuperar do Firebase Firestore
-    if (!temLocal && isOnline) {
-      try {
-        const adminRemoto = await firebaseSyncEngine.buscarAdminGeralRemoto();
-        if (adminRemoto) {
-          temLocal = true;
-          admin = adminRemoto;
-          funcs = dbService.getFuncionarios();
-        }
-      } catch (e) {
-        console.warn('[Storage] Falha ao verificar admin no Firestore:', e);
-      }
+    // REGRA 1: Se estiver OFFLINE
+    // "se a internet estiver offline não mostra esta página [de configuração inicial]"
+    if (!isOnline) {
+      securityEngine.registarEvento({
+        categoria: 'SISTEMA',
+        severidade: 'INFO',
+        titulo: 'Sistema Offline',
+        detalhes: 'Dispositivo sem acesso à internet. Página de configuração inicial suspensa; direcionando para acesso normal.'
+      });
+      return {
+        existe: temLocal,
+        admin,
+        online: false,
+        internetLenta: false,
+        deveMostrarSetupInicial: false, // NUNCA mostra se offline
+        status: 'OFFLINE',
+        mensagem: 'Sistema em modo offline. Ecrã de configuração inicial não será exibido.'
+      };
     }
 
-    securityEngine.registarEvento({
-      categoria: 'SISTEMA',
-      severidade: temLocal ? 'INFO' : 'AVISO',
-      titulo: 'Verificação de Administrador Geral',
-      detalhes: temLocal 
-        ? `Administrador Geral ativo confirmado (${admin?.nomeCompleto || 'Identificado'}). Estado de rede: ${isOnline ? 'Online' : 'Offline'}.`
-        : `Nenhum Administrador Geral detetado. Ativação prioritária da Página de Configuração Inicial.`
-    });
+    // REGRA 2: Se estiver ONLINE
+    // "ao carregar o sistema quando está online deve verificar sempre se há administrador geral ou não"
+    try {
+      const resRemota = await firebaseSyncEngine.buscarAdminGeralRemoto(timeoutMs);
 
-    return {
-      existe: temLocal,
-      admin,
-      online: isOnline,
-      status: temLocal ? 'CONFIRMADO' : 'PENDENTE_CADASTRO',
-      mensagem: temLocal 
-        ? 'Administrador Geral registado e ativo.' 
-        : 'É obrigatório o registo do Administrador Geral.'
-    };
+      // REGRA 3: Se a internet estiver LENTA ou ocorrer erro na conexão com Firebase
+      // "se a internet estiver lenta não mostra esta página"
+      if (resRemota.timeout || resRemota.erro) {
+        securityEngine.registarEvento({
+          categoria: 'SISTEMA',
+          severidade: 'AVISO',
+          titulo: resRemota.timeout ? 'Internet Lenta Detectada' : 'Erro de Conexão com Firebase',
+          detalhes: resRemota.timeout 
+            ? `A verificação do Administrador Geral no Firebase excedeu ${timeoutMs}ms. Página de configuração inicial suspensa por lentidão.`
+            : 'Falha na comunicação com o Firebase. Acesso direto mantido.'
+        });
+        return {
+          existe: temLocal,
+          admin,
+          online: true,
+          internetLenta: resRemota.timeout,
+          deveMostrarSetupInicial: false, // NUNCA mostra se internet for lenta ou falhar
+          status: resRemota.timeout ? 'INTERNET_LENTA' : 'ERRO_CONEXAO',
+          mensagem: resRemota.timeout 
+            ? 'Internet lenta detectada. Página de configuração inicial não será exibida.'
+            : 'Instabilidade de conexão. Página de configuração inicial suspensa.'
+        };
+      }
+
+      // Se a conexão respondeu a tempo e encontrou Admin Geral no Firestore:
+      if (resRemota.admin) {
+        temLocal = true;
+        admin = resRemota.admin;
+        return {
+          existe: true,
+          admin: resRemota.admin,
+          online: true,
+          internetLenta: false,
+          deveMostrarSetupInicial: false,
+          status: 'CONFIRMADO_ONLINE',
+          mensagem: 'Administrador Geral confirmado no Firebase online.'
+        };
+      }
+
+      // Se não encontrou no Firebase mas encontrou no dispositivo local:
+      if (temLocal && admin) {
+        firebaseSyncEngine.salvarPerfilUsuario(admin);
+        return {
+          existe: true,
+          admin,
+          online: true,
+          internetLenta: false,
+          deveMostrarSetupInicial: false,
+          status: 'CONFIRMADO_LOCAL',
+          mensagem: 'Administrador Geral presente no dispositivo.'
+        };
+      }
+
+      // REGRA 4: Online, com internet estável e rápida (< 2.5s), e comprovadamente NÃO há Administrador Geral nem no Firebase nem local:
+      // "se não tiver mostra a página de configuração inicial"
+      securityEngine.registarEvento({
+        categoria: 'SISTEMA',
+        severidade: 'AVISO',
+        titulo: 'Nenhum Administrador Geral Encontrado',
+        detalhes: 'Verificação online concluída em tempo hábil: não existe Administrador Geral no Firestore online. Exibindo página de configuração inicial.'
+      });
+      return {
+        existe: false,
+        online: true,
+        internetLenta: false,
+        deveMostrarSetupInicial: true, // SÓ MOSTRA NESTA CONDIÇÃO!
+        status: 'PENDENTE_CADASTRO',
+        mensagem: 'Nenhum Administrador Geral registrado online. Apresentar configuração inicial.'
+      };
+    } catch (e) {
+      console.warn('[Storage] Falha geral ao verificar admin online:', e);
+      return {
+        existe: temLocal,
+        admin,
+        online: isOnline,
+        internetLenta: true,
+        deveMostrarSetupInicial: false,
+        status: 'FALHA_GERAL',
+        mensagem: 'Erro durante a verificação. Página de configuração inicial suspensa.'
+      };
+    }
   },
 
   isSetupInicialConcluido: (): boolean => {

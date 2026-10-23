@@ -78,7 +78,13 @@ export default function App() {
   const [integrity, setIntegrity] = useState<SystemIntegrityStatus>(verificarIntegridadeSistema());
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
   const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
-  const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(true);
+  const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return false;
+    }
+    return true;
+  });
+  const [mostrarSetupInicial, setMostrarSetupInicial] = useState<boolean>(false);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [firebasePermissaoNegada, setFirebasePermissaoNegada] = useState<boolean>(() => firebaseSyncEngine.isPermissaoNegada());
   const [dispensarAvisoRegras, setDispensarAvisoRegras] = useState<boolean>(false);
@@ -148,24 +154,38 @@ export default function App() {
     let ativo = true;
 
     const verificarAdmin = async () => {
+      // Se estiver offline:
+      // "se a internet estiver offline não mostra esta página"
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (ativo) {
+          setMostrarSetupInicial(false);
+          setVerificandoAdminOnline(false);
+        }
+        return;
+      }
+
       try {
-        const localExiste = dbService.temAdminGeral();
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
-          const res = await dbService.verificarAdminGeralOnline();
-          if (ativo) {
-            setTemAdminGeral(res.existe);
-            if (res.existe) {
-              setFuncionarios(dbService.obterFuncionarios());
-            }
+        // "ao carregar o sistema quando está online deve verificar sempre se há administrador geral ou não"
+        // Timeout de 2500ms para salvaguarda de internet lenta
+        const res = await dbService.verificarAdminGeralOnline(2500);
+        if (ativo) {
+          setTemAdminGeral(res.existe);
+          // "se não tiver mostra a página de configuração inicial e se a internet estiver lenta ou offline não mostra esta página"
+          setMostrarSetupInicial(res.deveMostrarSetupInicial);
+          if (res.existe) {
+            setFuncionarios(dbService.obterFuncionarios());
           }
-        } else {
-          if (ativo) setTemAdminGeral(localExiste);
         }
       } catch (err) {
         console.warn('Erro ao verificar Administrador Geral no Firebase:', err);
-        if (ativo) setTemAdminGeral(dbService.temAdminGeral());
+        // Em caso de erro de rede ou internet lenta, NÃO mostra a página de configuração inicial
+        if (ativo) {
+          setMostrarSetupInicial(false);
+        }
       } finally {
-        if (ativo) setVerificandoAdminOnline(false);
+        if (ativo) {
+          setVerificandoAdminOnline(false);
+        }
       }
     };
 
@@ -183,10 +203,14 @@ export default function App() {
 
     verificarAdmin();
 
-    // Timeout de segurança de 2s para que a aplicação nunca fique presa na verificação inicial
+    // Timeout de segurança de 2.5s para que a aplicação nunca fique presa na verificação inicial se a internet for lenta
     const timer = setTimeout(() => {
-      if (ativo) setVerificandoAdminOnline(false);
-    }, 2000);
+      if (ativo) {
+        setVerificandoAdminOnline(false);
+        // Se a verificação demorou demais por internet lenta, não exibe a configuração inicial
+        setMostrarSetupInicial(false);
+      }
+    }, 2500);
 
     // Descarregar base de dados em tempo real do Firestore para suportar múltiplos dispositivos
     if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -209,7 +233,13 @@ export default function App() {
       verificarAdmin();
       firebaseSyncEngine.puxarTudoDoFirebase().then(recarregarDados);
     };
-    const handleOffline = () => setIntegrity(verificarIntegridadeSistema());
+    const handleOffline = () => {
+      setIntegrity(verificarIntegridadeSistema());
+      if (ativo) {
+        setMostrarSetupInicial(false);
+        setVerificandoAdminOnline(false);
+      }
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
@@ -997,12 +1027,13 @@ export default function App() {
     );
   }
 
-  // 1. Verificação Primária: Se verificado que não existe conta do Administrador Geral no Firebase online (nem local),
-  // a página de configuração DEVE aparecer ANTES da página de login.
-  if (!temAdminGeral) {
+  // 1. Verificação Primária: SÓ exibe a página de configuração inicial se verificado ONLINE
+  // que NÃO existe conta de Administrador Geral (e se a internet NÃO estiver lenta nem offline).
+  if (mostrarSetupInicial && !isAuthenticated) {
     return (
       <SystemInitialSetupView
         onSetupConcluido={(novoAdmin) => {
+          setMostrarSetupInicial(false);
           setTemAdminGeral(true);
           setAuthenticatedUser(novoAdmin);
           setIsAuthenticated(true);
