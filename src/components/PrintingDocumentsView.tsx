@@ -1019,12 +1019,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <div>
               <div className="w-52 border-b border-black mx-auto" />
               <p className="font-bold text-gray-900 mt-1">O(A) Director(a) de Turma</p>
-              <p className="text-gray-600 text-[10px]">{turmaDoAluno.coordenadorId ? 'Dr. Soares Lucas António' : 'Prof. Responsável'}</p>
+              <p className="text-gray-600 text-[10px]">{turmaDoAluno.coordenadorId ? 'Docente Coordenador' : 'Prof. Responsável'}</p>
             </div>
             <div>
               <div className="w-52 border-b border-black mx-auto" />
               <p className="font-bold text-gray-900 mt-1">O Subdirector Pedagógico</p>
-              <p className="text-gray-600 text-[10px]">{escola.subdiretorPedagogicoNome || 'Manuel Almeida Lula'}</p>
+              <p className="text-gray-600 text-[10px]">{escola.subdiretorPedagogicoNome || 'Não Atribuído'}</p>
             </div>
           </div>
         </div>
@@ -1269,7 +1269,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <p className="font-black text-gray-950 uppercase text-[11px]">O Presidente da Comissão de Júri</p>
                   <div className="w-48 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Manuel Zola'}
+                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Não Atribuído'}
                   </p>
                 </div>
 
@@ -1278,7 +1278,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <p className="font-black text-gray-950 uppercase text-[11px]">O Secretário da Comissão de Júri</p>
                   <div className="w-48 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Garcia António Vunge'}
+                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Não Atribuído'}
                   </p>
                 </div>
 
@@ -1298,7 +1298,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   )}
                   <div className="w-48 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {escola.diretorGeralNome || 'Dr. Manuel Zola'}
+                    {escola.diretorGeralNome || 'Não Atribuído'}
                   </p>
                 </div>
               </div>
@@ -1323,7 +1323,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
                   <p className="font-medium text-gray-700 text-[10px]">
-                    {escola.subdiretorPedagogicoNome || 'Manuel Almeida Lula'}
+                    {escola.subdiretorPedagogicoNome || 'Não Atribuído'}
                   </p>
                 </div>
                 <div className="space-y-1 flex flex-col items-center justify-end">
@@ -1341,7 +1341,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   )}
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[10px]">
-                    {escola.diretorGeralNome || 'Dr. Manuel Zola'}
+                    {escola.diretorGeralNome || 'Não Atribuído'}
                   </p>
                 </div>
               </div>
@@ -1391,11 +1391,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Texto Legal e Identificação Completa do Aluno */}
           <div className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
             <p>
-              {escola.diretorGeralNome || 'Manuel Zola'}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da <strong>{escola.artigoLegal || 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Bases do Sistema de Educação e Ensino)'}</strong>:
+              {escola.diretorGeralNome || 'Director(a) Geral'}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da <strong>{escola.artigoLegal || 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Bases do Sistema de Educação e Ensino)'}</strong>:
             </p>
 
             <p>
-              Declara que <strong>{alunoSelecionado.nomeCompleto.toUpperCase()}</strong>, filho de <strong>{alunoSelecionado.nomePai || 'Manuel Gonçalves'}</strong> e de <strong>{alunoSelecionado.nomeMae || 'Ponteciana Kilandamoko'}</strong>, nascido aos <strong>{alunoSelecionado.dataNascimento ? new Date(alunoSelecionado.dataNascimento).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' }) : '06 de Março de 2004'}</strong>, natural de <strong>{alunoSelecionado.naturalidade || 'Mbanza Kongo'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || 'Mbanza Kongo'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || 'Zaire'}</strong>, portador do Bilhete de Identidade n.º <strong>{alunoSelecionado.numeroBI || '023119241ZE059'}</strong>, emitido aos <strong>{alunoSelecionado.dataEmissaoBI || '15/02/2022'}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || 'Arquivo de Identificação de Luanda'}</strong>.
+              Declara que <strong>{alunoSelecionado.nomeCompleto.toUpperCase()}</strong>, filho de <strong>{alunoSelecionado.nomePai || '—'}</strong> e de <strong>{alunoSelecionado.nomeMae || '—'}</strong>, nascido aos <strong>{alunoSelecionado.dataNascimento ? new Date(alunoSelecionado.dataNascimento).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</strong>, natural de <strong>{alunoSelecionado.naturalidade || '—'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || '—'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong>, portador do Bilhete de Identidade n.º <strong>{alunoSelecionado.numeroBI || '—'}</strong>, emitido aos <strong>{alunoSelecionado.dataEmissaoBI || '—'}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || '—'}</strong>.
             </p>
 
             <p>
@@ -1495,12 +1495,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <div>
               <div className="w-56 border-b border-black mx-auto" />
               <p className="font-bold text-gray-900 mt-1">A Sub-Directora</p>
-              <p className="text-gray-700 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Tusamba Verónica'}</p>
+              <p className="text-gray-700 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Não Atribuído'}</p>
             </div>
             <div>
               <div className="w-56 border-b border-black mx-auto" />
               <p className="font-bold text-gray-900 mt-1">O Director</p>
-              <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Manuel Zola'}</p>
+              <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Não Atribuído'}</p>
             </div>
           </div>
         </div>
@@ -1553,11 +1553,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Texto de Certificação */}
           <div className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
             <p>
-              {escola.diretorGeralNome || 'Manuel Zola'}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Lei de Bases do Sistema de Educação e Ensino):
+              {escola.diretorGeralNome || 'Director(a) Geral'}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Lei de Bases do Sistema de Educação e Ensino):
             </p>
 
             <p>
-              Certifica que <strong>{(alunoSelecionado.nomeCompleto || 'MADALENA FINEZA NZINGA').toUpperCase()}</strong>, filha de <strong>{alunoSelecionado.nomePai || 'André Nzinga'}</strong> e de <strong>{alunoSelecionado.nomeMae || 'Maria Carlota'}</strong>, nascida aos <strong>{alunoSelecionado.dataNascimento ? new Date(alunoSelecionado.dataNascimento).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' }) : '03 de Abril de 2003'}</strong>, natural de <strong>{alunoSelecionado.naturalidade || 'Mbanza Kongo'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || 'Mbanza Kongo'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || 'Zaire'}</strong>, portadora do Bilhete de Identidade n.º <strong>{alunoSelecionado.numeroBI || '009631356ZE043'}</strong>, emitido aos <strong>{alunoSelecionado.dataEmissaoBI || '29/08/2018'}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || 'Arquivo de Identificação de Luanda'}</strong>.
+              Certifica que <strong>{(alunoSelecionado.nomeCompleto || '[NOME DO ESTUDANTE]').toUpperCase()}</strong>, filho(a) de <strong>{alunoSelecionado.nomePai || '—'}</strong> e de <strong>{alunoSelecionado.nomeMae || '—'}</strong>, nascido(a) aos <strong>{alunoSelecionado.dataNascimento ? new Date(alunoSelecionado.dataNascimento).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</strong>, natural de <strong>{alunoSelecionado.naturalidade || '—'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || '—'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong>, portador(a) do Bilhete de Identidade n.º <strong>{alunoSelecionado.numeroBI || '—'}</strong>, emitido aos <strong>{alunoSelecionado.dataEmissaoBI || '—'}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || '—'}</strong>.
             </p>
 
             <p>
@@ -1781,7 +1781,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               Registado no Livro de Matrícula sob o n.º <strong>{alunoSelecionado.livroRegisto || '220518MA2003'}</strong>, Processo n.º <strong>{alunoSelecionado.numeroProcesso || '220518E1396'}</strong>, Folha n.º <strong>{alunoSelecionado.folhaRegisto || 'EJ-2024/2025'}</strong>.
             </p>
             <p>
-              Por ser verdade e ter sido requerido, mandou-se passar o presente Certificado que vai assinado pelas entidades competentes e autenticado com o carimbo a óleo em uso neste Complexo Escolar.
+              Por ser verdade e ter sido requerido, mandou-se passar o presente Certificado que vai assinado pelas entidades competentes e autenticado com o carimbo a óleo em uso nesta Instituição de Ensino.
             </p>
             <p className="text-right pt-2 font-medium">
               {escola.municipio || 'Mbanza Kongo'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
@@ -1820,7 +1820,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               )}
               <div className="w-40 border-b border-black mx-auto" />
               <p className="font-bold text-gray-900 mt-1">O Director Geral</p>
-              <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Manuel Zola'}</p>
+              <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Não Atribuído'}</p>
             </div>
           </div>
         </div>

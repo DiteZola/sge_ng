@@ -469,12 +469,13 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   </div>
 
                   {/* Corpo Simulado Dinâmico de Acordo com o Tipo de Documento Selecionado */}
+                  {/* Corpo Simulado Dinâmico de Acordo com o Tipo de Documento Selecionado */}
                   {docSelecionado === 'boletim_oficial' && (
                     <div className="border border-black p-3 bg-white rounded text-[10px] space-y-2 mb-3 font-sans">
                       <div className="grid grid-cols-3 border-b border-gray-300 pb-1.5 text-[9px]">
-                        <div><span className="text-gray-500">Estudante:</span> <strong>Ndilu Manuel Sebastião</strong></div>
-                        <div><span className="text-gray-500">Nº Proc:</span> <strong className="font-mono">2026/0491</strong></div>
-                        <div><span className="text-gray-500">Classe / Turma:</span> <strong>10ª Classe • Turma A</strong></div>
+                        <div><span className="text-gray-500">Estudante:</span> <strong>[Nome Completo do Estudante]</strong></div>
+                        <div><span className="text-gray-500">Nº Proc:</span> <strong className="font-mono">[Nº de Processo]</strong></div>
+                        <div><span className="text-gray-500">Classe / Turma:</span> <strong>[Classe / Turma]</strong></div>
                       </div>
                       <table className="w-full text-[9px] border-collapse text-center">
                         <thead>
@@ -488,17 +489,15 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                          <tr><td className="p-1 text-left font-semibold">Língua Portuguesa</td><td>15.0</td><td>16.0</td><td>14.5</td><td className="font-bold text-blue-800 bg-blue-50/50">15.2</td><td className="text-emerald-700 font-bold">Aprovado</td></tr>
-                          <tr><td className="p-1 text-left font-semibold">Matemática</td><td>16.0</td><td>15.5</td><td>16.0</td><td className="font-bold text-blue-800 bg-blue-50/50">15.8</td><td className="text-emerald-700 font-bold">Aprovado</td></tr>
-                          <tr><td className="p-1 text-left font-semibold">Física</td><td>14.0</td><td>15.0</td><td>14.0</td><td className="font-bold text-blue-800 bg-blue-50/50">14.3</td><td className="text-emerald-700 font-bold">Aprovado</td></tr>
-                          <tr><td className="p-1 text-left font-semibold">Química</td><td>15.5</td><td>16.0</td><td>16.0</td><td className="font-bold text-blue-800 bg-blue-50/50">15.8</td><td className="text-emerald-700 font-bold">Aprovado</td></tr>
-                          <tr><td className="p-1 text-left font-semibold">Educação Física</td><td>18.0</td><td>17.0</td><td>18.0</td><td className="font-bold text-blue-800 bg-blue-50/50">17.7</td><td className="text-emerald-700 font-bold">Aprovado</td></tr>
+                          <tr><td className="p-1 text-left font-semibold">[Disciplina Curricular 1]</td><td>—</td><td>—</td><td>—</td><td className="font-bold text-blue-800 bg-blue-50/50">—</td><td className="text-gray-600 font-bold">—</td></tr>
+                          <tr><td className="p-1 text-left font-semibold">[Disciplina Curricular 2]</td><td>—</td><td>—</td><td>—</td><td className="font-bold text-blue-800 bg-blue-50/50">—</td><td className="text-gray-600 font-bold">—</td></tr>
+                          <tr><td className="p-1 text-left font-semibold">[Disciplina Curricular 3]</td><td>—</td><td>—</td><td>—</td><td className="font-bold text-blue-800 bg-blue-50/50">—</td><td className="text-gray-600 font-bold">—</td></tr>
                         </tbody>
                       </table>
                       <div className="flex justify-between items-center bg-gray-50 p-1.5 border border-gray-300 rounded text-[9px]">
-                        <span>Comportamento: <strong>18/20 (Excelente)</strong></span>
-                        <span>Média Geral Trimestral: <strong className="text-blue-900 font-black text-xs font-mono">15.8 Valores</strong></span>
-                        <span className="text-emerald-800 font-bold bg-emerald-100 px-2 py-0.5 rounded">Transita / Positivo</span>
+                        <span>Comportamento: <strong>[Excelente / Bom]</strong></span>
+                        <span>Média Geral Trimestral: <strong className="text-blue-900 font-black text-xs font-mono">— Valores</strong></span>
+                        <span className="text-gray-700 font-bold bg-gray-200 px-2 py-0.5 rounded">[Situação Final]</span>
                       </div>
                     </div>
                   )}
@@ -506,18 +505,17 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   {docSelecionado === 'pauta_trimestral' && (
                     <div className="border border-black p-2 bg-white rounded text-[9px] space-y-2 mb-3">
                       <div className="flex justify-between font-bold border-b pb-1 text-[8px] uppercase text-gray-700">
-                        <span>Pauta Geral • Turma A • Manhã</span>
-                        <span>Ano Lectivo: 2025/2026</span>
+                        <span>Pauta Geral • [Turma] • [Turno]</span>
+                        <span>Ano Lectivo: {escola.anoLectivoActivo || '2025/2026'}</span>
                       </div>
                       <table className="w-full border-collapse text-center text-[8px]">
                         <thead>
                           <tr className="bg-gray-100 border border-black font-bold">
                             <th className="p-0.5 border border-black">Nº</th>
                             <th className="p-0.5 border border-black text-left">Nome Completo do Estudante</th>
-                            <th className="p-0.5 border border-black">Port.</th>
-                            <th className="p-0.5 border border-black">Mat.</th>
-                            <th className="p-0.5 border border-black">Fís.</th>
-                            <th className="p-0.5 border border-black">Quím.</th>
+                            <th className="p-0.5 border border-black">Disc. 1</th>
+                            <th className="p-0.5 border border-black">Disc. 2</th>
+                            <th className="p-0.5 border border-black">Disc. 3</th>
                             <th className="p-0.5 border border-black font-bold bg-blue-50">M.Geral</th>
                             <th className="p-0.5 border border-black">Deliberação</th>
                           </tr>
@@ -525,23 +523,21 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         <tbody>
                           <tr className="border border-gray-300">
                             <td className="p-0.5 border border-gray-300 font-mono">01</td>
-                            <td className="p-0.5 border border-gray-300 text-left font-bold">Afonso Domingos Cambuta</td>
-                            <td className="p-0.5 border border-gray-300">14</td>
-                            <td className="p-0.5 border border-gray-300">15</td>
-                            <td className="p-0.5 border border-gray-300">14</td>
-                            <td className="p-0.5 border border-gray-300">16</td>
-                            <td className="p-0.5 border border-gray-300 font-bold bg-blue-50 text-blue-900">14.8</td>
-                            <td className="p-0.5 border border-gray-300 font-bold text-emerald-700">Aprovado</td>
+                            <td className="p-0.5 border border-gray-300 text-left font-bold">[Estudante Modelo A]</td>
+                            <td className="p-0.5 border border-gray-300">—</td>
+                            <td className="p-0.5 border border-gray-300">—</td>
+                            <td className="p-0.5 border border-gray-300">—</td>
+                            <td className="p-0.5 border border-gray-300 font-bold bg-blue-50 text-blue-900">—</td>
+                            <td className="p-0.5 border border-gray-300 font-bold text-gray-600">—</td>
                           </tr>
                           <tr className="border border-gray-300 bg-gray-50/50">
                             <td className="p-0.5 border border-gray-300 font-mono">02</td>
-                            <td className="p-0.5 border border-gray-300 text-left font-bold">Ndilu Manuel Sebastião</td>
-                            <td className="p-0.5 border border-gray-300">15</td>
-                            <td className="p-0.5 border border-gray-300">16</td>
-                            <td className="p-0.5 border border-gray-300">15</td>
-                            <td className="p-0.5 border border-gray-300">17</td>
-                            <td className="p-0.5 border border-gray-300 font-bold bg-blue-50 text-blue-900">15.8</td>
-                            <td className="p-0.5 border border-gray-300 font-bold text-emerald-700">Aprovado</td>
+                            <td className="p-0.5 border border-gray-300 text-left font-bold">[Estudante Modelo B]</td>
+                            <td className="p-0.5 border border-gray-300">—</td>
+                            <td className="p-0.5 border border-gray-300">—</td>
+                            <td className="p-0.5 border border-gray-300">—</td>
+                            <td className="p-0.5 border border-gray-300 font-bold bg-blue-50 text-blue-900">—</td>
+                            <td className="p-0.5 border border-gray-300 font-bold text-gray-600">—</td>
                           </tr>
                         </tbody>
                       </table>
@@ -555,17 +551,17 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                       </p>
                       <div className="text-center py-2">
                         <span className="text-sm font-black font-sans uppercase tracking-wider text-blue-950 border-b-2 border-black pb-0.5">
-                          NDILU MANUEL SEBASTIÃO
+                          [NOME COMPLETO DO ESTUDANTE]
                         </span>
                       </div>
                       <p className="leading-relaxed text-[9px]">
-                        Filho de Manuel Sebastião e de Esperança Ndilu, natural de Luanda, Província de Luanda, portador do B.I. n.º 004819234LA042, concluiu no ano lectivo de 2025/2026 o <strong>IIº Ciclo do Ensino Secundário</strong>, no Curso de <strong>Ciências Físicas e Biológicas</strong>, com a média final de:
+                        Filho de [Filiação Paterna] e de [Filiação Materna], natural de [Naturalidade], Província de [Província], portador do B.I. n.º [Nº do Documento], concluiu no ano lectivo de {escola.anoLectivoActivo || '2025/2026'} o <strong>[Nível / Ciclo de Ensino]</strong>, no Curso de <strong>[Opção de Estudo]</strong>, com a média final de:
                       </p>
                       <div className="text-center font-bold font-sans text-xs text-blue-900 bg-white border border-amber-300 py-1 rounded">
-                        16 (DEZASSEIS) VALORES
+                        [CLASSIFICAÇÃO FINAL POR EXTENSO]
                       </div>
                       <p className="text-[8.5px] italic text-gray-600">
-                        Registo do Livro n.º 02, Folha n.º 45, Assento n.º 2026/894.
+                        Registo do Livro n.º [Livro], Folha n.º [Folha], Assento n.º [Assento].
                       </p>
                     </div>
                   )}
@@ -573,15 +569,15 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   {docSelecionado === 'declaracao_notas' && (
                     <div className="border border-black p-3 bg-white rounded text-[9.5px] space-y-2 mb-3">
                       <p className="leading-relaxed">
-                        Declara-se, para os efeitos convenientes, que <strong>Ndilu Manuel Sebastião</strong> obteve o seguinte aproveitamento nas disciplinas curriculares:
+                        Declara-se, para os efeitos convenientes, que <strong>[Nome Completo do Estudante]</strong> obteve o seguinte aproveitamento nas disciplinas curriculares:
                       </p>
                       <div className="grid grid-cols-3 gap-2 border border-gray-300 p-2 bg-gray-50 text-center font-mono text-[9px]">
-                        <div>Português: <strong>16 val.</strong></div>
-                        <div>Matemática: <strong>15 val.</strong></div>
-                        <div>Física: <strong>14 val.</strong></div>
-                        <div>Química: <strong>16 val.</strong></div>
-                        <div>Biologia: <strong>17 val.</strong></div>
-                        <div>Média Geral: <strong className="text-blue-900">15.6 val.</strong></div>
+                        <div>[Disciplina 1]: <strong>— val.</strong></div>
+                        <div>[Disciplina 2]: <strong>— val.</strong></div>
+                        <div>[Disciplina 3]: <strong>— val.</strong></div>
+                        <div>[Disciplina 4]: <strong>— val.</strong></div>
+                        <div>[Disciplina 5]: <strong>— val.</strong></div>
+                        <div>Média Geral: <strong className="text-blue-900">— val.</strong></div>
                       </div>
                     </div>
                   )}
@@ -589,7 +585,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   {docSelecionado === 'declaracao_matricula' && (
                     <div className="border border-gray-400 p-3 bg-white rounded text-[10px] space-y-2 mb-3 text-justify">
                       <p className="leading-relaxed">
-                        Declara-se que <strong>Ndilu Manuel Sebastião</strong> encontra-se regularmente matriculado nesta instituição no ano lectivo activo, na <strong>10ª Classe</strong>, Turma A, no Curso de <strong>Informática e Gestão</strong>, com aproveitamento regular e sem qualquer impedimento de ordem disciplinar.
+                        Declara-se que <strong>[Nome Completo do Estudante]</strong> encontra-se regularmente matriculado nesta instituição no ano lectivo activo, na <strong>[Classe]</strong>, [Turma], no Curso de <strong>[Curso]</strong>, com aproveitamento regular e sem qualquer impedimento de ordem disciplinar.
                       </p>
                     </div>
                   )}
@@ -600,11 +596,11 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         FOTO 3x4
                       </div>
                       <div className="flex-1 space-y-1">
-                        <div className="font-bold text-blue-950 text-xs">Ndilu Manuel Sebastião</div>
-                        <div className="text-[9px] text-gray-600">Proc. n.º: <strong className="font-mono text-black">2026/0491</strong></div>
-                        <div className="text-[9px] text-gray-600">Classe: <strong>10ª Classe • Turma A</strong></div>
+                        <div className="font-bold text-blue-950 text-xs">[Nome do Estudante]</div>
+                        <div className="text-[9px] text-gray-600">Proc. n.º: <strong className="font-mono text-black">[Nº Proc.]</strong></div>
+                        <div className="text-[9px] text-gray-600">Classe: <strong>[Classe • Turma]</strong></div>
                         <div className="text-[8px] font-mono text-blue-700 bg-white px-1.5 py-0.5 border border-blue-200 rounded inline-block">
-                          Validade: 2025/2026
+                          Validade: {escola.anoLectivoActivo || '2025/2026'}
                         </div>
                       </div>
                       <div className="w-12 h-12 bg-white border border-gray-300 rounded flex items-center justify-center text-[7px] text-gray-400 font-mono text-center">
@@ -617,14 +613,14 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                     <div className="border border-black p-2 bg-white rounded text-[9px] space-y-1.5 mb-3">
                       <div className="flex justify-between font-bold border-b pb-1 text-[8px]">
                         <span>Termo de Exame • Prova Escrita (PE)</span>
-                        <span>Disciplina: Matemática</span>
+                        <span>Disciplina: [Disciplina de Exame]</span>
                       </div>
-                      <div className="text-[8px] text-gray-600">Júri Examinador: Prof. Domingos António (Presidente) • Prof. Teresa Zua (Secretária)</div>
+                      <div className="text-[8px] text-gray-600">Júri Examinador: [Docente Presidente] (Presidente) • [Docente Secretário] (Secretário)</div>
                       <div className="grid grid-cols-4 gap-1 border border-gray-300 p-1 bg-gray-50 text-center font-mono text-[8px]">
-                        <div>MF (40%): 14.0</div>
-                        <div>PE (60%): 16.0</div>
-                        <div>Média Final: <strong className="text-blue-900 font-bold">15.2</strong></div>
-                        <div className="text-emerald-700 font-bold">Aprovado</div>
+                        <div>MF (40%): —</div>
+                        <div>PE (60%): —</div>
+                        <div>Média Final: <strong className="text-blue-900 font-bold">—</strong></div>
+                        <div className="text-gray-600 font-bold">[Resultado]</div>
                       </div>
                     </div>
                   )}
@@ -632,23 +628,23 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   {docSelecionado === 'recibo_pagamento' && (
                     <div className="border border-dashed border-gray-500 p-3 bg-emerald-50/20 rounded text-[9.5px] space-y-2 mb-3">
                       <div className="flex justify-between border-b border-gray-300 pb-1 font-mono text-[9px]">
-                        <span>Recibo n.º: <strong>REC-2025-0042</strong></span>
-                        <span>Data: <strong>10/02/2025</strong></span>
+                        <span>Recibo n.º: <strong>[Nº Recibo]</strong></span>
+                        <span>Data: <strong>{new Date().toLocaleDateString('pt-AO')}</strong></span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Aluno: <strong>Ndilu Manuel Sebastião</strong></span>
-                        <span>Emolumento: <strong>Propina Mensal</strong></span>
+                        <span>Aluno: <strong>[Nome do Estudante]</strong></span>
+                        <span>Emolumento: <strong>[Descrição do Emolumento]</strong></span>
                       </div>
                       <div className="flex justify-between items-center bg-white p-2 border border-emerald-300 rounded">
                         <span className="font-bold text-gray-700">Total Liquidado:</span>
-                        <span className="font-mono font-black text-sm text-emerald-800">12.000,00 Kz</span>
+                        <span className="font-mono font-black text-sm text-emerald-800">[Valor em Kz]</span>
                       </div>
                     </div>
                   )}
 
                   {docSelecionado === 'guia_transferencia' && (
                     <div className="border border-gray-400 p-3 bg-white rounded text-[9.5px] space-y-1.5 mb-3 text-justify">
-                      <p>Guia de Transferência Escolar do aluno <strong>Ndilu Manuel Sebastião</strong>, transferido da <strong>{escola.nomeOficial}</strong> para a instituição de destino com processo escolar em conformidade.</p>
+                      <p>Guia de Transferência Escolar do aluno <strong>[Nome do Estudante]</strong>, transferido da <strong>{escola.nomeOficial}</strong> para a instituição de destino com processo escolar em conformidade.</p>
                     </div>
                   )}
 

@@ -1760,12 +1760,12 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   <div className="space-y-1">
                     <div className="w-44 border-b border-gray-800 mx-auto" />
                     <p className="font-bold text-gray-900">1º Vogal</p>
-                    <p className="text-[11px] text-gray-500">Profª. Ana Paula dos Santos</p>
+                    <p className="text-[11px] text-gray-500">Docente Designado</p>
                   </div>
                   <div className="space-y-1">
                     <div className="w-44 border-b border-gray-800 mx-auto" />
                     <p className="font-bold text-gray-900">2º Vogal</p>
-                    <p className="text-[11px] text-gray-500">Prof. Garcia António Vunge</p>
+                    <p className="text-[11px] text-gray-500">Docente Designado</p>
                   </div>
                 </div>
 

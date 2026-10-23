@@ -125,33 +125,33 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     });
   }, [alunos, selectedTurmaId, selectedTurnoFilter, selectedClasseFilter, searchTerm, turmas]);
 
-  // Aluno de exemplo para pré-visualização em tempo real
+  // Aluno de exemplo para pré-visualização em tempo real (utiliza o primeiro aluno real ou campos de modelo)
   const alunoExemplo: Aluno = alunosFiltrados[0] || {
-    id: 'exemplo-01',
-    codigoMatricula: '2025/MED-042',
-    numeroProcesso: '1042/2025',
+    id: 'placeholder-preview',
+    codigoMatricula: '[Nº Matrícula]',
+    numeroProcesso: '[Nº Processo]',
     numeroOrdem: 1,
-    nomeCompleto: 'Kiese Manuel Domingos',
+    nomeCompleto: '[Nome Completo do Estudante]',
     genero: 'M',
-    dataNascimento: '2008-05-14',
-    naturalidade: 'Luanda',
-    provinciaOrigem: 'Luanda',
-    numeroBI: '007182941LA042',
-    dataEmissaoBI: '2023-04-10',
-    dataValidadeBI: '2028-04-10',
-    telefone: '+244 923 111 222',
-    fotoUrl: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
-    encarregadoNome: 'Domingos Manuel',
-    encarregadoTelefone: '+244 923 000 777',
+    dataNascimento: '',
+    naturalidade: '',
+    provinciaOrigem: '',
+    numeroBI: '[Nº de B.I.]',
+    dataEmissaoBI: '',
+    dataValidadeBI: '',
+    telefone: '',
+    fotoUrl: '',
+    encarregadoNome: '[Nome do Encarregado]',
+    encarregadoTelefone: '',
     estado: 'Ativo',
     turmaId: turmas[0]?.id || '',
-    classeId: '10ª',
+    classeId: '',
     escolaId: escola.id,
-    curso: 'Ciências Físicas e Biológicas',
-    periodo: 'Matinal',
+    curso: '',
+    periodo: '',
     propinaStatus: 'Regularizada',
     historicoAnterior: [],
-    cadastradoEm: '2025-01-10'
+    cadastradoEm: ''
   };
 
   const turmaExemplo = turmas.find(t => t.id === alunoExemplo.turmaId) || turmas[0];
@@ -903,11 +903,18 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                     {/* Corpo */}
                     <div className={`flex items-start gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
                       {isAtivo('foto') && (
-                        <img 
-                          src={alunoExemplo.fotoUrl} 
-                          alt="Foto" 
-                          className="h-20 w-16 rounded object-cover border-2 border-slate-700 shadow-2xs"
-                        />
+                        alunoExemplo.fotoUrl ? (
+                          <img 
+                            src={alunoExemplo.fotoUrl} 
+                            alt="Foto" 
+                            className="h-20 w-16 rounded object-cover border-2 border-slate-700 shadow-2xs"
+                          />
+                        ) : (
+                          <div className="h-20 w-16 rounded border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs">
+                            <User className="h-6 w-6 text-gray-300 mb-0.5" />
+                            <span>FOTO 3x4</span>
+                          </div>
+                        )
                       )}
 
                       <div className="flex-1 min-w-0 text-[8px] leading-tight space-y-0.5">

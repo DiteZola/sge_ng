@@ -93,14 +93,8 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
     }
   }
 
-  // Valor determinístico estável caso o aluno não tenha notas lançadas ainda
-  let hash = 0;
-  for (let i = 0; i < aluno.id.length; i++) {
-    hash = (hash << 5) - hash + aluno.id.charCodeAt(i);
-    hash |= 0;
-  }
-  const valor = 8.5 + (Math.abs(hash) % 100) / 10;
-  return Number(Math.min(19.5, valor).toFixed(1));
+  // Se o aluno ainda não possui notas lançadas nem histórico prévio, retorna 0 (sem notas lançadas)
+  return 0;
 }
 
 export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
@@ -244,15 +238,17 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
     });
   }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, termoPesquisa, turmasMap, escola.id, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds]);
 
-  // 5 Melhores Alunos (Ordenados por média decrescente)
+  // 5 Melhores Alunos (Ordenados por média decrescente - Apenas com notas lançadas)
   const top5Melhores: AlunoRankeado[] = useMemo(() => {
-    const ordenados = [...alunosComMedia].sort((a, b) => b.mediaGeral - a.mediaGeral);
+    const comNotas = alunosComMedia.filter(a => a.mediaGeral > 0);
+    const ordenados = [...comNotas].sort((a, b) => b.mediaGeral - a.mediaGeral);
     return ordenados.slice(0, 5).map((item, idx) => ({ ...item, posicao: idx + 1 }));
   }, [alunosComMedia]);
 
-  // 5 Piores Alunos (Ordenados por média crescente)
+  // 5 Piores Alunos (Ordenados por média crescente - Apenas com notas lançadas)
   const top5Piores: AlunoRankeado[] = useMemo(() => {
-    const ordenados = [...alunosComMedia].sort((a, b) => a.mediaGeral - b.mediaGeral);
+    const comNotas = alunosComMedia.filter(a => a.mediaGeral > 0);
+    const ordenados = [...comNotas].sort((a, b) => a.mediaGeral - b.mediaGeral);
     return ordenados.slice(0, 5).map((item, idx) => ({ ...item, posicao: idx + 1 }));
   }, [alunosComMedia]);
 
@@ -261,35 +257,34 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   // ==========================================
   const rankingProfessores: ProfessorRankeado[] = useMemo(() => {
     const profs = todosFuncionarios.filter(f => f.ehProfessor || f.cargo?.toLowerCase().includes('prof'));
+    if (profs.length === 0) return [];
 
     return profs.map(prof => {
       // 1. Assiduidade
       const registos = todosAssiduidade.filter(a => a.funcionarioId === prof.id);
-      let taxaAssiduidade = 96.0;
+      let taxaAssiduidade = 0;
       if (registos.length > 0) {
         const presentes = registos.filter(r => r.estado === 'Presente').length;
         taxaAssiduidade = Number(((presentes / registos.length) * 100).toFixed(1));
-      } else {
-        taxaAssiduidade = 93 + (prof.nomeCompleto.length % 6);
       }
 
       // 2. Turmas e disciplinas lecionadas
       const atribs = todasAtribuicoes.filter(at => at.professorId === prof.id);
-      const disciplinasNomes = Array.from(new Set(atribs.map(at => (at as any).disciplinaNome || at.disciplinaId))).slice(0, 3);
+      const disciplinasNomes = Array.from(new Set(atribs.map(at => (at as any).disciplinaNome || at.disciplinaId))).filter(Boolean).slice(0, 3);
       const turmasIds = Array.from(new Set(atribs.map(at => at.turmaId)));
 
       // 3. Avaliação dos alunos nas disciplinas
       const notasTurmas = todasNotas.filter(nc => turmasIds.includes(nc.turmaId));
-      let mediaAlunos = 14.2;
+      let mediaAlunos = 0;
       if (notasTurmas.length > 0) {
-        const soma = notasTurmas.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 12), 0);
+        const soma = notasTurmas.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 0), 0);
         mediaAlunos = Number((soma / notasTurmas.length).toFixed(1));
-      } else {
-        mediaAlunos = Number((12.5 + (prof.nomeCompleto.length % 5)).toFixed(1));
       }
 
       // 4. Índice Global (40% assiduidade + 60% aproveitamento discente)
-      const indiceGlobal = Number(((taxaAssiduidade * 0.4) + ((mediaAlunos / 20) * 100 * 0.6)).toFixed(1));
+      const indiceGlobal = (taxaAssiduidade > 0 || mediaAlunos > 0) 
+        ? Number(((taxaAssiduidade * 0.4) + ((mediaAlunos / 20) * 100 * 0.6)).toFixed(1))
+        : 0;
 
       return {
         professor: prof,
@@ -297,8 +292,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         taxaAssiduidade,
         mediaAlunos,
         indiceGlobal,
-        disciplinasNomes: disciplinasNomes.length > 0 ? disciplinasNomes : ['Língua Portuguesa', 'Matemática'],
-        totalTurmas: turmasIds.length || 2
+        disciplinasNomes: disciplinasNomes.length > 0 ? disciplinasNomes : ['Sem disciplina atribuída'],
+        totalTurmas: turmasIds.length
       };
     })
     .sort((a, b) => b.indiceGlobal - a.indiceGlobal)
@@ -309,20 +304,17 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   // RANKING DE DISCIPLINAS (Melhores e Piores Notas)
   // ==========================================
   const rankingDisciplinas: DisciplinaRankeada[] = useMemo(() => {
+    if (todasNotas.length === 0) return [];
     return todasDisciplinas.map(disc => {
       const notasDisc = todasNotas.filter(n => n.disciplinaId === disc.id);
-      let mediaGeral = 13.5;
-      let taxaAprovacao = 85;
+      let mediaGeral = 0;
+      let taxaAprovacao = 0;
 
       if (notasDisc.length > 0) {
-        const soma = notasDisc.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 10), 0);
+        const soma = notasDisc.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 0), 0);
         mediaGeral = Number((soma / notasDisc.length).toFixed(1));
         const positivas = notasDisc.filter(n => (n.notaFinal ?? n.mediaTrimestral ?? 0) >= 10).length;
         taxaAprovacao = Math.round((positivas / notasDisc.length) * 100);
-      } else {
-        const base = 10 + (disc.nome.length % 7);
-        mediaGeral = Number((base + 1.5).toFixed(1));
-        taxaAprovacao = Math.min(96, 75 + (disc.nome.length % 20));
       }
 
       return {
@@ -330,10 +322,11 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         posicao: 0,
         mediaGeral,
         taxaAprovacao,
-        totalAvaliados: notasDisc.length || 35,
+        totalAvaliados: notasDisc.length,
         nivel: disc.nivelEnsino || 'Geral'
       };
     })
+    .filter(d => d.totalAvaliados > 0)
     .sort((a, b) => b.mediaGeral - a.mediaGeral)
     .map((item, idx) => ({ ...item, posicao: idx + 1 }));
   }, [todasDisciplinas, todasNotas]);

@@ -212,7 +212,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [showAddClasseForm, setShowAddClasseForm] = useState(false);
   const [novaClasseNome, setNovaClasseNome] = useState('10ª');
   const [novaClasseAno, setNovaClasseAno] = useState('2023/2024');
-  const [novaClasseEscola, setNovaClasseEscola] = useState('Complexo Escolar nº 151');
+  const [novaClasseEscola, setNovaClasseEscola] = useState('');
 
   // Formulário para registar nova ocorrência / acontecimento escolar
   const [showNovaOcorrenciaForm, setShowNovaOcorrenciaForm] = useState(false);
@@ -359,107 +359,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               observacoes: `Propinas e encargos escolares do ano letivo ${h.anoLectivo} totalmente liquidados.`
             }
           }))
-        : [
-            {
-              classe: '10ª',
-              anoLectivo: '2022/2023',
-              escolaOrigem: 'Complexo Escolar nº 151',
-              mediaGeralClasse: 14.5,
-              notasDisciplinas: [
-                { disciplinaNome: 'Língua Portuguesa', notaFinal: 14, resultado: 'Aprovado' },
-                { disciplinaNome: 'Matemática', notaFinal: 15, resultado: 'Aprovado' },
-                { disciplinaNome: 'Física', notaFinal: 14, resultado: 'Aprovado' },
-                { disciplinaNome: 'Química', notaFinal: 15, resultado: 'Aprovado' }
-              ],
-              ocorrencias: [
-                {
-                  id: `ocorr-ini-1-${aluno.id}`,
-                  data: '2022-11-20',
-                  tipo: 'Elogio',
-                  descricao: 'Participação meritória na olimpíada de ciências exatas e feira de projetos escolares.',
-                  registadoPor: 'Prof. Garcia António Vunge',
-                  cargo: 'Professor',
-                  anoLectivo: '2022/2023',
-                  classe: '10ª',
-                  resolucao: 'Menção honrosa expedida pelo conselho pedagógico de turma.'
-                },
-                {
-                  id: `ocorr-ini-2-${aluno.id}`,
-                  data: '2023-03-12',
-                  tipo: 'Reunião Encarregado',
-                  descricao: 'Reunião de acompanhamento trimestral com o encarregado de educação para alinhamento pedagógico.',
-                  registadoPor: 'Dra. Maria Teresa',
-                  cargo: 'Coordenadora Pedagógica',
-                  anoLectivo: '2022/2023',
-                  classe: '10ª',
-                  resolucao: 'Termo de cooperação encarregado-escola homologado sem pendências.'
-                }
-              ],
-              faltas: {
-                anoLectivo: '2022/2023',
-                classe: '10ª',
-                totalAulasPrevistas: 720,
-                faltasJustificadas: 4,
-                faltasInjustificadas: 2,
-                totalPresencas: 714,
-                percentualAssiduidade: 99.2,
-                observacao: 'Faltas devidamente justificadas mediante atestado médico homologado.'
-              },
-              dividas: {
-                anoLectivo: '2022/2023',
-                classe: '10ª',
-                status: 'Regularizado',
-                totalDividaAKZ: 0,
-                totalPagoAKZ: 120000,
-                mesesPendentes: [],
-                observacoes: 'Ano letivo liquidado na totalidade sem dívidas ou emolumentos pendentes.'
-              }
-            },
-            {
-              classe: '11ª',
-              anoLectivo: '2023/2024',
-              escolaOrigem: 'Complexo Escolar nº 151',
-              mediaGeralClasse: 14.8,
-              notasDisciplinas: [
-                { disciplinaNome: 'Língua Portuguesa', notaFinal: 15, resultado: 'Aprovado' },
-                { disciplinaNome: 'Matemática', notaFinal: 16, resultado: 'Aprovado' },
-                { disciplinaNome: 'Física', notaFinal: 14, resultado: 'Aprovado' },
-                { disciplinaNome: 'Química', notaFinal: 14, resultado: 'Aprovado' }
-              ],
-              ocorrencias: [
-                {
-                  id: `ocorr-ini-3-${aluno.id}`,
-                  data: '2024-04-10',
-                  tipo: 'Pedagógico',
-                  descricao: 'Designação para programa de monitoria e tutoria de colegas na disciplina de Matemática.',
-                  registadoPor: 'Prof. Manuel Costa',
-                  cargo: 'Professor',
-                  anoLectivo: '2023/2024',
-                  classe: '11ª',
-                  resolucao: 'Atividade de tutoria concluída com louvor no conselho docente.'
-                }
-              ],
-              faltas: {
-                anoLectivo: '2023/2024',
-                classe: '11ª',
-                totalAulasPrevistas: 720,
-                faltasJustificadas: 2,
-                faltasInjustificadas: 1,
-                totalPresencas: 717,
-                percentualAssiduidade: 99.6,
-                observacao: 'Comportamento e assiduidade exemplares ao longo de todo o ano letivo.'
-              },
-              dividas: {
-                anoLectivo: '2023/2024',
-                classe: '11ª',
-                status: 'Regularizado',
-                totalDividaAKZ: 0,
-                totalPagoAKZ: 135000,
-                mesesPendentes: [],
-                observacoes: 'Quitação comprovada por extrato oficial da tesouraria.'
-              }
-            }
-          ];
+        : [];
 
       hist = {
         alunoId: aluno.id,
@@ -3187,7 +3087,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                               required
                               value={novaOcorrRegistadoPor}
                               onChange={(e) => setNovaOcorrRegistadoPor(e.target.value)}
-                              placeholder="Ex: Prof. Manuel Costa ou Dra. Teresa Vunge"
+                              placeholder="Ex: Coordenação Pedagógica ou Nome do Responsável"
                               className="w-full p-2 border rounded-lg bg-white"
                             />
                           </div>

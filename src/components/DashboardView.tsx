@@ -305,15 +305,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }));
 
     if (entries.length === 0) {
-      return [
-        { disciplina: 'L. Portuguesa', nomeCompleto: 'Língua Portuguesa', media: 13.4, positivas: 112, negativas: 18, taxaAprovacao: 86 },
-        { disciplina: 'Matemática', nomeCompleto: 'Matemática', media: 11.2, positivas: 89, negativas: 41, taxaAprovacao: 68 },
-        { disciplina: 'Física', nomeCompleto: 'Física', media: 12.1, positivas: 95, negativas: 35, taxaAprovacao: 73 },
-        { disciplina: 'Química', nomeCompleto: 'Química', media: 12.8, positivas: 101, negativas: 29, taxaAprovacao: 78 },
-        { disciplina: 'Biologia', nomeCompleto: 'Biologia', media: 14.2, positivas: 118, negativas: 12, taxaAprovacao: 91 },
-        { disciplina: 'História', nomeCompleto: 'História', media: 13.9, positivas: 115, negativas: 15, taxaAprovacao: 88 },
-        { disciplina: 'Inglês', nomeCompleto: 'Língua Inglesa', media: 14.5, positivas: 121, negativas: 9, taxaAprovacao: 93 },
-      ];
+      return [];
     }
     return entries.slice(0, 8);
   }, [notasConsolidadas, escola.id]);
@@ -344,20 +336,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       });
     }
 
-    return turmas.slice(0, 6).map((t, idx) => {
-      const taxa = 91 + (idx % 6);
-      const just = Number((Math.random() * 3 + 2).toFixed(1));
-      const injust = Number(Math.max(0, 100 - taxa - just).toFixed(1));
-      return {
-        turma: t.nome.length > 12 ? t.nome.slice(0, 10) + '..' : t.nome,
-        nomeCompleto: t.nome,
-        Presenças: taxa,
-        Justificadas: just,
-        Injustificadas: injust,
-        totalPresentes: Math.round((t.capacidade || 35) * (taxa / 100)),
-        totalFaltas: Math.round((t.capacidade || 35) * ((100 - taxa) / 100))
-      };
-    });
+    return [];
   }, [escola.id, turmas]);
 
   // Gráficos do Administrador Geral (Nacional)
@@ -389,9 +368,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const emAtendimento = solicitacoes.filter(s => s.estado === 'Em_Atendimento').length;
     const concluidos = solicitacoes.filter(s => s.estado === 'Concluido').length;
     return [
-      { name: 'Abertos', value: Math.max(abertos, 1), color: '#ef4444' },
-      { name: 'Em Atendimento', value: Math.max(emAtendimento, 1), color: '#f59e0b' },
-      { name: 'Concluídos', value: Math.max(concluidos, 3), color: '#10b981' }
+      { name: 'Abertos', value: abertos, color: '#ef4444' },
+      { name: 'Em Atendimento', value: emAtendimento, color: '#f59e0b' },
+      { name: 'Concluídos', value: concluidos, color: '#10b981' }
     ];
   }, []);
 
@@ -2119,33 +2098,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={dadosDesempenhoDisciplinas}>
-                          <XAxis dataKey="disciplina" stroke="#6b7280" fontSize={10} />
-                          <YAxis stroke="#6b7280" fontSize={10} domain={[0, 20]} />
-                          <Tooltip 
-                            formatter={(val: any, name: any) => [, 'Média Oficial']}
-                            labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
-                            contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
-                          />
-                          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                          <Bar dataKey="media" name="Média Trimestral" fill="#4f46e5" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
-                      {dadosDesempenhoDisciplinas.slice(0, 4).map(d => (
-                        <div key={d.disciplina} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
-                          <span className="text-[10px] text-gray-500 truncate block">{d.disciplina}</span>
-                          <span className={`text-xs font-black ${d.media >= 10 ? "text-emerald-700" : "text-red-600"}`}>
-                            {d.media} val.
-                          </span>
-                          <span className="text-[9px] text-gray-400 block">{d.taxaAprovacao}% Positivas</span>
+                    {dadosDesempenhoDisciplinas.length === 0 ? (
+                      <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl border border-dashed border-gray-200">
+                        <BarChart3 className="h-8 w-8 text-gray-300 mb-2" />
+                        <p className="text-xs font-bold text-gray-600">Sem notas ou avaliações lançadas</p>
+                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As médias trimestrais e estatísticas de rendimento serão apresentadas aqui assim que os docentes lançarem as primeiras pautas.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="h-64 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={dadosDesempenhoDisciplinas}>
+                              <XAxis dataKey="disciplina" stroke="#6b7280" fontSize={10} />
+                              <YAxis stroke="#6b7280" fontSize={10} domain={[0, 20]} />
+                              <Tooltip 
+                                formatter={(val: any, name: any) => [, 'Média Oficial']}
+                                labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
+                                contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
+                              />
+                              <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
+                              <Bar dataKey="media" name="Média Trimestral" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
                         </div>
-                      ))}
-                    </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
+                          {dadosDesempenhoDisciplinas.slice(0, 4).map(d => (
+                            <div key={d.disciplina} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
+                              <span className="text-[10px] text-gray-500 truncate block">{d.disciplina}</span>
+                              <span className={`text-xs font-black ${d.media >= 10 ? "text-emerald-700" : "text-red-600"}`}>
+                                {d.media} val.
+                              </span>
+                              <span className="text-[9px] text-gray-400 block">{d.taxaAprovacao}% Positivas</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Gráfico 5: Assiduidade Escolar (Presenças vs Faltas) (Recharts) */}
@@ -2159,48 +2148,58 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <p className="text-xs text-gray-500">Taxa de frequência diária aferida pelos docentes nas turmas</p>
                       </div>
                       <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                        {dadosAssiduidade.length > 0 ? `${(dadosAssiduidade.reduce((acc, c) => acc + c.Presenças, 0) / dadosAssiduidade.length).toFixed(1)}% Média` : '94.5% Média'}
+                        {dadosAssiduidade.length > 0 ? `${(dadosAssiduidade.reduce((acc, c) => acc + c.Presenças, 0) / dadosAssiduidade.length).toFixed(1)}% Média` : 'Sem registos'}
                       </span>
                     </div>
 
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={dadosAssiduidade}>
-                          <XAxis dataKey="turma" stroke="#6b7280" fontSize={10} />
-                          <YAxis stroke="#6b7280" fontSize={10} unit="%" domain={[0, 100]} />
-                          <Tooltip 
-                            formatter={(val: any) => [`${val}%`, '']}
-                            labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
-                            contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
-                          />
-                          <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                          <Bar dataKey="Presenças" fill="#10b981" stackId="a" />
-                          <Bar dataKey="Justificadas" name="Faltas Justificadas" fill="#f59e0b" stackId="a" />
-                          <Bar dataKey="Injustificadas" name="Faltas Injustificadas" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
+                    {dadosAssiduidade.length === 0 ? (
+                      <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl border border-dashed border-gray-200">
+                        <Clock className="h-8 w-8 text-gray-300 mb-2" />
+                        <p className="text-xs font-bold text-gray-600">Sem registos de assiduidade de turmas</p>
+                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As taxas de presenças e faltas serão calculadas em tempo real após o registo de presença pelos professores.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="h-64 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={dadosAssiduidade}>
+                              <XAxis dataKey="turma" stroke="#6b7280" fontSize={10} />
+                              <YAxis stroke="#6b7280" fontSize={10} unit="%" domain={[0, 100]} />
+                              <Tooltip 
+                                formatter={(val: any) => [`${val}%`, '']}
+                                labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
+                                contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
+                              />
+                              <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
+                              <Bar dataKey="Presenças" fill="#10b981" stackId="a" />
+                              <Bar dataKey="Justificadas" name="Faltas Justificadas" fill="#f59e0b" stackId="a" />
+                              <Bar dataKey="Injustificadas" name="Faltas Injustificadas" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
-                      <div className="p-2 rounded-lg bg-emerald-50 text-emerald-900">
-                        <span className="text-[10px] font-bold block text-emerald-700">Presença Global</span>
-                        <span className="text-sm font-black">
-                          {dadosAssiduidade.length > 0 ? `${(dadosAssiduidade.reduce((acc, c) => acc + c.Presenças, 0) / dadosAssiduidade.length).toFixed(1)}%` : '94.5%'}
-                        </span>
-                      </div>
-                      <div className="p-2 rounded-lg bg-amber-50 text-amber-900">
-                        <span className="text-[10px] font-bold block text-amber-700">Faltas Justificadas</span>
-                        <span className="text-sm font-black">
-                          {dadosAssiduidade.length > 0 ? `${(dadosAssiduidade.reduce((acc, c) => acc + c.Justificadas, 0) / dadosAssiduidade.length).toFixed(1)}%` : '3.5%'}
-                        </span>
-                      </div>
-                      <div className="p-2 rounded-lg bg-red-50 text-red-900">
-                        <span className="text-[10px] font-bold block text-red-700">Faltas Injustificadas</span>
-                        <span className="text-sm font-black">
-                          {dadosAssiduidade.length > 0 ? `${(dadosAssiduidade.reduce((acc, c) => acc + c.Injustificadas, 0) / dadosAssiduidade.length).toFixed(1)}%` : '2.0%'}
-                        </span>
-                      </div>
-                    </div>
+                        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
+                          <div className="p-2 rounded-lg bg-emerald-50 text-emerald-900">
+                            <span className="text-[10px] font-bold block text-emerald-700">Presença Global</span>
+                            <span className="text-sm font-black">
+                              {`${(dadosAssiduidade.reduce((acc, c) => acc + c.Presenças, 0) / dadosAssiduidade.length).toFixed(1)}%`}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-lg bg-amber-50 text-amber-900">
+                            <span className="text-[10px] font-bold block text-amber-700">Faltas Justificadas</span>
+                            <span className="text-sm font-black">
+                              {`${(dadosAssiduidade.reduce((acc, c) => acc + c.Justificadas, 0) / dadosAssiduidade.length).toFixed(1)}%`}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-lg bg-red-50 text-red-900">
+                            <span className="text-[10px] font-bold block text-red-700">Faltas Injustificadas</span>
+                            <span className="text-sm font-black">
+                              {`${(dadosAssiduidade.reduce((acc, c) => acc + c.Injustificadas, 0) / dadosAssiduidade.length).toFixed(1)}%`}
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

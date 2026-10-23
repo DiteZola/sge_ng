@@ -513,12 +513,29 @@ export const DEFAULT_PRESENCAS_ALUNOS: PresencaAlunoItem[] = [];
 // Initializer
 export function inicializarArmazenamento(): void {
   // Se o Administrador Geral ainda NÃO foi configurado oficialmente pelo utilizador:
-  // Garante limpeza de resquícios de testes anteriores para que a tela de configuração inicial apareça obrigatoriamente
+  // Garante limpeza TOTAL de resquícios de testes anteriores para que o sistema permaneça 100% virgem
   if (typeof window !== 'undefined' && localStorage.getItem('sge_admin_configured') !== 'true') {
     localStorage.removeItem(STORAGE_KEYS.SETUP_MASTER_LOCK);
     localStorage.removeItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO);
     localStorage.removeItem('sge_authenticated');
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    setLocal(STORAGE_KEYS.ESCOLAS, []);
+    setLocal(STORAGE_KEYS.ALUNOS, []);
+    setLocal(STORAGE_KEYS.TURMAS, []);
+    setLocal(STORAGE_KEYS.ATRIBUICOES, []);
+    setLocal(STORAGE_KEYS.FUNCIONARIOS, []);
+    setLocal(STORAGE_KEYS.NOTAS, []);
+    setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, []);
+    setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, []);
+    setLocal(STORAGE_KEYS.JURIS, []);
+    setLocal(STORAGE_KEYS.TERMOS_EXAME, []);
+    setLocal(STORAGE_KEYS.PRESENCAS, []);
+    setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []);
+    setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, []);
+    setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, []);
+    setLocal(STORAGE_KEYS.PATRIMONIO, []);
+    setLocal(STORAGE_KEYS.HORARIOS, []);
+    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
   }
 
   if (!localStorage.getItem(STORAGE_KEYS.ESCOLAS)) {
@@ -636,18 +653,15 @@ export function inicializarArmazenamento(): void {
       try {
         const parsedFuncs: Funcionario[] = JSON.parse(rawStoredFuncs);
         if (Array.isArray(parsedFuncs) && parsedFuncs.length > 0) {
-          // Remover contas de demonstração conhecidas
+          // Remover contas de demonstração conhecidas e nomes fictícios
+          const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
           const funcsReais = parsedFuncs.filter(f => 
             !f.id.startsWith('func-00') && 
             f.id !== 'func-subadmin-01' && 
             f.id !== 'test_admin' &&
-            f.id !== 'func-admin-1790275106347' &&
-            f.id !== 'func-admin-1791707975841' &&
-            f.id !== 'func-admin-1791899041047' &&
-            f.id !== 'func-admin-1792068950272' &&
-            f.id !== 'func-admin-1792074805403' &&
-            f.id !== 'func-admin-1792142971892' &&
-            f.id !== 'func-1790329119660'
+            !f.id.startsWith('func-admin-179') &&
+            f.id !== 'func-1790329119660' &&
+            !MOCK_NAMES.includes((f.nomeCompleto || '').toLowerCase().trim())
           );
           if (funcsReais.length !== parsedFuncs.length) {
             setLocal(STORAGE_KEYS.FUNCIONARIOS, funcsReais);
@@ -683,11 +697,14 @@ export function inicializarArmazenamento(): void {
       try {
         const parsedAlunos = JSON.parse(rawStoredAlunos);
         if (Array.isArray(parsedAlunos)) {
+          const MOCK_STUDENT_NAMES = ['kiese manuel domingos', 'ndilu manuel sebastião', 'manuel gonçalves', 'madalena fineza nzinga', 'afonso domingos cambuta'];
           const alunosReais = parsedAlunos.filter((a: any) => 
             !a.id.startsWith('aluno-00') &&
             !a.id.startsWith('aluno-goncalves') &&
             !a.id.startsWith('aluno-ndilu') &&
-            !a.id.startsWith('aluno-nzinga')
+            !a.id.startsWith('aluno-nzinga') &&
+            a.id !== 'exemplo-01' &&
+            !MOCK_STUDENT_NAMES.includes((a.nomeCompleto || '').toLowerCase().trim())
           );
           if (alunosReais.length !== parsedAlunos.length) {
             setLocal(STORAGE_KEYS.ALUNOS, alunosReais);
@@ -728,6 +745,26 @@ export function inicializarArmazenamento(): void {
           }
         }
       } catch {}
+    }
+
+    // Se nenhuma escola foi criada ainda, garante que não existam alunos, turmas, notas ou funcionários de escola órfãos
+    const escolasAtuais = dbService.getEscolas();
+    if (escolasAtuais.length === 0) {
+      setLocal(STORAGE_KEYS.ALUNOS, []);
+      setLocal(STORAGE_KEYS.TURMAS, []);
+      setLocal(STORAGE_KEYS.ATRIBUICOES, []);
+      setLocal(STORAGE_KEYS.NOTAS, []);
+      setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, []);
+      setLocal(STORAGE_KEYS.JURIS, []);
+      setLocal(STORAGE_KEYS.TERMOS_EXAME, []);
+      setLocal(STORAGE_KEYS.PRESENCAS, []);
+      setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []);
+      // Manter apenas Administrador Geral nos funcionários
+      const funcs = dbService.getFuncionarios();
+      const apenasAdmin = funcs.filter(f => f.role === 'AdminGeral');
+      if (apenasAdmin.length !== funcs.length) {
+        setLocal(STORAGE_KEYS.FUNCIONARIOS, apenasAdmin);
+      }
     }
   } catch (e) {
     console.warn('Erro ao purgar dados de teste no armazenamento local:', e);

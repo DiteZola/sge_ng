@@ -1113,7 +1113,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                   required
                   value={dirNome}
                   onChange={(e) => setDirNome(e.target.value)}
-                  placeholder="Ex: Dr. Soares Lucas António"
+                  placeholder="Ex: Nome Completo do Diretor Geral"
                   className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none text-sm"
                 />
               </div>

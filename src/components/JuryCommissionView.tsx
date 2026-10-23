@@ -2085,9 +2085,9 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 <p>
                   <strong>1. COMPOSIÇÃO FORMAL DO JÚRI:</strong>
                   <br />
-                  • <strong>Presidente:</strong> {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || comissaoAtiva?.presidenteId || 'Manuel Zola'}
+                  • <strong>Presidente:</strong> {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || comissaoAtiva?.presidenteId || 'Não Atribuído'}
                   <br />
-                  • <strong>Secretário:</strong> {comissaoAtiva?.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Garcia António Vunge'}
+                  • <strong>Secretário:</strong> {comissaoAtiva?.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Não Atribuído'}
                   <br />
                   • <strong>Membros / Vogais:</strong> {comissaoAtiva?.membros?.filter(m => m.funcao === 'Membro').map(m => m.nome).join(', ') || 'Corpo Docente'}
                 </p>
@@ -2224,7 +2224,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     <p className="font-black text-slate-900 uppercase">O Presidente da Comissão de Júri</p>
                     <div className="w-56 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Manuel Zola'}
+                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Não Atribuído'}
                     </p>
                   </div>
 
@@ -2233,7 +2233,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     <p className="font-black text-slate-900 uppercase">O Secretário da Comissão de Júri</p>
                     <div className="w-56 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Garcia António Vunge'}
+                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Não Atribuído'}
                     </p>
                   </div>
                 </div>
@@ -2244,7 +2244,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     <p className="font-black text-slate-900 uppercase">O 1º Vogal / Membro</p>
                     <div className="w-56 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {comissaoAtiva?.membros?.filter(m => m.funcao === 'Membro')[0]?.nome || 'Esperança Maria Kwanza'}
+                      {comissaoAtiva?.membros?.filter(m => m.funcao === 'Membro')[0]?.nome || 'Não Atribuído'}
                     </p>
                   </div>
 
@@ -2252,7 +2252,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     <p className="font-black text-slate-900 uppercase">O Director Geral da Instituição</p>
                     <div className="w-56 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {escola.diretorGeralNome || 'Dr. Manuel Zola'}
+                      {escola.diretorGeralNome || 'Não Atribuído'}
                     </p>
                   </div>
                 </div>

@@ -133,18 +133,39 @@ class FirebaseSyncEngine {
     if (!this.canUseFirestore() || !firestoreDb || typeof window === 'undefined') return;
 
     try {
+      const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
+      const isDemoFunc = (f: Funcionario) => 
+        !f || !f.id || 
+        f.id.startsWith('func-00') ||
+        f.id === 'func-subadmin-01' ||
+        f.id === 'test_admin' ||
+        f.id.startsWith('func-admin-179') ||
+        f.id === 'func-1790329119660' ||
+        MOCK_NAMES.includes((f.nomeCompleto || '').toLowerCase().trim());
+
+      const isDemoEscola = (e: Escola) => !e || !e.id || e.id === 'esc-001' || e.id === 'esc-002' || e.id === 'esc-003';
+
+      const isDemoAluno = (a: Aluno) => 
+        !a || !a.id || 
+        a.id.startsWith('aluno-00') ||
+        a.id.startsWith('aluno-goncalves') ||
+        a.id.startsWith('aluno-ndilu') ||
+        a.id.startsWith('aluno-nzinga') ||
+        a.id === 'exemplo-01' ||
+        ['kiese manuel domingos', 'ndilu manuel sebastião', 'manuel gonçalves', 'madalena fineza nzinga', 'afonso domingos cambuta'].includes((a.nomeCompleto || '').toLowerCase().trim());
+
       // 1. Escuta em tempo real de Funcionários / Usuários (Diretores, Professores, Admin Geral)
       onSnapshot(collection(firestoreDb, "funcionarios"), (snapshot) => {
         const funcsRemotos: Funcionario[] = [];
         snapshot.forEach(d => {
           const f = d.data() as Funcionario;
-          if (f && f.id && f.nomeCompleto) funcsRemotos.push(f);
+          if (f && f.id && f.nomeCompleto && !isDemoFunc(f)) funcsRemotos.push(f);
         });
         if (funcsRemotos.length > 0) {
           const localRaw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
           const localFuncs: Funcionario[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
           const map = new Map<string, Funcionario>();
-          localFuncs.forEach(lf => map.set(lf.id, lf));
+          localFuncs.filter(lf => !isDemoFunc(lf)).forEach(lf => map.set(lf.id, lf));
           funcsRemotos.forEach(rf => {
             const existing = map.get(rf.id);
             map.set(rf.id, {
@@ -169,13 +190,13 @@ class FirebaseSyncEngine {
         const escolasRemotas: Escola[] = [];
         snapshot.forEach(d => {
           const esc = d.data() as Escola;
-          if (esc && esc.id) escolasRemotas.push(esc);
+          if (esc && esc.id && !isDemoEscola(esc)) escolasRemotas.push(esc);
         });
         if (escolasRemotas.length > 0) {
           const localRaw = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
           const localEscolas: Escola[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
           const map = new Map<string, Escola>();
-          localEscolas.forEach(e => map.set(e.id, e));
+          localEscolas.filter(e => !isDemoEscola(e)).forEach(e => map.set(e.id, e));
           escolasRemotas.forEach(e => map.set(e.id, { ...map.get(e.id), ...e }));
           localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify(Array.from(map.values())));
           window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
@@ -198,7 +219,7 @@ class FirebaseSyncEngine {
         const alunosRemotos: Aluno[] = [];
         snapshot.forEach(d => {
           const a = d.data() as Aluno;
-          if (a && a.id) alunosRemotos.push(a);
+          if (a && a.id && !isDemoAluno(a)) alunosRemotos.push(a);
         });
         localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(alunosRemotos));
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
@@ -611,13 +632,34 @@ class FirebaseSyncEngine {
     try {
       console.log('[SGE Firebase Sync] Descarregando base de dados completa do Firestore...');
 
+      const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
+      const isDemoFunc = (f: Funcionario) => 
+        !f || !f.id || 
+        f.id.startsWith('func-00') ||
+        f.id === 'func-subadmin-01' ||
+        f.id === 'test_admin' ||
+        f.id.startsWith('func-admin-179') ||
+        f.id === 'func-1790329119660' ||
+        MOCK_NAMES.includes((f.nomeCompleto || '').toLowerCase().trim());
+
+      const isDemoEscola = (e: Escola) => !e || !e.id || e.id === 'esc-001' || e.id === 'esc-002' || e.id === 'esc-003';
+
+      const isDemoAluno = (a: Aluno) => 
+        !a || !a.id || 
+        a.id.startsWith('aluno-00') ||
+        a.id.startsWith('aluno-goncalves') ||
+        a.id.startsWith('aluno-ndilu') ||
+        a.id.startsWith('aluno-nzinga') ||
+        a.id === 'exemplo-01' ||
+        ['kiese manuel domingos', 'ndilu manuel sebastião', 'manuel gonçalves', 'madalena fineza nzinga', 'afonso domingos cambuta'].includes((a.nomeCompleto || '').toLowerCase().trim());
+
       // 1. Escolas
       const snapEscolas = await getDocs(collection(firestoreDb, "escolas"));
       if (!snapEscolas.empty) {
         const escolasRemotas: Escola[] = [];
         snapEscolas.forEach(d => {
           const esc = d.data() as any;
-          if (esc && esc.id) {
+          if (esc && esc.id && !isDemoEscola(esc)) {
             esc.nomeOficial = esc.nomeOficial || esc.nome || 'Escola';
             esc.nome = esc.nome || esc.nomeOficial;
             escolasRemotas.push(esc as Escola);
@@ -627,7 +669,7 @@ class FirebaseSyncEngine {
           const localRaw = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
           const localEscolas: Escola[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
           const map = new Map<string, Escola>();
-          localEscolas.forEach(e => map.set(e.id, e));
+          localEscolas.filter(e => !isDemoEscola(e)).forEach(e => map.set(e.id, e));
           escolasRemotas.forEach(e => map.set(e.id, { ...map.get(e.id), ...e }));
           localStorage.setItem(STORAGE_KEYS.ESCOLAS, JSON.stringify(Array.from(map.values())));
         }
@@ -637,7 +679,7 @@ class FirebaseSyncEngine {
         if (localRaw && localRaw !== 'undefined' && localRaw !== 'null') {
           try {
             const localEscolas: Escola[] = JSON.parse(localRaw);
-            for (const e of localEscolas) {
+            for (const e of localEscolas.filter(e => !isDemoEscola(e))) {
               await setDoc(doc(firestoreDb, "escolas", e.id), { ...e, atualizadoEm: new Date().toISOString() }, { merge: true });
             }
           } catch {}
@@ -650,14 +692,14 @@ class FirebaseSyncEngine {
         const funcsRemotos: Funcionario[] = [];
         snapFuncs.forEach(d => {
           const f = d.data() as Funcionario;
-          if (f && f.id && f.nomeCompleto) funcsRemotos.push(f);
+          if (f && f.id && f.nomeCompleto && !isDemoFunc(f)) funcsRemotos.push(f);
         });
         if (funcsRemotos.length > 0) {
           const localRaw = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
           const localFuncs: Funcionario[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
           const map = new Map<string, Funcionario>();
           // Preservar usuários locais
-          localFuncs.forEach(lf => map.set(lf.id, lf));
+          localFuncs.filter(lf => !isDemoFunc(lf)).forEach(lf => map.set(lf.id, lf));
           // Mesclar dados remotos mantendo senha local caso a remota não a traga
           funcsRemotos.forEach(rf => {
             const existing = map.get(rf.id);
@@ -682,7 +724,7 @@ class FirebaseSyncEngine {
         if (localRaw && localRaw !== 'undefined' && localRaw !== 'null') {
           try {
             const localFuncs: Funcionario[] = JSON.parse(localRaw);
-            for (const f of localFuncs) {
+            for (const f of localFuncs.filter(f => !isDemoFunc(f))) {
               await setDoc(doc(firestoreDb, "funcionarios", f.id), { ...f, atualizadoEm: new Date().toISOString() }, { merge: true });
               await setDoc(doc(firestoreDb, "users", f.id), { ...f, atualizadoEm: new Date().toISOString() }, { merge: true });
             }
@@ -709,7 +751,7 @@ class FirebaseSyncEngine {
         const alunosRemotos: Aluno[] = [];
         snapAlunos.forEach(d => {
           const a = d.data() as Aluno;
-          if (a && a.id) alunosRemotos.push(a);
+          if (a && a.id && !isDemoAluno(a)) alunosRemotos.push(a);
         });
         if (alunosRemotos.length > 0) {
           localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(alunosRemotos));

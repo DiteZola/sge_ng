@@ -816,7 +816,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                       )}
                     </div>
                     <div className="w-44 border-b border-black mx-auto my-1" />
-                    <p className="font-semibold text-gray-800">{escola.diretorGeralNome || 'Manuel Zola'}</p>
+                    <p className="font-semibold text-gray-800">{escola.diretorGeralNome || 'Não Atribuído'}</p>
                   </div>
                 </div>
               </div>
