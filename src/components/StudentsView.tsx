@@ -205,7 +205,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Formulário para adicionar disciplina na classe ativa
   const [novaDiscNome, setNovaDiscNome] = useState('Língua Portuguesa');
-  const [novaDiscNota, setNovaDiscNota] = useState('14');
+  const [novaDiscNota, setNovaDiscNota] = useState('');
   const [novoProfessorNome, setNovoProfessorNome] = useState('');
 
   // Formulário para adicionar nova classe ao histórico
@@ -582,7 +582,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       encarregadoEmail,
       encarregadoProfissao,
       endereco,
-      fotoUrl: fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+      fotoUrl: fotoUrl || '',
       estado,
       propinaStatus: editingAluno?.propinaStatus || 'Regularizada',
       cadastradoEm: editingAluno?.cadastradoEm || new Date().toISOString().split('T')[0],
@@ -2244,11 +2244,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               const tAtual = turmas.find(tm => tm.id === al.turmaId);
               return (
                 <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center space-x-3 text-xs">
-                  <img
-                    src={al.fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
-                    alt={al.nomeCompleto}
-                    className="h-14 w-14 rounded-lg object-cover border-2 border-emerald-600 shrink-0"
-                  />
+                  {al.fotoUrl ? (
+                    <img
+                      src={al.fotoUrl}
+                      alt={al.nomeCompleto}
+                      className="h-14 w-14 rounded-lg object-cover border-2 border-emerald-600 shrink-0"
+                    />
+                  ) : (
+                    <div className="h-14 w-14 rounded-lg bg-emerald-100 border-2 border-emerald-600 flex items-center justify-center font-bold text-emerald-800 text-xs shrink-0">
+                      {al.nomeCompleto.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0 space-y-0.5">
                     <h4 className="font-black text-gray-900 truncate">{al.nomeCompleto}</h4>
                     <p className="text-gray-600">
@@ -2490,11 +2496,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
               {/* Foto e Dados Pessoais do Aluno */}
               <div className="flex items-start space-x-4 border-b border-gray-300 pb-3 font-sans text-xs">
-                <img
-                  src={alunoConfirmadoComprovativo.aluno.fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
-                  alt={alunoConfirmadoComprovativo.aluno.nomeCompleto}
-                  className="h-20 w-16 object-cover rounded border-2 border-black shrink-0"
-                />
+                {alunoConfirmadoComprovativo.aluno.fotoUrl ? (
+                  <img
+                    src={alunoConfirmadoComprovativo.aluno.fotoUrl}
+                    alt={alunoConfirmadoComprovativo.aluno.nomeCompleto}
+                    className="h-20 w-16 object-cover rounded border-2 border-black shrink-0"
+                  />
+                ) : (
+                  <div className="h-20 w-16 border-2 border-dashed border-gray-400 bg-gray-50 flex flex-col items-center justify-center text-[9px] text-gray-500 font-bold shrink-0">
+                    <span>FOTO</span>
+                    <span>3x4</span>
+                  </div>
+                )}
                 <div className="flex-1 space-y-1">
                   <p><span className="text-gray-600 font-semibold">Nome Completo:</span> <strong className="uppercase">{alunoConfirmadoComprovativo.aluno.nomeCompleto}</strong></p>
                   <p><span className="text-gray-600 font-semibold">Bilhete de Identidade (BI):</span> <strong className="font-mono">{alunoConfirmadoComprovativo.aluno.numeroDocumento || alunoConfirmadoComprovativo.aluno.numeroBI || '—'}</strong></p>

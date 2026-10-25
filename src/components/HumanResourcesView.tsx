@@ -282,18 +282,18 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setEditingFuncionarioId(func.id);
     setNomeCompleto(func.nomeCompleto || '');
     setNumeroBI(func.numeroBI || func.bi || '');
-    setDataEmissaoBI(func.dataEmissaoBI || '2020-01-10');
-    setDataValidadeBI(func.dataValidadeBI || '2030-01-10');
-    setLocalEmissaoBI(func.localEmissaoBI || func.arquivoIdentificacao || 'Arquivo de Identificação de Luanda');
-    setDataNascimento(func.dataNascimento || '1985-04-12');
-    setNaturalidade(func.naturalidadeMunicipio || func.provincia || 'Luanda');
+    setDataEmissaoBI(func.dataEmissaoBI || '');
+    setDataValidadeBI(func.dataValidadeBI || '');
+    setLocalEmissaoBI(func.localEmissaoBI || func.arquivoIdentificacao || '');
+    setDataNascimento(func.dataNascimento || '');
+    setNaturalidade(func.naturalidadeMunicipio || func.provincia || '');
     setProvincia(func.provincia || func.naturalidadeProvincia || 'Luanda');
     setMunicipio(func.municipio || func.naturalidadeMunicipio || 'Luanda');
     setNacionalidade(func.nacionalidade || 'Angolana');
-    setEstadoCivil(func.estadoCivil || 'Casado(a)');
+    setEstadoCivil(func.estadoCivil || 'Solteiro(a)');
     setNomePai(func.nomePai || '');
     setNomeMae(func.nomeMae || '');
-    setEndereco(func.residencia || func.bairro || 'Bairro Central, Luanda');
+    setEndereco(func.residencia || func.bairro || '');
     setTelefone(func.telefone || '');
     setTelefoneAlternativo(func.telefoneAlternativo || '');
     setEmail(func.email || '');
@@ -301,19 +301,19 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setCargo(func.cargo || 'Professor');
     setRole(func.role || 'Professor');
     setGrauAcademico((func.grauAcademico as any) || 'Licenciado');
-    setEspecialidade(func.especialidade || func.habilitacoes || 'Ensino');
+    setEspecialidade(func.especialidade || func.habilitacoes || '');
     setHabilitacoes(func.habilitacoes || '');
-    setCategoriaProfissional(func.categoriaProfissional || 'Professor do IIº Ciclo do Ensino Secundário - 6º Grau');
-    setNumeroMecanografico(func.numeroAgente || 'AG-89412');
+    setCategoriaProfissional(func.categoriaProfissional || '');
+    setNumeroMecanografico(func.numeroAgente || '');
     setTipoContrato(func.tipoContrato === 'Contratado' ? 'Contratado' : func.tipoContrato === 'Colaborador' ? 'Colaborador' : 'Efetivo');
     setSituacaoFuncional(func.situacaoFuncional || 'Ativo');
     setCargaHorariaSemanal(func.cargaHorariaSemanal || 24);
-    setDataAdmissao(func.dataAdmissao || '2020-02-01');
-    setBanco(func.banco || 'BFA - Banco de Fomento Angola');
-    setIban(func.iban || 'AO06.0006.0000.1234.5678.9012.3');
-    setNumeroSegurancaSocial(func.numeroSegurancaSocial || 'INSS-481920');
+    setDataAdmissao(func.dataAdmissao || new Date().toISOString().split('T')[0]);
+    setBanco(func.banco || '');
+    setIban(func.iban || '');
+    setNumeroSegurancaSocial(func.numeroSegurancaSocial || '');
     setNif(func.nif || func.numeroBI || '');
-    setPassword(func.password || 'Educa2026!');
+    setPassword(func.password || '');
     setEhProfessor(func.ehProfessor ?? true);
     setEhAdministrativoQueLeciona(func.ehAdministrativoQueLeciona ?? false);
     setFotoUrl(func.fotoUrl || '');
@@ -339,7 +339,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       escolaId: escola.id,
       nomeCompleto: nomeCompleto.trim(),
       genero,
-      numeroBI: (numeroBI || funcExistente?.numeroBI || `00${Math.floor(10000000 + Math.random() * 90000000)}LA045`).trim(),
+      numeroBI: (numeroBI || funcExistente?.numeroBI || '').trim(),
       dataEmissaoBI,
       dataValidadeBI,
       localEmissaoBI,
@@ -374,9 +374,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       ehProfessor,
       ehAdministrativoQueLeciona,
       habilitacoes: (habilitacoes || especialidade).trim(),
-      fotoUrl: fotoUrl.trim() || funcExistente?.fotoUrl || (genero === 'F' 
-        ? 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80'
-        : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'),
+      fotoUrl: fotoUrl.trim() || funcExistente?.fotoUrl || '',
       grupoSanguineo,
       alergias: alergias.trim(),
       doencasCronicas: doencasCronicas.trim(),
@@ -386,7 +384,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       atestadoMedicoData,
       dataAdmissao,
       ativo: true,
-      password: password || funcExistente?.password || 'Educa2026!',
+      password: (password && password.trim()) || funcExistente?.password || '',
       statusConta: funcExistente?.statusConta || 'Ativa',
       criadoPorRole: funcExistente?.criadoPorRole || currentUser.role,
       criadoPorNome: funcExistente?.criadoPorNome || currentUser.nomeCompleto,
@@ -514,7 +512,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
   const abrirModalSenha = (func: Funcionario) => {
     setFuncSelecionado(func);
-    setNovaSenhaInput(func.password || 'Educa2026!');
+    setNovaSenhaInput('');
     setModalSenhaOpen(true);
   };
 
@@ -1747,11 +1745,18 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
               {/* Foto e Identificação */}
               <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
-                <img 
-                  src={funcParaFicha.fotoUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'} 
-                  alt={funcParaFicha.nomeCompleto} 
-                  className="h-28 w-24 rounded-lg object-cover border-2 border-black shrink-0 mx-auto sm:mx-0 shadow-xs"
-                />
+                {funcParaFicha.fotoUrl ? (
+                  <img 
+                    src={funcParaFicha.fotoUrl} 
+                    alt={funcParaFicha.nomeCompleto} 
+                    className="h-28 w-24 rounded-lg object-cover border-2 border-black shrink-0 mx-auto sm:mx-0 shadow-xs"
+                  />
+                ) : (
+                  <div className="h-28 w-24 border-2 border-dashed border-gray-400 bg-gray-50 flex flex-col items-center justify-center text-[10px] text-gray-500 font-bold shrink-0 mx-auto sm:mx-0">
+                    <span>FOTO</span>
+                    <span>3x4</span>
+                  </div>
+                )}
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
                   <div><span className="text-gray-600 font-semibold">Nome Completo:</span> <strong className="uppercase">{funcParaFicha.nomeCompleto}</strong></div>
                   <div><span className="text-gray-600 font-semibold">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{funcParaFicha.numeroBI}</strong></div>

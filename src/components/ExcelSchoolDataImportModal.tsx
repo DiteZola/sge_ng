@@ -355,15 +355,15 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             numeroOrdem: Number(row.NumeroOrdem || row.numeroOrdem || totalAlunos + 1),
             nomeCompleto: nomeAluno,
             genero: (row.Genero || row.genero || 'M').toString().toUpperCase().startsWith('F') ? 'F' : 'M',
-            dataNascimento: (row.DataNascimento || row.dataNascimento || '2012-01-01').toString(),
-            naturalidade: (row.Naturalidade || row.naturalidade || 'Luanda').toString(),
-            provinciaOrigem: (row.ProvinciaOrigem || row.provinciaOrigem || 'Luanda').toString(),
-            numeroBI: (row.BI || row.numeroBI || '000000000LA000').toString(),
-            telefone: (row.Telefone || row.telefone || '').toString(),
-            fotoUrl: (row.Foto || row.fotoUrl || '').toString(),
-            encarregadoNome: (row.Encarregado || row.encarregadoNome || 'Encarregado de Educação').toString(),
+            dataNascimento: (row.DataNascimento || row.dataNascimento || '').toString().trim(),
+            naturalidade: (row.Naturalidade || row.naturalidade || '').toString().trim(),
+            provinciaOrigem: (row.ProvinciaOrigem || row.provinciaOrigem || '').toString().trim(),
+            numeroBI: (row.BI || row.numeroBI || '').toString().trim(),
+            telefone: (row.Telefone || row.telefone || '').toString().trim(),
+            fotoUrl: (row.Foto || row.fotoUrl || '').toString().trim(),
+            encarregadoNome: (row.Encarregado || row.encarregadoNome || '').toString().trim(),
             encarregadoParentesco: 'Encarregado',
-            encarregadoTelefone: (row.TelefoneEncarregado || row.encarregadoTelefone || '').toString(),
+            encarregadoTelefone: (row.TelefoneEncarregado || row.encarregadoTelefone || '').toString().trim(),
             estado: 'Ativo',
             turmaId,
             classeId: classe,
@@ -372,7 +372,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             cadastradoEm: new Date().toISOString().split('T')[0]
           };
 
-          const idx = alunosExistentes.findIndex(a => a.codigoMatricula === novoAluno.codigoMatricula || (a.numeroBI && a.numeroBI !== '000000000LA000' && a.numeroBI === novoAluno.numeroBI));
+          const idx = alunosExistentes.findIndex(a => a.codigoMatricula === novoAluno.codigoMatricula || (novoAluno.numeroBI && a.numeroBI === novoAluno.numeroBI));
           if (idx >= 0) {
             alunosExistentes[idx] = { ...alunosExistentes[idx], ...novoAluno, id: alunosExistentes[idx].id };
           } else {

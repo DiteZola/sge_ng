@@ -24,7 +24,9 @@ import {
   PenTool,
   Upload,
   Search,
-  Settings
+  Settings,
+  GraduationCap,
+  Users
 } from 'lucide-react';
 import {
   getTurmasPorClasse,
@@ -41,7 +43,7 @@ import {
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Escola, Aluno, Turma, Disciplina, NotaTrimestralConsolidada, ComissaoJuri, Funcionario } from '../types';
 import { formatarTextoPorGenero, validarElegibilidadeCertificado, converterComportamentoParaConceito } from '../services/macEngine';
-import { converterNotaParaExtensoMED, numeroParaExtenso } from '../utils/numberToWords';
+import { converterNotaParaExtensoMED, numeroParaExtenso, converterNotaParaCertificadoExtenso } from '../utils/numberToWords';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
@@ -374,7 +376,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     ? (notasOficiaisAluno.reduce((acc: number, curr: any) => acc + (curr.notaFinal || curr.mediaTrimestral || 0), 0) / notasOficiaisAluno.length).toFixed(1)
     : notasDoAluno.length > 0
       ? (notasDoAluno.reduce((acc: number, curr: any) => acc + (curr.mediaTrimestral || 0), 0) / notasDoAluno.length).toFixed(1)
-      : '13.1';
+      : '—';
 
   return (
     <div className="space-y-6">
@@ -821,6 +823,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       {/* 1. BOLETIM DE NOTAS TRIMESTRAL (MODELO OFICIAL MED - SCREENSHOT 1) */}
       {/* ========================================================================= */}
       {docType === 'boletim_oficial' && (
+        !alunoSelecionado ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+            <GraduationCap className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-gray-800">Nenhum Estudante Registado ou Selecionado</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Para visualizar e imprimir o Boletim Oficial, selecione ou registe um estudante na turma.
+            </p>
+          </div>
+        ) : (
         <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0">
           {/* Cabeçalho Oficial MED Angola */}
           <div className="relative border-b-2 border-black pb-3">
@@ -971,8 +982,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                           {nota.mediaTrimestral?.toFixed(1) || '—'}
                         </td>
                         <td className="p-1 border-r border-black text-center font-mono">{nota.faltas || 0}</td>
-                        <td className="p-1 border-r border-black text-center text-[9px] font-semibold">{nota.comportamentoConceito || 'Excelente'}</td>
-                        <td className="p-1 text-center text-[9px] font-semibold">{nota.assiduidadeConceito || 'Excelente'}</td>
+                        <td className="p-1 border-r border-black text-center text-[9px] font-semibold">{nota.comportamentoConceito || '—'}</td>
+                        <td className="p-1 text-center text-[9px] font-semibold">{nota.assiduidadeConceito || '—'}</td>
                       </tr>
                     );
                   })
@@ -993,11 +1004,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <div className="flex items-center space-x-2">
                 <span className="font-bold">Média Geral do {escola.trimestreActivo}º Trimestre:</span>
                 <span className="text-base font-mono font-black text-blue-900 bg-blue-50 px-2 py-0.5 border border-blue-400 rounded">
-                  {mediaGeralCalculada} Valores
+                  {mediaGeralCalculada !== '—' ? `${mediaGeralCalculada} Valores` : '—'}
                 </span>
               </div>
               <p className="text-gray-700">
-                <strong>Observação Pedagógica:</strong> {Number(mediaGeralCalculada) >= 10 ? 'Aproveitamento Positivo (Apto)' : 'Necessita de Apoio Pedagógico'}
+                <strong>Observação Pedagógica:</strong> {mediaGeralCalculada === '—' ? 'Sem notas lançadas' : Number(mediaGeralCalculada) >= 10 ? 'Aproveitamento Positivo (Apto)' : 'Necessita de Apoio Pedagógico'}
               </p>
               <p className="text-gray-500 text-[9px] pt-1">
                 Emitido aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })} via SGE-NG Angola.
@@ -1019,7 +1030,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <div>
               <div className="w-52 border-b border-black mx-auto" />
               <p className="font-bold text-gray-900 mt-1">O(A) Director(a) de Turma</p>
-              <p className="text-gray-600 text-[10px]">{turmaDoAluno.coordenadorId ? 'Docente Coordenador' : 'Prof. Responsável'}</p>
+              <p className="text-gray-600 text-[10px]">{turmaDoAluno?.coordenadorId ? 'Docente Coordenador' : 'Prof. Responsável'}</p>
             </div>
             <div>
               <div className="w-52 border-b border-black mx-auto" />
@@ -1028,12 +1039,22 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* ========================================================================= */}
       {/* 2. PAUTA GERAL / FINAL HOMOLOGADA (MODELO OFICIAL MED ANGOLA)             */}
       {/* ========================================================================= */}
       {docType === 'pautas' && (
+        !turmaSelecionada ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+            <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-gray-800">Nenhuma Turma Registada ou Selecionada</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Para visualizar a Pauta Oficial, crie pelo menos uma turma na Gestão Académica.
+            </p>
+          </div>
+        ) : (
         <div id="documento-para-impressao" className="bg-white border-2 border-gray-900 p-6 md:p-8 rounded-xl shadow-md max-w-6xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1 border-b-2 border-black pb-3">
@@ -1200,7 +1221,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                           {(() => {
                             const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
                             const notasComp = notasAluno.filter(n => typeof n.comportamentoNota === 'number' && n.comportamentoNota > 0).map(n => n.comportamentoNota);
-                            const mediaComp = notasComp.length > 0 ? (notasComp.reduce((a, b) => a + b, 0) / notasComp.length) : 16;
+                            if (notasComp.length === 0) {
+                              return <span className="text-gray-400 font-normal">—</span>;
+                            }
+                            const mediaComp = notasComp.reduce((a, b) => a + b, 0) / notasComp.length;
                             const conceito = converterComportamentoParaConceito(mediaComp);
                             return (
                               <span className={`inline-block px-1.5 py-0.5 rounded font-black ${
@@ -1348,12 +1372,22 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             )}
           </div>
         </div>
+        )
       )}
 
       {/* ========================================================================= */}
       {/* 3. DECLARAÇÃO DE HABILITAÇÕES COM NOTAS                                   */}
       {/* ========================================================================= */}
       {docType === 'declaracao_notas' && (
+        !alunoSelecionado ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+            <GraduationCap className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-gray-800">Nenhum Estudante Registado ou Selecionado</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Para emitir a Declaração com Notas, selecione ou registe um estudante.
+            </p>
+          </div>
+        ) : (
         <div id="documento-para-impressao" className="bg-white border-2 border-gray-900 p-8 md:p-12 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1">
@@ -1434,12 +1468,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </tr>
                 {disciplinasDaClasseDocumento.filter(d => (d as any).componente !== 'Específica').map(disc => {
                   const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-                  const notaArredondada = Math.round(n?.notaFinal || n?.mediaTrimestral || 12);
+                  const val = n?.notaFinal ?? n?.mediaTrimestral;
+                  const notaArredondada = val !== undefined && val !== null ? Math.round(val) : null;
                   return (
                     <tr key={disc.id}>
                       <td className="p-1.5 border-r border-black pl-4 font-medium">{disc.nome}</td>
                       <td className="p-1.5 text-center font-semibold">
-                        {notaArredondada} ({converterNotaParaExtensoMED(notaArredondada)})
+                        {notaArredondada !== null ? `${notaArredondada} (${converterNotaParaExtensoMED(notaArredondada)})` : '—'}
                       </td>
                     </tr>
                   );
@@ -1453,12 +1488,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     </tr>
                     {disciplinasDaClasseDocumento.filter(d => (d as any).componente === 'Específica').map(disc => {
                       const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-                      const notaArredondada = Math.round(n?.notaFinal || n?.mediaTrimestral || 11);
+                      const val = n?.notaFinal ?? n?.mediaTrimestral;
+                      const notaArredondada = val !== undefined && val !== null ? Math.round(val) : null;
                       return (
                         <tr key={disc.id}>
                           <td className="p-1.5 border-r border-black pl-4 font-medium">{disc.nome}</td>
                           <td className="p-1.5 text-center font-semibold">
-                            {notaArredondada} ({converterNotaParaExtensoMED(notaArredondada)})
+                            {notaArredondada !== null ? `${notaArredondada} (${converterNotaParaExtensoMED(notaArredondada)})` : '—'}
                           </td>
                         </tr>
                       );
@@ -1470,7 +1506,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <tr className="bg-gray-100 font-bold border-t-2 border-black">
                   <td className="p-2 border-r border-black uppercase">MÉDIA GLOBAL OBTIDA</td>
                   <td className="p-2 text-center text-sm font-black">
-                    {Math.round(Number(mediaGeralCalculada))} ({converterNotaParaExtensoMED(Math.round(Number(mediaGeralCalculada)))}) Valores
+                    {mediaGeralCalculada !== '—' && !isNaN(Number(mediaGeralCalculada))
+                      ? `${Math.round(Number(mediaGeralCalculada))} (${converterNotaParaExtensoMED(Math.round(Number(mediaGeralCalculada)))}) Valores`
+                      : '—'}
                   </td>
                 </tr>
               </tbody>
@@ -1480,13 +1518,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Parágrafo de Livro de Registo */}
           <div className="text-xs leading-relaxed text-justify space-y-2 pt-2">
             <p>
-              Consta no livro de registo n.º <strong>{alunoSelecionado.livroRegisto || '02'}</strong>, à folha <strong>{alunoSelecionado.folhaRegisto || '64'}</strong>, com o processo n.º <strong>{alunoSelecionado.numeroProcesso || '159/2021'}</strong>.
+              Consta no livro de registo n.º <strong>{alunoSelecionado.livroRegisto || '—'}</strong>, à folha <strong>{alunoSelecionado.folhaRegisto || '—'}</strong>, com o processo n.º <strong>{alunoSelecionado.numeroProcesso || alunoSelecionado.codigoMatricula || '—'}</strong>.
             </p>
             <p>
               Por ser verdade e ter sido solicitada pela parte interessada, mandou-se passar a presente declaração que vai por mim assinada e autenticada com o carimbo a óleo e selo branco em uso neste estabelecimento de ensino.
             </p>
             <p className="text-right pt-2 font-medium">
-              {escola.municipio || 'Mbanza Kongo'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+              {escola.municipio || escola.provincia || 'Angola'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
             </p>
           </div>
 
@@ -1504,12 +1542,22 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* ========================================================================= */}
       {/* 3. CERTIFICADO MULTI-CLASSE 10ª, 11ª, 12ª (SCREENSHOT 4 - COMPLEXO 151) */}
       {/* ========================================================================= */}
       {docType === 'certificado_ciclo' && (
+        !alunoSelecionado ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+            <Award className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-gray-800">Nenhum Estudante Registado ou Selecionado</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Para emitir o Certificado Oficial de Habilitações, selecione ou registe um estudante concluinte.
+            </p>
+          </div>
+        ) : (
         <div id="documento-para-impressao" className="bg-white border-4 border-double border-gray-900 p-8 md:p-12 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1">
@@ -1577,214 +1625,248 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* TABELA 1: ENSINO PRIMÁRIO (6ª CLASSE) */}
-          {tipoCertificadoEfetivo === 'primario_6' && (
-            <div className="pt-2">
-              <table className="w-full text-xs border border-black text-left">
-                <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
-                  <tr>
-                    <th className="p-1.5 border-r border-black text-left">DISCIPLINAS CURRICULARES (6.ª CLASSE)</th>
-                    <th className="p-1.5 border-r border-black w-24">Avaliação Contínua (MAC)</th>
-                    <th className="p-1.5 border-r border-black w-24">Prova de Exame</th>
-                    <th className="p-1.5 border-r border-black w-20 bg-gray-200">Classificação Final</th>
-                    <th className="p-1.5 w-44">Classificação por Extenso</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black text-[11px]">
-                  {[
-                    { disc: 'Língua Portuguesa', mac: 14, pe: 13, cf: 14 },
-                    { disc: 'Matemática', mac: 13, pe: 14, cf: 14 },
-                    { disc: 'Ciências da Natureza', mac: 15, pe: 15, cf: 15 },
-                    { disc: 'História', mac: 14, pe: 14, cf: 14 },
-                    { disc: 'Geografia', mac: 13, pe: 13, cf: 13 },
-                    { disc: 'Educação Moral e Cívica', mac: 16, pe: 16, cf: 16 },
-                    { disc: 'Educação Visual e Plástica', mac: 15, pe: 15, cf: 15 },
-                    { disc: 'Educação Musical', mac: 15, pe: 15, cf: 15 },
-                    { disc: 'Educação Física', mac: 16, pe: 16, cf: 16 }
-                  ].map((row, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.mac}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.pe}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.cf}</td>
-                      <td className="p-1.5 text-center font-medium">{converterNotaParaExtensoMED(row.cf)}</td>
+          {tipoCertificadoEfetivo === 'primario_6' && (() => {
+            const discs = disciplinasDaClasseDocumento.length > 0
+              ? disciplinasDaClasseDocumento
+              : disciplinas.filter(d => d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao');
+            const linhas = discs.map(disc => {
+              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
+              const mac = n && n.mac !== undefined ? Math.round(n.mac) : null;
+              const provaVal = n ? (n.provaTrimestral ?? n.npt) : undefined;
+              const pe = provaVal !== undefined ? Math.round(provaVal) : null;
+              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : undefined;
+              const cf = val !== undefined && val !== null ? Math.round(val) : null;
+              return { disc: disc.nome, mac, pe, cf };
+            });
+            const comNota = linhas.filter(l => l.cf !== null);
+            const mediaFinalCalc = comNota.length > 0 ? Math.round(comNota.reduce((a, b) => a + (b.cf || 0), 0) / comNota.length) : null;
+
+            return (
+              <div className="pt-2">
+                <table className="w-full text-xs border border-black text-left">
+                  <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
+                    <tr>
+                      <th className="p-1.5 border-r border-black text-left">DISCIPLINAS CURRICULARES (6.ª CLASSE)</th>
+                      <th className="p-1.5 border-r border-black w-24">Avaliação Contínua (MAC)</th>
+                      <th className="p-1.5 border-r border-black w-24">Prova de Exame</th>
+                      <th className="p-1.5 border-r border-black w-20 bg-gray-200">Classificação Final</th>
+                      <th className="p-1.5 w-44">Classificação por Extenso</th>
                     </tr>
-                  ))}
-                  <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
-                    <td className="p-2 border-r border-black uppercase">MÉDIA GERAL DO ENSINO PRIMÁRIO</td>
-                    <td colSpan={2} className="p-2 border-r border-black text-center">Conclusão do Ensino Primário</td>
-                    <td className="p-2 border-r border-black text-center text-sm font-black">15</td>
-                    <td className="p-2 text-center text-xs font-black uppercase">Quinze Valores</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-black text-[11px]">
+                    {linhas.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.mac !== null ? row.mac : '—'}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.pe !== null ? row.pe : '—'}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.cf !== null ? row.cf : '—'}</td>
+                        <td className="p-1.5 text-center font-medium">{row.cf !== null ? converterNotaParaCertificadoExtenso(row.cf) : '—'}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
+                      <td className="p-2 border-r border-black uppercase">MÉDIA GERAL DO ENSINO PRIMÁRIO</td>
+                      <td colSpan={2} className="p-2 border-r border-black text-center">Conclusão do Ensino Primário</td>
+                      <td className="p-2 border-r border-black text-center text-sm font-black">{mediaFinalCalc !== null ? mediaFinalCalc : '—'}</td>
+                      <td className="p-2 text-center text-xs font-black uppercase">{mediaFinalCalc !== null ? converterNotaParaCertificadoExtenso(mediaFinalCalc) : 'Sem notas lançadas'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
 
           {/* TABELA 2: Iº CICLO DO ENSINO SECUNDÁRIO (7ª, 8ª e 9ª CLASSES) */}
-          {tipoCertificadoEfetivo === 'iciclo_9' && (
-            <div className="pt-2">
-              <table className="w-full text-xs border border-black text-left">
-                <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
-                  <tr>
-                    <th className="p-1.5 border-r border-black text-left">DISCIPLINAS DO Iº CICLO</th>
-                    <th className="p-1.5 border-r border-black w-14">7.ª Classe</th>
-                    <th className="p-1.5 border-r border-black w-14">8.ª Classe</th>
-                    <th className="p-1.5 border-r border-black w-14">9.ª Classe</th>
-                    <th className="p-1.5 border-r border-black w-14">Exame</th>
-                    <th className="p-1.5 border-r border-black w-16 bg-gray-200">M. Final</th>
-                    <th className="p-1.5 w-40">Média por Extenso</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black text-[11px]">
-                  {[
-                    { disc: 'Língua Portuguesa', n7: 12, n8: 13, n9: 13, ex: 12, mf: 13 },
-                    { disc: 'Língua Inglesa', n7: 11, n8: 12, n9: 12, ex: 13, mf: 12 },
-                    { disc: 'Língua Francesa', n7: 10, n8: 11, n9: 12, ex: 11, mf: 11 },
-                    { disc: 'Matemática', n7: 13, n8: 14, n9: 14, ex: 13, mf: 14 },
-                    { disc: 'Biologia', n7: 12, n8: 13, n9: 14, ex: 14, mf: 13 },
-                    { disc: 'Física', n7: 11, n8: 12, n9: 13, ex: 12, mf: 12 },
-                    { disc: 'Química', n7: 10, n8: 12, n9: 12, ex: 11, mf: 11 },
-                    { disc: 'História', n7: 14, n8: 13, n9: 14, ex: 13, mf: 14 },
-                    { disc: 'Geografia', n7: 12, n8: 13, n9: 13, ex: 13, mf: 13 },
-                    { disc: 'Educação Visual e Plástica', n7: 14, n8: 15, n9: 15, ex: '-', mf: 15 },
-                    { disc: 'Educação Moral e Cívica', n7: 15, n8: 15, n9: 16, ex: '-', mf: 15 },
-                    { disc: 'Educação Física', n7: 16, n8: 16, n9: 16, ex: '-', mf: 16 }
-                  ].map((row, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n7}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n8}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n9}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.ex}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.mf}</td>
-                      <td className="p-1.5 text-center font-medium">{converterNotaParaExtensoMED(row.mf)}</td>
+          {tipoCertificadoEfetivo === 'iciclo_9' && (() => {
+            const discs = disciplinasDaClasseDocumento.length > 0
+              ? disciplinasDaClasseDocumento
+              : disciplinas.filter(d => d.nivelEnsino === 'ICiclo');
+            const linhas = discs.map(disc => {
+              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
+              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : undefined;
+              const mf = val !== undefined && val !== null ? Math.round(val) : null;
+              const provaVal = n ? (n.provaTrimestral ?? n.npt) : undefined;
+              const ex = provaVal !== undefined ? Math.round(provaVal) : null;
+              const mediaTrim = n && n.mediaTrimestral !== undefined ? Math.round(n.mediaTrimestral) : '—';
+              return {
+                disc: disc.nome,
+                n7: '—',
+                n8: '—',
+                n9: mediaTrim,
+                ex: ex !== null ? ex : '—',
+                mf
+              };
+            });
+            const comNota = linhas.filter(l => l.mf !== null);
+            const mediaFinalCalc = comNota.length > 0 ? Math.round(comNota.reduce((a, b) => a + (b.mf || 0), 0) / comNota.length) : null;
+
+            return (
+              <div className="pt-2">
+                <table className="w-full text-xs border border-black text-left">
+                  <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
+                    <tr>
+                      <th className="p-1.5 border-r border-black text-left">DISCIPLINAS DO Iº CICLO</th>
+                      <th className="p-1.5 border-r border-black w-14">7.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-14">8.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-14">9.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-14">Exame</th>
+                      <th className="p-1.5 border-r border-black w-16 bg-gray-200">M. Final</th>
+                      <th className="p-1.5 w-40">Média por Extenso</th>
                     </tr>
-                  ))}
-                  <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
-                    <td className="p-2 border-r border-black uppercase">MÉDIA GERAL DO Iº CICLO</td>
-                    <td colSpan={4} className="p-2 border-r border-black text-center">Conclusão do Iº Ciclo Geral</td>
-                    <td className="p-2 border-r border-black text-center text-sm font-black">13</td>
-                    <td className="p-2 text-center text-xs font-black uppercase">Treze Valores</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-black text-[11px]">
+                    {linhas.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n7}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n8}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n9}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.ex}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.mf !== null ? row.mf : '—'}</td>
+                        <td className="p-1.5 text-center font-medium">{row.mf !== null ? converterNotaParaCertificadoExtenso(row.mf) : '—'}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
+                      <td className="p-2 border-r border-black uppercase">MÉDIA GERAL DO Iº CICLO</td>
+                      <td colSpan={4} className="p-2 border-r border-black text-center">Conclusão do Iº Ciclo Geral</td>
+                      <td className="p-2 border-r border-black text-center text-sm font-black">{mediaFinalCalc !== null ? mediaFinalCalc : '—'}</td>
+                      <td className="p-2 text-center text-xs font-black uppercase">{mediaFinalCalc !== null ? converterNotaParaCertificadoExtenso(mediaFinalCalc) : 'Sem notas lançadas'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
 
           {/* TABELA 3: IIº CICLO GERAL (10ª, 11ª e 12ª CLASSES) */}
-          {tipoCertificadoEfetivo === 'iiciclo_12' && (
-            <div className="pt-2">
-              <table className="w-full text-xs border border-black text-left">
-                <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
-                  <tr>
-                    <th className="p-1.5 border-r border-black text-left">DISCIPLINAS</th>
-                    <th className="p-1.5 border-r border-black w-14">10.ª Classe</th>
-                    <th className="p-1.5 border-r border-black w-14">11.ª Classe</th>
-                    <th className="p-1.5 border-r border-black w-14">12.ª Classe</th>
-                    <th className="p-1.5 border-r border-black w-14 bg-gray-200">M. Final</th>
-                    <th className="p-1.5 w-44">Média por Extenso</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black text-[11px]">
-                  {(alunoSelecionado.historicoMultiAno || [
-                    { disciplinaNome: 'Língua Portuguesa', categoria: 'Formação Geral', nota10: 12, nota11: 11, nota12: 11, mediaFinal: 11 },
-                    { disciplinaNome: 'Francês', categoria: 'Formação Geral', nota10: 11, nota11: 10, nota12: 12, mediaFinal: 11 },
-                    { disciplinaNome: 'Matemática', categoria: 'Formação Geral', nota10: 13, nota11: 16, nota12: '-', mediaFinal: 15 },
-                    { disciplinaNome: 'Informática', categoria: 'Formação Geral', nota10: 11, nota11: '-', nota12: '-', mediaFinal: 11 },
-                    { disciplinaNome: 'Educação Física', categoria: 'Formação Geral', nota10: 11, nota11: 13, nota12: 14, mediaFinal: 13 },
-                    { disciplinaNome: 'Filosofia', categoria: 'Formação Geral', nota10: '-', nota11: 10, nota12: 10, mediaFinal: 10 },
-                    { disciplinaNome: 'Empreendedorismo', categoria: 'Formação Geral', nota10: 10, nota11: 11, nota12: 11, mediaFinal: 11 },
-                    { disciplinaNome: 'Introdução ao Direito', categoria: 'Formação Específica', nota10: 10, nota11: 10, nota12: 10, mediaFinal: 10 },
-                    { disciplinaNome: 'Introdução à Economia', categoria: 'Formação Específica', nota10: 10, nota11: 10, nota12: 13, mediaFinal: 11 },
-                    { disciplinaNome: 'História', categoria: 'Formação Específica', nota10: 13, nota11: 12, nota12: 14, mediaFinal: 13 },
-                    { disciplinaNome: 'Geografia', categoria: 'Formação Específica', nota10: 10, nota11: 13, nota12: 10, mediaFinal: 11 },
-                    { disciplinaNome: 'Desenvolvimento Económico e Social', categoria: 'Formação Específica', nota10: '-', nota11: '-', nota12: 11, mediaFinal: 11 },
-                    { disciplinaNome: 'Psicologia', categoria: 'Disciplina Opcional', nota10: '-', nota11: 14, nota12: 13, mediaFinal: 14 }
-                  ]).map((item, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="p-1.5 border-r border-black font-medium">{item.disciplinaNome}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{item.nota10}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{item.nota11}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{item.nota12}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{item.mediaFinal}</td>
-                      <td className="p-1.5 text-center font-medium">
-                        {typeof item.mediaFinal === 'number' ? converterNotaParaExtensoMED(item.mediaFinal) : item.mediaFinal}
-                      </td>
+          {tipoCertificadoEfetivo === 'iiciclo_12' && (() => {
+            const temHistorico = alunoSelecionado?.historicoMultiAno && alunoSelecionado.historicoMultiAno.length > 0;
+            const itens = temHistorico ? alunoSelecionado.historicoMultiAno! : disciplinasDaClasseDocumento.map(disc => {
+              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
+              const val = n?.notaFinal ?? n?.mediaTrimestral;
+              const mf = val !== undefined && val !== null ? Math.round(val) : null;
+              return {
+                disciplinaNome: disc.nome,
+                categoria: (disc as any).componente === 'Específica' ? 'Formação Específica' : 'Formação Geral',
+                nota10: '—',
+                nota11: '—',
+                nota12: n?.mediaTrimestral !== undefined ? Math.round(n.mediaTrimestral) : '—',
+                mediaFinal: mf !== null ? mf : ('—' as any)
+              };
+            });
+            const validas = itens.filter(i => typeof i.mediaFinal === 'number');
+            const mediaFinalCiclo = validas.length > 0 ? Math.round(validas.reduce((a, b) => a + (Number(b.mediaFinal) || 0), 0) / validas.length) : null;
+
+            return (
+              <div className="pt-2">
+                <table className="w-full text-xs border border-black text-left">
+                  <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
+                    <tr>
+                      <th className="p-1.5 border-r border-black text-left">DISCIPLINAS</th>
+                      <th className="p-1.5 border-r border-black w-14">10.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-14">11.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-14">12.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-14 bg-gray-200">M. Final</th>
+                      <th className="p-1.5 w-44">Média por Extenso</th>
                     </tr>
-                  ))}
-                  <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
-                    <td className="p-2 border-r border-black uppercase">MÉDIA DO CICLO</td>
-                    <td colSpan={3} className="p-2 border-r border-black text-center">Conclusão do Ensino Secundário Geral</td>
-                    <td className="p-2 border-r border-black text-center text-sm font-black">12</td>
-                    <td className="p-2 text-center text-xs font-black uppercase">Doze Valores</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-black text-[11px]">
+                    {itens.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-1.5 border-r border-black font-medium">{item.disciplinaNome}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota10 ?? '—'}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota11 ?? '—'}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota12 ?? '—'}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{item.mediaFinal ?? '—'}</td>
+                        <td className="p-1.5 text-center font-medium">
+                          {typeof item.mediaFinal === 'number' ? converterNotaParaCertificadoExtenso(item.mediaFinal) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
+                      <td className="p-2 border-r border-black uppercase">MÉDIA DO CICLO</td>
+                      <td colSpan={3} className="p-2 border-r border-black text-center">Conclusão do Ensino Secundário Geral</td>
+                      <td className="p-2 border-r border-black text-center text-sm font-black">{mediaFinalCiclo !== null ? mediaFinalCiclo : '—'}</td>
+                      <td className="p-2 text-center text-xs font-black uppercase">{mediaFinalCiclo !== null ? converterNotaParaCertificadoExtenso(mediaFinalCiclo) : 'Sem notas lançadas'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
 
           {/* TABELA 4: ENSINO TÉCNICO-PROFISSIONAL / MAGISTÉRIO (10ª A 13ª CLASSES) */}
-          {tipoCertificadoEfetivo === 'tecnico_12_13' && (
-            <div className="pt-2">
-              <table className="w-full text-xs border border-black text-left">
-                <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
-                  <tr>
-                    <th className="p-1.5 border-r border-black text-left">COMPONENTES DE FORMAÇÃO TÉCNICA</th>
-                    <th className="p-1.5 border-r border-black w-12">10.ª</th>
-                    <th className="p-1.5 border-r border-black w-12">11.ª</th>
-                    <th className="p-1.5 border-r border-black w-12">12.ª</th>
-                    <th className="p-1.5 border-r border-black w-12">13.ª</th>
-                    <th className="p-1.5 border-r border-black w-16">PAP/Estágio</th>
-                    <th className="p-1.5 border-r border-black w-14 bg-gray-200">M. Final</th>
-                    <th className="p-1.5 w-36">Por Extenso</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black text-[11px]">
-                  {[
-                    { disc: 'Língua Portuguesa', n10: 12, n11: 12, n12: 13, n13: 13, pap: '-', mf: 13 },
-                    { disc: 'Língua Inglesa Técnica', n10: 13, n11: 14, n12: 14, n13: 15, pap: '-', mf: 14 },
-                    { disc: 'Matemática Aplicada', n10: 14, n11: 14, n12: 15, n13: 15, pap: '-', mf: 15 },
-                    { disc: 'Física Aplicada', n10: 12, n11: 13, n12: 13, n13: 14, pap: '-', mf: 13 },
-                    { disc: 'Tecnologias de Informação e Comunicação', n10: 14, n11: 15, n12: 16, n13: 16, pap: '-', mf: 15 },
-                    { disc: 'Sistemas Operativos e Redes', n10: 13, n11: 14, n12: 15, n13: 16, pap: '-', mf: 15 },
-                    { disc: 'Técnicas e Linguagens de Programação', n10: 14, n11: 15, n12: 16, n13: 17, pap: '-', mf: 16 },
-                    { disc: 'Empreendedorismo e Gestão', n10: 12, n11: 13, n12: 13, n13: 14, pap: '-', mf: 13 },
-                    { disc: 'Organização e Gestão Industrial', n10: '-', n11: 12, n12: 13, n13: 14, pap: '-', mf: 13 },
-                    { disc: 'Prova de Aptidão Profissional (PAP)', n10: '-', n11: '-', n12: '-', n13: 17, pap: 17, mf: 17 },
-                    { disc: 'Estágio Curricular Supervisionado', n10: '-', n11: '-', n12: '-', n13: 18, pap: 18, mf: 18 }
-                  ].map((row, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n10}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n11}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n12}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.n13}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono">{row.pap}</td>
-                      <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.mf}</td>
-                      <td className="p-1.5 text-center font-medium">{converterNotaParaExtensoMED(row.mf)}</td>
+          {tipoCertificadoEfetivo === 'tecnico_12_13' && (() => {
+            const discs = disciplinasDaClasseDocumento.length > 0
+              ? disciplinasDaClasseDocumento
+              : disciplinas.filter(d => d.nivelEnsino === 'EnsinoTecnico' || d.ehTecnica);
+            const linhas = discs.map(disc => {
+              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
+              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : undefined;
+              const mf = val !== undefined && val !== null ? Math.round(val) : null;
+              const mediaTrim = n && n.mediaTrimestral !== undefined ? Math.round(n.mediaTrimestral) : '—';
+              return {
+                disc: disc.nome,
+                n10: '—',
+                n11: '—',
+                n12: mediaTrim,
+                n13: '—',
+                pap: '—',
+                mf
+              };
+            });
+            const validas = linhas.filter(l => l.mf !== null);
+            const mediaFinalTecnico = validas.length > 0 ? Math.round(validas.reduce((a, b) => a + (b.mf || 0), 0) / validas.length) : null;
+
+            return (
+              <div className="pt-2">
+                <table className="w-full text-xs border border-black text-left">
+                  <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
+                    <tr>
+                      <th className="p-1.5 border-r border-black text-left">COMPONENTES DE FORMAÇÃO TÉCNICA</th>
+                      <th className="p-1.5 border-r border-black w-12">10.ª</th>
+                      <th className="p-1.5 border-r border-black w-12">11.ª</th>
+                      <th className="p-1.5 border-r border-black w-12">12.ª</th>
+                      <th className="p-1.5 border-r border-black w-12">13.ª</th>
+                      <th className="p-1.5 border-r border-black w-16">PAP/Estágio</th>
+                      <th className="p-1.5 border-r border-black w-14 bg-gray-200">M. Final</th>
+                      <th className="p-1.5 w-36">Por Extenso</th>
                     </tr>
-                  ))}
-                  <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
-                    <td className="p-2 border-r border-black uppercase">MÉDIA FINAL DO CURSO TÉCNICO</td>
-                    <td colSpan={5} className="p-2 border-r border-black text-center">Habilitação de Técnico Médio</td>
-                    <td className="p-2 border-r border-black text-center text-sm font-black">15</td>
-                    <td className="p-2 text-center text-xs font-black uppercase">Quinze Valores</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-black text-[11px]">
+                    {linhas.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n10}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n11}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n12}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n13}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{row.pap}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.mf !== null ? row.mf : '—'}</td>
+                        <td className="p-1.5 text-center font-medium">{row.mf !== null ? converterNotaParaCertificadoExtenso(row.mf) : '—'}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
+                      <td className="p-2 border-r border-black uppercase">MÉDIA FINAL DO CURSO TÉCNICO</td>
+                      <td colSpan={5} className="p-2 border-r border-black text-center">Habilitação de Técnico Médio</td>
+                      <td className="p-2 border-r border-black text-center text-sm font-black">{mediaFinalTecnico !== null ? mediaFinalTecnico : '—'}</td>
+                      <td className="p-2 text-center text-xs font-black uppercase">{mediaFinalTecnico !== null ? converterNotaParaCertificadoExtenso(mediaFinalTecnico) : 'Sem notas lançadas'}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
 
           {/* Dados de Registo no Livro e Folha */}
           <div className="text-xs leading-relaxed text-justify space-y-2 pt-2">
             <p>
-              Registado no Livro de Matrícula sob o n.º <strong>{alunoSelecionado.livroRegisto || '220518MA2003'}</strong>, Processo n.º <strong>{alunoSelecionado.numeroProcesso || '220518E1396'}</strong>, Folha n.º <strong>{alunoSelecionado.folhaRegisto || 'EJ-2024/2025'}</strong>.
+              Registado no Livro de Matrícula sob o n.º <strong>{alunoSelecionado.livroRegisto || '—'}</strong>, Processo n.º <strong>{alunoSelecionado.numeroProcesso || alunoSelecionado.codigoMatricula || '—'}</strong>, Folha n.º <strong>{alunoSelecionado.folhaRegisto || '—'}</strong>.
             </p>
             <p>
               Por ser verdade e ter sido requerido, mandou-se passar o presente Certificado que vai assinado pelas entidades competentes e autenticado com o carimbo a óleo em uso nesta Instituição de Ensino.
             </p>
             <p className="text-right pt-2 font-medium">
-              {escola.municipio || 'Mbanza Kongo'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+              {escola.municipio || escola.provincia || 'Angola'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
             </p>
           </div>
 
@@ -1824,6 +1906,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* ========================================================================= */}
@@ -1883,11 +1966,18 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
                     {/* Foto & Dados do Aluno */}
                     <div className="flex items-center space-x-2.5 mt-2">
-                      <img 
-                        src={aluno.fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'} 
-                        alt={aluno.nomeCompleto} 
-                        className="h-20 w-16 rounded object-cover border-2 border-blue-900 print:border-black shrink-0 shadow-2xs"
-                      />
+                      {aluno.fotoUrl ? (
+                        <img 
+                          src={aluno.fotoUrl} 
+                          alt={aluno.nomeCompleto} 
+                          className="h-20 w-16 rounded object-cover border-2 border-blue-900 print:border-black shrink-0 shadow-2xs"
+                        />
+                      ) : (
+                        <div className="h-20 w-16 rounded bg-gray-100 border-2 border-dashed border-gray-400 flex flex-col items-center justify-center text-gray-400 shrink-0">
+                          <User className="w-6 h-6 mb-0.5" />
+                          <span className="text-[7px] font-bold">FOTO 3x4</span>
+                        </div>
+                      )}
                       <div className="min-w-0 text-[10px] leading-tight space-y-0.5">
                         <h4 className="font-extrabold text-gray-900 truncate">{aluno.nomeCompleto}</h4>
                         <p className="text-gray-600">Classe: <strong>{turma?.classe}</strong></p>
@@ -1934,7 +2024,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       {/* ========================================================================= */}
       {/* 4. FICHA INDIVIDUAL DO ALUNO (REGISTO BIOGRÁFICO & MATRÍCULA)              */}
       {/* ========================================================================= */}
-      {docType === 'ficha_individual_aluno' && alunoSelecionado && (
+      {docType === 'ficha_individual_aluno' && (
+        !alunoSelecionado ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+            <User className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-gray-800">Nenhum Estudante Registado ou Selecionado</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Para visualizar a Ficha Individual, selecione ou registe um estudante.
+            </p>
+          </div>
+        ) : (
         <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           <div className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
@@ -1973,18 +2072,25 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* Foto e Dados Pessoais */}
           <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
-            <img 
-              src={alunoSelecionado.fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'} 
-              alt={alunoSelecionado.nomeCompleto} 
-              className="h-28 w-24 rounded-lg object-cover border-2 border-black shrink-0 mx-auto sm:mx-0"
-            />
+            {alunoSelecionado.fotoUrl ? (
+              <img 
+                src={alunoSelecionado.fotoUrl} 
+                alt={alunoSelecionado.nomeCompleto} 
+                className="h-28 w-24 rounded-lg object-cover border-2 border-black shrink-0 mx-auto sm:mx-0"
+              />
+            ) : (
+              <div className="h-28 w-24 rounded-lg bg-gray-100 border-2 border-dashed border-gray-400 flex flex-col items-center justify-center text-gray-400 shrink-0 mx-auto sm:mx-0">
+                <User className="w-8 h-8 mb-1" />
+                <span className="text-[8px] font-bold">FOTO 3x4</span>
+              </div>
+            )}
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
               <div><span className="text-gray-600">Nome Completo:</span> <strong className="uppercase">{alunoSelecionado.nomeCompleto}</strong></div>
               <div><span className="text-gray-600">Gênero:</span> <strong>{alunoSelecionado.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
               <div><span className="text-gray-600">Documento de Identificação:</span> <strong className="font-mono">{alunoSelecionado.tipoDocumento || 'BI'} nº {alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—'}</strong></div>
-              <div><span className="text-gray-600">Data de Nascimento:</span> <strong>{alunoSelecionado.dataNascimento}</strong></div>
-              <div><span className="text-gray-600">Naturalidade:</span> <strong>{alunoSelecionado.naturalidade}</strong></div>
-              <div><span className="text-gray-600">Província de Origem:</span> <strong>{alunoSelecionado.provinciaOrigem}</strong></div>
+              <div><span className="text-gray-600">Data de Nascimento:</span> <strong>{alunoSelecionado.dataNascimento || '—'}</strong></div>
+              <div><span className="text-gray-600">Naturalidade:</span> <strong>{alunoSelecionado.naturalidade || '—'}</strong></div>
+              <div><span className="text-gray-600">Província de Origem:</span> <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong></div>
               <div className="sm:col-span-2"><span className="text-gray-600">Residência / Bairro:</span> <strong>{alunoSelecionado.endereco || '—'}</strong></div>
             </div>
           </div>
@@ -2004,10 +2110,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           <div className="border-b border-black pb-4 text-xs space-y-1">
             <h4 className="font-black uppercase text-[11px] text-gray-800">Enquadramento Pedagógico</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded">
-              <div><span className="text-gray-600 block">Classe:</span><strong>{alunoSelecionado.classeId || turmaDoAluno.classe}</strong></div>
-              <div><span className="text-gray-600 block">Turma:</span><strong>{turmaDoAluno.nome}</strong></div>
-              <div><span className="text-gray-600 block">Turno:</span><strong>{turmaDoAluno.turno || 'Manhã'}</strong></div>
-              <div><span className="text-gray-600 block">Sala:</span><strong>{turmaDoAluno.sala || '01'}</strong></div>
+              <div><span className="text-gray-600 block">Classe:</span><strong>{alunoSelecionado.classeId || turmaDoAluno?.classe || '—'}</strong></div>
+              <div><span className="text-gray-600 block">Turma:</span><strong>{turmaDoAluno?.nome || '—'}</strong></div>
+              <div><span className="text-gray-600 block">Turno:</span><strong>{turmaDoAluno?.turno || '—'}</strong></div>
+              <div><span className="text-gray-600 block">Sala:</span><strong>{turmaDoAluno?.sala || '—'}</strong></div>
               {alunoSelecionado.curso && (
                 <div className="col-span-2 sm:col-span-4 pt-1"><span className="text-gray-600">Curso:</span> <strong>{alunoSelecionado.curso}</strong></div>
               )}
@@ -2030,6 +2136,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* ========================================================================= */}
@@ -2054,7 +2161,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </select>
           </div>
 
-          {funcionarioSelecionado && (
+          {funcionarioSelecionado ? (
             <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
               <div className="text-center space-y-1 border-b-2 border-black pb-3">
                 <div className="flex justify-center mb-1">
@@ -2077,20 +2184,27 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
               {/* Foto e Identificação */}
               <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
-                <img 
-                  src={funcionarioSelecionado.fotoUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'} 
-                  alt={funcionarioSelecionado.nomeCompleto} 
-                  className="h-28 w-24 rounded-lg object-cover border-2 border-black shrink-0 mx-auto sm:mx-0"
-                />
+                {funcionarioSelecionado.fotoUrl ? (
+                  <img 
+                    src={funcionarioSelecionado.fotoUrl} 
+                    alt={funcionarioSelecionado.nomeCompleto} 
+                    className="h-28 w-24 rounded-lg object-cover border-2 border-black shrink-0 mx-auto sm:mx-0"
+                  />
+                ) : (
+                  <div className="h-28 w-24 rounded-lg bg-gray-100 border-2 border-dashed border-gray-400 flex flex-col items-center justify-center text-gray-400 shrink-0 mx-auto sm:mx-0">
+                    <User className="w-8 h-8 mb-1" />
+                    <span className="text-[8px] font-bold">FOTO 3x4</span>
+                  </div>
+                )}
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
                   <div><span className="text-gray-600">Nome Completo:</span> <strong className="uppercase">{funcionarioSelecionado.nomeCompleto}</strong></div>
-                  <div><span className="text-gray-600">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{funcionarioSelecionado.numeroBI}</strong></div>
+                  <div><span className="text-gray-600">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{funcionarioSelecionado.numeroBI || '—'}</strong></div>
                   <div><span className="text-gray-600">Gênero:</span> <strong>{funcionarioSelecionado.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
-                  <div><span className="text-gray-600">Estado Civil:</span> <strong>{funcionarioSelecionado.estadoCivil || 'Casado(a)'}</strong></div>
+                  <div><span className="text-gray-600">Estado Civil:</span> <strong>{funcionarioSelecionado.estadoCivil || '—'}</strong></div>
                   <div><span className="text-gray-600">Nacionalidade:</span> <strong>{funcionarioSelecionado.nacionalidade || 'Angolana'}</strong></div>
-                  <div><span className="text-gray-600">Naturalidade:</span> <strong>{funcionarioSelecionado.naturalidadeMunicipio || (funcionarioSelecionado as any).naturalidade || 'Luanda'}</strong></div>
-                  <div><span className="text-gray-600">Telefone Principal:</span> <strong className="font-mono">{funcionarioSelecionado.telefone}</strong></div>
-                  <div><span className="text-gray-600">Correio Electrónico:</span> <strong>{funcionarioSelecionado.email}</strong></div>
+                  <div><span className="text-gray-600">Naturalidade:</span> <strong>{funcionarioSelecionado.naturalidadeMunicipio || (funcionarioSelecionado as any).naturalidade || '—'}</strong></div>
+                  <div><span className="text-gray-600">Telefone Principal:</span> <strong className="font-mono">{funcionarioSelecionado.telefone || '—'}</strong></div>
+                  <div><span className="text-gray-600">Correio Electrónico:</span> <strong>{funcionarioSelecionado.email || '—'}</strong></div>
                 </div>
               </div>
 
@@ -2098,16 +2212,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <div className="border-b border-black pb-4 text-xs space-y-1.5">
                 <h4 className="font-black uppercase text-[11px] text-gray-800">Habilitações & Carreira Ministerial (MED)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded">
-                  <div><span className="text-gray-600">Grau Académico:</span> <strong>{funcionarioSelecionado.grauAcademico || 'Licenciado'}</strong></div>
-                  <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcionarioSelecionado.especialidade || funcionarioSelecionado.habilitacoes}</strong></div>
-                  <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcionarioSelecionado.categoriaProfissional || 'Professor do IIº Ciclo do Ensino Secundário - 6º Grau'}</strong></div>
-                  <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcionarioSelecionado.cargo}</strong></div>
+                  <div><span className="text-gray-600">Grau Académico:</span> <strong>{funcionarioSelecionado.grauAcademico || '—'}</strong></div>
+                  <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcionarioSelecionado.especialidade || funcionarioSelecionado.habilitacoes || '—'}</strong></div>
+                  <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcionarioSelecionado.categoriaProfissional || '—'}</strong></div>
+                  <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcionarioSelecionado.cargo || '—'}</strong></div>
                   <div><span className="text-gray-600">Perfil de Acesso no Sistema:</span> <strong className="text-blue-900">{funcionarioSelecionado.role}</strong></div>
-                  <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcionarioSelecionado.numeroAgente || (funcionarioSelecionado as any).numeroMecanografico || 'AG-89412'}</strong></div>
-                  <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcionarioSelecionado.tipoContrato || 'Efetivo (Quadro Definitivo)'}</strong></div>
+                  <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcionarioSelecionado.numeroAgente || (funcionarioSelecionado as any).numeroMecanografico || '—'}</strong></div>
+                  <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcionarioSelecionado.tipoContrato || '—'}</strong></div>
                   <div><span className="text-gray-600">Situação Funcional:</span> <strong className="text-emerald-800">{funcionarioSelecionado.situacaoFuncional || 'Ativo no Efetivo'}</strong></div>
-                  <div><span className="text-gray-600">Data de Admissão:</span> <strong>{funcionarioSelecionado.dataAdmissao || '2020-02-01'}</strong></div>
-                  <div><span className="text-gray-600">Carga Horária Semanal:</span> <strong>{funcionarioSelecionado.cargaHorariaSemanal || 24} horas/semana</strong></div>
+                  <div><span className="text-gray-600">Data de Admissão:</span> <strong>{funcionarioSelecionado.dataAdmissao || '—'}</strong></div>
+                  <div><span className="text-gray-600">Carga Horária Semanal:</span> <strong>{funcionarioSelecionado.cargaHorariaSemanal ? `${funcionarioSelecionado.cargaHorariaSemanal} horas/semana` : '—'}</strong></div>
                 </div>
               </div>
 
@@ -2115,9 +2229,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <div className="border-b border-black pb-4 text-xs space-y-1.5">
                 <h4 className="font-black uppercase text-[11px] text-gray-800">Dados Bancários & Segurança Social (INSS)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div><span className="text-gray-600 block">Instituição Bancária:</span><strong>{funcionarioSelecionado.banco || 'BFA - Banco de Fomento Angola'}</strong></div>
-                  <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcionarioSelecionado.iban || 'AO06.0006.0000.1234.5678.9012.3'}</strong></div>
-                  <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcionarioSelecionado.numeroSegurancaSocial || 'INSS-481920'}</strong></div>
+                  <div><span className="text-gray-600 block">Instituição Bancária:</span><strong>{funcionarioSelecionado.banco || '—'}</strong></div>
+                  <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcionarioSelecionado.iban || '—'}</strong></div>
+                  <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcionarioSelecionado.numeroSegurancaSocial || '—'}</strong></div>
                 </div>
               </div>
 
@@ -2136,6 +2250,14 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <div className="border-b border-black w-40 mx-auto" />
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+              <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-gray-800">Nenhum Funcionário Registado ou Selecionado</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Para visualizar a Ficha Profissional, registe professores ou membros da equipa no módulo de Recursos Humanos.
+              </p>
             </div>
           )}
         </div>

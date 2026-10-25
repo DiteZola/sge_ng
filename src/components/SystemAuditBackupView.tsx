@@ -433,7 +433,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   const [novoUserTelefone, setNovoUserTelefone] = useState('+244 923 000 000');
   const [novoUserCargo, setNovoUserCargo] = useState('Professor');
   const [novoUserRole, setNovoUserRole] = useState<UserRole>('Professor');
-  const [novoUserSenha, setNovoUserSenha] = useState('Educa2026!');
+  const [novoUserSenha, setNovoUserSenha] = useState('');
 
   const handleConfirmarEliminarUsuario = () => {
     if (!usuarioParaEliminar) return;
@@ -499,7 +499,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
         telefone: novoUserTelefone.trim(),
         cargo: novoUserCargo.trim(),
         role: novoUserRole,
-        password: novoUserSenha || 'Educa2026!',
+        password: novoUserSenha ? novoUserSenha.trim() : '',
         ehProfessor: novoUserRole === 'Professor',
         ehAdministrativoQueLeciona: false,
         genero: 'M',

@@ -93,38 +93,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
     if (salvos) {
       try { return JSON.parse(salvos); } catch {}
     }
-    return [
-      {
-        id: 'desp-01',
-        escolaId: escola.id,
-        numeroDespacho: `Despacho n.º 018/DG/${escola.anoLectivoActivo.split('/')[0]}`,
-        ano: escola.anoLectivoActivo,
-        assunto: 'Homologação do Calendário das Provas Trimestrais e Constituição das Comissões de Vigilância',
-        categoria: 'Exames',
-        fundamentacaoLegal: 'Nos termos da alínea d) do Artigo 109º da Lei de Bases do Sistema de Educação e Ensino (Lei n.º 32/20) e do Regulamento Geral das Escolas do Ensino Geral.',
-        conteudo: '1. Ficam homologadas as datas das Provas Trimestrais para todas as classes do Ensino Primário e Secundário da instituição.\n2. Todos os docentes em exercício ficam obrigatoriamente vinculados à escala de vigilância e correção oficial.\n3. O prazo improrrogável para lançamento das notas na plataforma SGE-NG encerra 72 horas após a realização da última prova.',
-        dataEmissao: new Date().toISOString().split('T')[0],
-        assinadoPor: escola.diretorGeralNome || currentUser.nomeCompleto,
-        cargoSignatario: 'Diretor Geral da Instituição',
-        publicoAlvo: 'Professores',
-        status: 'Em Vigor'
-      },
-      {
-        id: 'desp-02',
-        escolaId: escola.id,
-        numeroDespacho: `Despacho n.º 012/DG/${escola.anoLectivoActivo.split('/')[0]}`,
-        ano: escola.anoLectivoActivo,
-        assunto: 'Abertura Extraordinária do Prazo de Confirmação de Matrículas e Emissão de Passes com QR Code',
-        categoria: 'Discente',
-        fundamentacaoLegal: 'Em conformidade com a Circular Normativa do Gabinete Provincial da Educação e do Despacho Presidencial regulador.',
-        conteudo: '1. Fica autorizado o atendimento extraordinário pela Secretaria Escolar para confirmação de matrículas pendentes.\n2. Determina-se a obrigatoriedade da posse do Passe Escolar Oficial do SGE-NG para acesso às salas de exame e recinto escolar.',
-        dataEmissao: '2025-02-10',
-        assinadoPor: escola.diretorGeralNome || currentUser.nomeCompleto,
-        cargoSignatario: 'Diretor Geral da Instituição',
-        publicoAlvo: 'Geral',
-        status: 'Em Vigor'
-      }
-    ];
+    return [];
   });
 
   // Estado Local de Reuniões do Conselho de Direção
@@ -133,35 +102,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
     if (salvos) {
       try { return JSON.parse(salvos); } catch {}
     }
-    return [
-      {
-        id: 'reun-01',
-        escolaId: escola.id,
-        numeroAta: `Ata n.º 04/CD/${escola.anoLectivoActivo.split('/')[0]}`,
-        tipo: 'Ordinária',
-        data: new Date().toISOString().split('T')[0],
-        hora: '09:00',
-        local: 'Gabinete da Direção Geral',
-        ordemDoDia: [
-          'Apreciação do aproveitamento pedagógico do trimestre em curso',
-          'Análise do cumprimento da assiduidade docente e livro de ponto',
-          'Preparação dos termos de exame e pautas finais da comissão de júri',
-          'Diversos e deliberações administrativas'
-        ],
-        membrosPresentes: [
-          escola.diretorGeralNome || 'Diretor Geral',
-          escola.subdiretorPedagogicoNome || 'Subdiretor Pedagógico',
-          'Subdirector Administrativo',
-          'Chefe de Secretaria'
-        ],
-        deliberacoes: [
-          'Aprovação por unanimidade das medidas de reforço pedagógico nas disciplinas com aproveitamento abaixo de 60%.',
-          'Determinação de notificação formal aos encarregados de educação com propinas ou documentos em atraso.',
-          'Homologação prévia das comissões de júri de exame final.'
-        ],
-        estado: 'Concluída'
-      }
-    ];
+    return [];
   });
 
   // Modal Novo Despacho
@@ -936,6 +877,14 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
                 </div>
               </div>
             ))}
+
+            {reunioes.length === 0 && (
+              <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center text-gray-500 space-y-2">
+                <Gavel className="h-8 w-8 mx-auto text-gray-400" />
+                <p className="font-bold text-sm">Nenhuma ata do conselho de direção registada até o momento.</p>
+                <p className="text-xs">Utilize o botão "Registar Nova Ata" para lavrar uma nova deliberação executiva.</p>
+              </div>
+            )}
           </div>
         </div>
       )}

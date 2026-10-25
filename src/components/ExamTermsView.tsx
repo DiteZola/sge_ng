@@ -225,14 +225,14 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
     const listaInicial: AlunoNotaTermoExame[] = alunosDaTurma.map(al => {
       // Calcular média de frequência (MF) do aluno nesta disciplina
       const notasAluno = notasCons.filter(n => n.alunoId === al.id && n.disciplinaId === discId);
-      let mf = 10;
+      let mf = 0;
       if (notasAluno.length > 0) {
-        const soma = notasAluno.reduce((acc, curr) => acc + (curr.notaFinal || curr.mediaTrimestral || 10), 0);
+        const soma = notasAluno.reduce((acc, curr) => acc + (curr.notaFinal || curr.mediaTrimestral || 0), 0);
         mf = Number((soma / notasAluno.length).toFixed(1));
       }
 
-      const notaPE = 10;
-      const mediaFinal = Math.round((mf * pesoMF) + (notaPE * pesoExame));
+      const notaPE = 0;
+      const mediaFinal = mf > 0 || notaPE > 0 ? Math.round((mf * pesoMF) + (notaPE * pesoExame)) : 0;
       const res: 'Aprovado' | 'Não Aprovado' | 'Recurso' = mediaFinal >= 10 ? 'Aprovado' : mediaFinal >= 7 ? 'Recurso' : 'Não Aprovado';
 
       return {

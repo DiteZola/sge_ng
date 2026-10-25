@@ -1440,6 +1440,14 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               );
             })}
+
+            {turmas.length === 0 && (
+              <div className="col-span-full p-12 bg-white rounded-2xl border border-gray-200 text-center text-gray-500 space-y-2">
+                <Boxes className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                <p className="font-bold text-sm text-gray-700">Nenhuma turma criada para o ano letivo ativo.</p>
+                <p className="text-xs text-gray-400">Clique em "Criar Nova Turma" para cadastrar a primeira turma da instituição.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1560,6 +1568,16 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                       </tr>
                     );
                   })}
+
+                  {atribuicoes.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-gray-500">
+                        <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                        <p className="font-bold text-sm text-gray-700">Nenhuma atribuição docente registada.</p>
+                        <p className="text-xs text-gray-400 mt-1">Utilize o formulário acima para associar um professor a uma turma e disciplina.</p>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { dbService, DEFAULT_ADMIN_GERAL_PRODUCAO } from './services/storage';
 import { verificarIntegridadeSistema, SystemIntegrityStatus } from './services/firebaseClient';
@@ -52,6 +52,7 @@ import { StudentPassesView } from './components/StudentPassesView';
 import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
 import { SchoolCalendarView } from './components/SchoolCalendarView';
 import { Footer } from './components/Footer';
+import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
 import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
 export default function App() {
@@ -149,6 +150,27 @@ export default function App() {
     return currentUser;
   }, [modoApoioTecnico, currentUser]);
 
+  // Função centralizada para recarregar todos os dados do banco local após sincronização com o Firebase
+  const recarregarDados = useCallback(() => {
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
+    setFuncionarios(dbService.obterFuncionarios());
+    setTurmas(dbService.obterTurmas());
+    setAlunos(dbService.obterAlunos());
+    setDisciplinas(dbService.obterDisciplinas());
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
+    setAtribuicoes(dbService.obterAtribuicoes());
+    setJuris(dbService.obterJuris());
+    setNotas(dbService.obterNotas());
+    setAvaliacoes(dbService.obterAvaliacoes());
+    setAssiduidade(dbService.obterAssiduidade());
+    setSolicitacoes(dbService.obterSolicitacoes());
+    setMensagens(dbService.obterMensagens());
+    setLivros(dbService.obterLivros());
+    setLogs(dbService.obterLogs());
+    setAnosLectivos(dbService.getAnosLectivos());
+  }, []);
+
   // Listener para status online/offline e verificação do Administrador Geral no Firebase
   useEffect(() => {
     let ativo = true;
@@ -187,18 +209,6 @@ export default function App() {
           setVerificandoAdminOnline(false);
         }
       }
-    };
-
-    const recarregarDados = () => {
-      setEscolas(dbService.getEscolas());
-      setEscola(dbService.getEscolaAtiva());
-      setFuncionarios(dbService.obterFuncionarios());
-      setTurmas(dbService.obterTurmas());
-      setAlunos(dbService.obterAlunos());
-      setDisciplinas(dbService.obterDisciplinas());
-      setNotasConsolidadas(dbService.obterNotasConsolidadas());
-      setLogs(dbService.obterLogs());
-      setAnosLectivos(dbService.getAnosLectivos());
     };
 
     verificarAdmin();
@@ -1031,40 +1041,49 @@ export default function App() {
   // que NÃO existe conta de Administrador Geral (e se a internet NÃO estiver lenta nem offline).
   if (mostrarSetupInicial && !isAuthenticated) {
     return (
-      <SystemInitialSetupView
-        onSetupConcluido={(novoAdmin) => {
-          setMostrarSetupInicial(false);
-          setTemAdminGeral(true);
-          setAuthenticatedUser(novoAdmin);
-          setIsAuthenticated(true);
-          localStorage.setItem('sge_authenticated', 'true');
-          setFuncionarios(dbService.obterFuncionarios());
-          setEscolas(dbService.getEscolas());
-          setEscola(dbService.getEscolaAtiva());
-          setActiveTab('dashboard');
-        }}
-      />
+      <>
+        <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
+        <SystemInitialSetupView
+          onSetupConcluido={(novoAdmin) => {
+            setMostrarSetupInicial(false);
+            setTemAdminGeral(true);
+            setAuthenticatedUser(novoAdmin);
+            setIsAuthenticated(true);
+            localStorage.setItem('sge_authenticated', 'true');
+            setFuncionarios(dbService.obterFuncionarios());
+            setEscolas(dbService.getEscolas());
+            setEscola(dbService.getEscolaAtiva());
+            setActiveTab('dashboard');
+          }}
+        />
+      </>
     );
   }
 
   // Ecrã Oficial de Autenticação se não houver sessão ativa (virgem e sem secção de configuração do administrador)
   if (!isAuthenticated) {
     return (
-      <LoginView
-        escolas={escolas}
-        selectedEscola={escola}
-        onSelectEscola={handleSelectEscola}
-        anosLectivos={anosLectivos}
-        selectedAno={escola.anoLectivoActivo || '2025/2026'}
-        onSelectAno={handleSelectAnoLectivo}
-        funcionarios={funcionarios}
-        onLogin={handleLogin}
-      />
+      <>
+        <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
+        <LoginView
+          escolas={escolas}
+          selectedEscola={escola}
+          onSelectEscola={handleSelectEscola}
+          anosLectivos={anosLectivos}
+          selectedAno={escola.anoLectivoActivo || '2025/2026'}
+          onSelectAno={handleSelectAnoLectivo}
+          funcionarios={funcionarios}
+          onLogin={handleLogin}
+        />
+      </>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#FFFFFF] text-[#111827] flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+      {/* Barra de Progresso e Notificação de Sincronização em Tempo Real com o Firebase */}
+      <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
+
       {/* Header Superior Seguro */}
       <Header
         escola={escola}

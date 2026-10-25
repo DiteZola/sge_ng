@@ -538,11 +538,18 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                         {/* Foto do Aluno em formato 3x4 ampliado */}
                         {isAtivo('foto') && (
                           <div className="shrink-0 flex flex-col items-center">
-                            <img 
-                              src={aluno.fotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'} 
-                              alt={aluno.nomeCompleto} 
-                              className="h-20 w-16 rounded object-cover border-2 border-slate-700 shadow-2xs print:border-black"
-                            />
+                            {aluno.fotoUrl ? (
+                              <img 
+                                src={aluno.fotoUrl} 
+                                alt={aluno.nomeCompleto} 
+                                className="h-20 w-16 rounded object-cover border-2 border-slate-700 shadow-2xs print:border-black"
+                              />
+                            ) : (
+                              <div className="h-20 w-16 rounded border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs print:border-black">
+                                <User className="h-6 w-6 text-gray-300 mb-0.5" />
+                                <span>FOTO 3x4</span>
+                              </div>
+                            )}
                             <span className="text-[6.5px] font-bold text-gray-500 mt-0.5 font-mono">
                               Nº {aluno.numeroOrdem || 1}
                             </span>

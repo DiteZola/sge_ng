@@ -823,17 +823,17 @@ export const dbService = {
       nomeOficial: dados.nomeOficial || 'Nova Escola do Sistema',
       denominacao: dados.denominacao || '',
       sigla: dados.sigla || 'ESC',
-      logotipo: dados.logotipo || 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=150&auto=format&fit=crop&q=80',
-      nif: dados.nif || '5400000000',
-      endereco: dados.endereco || 'Angola',
+      logotipo: dados.logotipo || '',
+      nif: dados.nif || '',
+      endereco: dados.endereco || '',
       municipio: dados.municipio || 'Luanda',
       provincia: dados.provincia || 'Luanda',
       governoProvincial: dados.governoProvincial || `GOVERNO PROVINCIAL DE ${dados.provincia?.toUpperCase() || 'LUANDA'}`,
       gabineteEducacao: dados.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO',
-      contactos: dados.contactos || '+244 923 000 000',
-      email: dados.email || 'escola@med.gov.ao',
-      decretoCriacao: dados.decretoCriacao || 'Decreto Executivo n.º 001/24',
-      artigoLegal: dados.artigoLegal || 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto',
+      contactos: dados.contactos || '',
+      email: dados.email || '',
+      decretoCriacao: dados.decretoCriacao || '',
+      artigoLegal: dados.artigoLegal || '',
       diretorGeralNome: dados.diretorGeralNome || 'Não Atribuído',
       subdiretorPedagogicoNome: dados.subdiretorPedagogicoNome || 'A designar',
       chefeSecretariaNome: dados.chefeSecretariaNome || 'A designar',
@@ -2891,7 +2891,7 @@ export const dbService = {
             provinciaOrigem: row.ProvinciaOrigem || row.provinciaOrigem || 'Luanda',
             numeroBI: row.BI || row.numeroBI || '000000000LA000',
             telefone: row.Telefone || row.telefone || '',
-            fotoUrl: 'https://images.unsplash.com/photo-1543610892-0b1f7e6d8ac1?w=150&auto=format&fit=crop&q=80',
+            fotoUrl: '',
             encarregadoNome: row.Encarregado || row.encarregadoNome || 'Encarregado de Educação',
             encarregadoParentesco: 'Encarregado',
             encarregadoTelefone: row.TelefoneEncarregado || row.encarregadoTelefone || '',
@@ -3130,7 +3130,7 @@ export const dbService = {
     const suspensas = escolas.filter(e => !e.ativo || e.estadoEscola === 'Suspensa').length;
     const mediaGeralNacional = notasCons.length > 0
       ? Math.round((notasCons.reduce((acc, c) => acc + c.mediaTrimestral, 0) / notasCons.length) * 10) / 10
-      : 13.5;
+      : 0;
 
     const resumoData = [
       { Indicador: 'República de Angola', Valor: 'Ministério da Educação (MED)' },
@@ -3141,7 +3141,7 @@ export const dbService = {
       { Indicador: 'Total de Alunos Matriculados (Rede)', Valor: alunos.length },
       { Indicador: 'Total de Funcionários & Professores', Valor: funcs.length },
       { Indicador: 'Total de Turmas Homologadas', Valor: turmas.length },
-      { Indicador: 'Taxa Média de Aproveitamento Nacional', Valor: `${mediaGeralNacional} valores` }
+      { Indicador: 'Taxa Média de Aproveitamento Nacional', Valor: notasCons.length > 0 ? `${mediaGeralNacional} valores` : 'Sem notas registadas' }
     ];
     const wsResumo = XLSX.utils.json_to_sheet(resumoData);
     XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo Executivo');
@@ -3386,7 +3386,7 @@ export const dbService = {
         habilitacoes: 'Especialista em Administração de Sistemas',
         dataAdmissao: new Date().toISOString().split('T')[0],
         ativo: true,
-        fotoUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200',
+        fotoUrl: (adminData as any).fotoUrl || '',
         role: 'AdminGeral',
         statusConta: 'Ativa'
       };

@@ -19,6 +19,8 @@ export interface SyncStatus {
   isOnline: boolean;
   firestoreDisponivel: boolean;
   emSincronizacao: boolean;
+  progressoPercentual: number;
+  etapaAtual: string;
   ultimaSincronizacao: string;
   totalUsuariosSincronizados: number;
   configSincronizada: boolean;
@@ -38,14 +40,34 @@ const STORAGE_KEYS = {
   NOTAS_CONSOLIDADAS: 'sge_notas_consolidadas',
   SOLICITACOES_APOIO: 'sge_solicitacoes_apoio',
   MENSAGENS: 'sge_mensagens',
-  AUDITORIA: 'sge_auditoria'
+  AUDITORIA: 'sge_auditoria',
+  ATRIBUICOES: 'sge_atribuicoes',
+  JURIS: 'sge_juris',
+  TERMOS_EXAME: 'sge_termos_exame'
 };
 
 class FirebaseSyncEngine {
   private emSincronizacao = false;
+  private progressoPercentual = 0;
+  private etapaAtual = '';
   private ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
   private permissaoNegadaDetectada = false;
   private listeners: Array<(status: SyncStatus) => void> = [];
+
+  public atualizarProgresso(percentual: number, etapa: string) {
+    this.progressoPercentual = percentual;
+    this.etapaAtual = etapa;
+    this.notificarStatus();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sge_sync_progresso', {
+        detail: {
+          percentual,
+          etapa,
+          emSincronizacao: this.emSincronizacao
+        }
+      }));
+    }
+  }
 
   public registrarErroPermissao(err: any) {
     if (err?.code === 'permission-denied' || String(err).includes('PERMISSION_DENIED') || String(err).includes('Missing or insufficient permissions')) {
@@ -224,6 +246,28 @@ class FirebaseSyncEngine {
         localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(alunosRemotos));
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
       }, (err) => console.warn('[SGE Realtime] Escuta de alunos:', err));
+
+      // 5. Escuta em tempo real de Atribuições Docentes
+      onSnapshot(collection(firestoreDb, "atribuicoes"), (snapshot) => {
+        const atribsRemotas: any[] = [];
+        snapshot.forEach(d => {
+          const at = d.data();
+          if (at && at.id) atribsRemotas.push(at);
+        });
+        localStorage.setItem(STORAGE_KEYS.ATRIBUICOES, JSON.stringify(atribsRemotas));
+        window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+      }, (err) => console.warn('[SGE Realtime] Escuta de atribuicoes:', err));
+
+      // 6. Escuta em tempo real de Júris de Exame
+      onSnapshot(collection(firestoreDb, "juris"), (snapshot) => {
+        const jurisRemotos: any[] = [];
+        snapshot.forEach(d => {
+          const j = d.data();
+          if (j && j.id) jurisRemotos.push(j);
+        });
+        localStorage.setItem(STORAGE_KEYS.JURIS, JSON.stringify(jurisRemotos));
+        window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+      }, (err) => console.warn('[SGE Realtime] Escuta de juris:', err));
     } catch (e) {
       console.warn('[SGE Realtime] Falha ao iniciar escutas em tempo real:', e);
     }
@@ -630,6 +674,8 @@ class FirebaseSyncEngine {
     }
 
     try {
+      this.emSincronizacao = true;
+      this.atualizarProgresso(10, 'A estabelecer ligação segura ao Firebase Firestore...');
       console.log('[SGE Firebase Sync] Descarregando base de dados completa do Firestore...');
 
       const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
@@ -654,6 +700,7 @@ class FirebaseSyncEngine {
         ['kiese manuel domingos', 'ndilu manuel sebastião', 'manuel gonçalves', 'madalena fineza nzinga', 'afonso domingos cambuta'].includes((a.nomeCompleto || '').toLowerCase().trim());
 
       // 1. Escolas
+      this.atualizarProgresso(25, 'A descarregar instituições e escolas do sistema...');
       const snapEscolas = await getDocs(collection(firestoreDb, "escolas"));
       if (!snapEscolas.empty) {
         const escolasRemotas: Escola[] = [];
@@ -687,6 +734,7 @@ class FirebaseSyncEngine {
       }
 
       // 2. Funcionários & Administrador Geral
+      this.atualizarProgresso(40, 'A descarregar utilizadores, administradores e diretores...');
       const snapFuncs = await getDocs(collection(firestoreDb, "funcionarios"));
       if (!snapFuncs.empty) {
         const funcsRemotos: Funcionario[] = [];
@@ -733,6 +781,7 @@ class FirebaseSyncEngine {
       }
 
       // 3. Turmas
+      this.atualizarProgresso(55, 'A descarregar turmas, salas e anos letivos...');
       const snapTurmas = await getDocs(collection(firestoreDb, "turmas"));
       if (!snapTurmas.empty) {
         const turmasRemotas: Turma[] = [];
@@ -746,6 +795,7 @@ class FirebaseSyncEngine {
       }
 
       // 4. Alunos
+      this.atualizarProgresso(70, 'A descarregar dados de estudantes e matrículas...');
       const snapAlunos = await getDocs(collection(firestoreDb, "alunos"));
       if (!snapAlunos.empty) {
         const alunosRemotos: Aluno[] = [];
@@ -759,6 +809,7 @@ class FirebaseSyncEngine {
       }
 
       // 5. Disciplinas
+      this.atualizarProgresso(80, 'A descarregar disciplinas e matriz curricular...');
       const snapDisciplinas = await getDocs(collection(firestoreDb, "disciplinas"));
       if (!snapDisciplinas.empty) {
         const discsRemotas: any[] = [];
@@ -772,6 +823,7 @@ class FirebaseSyncEngine {
       }
 
       // 6. Notas Consolidadas (Pautas Trimestrais)
+      this.atualizarProgresso(88, 'A descarregar pautas e notas trimestrais consolidadas...');
       const snapNotasCons = await getDocs(collection(firestoreDb, "notas"));
       if (!snapNotasCons.empty) {
         const notasRemotas: any[] = [];
@@ -844,20 +896,78 @@ class FirebaseSyncEngine {
         }
       } catch {}
 
+      // 6.5 Atribuições Docentes (Multi-Dispositivo)
+      this.atualizarProgresso(93, 'A descarregar atribuições docentes, júris e termos...');
+      try {
+        const snapAtrib = await getDocs(collection(firestoreDb, "atribuicoes"));
+        if (!snapAtrib.empty) {
+          const atribsRemotas: any[] = [];
+          snapAtrib.forEach(d => {
+            const at = d.data();
+            if (at && at.id) atribsRemotas.push(at);
+          });
+          if (atribsRemotas.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.ATRIBUICOES, JSON.stringify(atribsRemotas));
+          }
+        }
+      } catch {}
+
+      // 6.6 Júris de Exame (Multi-Dispositivo)
+      try {
+        const snapJuris = await getDocs(collection(firestoreDb, "juris"));
+        if (!snapJuris.empty) {
+          const jurisRemotos: any[] = [];
+          snapJuris.forEach(d => {
+            const j = d.data();
+            if (j && j.id) jurisRemotos.push(j);
+          });
+          if (jurisRemotos.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.JURIS, JSON.stringify(jurisRemotos));
+          }
+        }
+      } catch {}
+
+      // 6.7 Termos de Exame (Multi-Dispositivo)
+      try {
+        const snapTermos = await getDocs(collection(firestoreDb, "termos_exame"));
+        if (!snapTermos.empty) {
+          const termosRemotos: any[] = [];
+          snapTermos.forEach(d => {
+            const t = d.data();
+            if (t && t.id) termosRemotos.push(t);
+          });
+          if (termosRemotos.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.TERMOS_EXAME, JSON.stringify(termosRemotos));
+          }
+        }
+      } catch {}
+
       // 7. Configuração do Sistema
+      this.atualizarProgresso(97, 'A validar parâmetros do sistema...');
       await this.buscarConfiguracaoSistema();
 
       this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+      this.emSincronizacao = false;
+      this.atualizarProgresso(100, 'Sincronização com o dispositivo concluída com sucesso!');
       this.notificarStatus();
 
       // Disparar evento para que a interface React recarregue os estados frescos
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+        window.dispatchEvent(new CustomEvent('sge_sync_notificacao', {
+          detail: {
+            sucesso: true,
+            mensagem: 'Dados sincronizados com sucesso entre o dispositivo e o Firebase!',
+            hora: this.ultimaSincronizacao
+          }
+        }));
       }
 
       return { sucesso: true, mensagem: 'Dados remotos sincronizados com sucesso!' };
     } catch (err: any) {
       console.warn('[SGE Firebase Sync] Falha ao descarregar dados remotos:', err);
+      this.emSincronizacao = false;
+      this.atualizarProgresso(0, 'Falha ao descarregar dados do Firestore.');
       return { sucesso: false, mensagem: err?.message || 'Falha ao descarregar dados do Firestore' };
     }
   }
@@ -998,6 +1108,48 @@ class FirebaseSyncEngine {
               try {
                 const mRef = doc(firestoreDb, "mensagens", m.id);
                 await setDoc(mRef, { ...m, atualizadoEm: new Date().toISOString() }, { merge: true });
+              } catch {}
+            }
+          } catch {}
+        }
+
+        // 8.1 Enviar Atribuições Docentes
+        const atribRaw = localStorage.getItem(STORAGE_KEYS.ATRIBUICOES);
+        if (atribRaw && atribRaw !== 'undefined' && atribRaw !== 'null') {
+          try {
+            const atribs: any[] = JSON.parse(atribRaw);
+            for (const at of atribs) {
+              try {
+                const atRef = doc(firestoreDb, "atribuicoes", at.id);
+                await setDoc(atRef, { ...at, atualizadoEm: new Date().toISOString() }, { merge: true });
+              } catch {}
+            }
+          } catch {}
+        }
+
+        // 8.2 Enviar Comissões de Júri
+        const jurisRaw = localStorage.getItem(STORAGE_KEYS.JURIS);
+        if (jurisRaw && jurisRaw !== 'undefined' && jurisRaw !== 'null') {
+          try {
+            const jList: any[] = JSON.parse(jurisRaw);
+            for (const j of jList) {
+              try {
+                const jRef = doc(firestoreDb, "juris", j.id);
+                await setDoc(jRef, { ...j, atualizadoEm: new Date().toISOString() }, { merge: true });
+              } catch {}
+            }
+          } catch {}
+        }
+
+        // 8.3 Enviar Termos de Exame
+        const termosRaw = localStorage.getItem(STORAGE_KEYS.TERMOS_EXAME);
+        if (termosRaw && termosRaw !== 'undefined' && termosRaw !== 'null') {
+          try {
+            const tList: any[] = JSON.parse(termosRaw);
+            for (const tm of tList) {
+              try {
+                const tmRef = doc(firestoreDb, "termos_exame", tm.id);
+                await setDoc(tmRef, { ...tm, atualizadoEm: new Date().toISOString() }, { merge: true });
               } catch {}
             }
           } catch {}
@@ -1345,6 +1497,8 @@ class FirebaseSyncEngine {
       isOnline,
       firestoreDisponivel: this.canUseFirestore(),
       emSincronizacao: this.emSincronizacao,
+      progressoPercentual: this.progressoPercentual,
+      etapaAtual: this.etapaAtual,
       ultimaSincronizacao: this.ultimaSincronizacao,
       totalUsuariosSincronizados: totalUsers,
       configSincronizada: true,

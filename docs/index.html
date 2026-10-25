@@ -16,8 +16,8 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="alternate icon" href="./favicon.ico" />
-    <script type="module" crossorigin src="./assets/index-B_Zp4cDM.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-g-Rdr-27.css">
+    <script type="module" crossorigin src="./assets/index-Cowr2Hd-.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BAV0I-Mu.css">
   <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
   <body class="bg-white text-gray-900 antialiased selection:bg-blue-100 selection:text-blue-900">
     <div id="root">
@@ -29,6 +29,26 @@
         <p style="margin-top: 18px; font-size: 12px; color: #cbd5e1; font-weight: 500;">A inicializar sistema...</p>
       </div>
     </div>
+    <script>
+      // Failsafe: se por qualquer motivo o carregamento demorar mais de 3.5s, oferece botão de desbloqueio imediato
+      setTimeout(function() {
+        var loader = document.getElementById('sge-loader');
+        if (loader && loader.parentNode) {
+          var emergencyDiv = document.getElementById('sge-emergency-action');
+          if (!emergencyDiv) {
+            emergencyDiv = document.createElement('div');
+            emergencyDiv.id = 'sge-emergency-action';
+            emergencyDiv.style.cssText = 'margin-top: 24px; text-align: center;';
+            emergencyDiv.innerHTML = '<button id="btn-force-start" style="padding: 10px 22px; background: #2563eb; color: #fff; border: 1px solid #60a5fa; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s;">Iniciar Aplicação Agora</button><div style="font-size: 11px; color: #94a3b8; margin-top: 8px;">Caso a rede esteja lenta, clique para inicializar diretamente.</div>';
+            loader.appendChild(emergencyDiv);
+            document.getElementById('btn-force-start').onclick = function() {
+              sessionStorage.setItem('sge_force_mount', 'true');
+              window.location.reload();
+            };
+          }
+        }
+      }, 3000);
+    </script>
   </body>
 </html>
 

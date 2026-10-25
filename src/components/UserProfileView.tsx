@@ -51,13 +51,6 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [mensagemErro, setMensagemErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
-  // Exemplos rápidos de fotos oficiais
-  const fotosExemplo = [
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250',
-    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=250',
-    'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=250'
-  ];
 
   const handleSalvarPerfil = (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,8 +71,8 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         setMensagemErro('A confirmação da nova palavra-passe não coincide.');
         return;
       }
-      const senhaValida = (currentUser.password || '123456');
-      if (senhaAtual && senhaAtual !== senhaValida) {
+      const senhaValida = currentUser.password || '';
+      if (senhaValida && senhaAtual && senhaAtual !== senhaValida) {
         setMensagemErro('A palavra-passe atual indicada está incorreta.');
         return;
       }
@@ -335,47 +328,50 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           </div>
 
-          <div className="space-y-3">
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">
-                URL da Fotografia
+                URL da Fotografia ou Carregamento Direto
               </label>
-              <input 
-                type="url" 
-                value={fotoUrl}
-                onChange={(e) => setFotoUrl(e.target.value)}
-                placeholder="https://exemplo.com/minha-foto.jpg"
-                className="w-full text-xs font-mono px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <span className="text-[11px] font-semibold text-gray-600 block mb-2">Modelos Rápidos Pré-configurados:</span>
-              <div className="flex flex-wrap items-center gap-3">
-                {fotosExemplo.map((url, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setFotoUrl(url)}
-                    className={`relative rounded-full p-0.5 border-2 transition-transform transform active:scale-95 ${
-                      fotoUrl === url ? 'border-blue-600 ring-2 ring-blue-200 scale-105' : 'border-gray-200 hover:border-blue-400'
-                    }`}
-                  >
-                    <img src={url} alt={`Modelo ${idx + 1}`} className="w-12 h-12 rounded-full object-cover" />
-                  </button>
-                ))}
+              <div className="flex gap-2">
+                <input 
+                  type="url" 
+                  value={fotoUrl}
+                  onChange={(e) => setFotoUrl(e.target.value)}
+                  placeholder="https://exemplo.com/minha-foto.jpg ou carregue ficheiro"
+                  className="flex-1 text-xs font-mono px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 border border-gray-300 px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 shrink-0 flex items-center gap-1">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Carregar</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          if (typeof reader.result === 'string') {
+                            setFotoUrl(reader.result);
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                </label>
                 {fotoUrl && (
                   <button
                     type="button"
                     onClick={() => setFotoUrl('')}
-                    className="text-xs font-medium text-red-600 hover:text-red-700 underline px-2"
+                    className="text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 bg-red-50 px-3 py-2 rounded-lg"
                   >
-                    Remover Foto
+                    Remover
                   </button>
                 )}
               </div>
             </div>
-          </div>
         </div>
 
         {/* Segurança e Alteração de Palavra-passe */}

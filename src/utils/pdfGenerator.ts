@@ -102,6 +102,9 @@ export async function downloadElementAsPdf(
   element.style.backgroundColor = '#ffffff';
 
   try {
+    const isLandscape = orientation === 'landscape';
+    const targetA4WidthPx = isLandscape ? 1122 : 794;
+
     // 1. Clonar e rasterizar SVGs complexos antes da captura para evitar erros de gradiente
     const canvas = await html2canvas(element, {
       scale: scale,
@@ -110,9 +113,69 @@ export async function downloadElementAsPdf(
       backgroundColor: '#ffffff',
       logging: false,
       imageTimeout: 15000,
-      windowWidth: Math.max(element.scrollWidth, element.offsetWidth, 1024),
+      windowWidth: isLandscape ? 1280 : 1024,
       onclone: (clonedDoc) => {
-        // A. Ocultar botões, barras de ferramentas e controlos de navegação (.no-print)
+        // A. Forçar documento clonado a ter as dimensões virtuais exatas de uma folha A4 oficial
+        try {
+          clonedDoc.documentElement.style.width = `${targetA4WidthPx + 40}px`;
+          clonedDoc.documentElement.style.minWidth = `${targetA4WidthPx + 40}px`;
+          clonedDoc.body.style.width = `${targetA4WidthPx + 40}px`;
+          clonedDoc.body.style.minWidth = `${targetA4WidthPx + 40}px`;
+          clonedDoc.body.style.margin = '0 auto';
+          clonedDoc.body.style.padding = '0';
+          clonedDoc.body.style.overflow = 'visible';
+          clonedDoc.body.style.backgroundColor = '#ffffff';
+
+          const targetEl = clonedDoc.getElementById('documento-para-impressao') || 
+                           clonedDoc.querySelector('[data-doc-root="true"]') ||
+                           clonedDoc.querySelector('.documento-oficial-print');
+
+          if (targetEl) {
+            const hEl = targetEl as HTMLElement;
+            hEl.style.width = `${targetA4WidthPx}px`;
+            hEl.style.minWidth = `${targetA4WidthPx}px`;
+            hEl.style.maxWidth = `${targetA4WidthPx}px`;
+            hEl.style.transform = 'none';
+            hEl.style.margin = '0 auto';
+            hEl.style.boxSizing = 'border-box';
+            hEl.style.overflow = 'visible';
+            hEl.style.borderRadius = '0';
+            hEl.style.boxShadow = 'none';
+          }
+
+          // Se for grade de cartões/passes escolares (8 por folha A4), forçar layout 4x2 ou 2x4
+          const passGrids = clonedDoc.querySelectorAll('[data-passes-grid="true"], .passes-grid-container');
+          passGrids.forEach(pg => {
+            const el = pg as HTMLElement;
+            el.style.display = 'grid';
+            el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
+            el.style.gap = '10px';
+            el.style.width = '100%';
+          });
+
+          // Se for grade de 4 boletins por folha A4, forçar 2x2
+          const boletimGrids = clonedDoc.querySelectorAll('.boletins-grid-4');
+          boletimGrids.forEach(bg => {
+            const el = bg as HTMLElement;
+            el.style.display = 'grid';
+            el.style.gridTemplateColumns = 'repeat(2, 1fr)';
+            el.style.gap = '12px';
+            el.style.width = '100%';
+          });
+
+          // Remover scroll horizontal artificial no clone para renderizar 100% das colunas
+          const scrollWrappers = clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"]');
+          scrollWrappers.forEach(w => {
+            const el = w as HTMLElement;
+            el.style.overflow = 'visible';
+            el.style.width = '100%';
+            el.style.maxWidth = 'none';
+          });
+        } catch (e) {
+          console.warn('[PDF Generator] Aviso no ajuste dimensional do clone:', e);
+        }
+
+        // B. Ocultar botões, barras de ferramentas e controlos de navegação (.no-print)
         const noPrintElements = clonedDoc.querySelectorAll(
           '.no-print, button, input[type="button"], input[type="submit"], nav, .action-buttons'
         );
@@ -120,7 +183,7 @@ export async function downloadElementAsPdf(
           (el as HTMLElement).style.display = 'none';
         });
 
-        // B. Exibir elementos exclusivos de impressão
+        // C. Exibir elementos exclusivos de impressão
         const printElements = clonedDoc.querySelectorAll(
           '.print\\:block, .print\\:flex, .print\\:table-cell, .print-only'
         );
@@ -128,7 +191,7 @@ export async function downloadElementAsPdf(
           (el as HTMLElement).style.display = 'block';
         });
 
-        // C. Garantir estilos explícitos nas tabelas e bordas para formatação perfeita
+        // D. Garantir estilos explícitos nas tabelas e bordas para formatação perfeita MED
         const tables = clonedDoc.querySelectorAll('table');
         tables.forEach(table => {
           const t = table as HTMLElement;
@@ -140,11 +203,11 @@ export async function downloadElementAsPdf(
         tableCells.forEach(cell => {
           const c = cell as HTMLElement;
           if (!c.style.borderColor) {
-            c.style.borderColor = '#1f2937';
+            c.style.borderColor = '#000000';
           }
         });
 
-        // D. Normalizar dimensões de SVGs
+        // E. Normalizar dimensões de SVGs
         const svgElements = clonedDoc.querySelectorAll('svg');
         svgElements.forEach(svg => {
           try {
@@ -165,7 +228,7 @@ export async function downloadElementAsPdf(
           } catch {}
         });
 
-        // E. Normalizar cores Tailwind modernas (oklch, color-mix) para evitar falhas no html2canvas
+        // F. Normalizar cores Tailwind modernas (oklch, color-mix) para evitar falhas no html2canvas
         const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
         const allCloned = clonedDoc.querySelectorAll('*');
         allCloned.forEach(node => {

@@ -216,9 +216,9 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
     return filtrados.map(aluno => {
       const media = calcularMediaGeralAluno(aluno);
       const turma = turmasMap.get(aluno.turmaId);
-      const classeNome = turma?.classe || aluno.classeId || 'Geral';
-      const turmaNome = turma?.nome || 'Turma A';
-      const cursoNome = turma?.curso || aluno.curso || 'Geral';
+      const classeNome = turma?.classe || aluno.classeId || '—';
+      const turmaNome = turma?.nome || aluno.turmaId || '—';
+      const cursoNome = turma?.curso || aluno.curso || '—';
 
       let status: 'Excelente' | 'Bom' | 'Atenção' | 'Crítico' = 'Bom';
       if (media >= 15) status = 'Excelente';

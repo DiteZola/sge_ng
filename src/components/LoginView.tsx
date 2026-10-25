@@ -208,41 +208,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
         }
       }
 
-      // 3. Fallback institucional e de emergência para o Administrador Geral
-      if (!bateuSenha && ehRealmenteAdminGeral) {
-        const s = senha.trim().toLowerCase();
-        if (
-          senha.trim() === 'Admin@2025' || 
-          senha.trim() === 'admin123' || 
-          senha.trim() === '123456' ||
-          s === 'admin'
-        ) {
-          bateuSenha = true;
-        }
-      }
-
-      // 4. Fallback institucional para o Diretor Geral
-      if (!bateuSenha && utilizadorEncontrado.role === 'DiretorGeral') {
-        if (
-          senha.trim() === '11061709' ||
-          senha.trim() === 'Educa2026!' ||
-          senha.trim() === '123456' ||
-          senha.trim() === 'Admin@2025'
-        ) {
-          bateuSenha = true;
-        }
-      }
-
-      // 5. Fallback institucional padrão para novos funcionários da rede
-      if (!bateuSenha && (senha.trim() === 'Educa2026!' || senha.trim() === '123456')) {
-        bateuSenha = true;
-      }
-
       if (!bateuSenha) {
         const tentativa = dbService.registarTentativaLogin(identificador, false);
         setIsLoading(false);
         if (ehRealmenteAdminGeral) {
-          setErroLogin(`Palavra-passe incorreta para o Administrador Geral. Se esqueceu a sua palavra-passe, utilize a credencial ministerial de segurança ou solicite apoio técnico.`);
+          setErroLogin(`Palavra-passe incorreta para o Administrador Geral. Verifique a palavra-passe definida durante a configuração do sistema.`);
         } else if (tentativa.bloqueado) {
           setErroLogin('ALERTA DE SEGURANÇA: 3 tentativas com palavra-passe errada excedidas! Acesso temporariamente bloqueado.');
         } else {
@@ -257,16 +227,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
         return;
       }
 
-      // Sucesso no login - resetar contador de falhas e sincronizar com Firebase
+      // Sucesso no login - resetar contador de falhas e atualizar utilizador no dispositivo
       dbService.registarTentativaLogin(identificador, true);
-
-      // Sincronizar e manter a senha validada no dispositivo e Firestore
-      if (utilizadorEncontrado.password !== senha.trim()) {
-        utilizadorEncontrado.password = senha.trim();
-        dbService.salvarFuncionario(utilizadorEncontrado);
-      } else {
-        firebaseSyncEngine.atualizarUsuarioNoDispositivo(utilizadorEncontrado);
-      }
+      firebaseSyncEngine.atualizarUsuarioNoDispositivo(utilizadorEncontrado);
 
       const escolaParaLogin = selectedEscola || escolas[0] || dbService.getEscolaAtiva();
       setIsLoading(false);
@@ -316,7 +279,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       role: 'Encarregado',
       genero: 'M',
       habilitacoes: 'Ensino Médio',
-      fotoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+      fotoUrl: aluno.fotoUrl || '',
       ehProfessor: false,
       ehAdministrativoQueLeciona: false,
       dataAdmissao: new Date().toISOString().split('T')[0],

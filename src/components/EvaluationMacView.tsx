@@ -602,6 +602,15 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       };
       dbService.salvarNotasConsolidadas(notasConsolid);
     } else {
+      const resMac = calcularMACEstudante(
+        alunoId,
+        avaliacoesDaTurma,
+        notas,
+        regraVigente,
+        turmaAtiva?.nivelEnsino || 'Primario',
+        turmaAtiva?.classe || '1ª'
+      );
+      const macCalculado = resMac?.macCalculada || 0;
       const nova: NotaTrimestralConsolidada = {
         id: `nota-consol-${Date.now()}-${alunoId.slice(-4)}`,
         alunoId,
@@ -609,9 +618,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         disciplinaId: selectedDisciplinaId,
         trimestre: selectedTrimestre,
         anoLectivo: escola.anoLectivoActivo,
-        mac: 10,
-        provaTrimestral: 10,
-        mediaTrimestral: 10,
+        mac: macCalculado,
+        provaTrimestral: 0,
+        mediaTrimestral: 0,
         comportamentoNota: valor,
         comportamentoConceito: conceito,
         faltas: 0,

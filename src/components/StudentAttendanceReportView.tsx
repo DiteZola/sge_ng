@@ -84,9 +84,15 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
 
   const [selectedDisciplinaId, setSelectedDisciplinaId] = useState<string>('todas');
   const [tipoPeriodo, setTipoPeriodo] = useState<'intervalo' | 'mes'>('intervalo');
-  const [selectedMes, setSelectedMes] = useState<string>('2026-03');
-  const [dataInicio, setDataInicio] = useState<string>('2026-03-01');
-  const [dataFim, setDataFim] = useState<string>('2026-03-31');
+  const dataHoje = new Date();
+  const currentMonthStr = `${dataHoje.getFullYear()}-${String(dataHoje.getMonth() + 1).padStart(2, '0')}`;
+  const firstDayStr = `${currentMonthStr}-01`;
+  const lastDayNum = new Date(dataHoje.getFullYear(), dataHoje.getMonth() + 1, 0).getDate();
+  const lastDayStr = `${currentMonthStr}-${String(lastDayNum).padStart(2, '0')}`;
+
+  const [selectedMes, setSelectedMes] = useState<string>(currentMonthStr);
+  const [dataInicio, setDataInicio] = useState<string>(firstDayStr);
+  const [dataFim, setDataFim] = useState<string>(lastDayStr);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const configSistema = dbService.getConfiguracaoSistema();
@@ -226,6 +232,10 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
 
       const diasValores = diasLetivos.map(d => {
         const reg = presencas.find(p => p.alunoId === aluno.id && p.data === d.dataStr);
+        if (reg?.estado === 'Presente') {
+          totalP++;
+          return 'P';
+        }
         if (reg?.estado === 'Falta_Injustificada') {
           totalFI++;
           return 'FI';
@@ -234,12 +244,11 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
           totalFJ++;
           return 'FJ';
         }
-        totalP++;
-        return 'P';
+        return '—';
       });
 
-      const totalAulas = diasLetivos.length;
-      const pct = totalAulas > 0 ? Math.round((totalP / totalAulas) * 100) : 100;
+      const totalRegistados = totalP + totalFI + totalFJ;
+      const pct = totalRegistados > 0 ? `${Math.round((totalP / totalRegistados) * 100)}%` : '—';
 
       return [
         idx + 1,
@@ -249,7 +258,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
         totalP,
         totalFI,
         totalFJ,
-        `${pct}%`
+        pct
       ];
     });
 
@@ -593,10 +602,14 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                     {/* Células de cada dia útil */}
                     {diasLetivos.map(d => {
                       const reg = presencas.find(p => p.alunoId === aluno.id && p.data === d.dataStr);
-                      let sigla = '•';
-                      let estilo = 'text-gray-400 font-bold';
+                      let sigla = '—';
+                      let estilo = 'text-gray-300 font-normal';
 
-                      if (reg?.estado === 'Falta_Injustificada') {
+                      if (reg?.estado === 'Presente') {
+                        sigla = 'P';
+                        estilo = 'text-emerald-700 font-bold bg-emerald-50/50';
+                        totalP++;
+                      } else if (reg?.estado === 'Falta_Injustificada') {
                         sigla = 'FI';
                         estilo = 'text-red-700 font-black bg-red-100/60';
                         totalFI++;
@@ -604,10 +617,6 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                         sigla = 'FJ';
                         estilo = 'text-amber-700 font-black bg-amber-100/60';
                         totalFJ++;
-                      } else {
-                        sigla = 'P';
-                        estilo = 'text-emerald-700 font-bold';
-                        totalP++;
                       }
 
                       return (
@@ -633,7 +642,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                       {totalFJ}
                     </td>
                     <td className="p-1 font-mono font-black bg-gray-50">
-                      {diasLetivos.length > 0 ? Math.round((totalP / diasLetivos.length) * 100) : 100}%
+                      {totalP + totalFI + totalFJ > 0 ? `${Math.round((totalP / (totalP + totalFI + totalFJ)) * 100)}%` : '—'}
                     </td>
                   </tr>
                 );

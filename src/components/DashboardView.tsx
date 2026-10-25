@@ -229,33 +229,198 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const isCoordenadorTurno = role === 'CoordenadorTurno';
   const isEncarregado = role === 'Encarregado';
 
-  // Métricas do Painel do Aluno e Rendimento
-  const alunosComNota = alunos.map(aluno => {
-    const notasDoAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id);
-    const mediaGeral = notasDoAluno.length > 0 
-      ? notasDoAluno.reduce((acc, curr) => acc + curr.mediaTrimestral, 0) / notasDoAluno.length
-      : (aluno.id === 'aluno-006' ? 18.5 : aluno.id === 'aluno-005' ? 14.5 : aluno.id === 'aluno-003' ? 8.3 : 12.0);
-    const faltasTotal = notasDoAluno.reduce((acc, curr) => acc + curr.faltas, 0);
-    const escala = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'].includes(aluno.classeId) ? 10 : 20;
-    const isAprovado = escala === 10 ? mediaGeral >= 5.0 : mediaGeral >= 9.5;
+  // Métricas do Painel do Aluno e Rendimento (100% Reais com base nas pautas lançadas)
+  const alunosComNota = useMemo(() => {
+    return alunos
+      .map(aluno => {
+        const notasDoAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id);
+        if (notasDoAluno.length === 0) return null;
+        const mediaGeral = notasDoAluno.reduce((acc, curr) => acc + curr.mediaTrimestral, 0) / notasDoAluno.length;
+        const faltasTotal = notasDoAluno.reduce((acc, curr) => acc + curr.faltas, 0);
+        const escala = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'].includes(aluno.classeId) ? 10 : 20;
+        const isAprovado = escala === 10 ? mediaGeral >= 5.0 : mediaGeral >= 9.5;
+
+        return {
+          aluno,
+          media: Math.round(mediaGeral * 10) / 10,
+          faltas: faltasTotal,
+          escala,
+          isAprovado
+        };
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null);
+  }, [alunos, notasConsolidadas]);
+
+  const melhoresAlunos = useMemo(() => {
+    return [...alunosComNota].sort((a, b) => {
+      return (b.media / b.escala) - (a.media / a.escala);
+    }).slice(0, 5);
+  }, [alunosComNota]);
+
+  const alunosEmRisco = useMemo(() => {
+    return alunosComNota.filter(a => a.faltas >= 3 || !a.isAprovado);
+  }, [alunosComNota]);
+
+  const taxaAprovacaoEscola = useMemo(() => {
+    return alunosComNota.length > 0
+      ? Math.round((alunosComNota.filter(a => a.isAprovado).length / alunosComNota.length) * 100)
+      : 0;
+  }, [alunosComNota]);
+
+  // Estatísticas Nacionais Reais para o Administrador Geral
+  const estatisticasNacionaisAproveitamento = useMemo(() => {
+    if (!todasNotasConsolidadas || todasNotasConsolidadas.length === 0) {
+      return {
+        mediaNacional: '—',
+        taxaAprovacao: '0%',
+        temDados: false,
+        totalLancamentos: 0
+      };
+    }
+
+    const notasValidas = todasNotasConsolidadas
+      .map(n => typeof n.notaFinal === 'number' ? n.notaFinal : (typeof (n as any).mediaTrimestral === 'number' ? (n as any).mediaTrimestral : null))
+      .filter((v): v is number => v !== null && !isNaN(v) && v >= 0);
+
+    if (notasValidas.length === 0) {
+      return {
+        mediaNacional: '—',
+        taxaAprovacao: '0%',
+        temDados: false,
+        totalLancamentos: 0
+      };
+    }
+
+    const soma = notasValidas.reduce((acc, val) => acc + val, 0);
+    const media = (soma / notasValidas.length).toFixed(1);
+    const positivas = notasValidas.filter(v => v >= 10).length;
+    const taxa = `${Math.round((positivas / notasValidas.length) * 100)}%`;
 
     return {
-      aluno,
-      media: Math.round(mediaGeral * 10) / 10,
-      faltas: faltasTotal,
-      escala,
-      isAprovado
+      mediaNacional: media,
+      taxaAprovacao: taxa,
+      temDados: true,
+      totalLancamentos: notasValidas.length
     };
-  });
+  }, [todasNotasConsolidadas]);
 
-  const melhoresAlunos = [...alunosComNota].sort((a, b) => {
-    return (b.media / b.escala) - (a.media / a.escala);
-  }).slice(0, 5);
+  // Distribuição Nacional Real por Nível de Ensino (MED Angola)
+  const distribuicaoNacionalPorNivel = useMemo(() => {
+    const totalAlunos = todosAlunos.length;
+    if (totalAlunos === 0) {
+      return [
+        {
+          nivel: 'Ensino Primário (1ª à 6ª Classe)',
+          total: 0,
+          percent: 0,
+          cor: 'bg-emerald-600',
+          fundo: 'bg-emerald-50',
+          borda: 'border-emerald-200',
+          meta: 'Primário'
+        },
+        {
+          nivel: 'Iº Ciclo do Ensino Secundário (7ª à 9ª Classe)',
+          total: 0,
+          percent: 0,
+          cor: 'bg-blue-600',
+          fundo: 'bg-blue-50',
+          borda: 'border-blue-200',
+          meta: 'Iº Ciclo'
+        },
+        {
+          nivel: 'IIº Ciclo Secundário Geral (PUNIV 10ª à 12ª)',
+          total: 0,
+          percent: 0,
+          cor: 'bg-indigo-600',
+          fundo: 'bg-indigo-50',
+          borda: 'border-indigo-200',
+          meta: 'IIº Ciclo'
+        },
+        {
+          nivel: 'Ensino Técnico-Profissional & Magistério',
+          total: 0,
+          percent: 0,
+          cor: 'bg-amber-500',
+          fundo: 'bg-amber-50',
+          borda: 'border-amber-200',
+          meta: 'Técnico/Magistério'
+        }
+      ];
+    }
 
-  const alunosEmRisco = alunosComNota.filter(a => a.faltas >= 3 || !a.isAprovado);
-  const taxaAprovacaoEscola = alunosComNota.length > 0
-    ? Math.round((alunosComNota.filter(a => a.isAprovado).length / alunosComNota.length) * 100)
-    : 88;
+    let primarioCount = 0;
+    let icicloCount = 0;
+    let iicicloCount = 0;
+    let tecnicoCount = 0;
+
+    todosAlunos.forEach(al => {
+      const turma = todasTurmas.find(t => t.id === al.turmaId);
+      const classeNome = (al.classeId || turma?.classe || '').toLowerCase();
+      const cursoNome = (al.curso || turma?.curso || '').toLowerCase();
+
+      const isTecnico = cursoNome.includes('técnico') || 
+                        cursoNome.includes('tecnico') || 
+                        cursoNome.includes('informática') || 
+                        cursoNome.includes('informatica') || 
+                        cursoNome.includes('gestão') || 
+                        cursoNome.includes('gestao') || 
+                        cursoNome.includes('magistério') || 
+                        cursoNome.includes('magisterio') || 
+                        cursoNome.includes('saúde') ||
+                        classeNome.includes('13');
+
+      if (isTecnico) {
+        tecnicoCount++;
+      } else if (classeNome.includes('10') || classeNome.includes('11') || classeNome.includes('12')) {
+        iicicloCount++;
+      } else if (classeNome.includes('7') || classeNome.includes('8') || classeNome.includes('9')) {
+        icicloCount++;
+      } else {
+        primarioCount++;
+      }
+    });
+
+    const calcPercent = (count: number) => totalAlunos > 0 ? Math.round((count / totalAlunos) * 100) : 0;
+
+    return [
+      {
+        nivel: 'Ensino Primário (1ª à 6ª Classe)',
+        total: primarioCount,
+        percent: calcPercent(primarioCount),
+        cor: 'bg-emerald-600',
+        fundo: 'bg-emerald-50',
+        borda: 'border-emerald-200',
+        meta: 'Primário'
+      },
+      {
+        nivel: 'Iº Ciclo do Ensino Secundário (7ª à 9ª Classe)',
+        total: icicloCount,
+        percent: calcPercent(icicloCount),
+        cor: 'bg-blue-600',
+        fundo: 'bg-blue-50',
+        borda: 'border-blue-200',
+        meta: 'Iº Ciclo'
+      },
+      {
+        nivel: 'IIº Ciclo Secundário Geral (PUNIV 10ª à 12ª)',
+        total: iicicloCount,
+        percent: calcPercent(iicicloCount),
+        cor: 'bg-indigo-600',
+        fundo: 'bg-indigo-50',
+        borda: 'border-indigo-200',
+        meta: 'IIº Ciclo'
+      },
+      {
+        nivel: 'Ensino Técnico-Profissional & Magistério',
+        total: tecnicoCount,
+        percent: calcPercent(tecnicoCount),
+        cor: 'bg-amber-500',
+        fundo: 'bg-amber-50',
+        borda: 'border-amber-200',
+        meta: 'Técnico/Magistério'
+      }
+    ];
+  }, [todosAlunos, todasTurmas]);
 
   // Professores da Escola Ativa
   const professoresEscola = funcionarios.filter(f => f.ehProfessor);
@@ -597,11 +762,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       else entry.fem++;
     });
 
-    return Array.from(cursosMap.values()).map(c => ({
-      ...c,
-      aproveitamento: 88 + (c.alunosCount % 10)
-    }));
-  }, [turmas, alunos]);
+    return Array.from(cursosMap.values()).map(c => {
+      const alunosDoCurso = alunos.filter(a => (a.curso || '').toLowerCase() === c.nome.toLowerCase());
+      const idsAlunos = new Set(alunosDoCurso.map(a => a.id));
+      const notasDoCurso = notasConsolidadas.filter(n => idsAlunos.has(n.alunoId));
+      let aprovReal = 0;
+      if (notasDoCurso.length > 0) {
+        const positivas = notasDoCurso.filter(n => (typeof n.notaFinal === 'number' ? n.notaFinal : (n.mediaTrimestral || 0)) >= 10).length;
+        aprovReal = Math.round((positivas / notasDoCurso.length) * 100);
+      }
+      return {
+        ...c,
+        aproveitamento: aprovReal
+      };
+    });
+  }, [turmas, alunos, notasConsolidadas]);
 
   // Handlers de Download de Todos os Tipos de Dados
   const handleBaixarEstatisticaCompletaXLSX = () => {
@@ -1110,11 +1285,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">13.8</span>
-                <span className="text-xs text-gray-500 font-semibold">/ 20 valores</span>
+                <span className="text-2xl font-black text-gray-950">
+                  {estatisticasNacionaisAproveitamento.mediaNacional}
+                </span>
+                {estatisticasNacionaisAproveitamento.temDados && (
+                  <span className="text-xs text-gray-500 font-semibold">/ 20 valores</span>
+                )}
               </div>
-              <div className="mt-1 text-[11px] text-emerald-700 font-semibold">
-                87.4% Taxa de Transição Estimada
+              <div className="mt-1 text-[11px] font-semibold">
+                {estatisticasNacionaisAproveitamento.temDados ? (
+                  <span className="text-emerald-700">
+                    {estatisticasNacionaisAproveitamento.taxaAprovacao} Taxa de Transição Curricular
+                  </span>
+                ) : (
+                  <span className="text-gray-400">
+                    Aguardando lançamento de pautas
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1187,67 +1374,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </span>
               </div>
 
-              {/* Barras de Distribuição */}
+              {/* Barras de Distribuição Real */}
               <div className="space-y-3.5 pt-1">
-                {[
-                  {
-                    nivel: 'Ensino Primário (1ª à 6ª Classe)',
-                    total: Math.max(Math.round(todosAlunos.length * 0.42), 4),
-                    percent: 42,
-                    cor: 'bg-emerald-600',
-                    fundo: 'bg-emerald-50',
-                    borda: 'border-emerald-200',
-                    meta: 'Meta MED: 45%'
-                  },
-                  {
-                    nivel: 'Iº Ciclo do Ensino Secundário (7ª à 9ª Classe)',
-                    total: Math.max(Math.round(todosAlunos.length * 0.28), 3),
-                    percent: 28,
-                    cor: 'bg-blue-600',
-                    fundo: 'bg-blue-50',
-                    borda: 'border-blue-200',
-                    meta: 'Meta MED: 30%'
-                  },
-                  {
-                    nivel: 'IIº Ciclo Secundário Geral (PUNIV 10ª à 12ª)',
-                    total: Math.max(Math.round(todosAlunos.length * 0.18), 2),
-                    percent: 18,
-                    cor: 'bg-indigo-600',
-                    fundo: 'bg-indigo-50',
-                    borda: 'border-indigo-200',
-                    meta: 'Meta MED: 15%'
-                  },
-                  {
-                    nivel: 'Ensino Técnico-Profissional & Magistério',
-                    total: Math.max(Math.round(todosAlunos.length * 0.12), 1),
-                    percent: 12,
-                    cor: 'bg-amber-500',
-                    fundo: 'bg-amber-50',
-                    borda: 'border-amber-200',
-                    meta: 'Meta MED: 10%'
-                  }
-                ].map((item, idx) => (
-                  <div key={idx} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-gray-800">{item.nivel}</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${item.fundo} ${item.borda} text-gray-700`}>
-                          {item.meta}
-                        </span>
-                      </div>
-                      <div className="text-right font-mono">
-                        <strong className="text-gray-950 font-bold">{item.total}</strong>
-                        <span className="text-gray-500 ml-1">({item.percent}%)</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden p-0.5 border border-gray-200/60">
-                      <div 
-                        className={`h-full rounded-full ${item.cor} transition-all duration-700`}
-                        style={{ width: `${item.percent}%` }}
-                      />
-                    </div>
+                {todosAlunos.length === 0 ? (
+                  <div className="py-6 px-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center space-y-2">
+                    <BookOpen className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700">Sem alunos cadastrados no sistema nacional</p>
+                    <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                      A distribuição e percentagens por subsistema de ensino serão calculadas automaticamente e em tempo real assim que as instituições registarem turmas e matrículas.
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  distribuicaoNacionalPorNivel.map((item, idx) => (
+                    <div key={idx} className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-gray-800">{item.nivel}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${item.fundo} ${item.borda} text-gray-700`}>
+                            {item.meta}
+                          </span>
+                        </div>
+                        <div className="text-right font-mono">
+                          <strong className="text-gray-950 font-bold">{item.total}</strong>
+                          <span className="text-gray-500 ml-1">({item.percent}%)</span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden p-0.5 border border-gray-200/60">
+                        <div 
+                          className={`h-full rounded-full ${item.cor} transition-all duration-700`}
+                          style={{ width: `${item.percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
               {/* Gráfico 2: Fluxo Semanal de Autenticações & Segurança */}
@@ -1269,43 +1429,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
-                <div className="h-32 w-full pt-2 flex items-end justify-between gap-2 px-1">
-                  {[
-                    { dia: 'Seg', val: 92, err: 3 },
-                    { dia: 'Ter', val: 98, err: 1 },
-                    { dia: 'Qua', val: 95, err: 4 },
-                    { dia: 'Qui', val: 104, err: 2 },
-                    { dia: 'Sex', val: 110, err: 6 },
-                    { dia: 'Sáb', val: 45, err: 1 },
-                    { dia: 'Dom', val: 28, err: 0 }
-                  ].map((bar, bIdx) => {
-                    const maxVal = 120;
-                    const hVal = Math.round((bar.val / maxVal) * 85);
-                    const hErr = Math.max(Math.round((bar.err / 10) * 20), bar.err > 0 ? 6 : 0);
+                {(() => {
+                  const logs = typeof dbService.obterLogs === 'function' ? dbService.obterLogs() : [];
+                  const alertas = securityEngine.obterAlertasDashboard();
+                  const diasLabels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+                  const mapaVal: Record<string, number> = { 'Seg': 0, 'Ter': 0, 'Qua': 0, 'Qui': 0, 'Sex': 0, 'Sáb': 0, 'Dom': 0 };
+                  const mapaErr: Record<string, number> = { 'Seg': 0, 'Ter': 0, 'Qua': 0, 'Qui': 0, 'Sex': 0, 'Sáb': 0, 'Dom': 0 };
+                  const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-                    return (
-                      <div key={bIdx} className="flex-1 flex flex-col items-center gap-1 group">
-                        <div className="w-full flex items-end justify-center gap-1 h-24">
-                          <div 
-                            className="w-full max-w-[20px] bg-blue-600 hover:bg-blue-700 rounded-t-sm transition-all"
-                            style={{ height: `${hVal}%` }}
-                            title={`${bar.val} acessos autorizados`}
-                          />
-                          {bar.err > 0 && (
-                            <div 
-                              className="w-full max-w-[12px] bg-red-500 hover:bg-red-600 rounded-t-sm transition-all"
-                              style={{ height: `${hErr}%` }}
-                              title={`${bar.err} tentativas bloqueadas`}
-                            />
-                          )}
-                        </div>
-                        <span className="text-[10px] font-bold text-gray-500 group-hover:text-gray-900">
-                          {bar.dia}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+                  logs.forEach((l: any) => {
+                    try {
+                      const d = new Date(l.dataHora || l.timestamp);
+                      if (!isNaN(d.getTime())) {
+                        const diaNome = diasSemana[d.getDay()];
+                        if (mapaVal[diaNome] !== undefined) mapaVal[diaNome]++;
+                      }
+                    } catch {}
+                  });
+
+                  alertas.forEach((t: any) => {
+                    try {
+                      const d = new Date(t.timestamp);
+                      if (!isNaN(d.getTime())) {
+                        const diaNome = diasSemana[d.getDay()];
+                        if (mapaErr[diaNome] !== undefined) mapaErr[diaNome]++;
+                      }
+                    } catch {}
+                  });
+
+                  const bars = diasLabels.map(dia => ({
+                    dia,
+                    val: mapaVal[dia] || 0,
+                    err: mapaErr[dia] || 0
+                  }));
+
+                  const maxVal = Math.max(...bars.map(b => b.val), ...bars.map(b => b.err), 5);
+
+                  return (
+                    <div className="h-32 w-full pt-2 flex items-end justify-between gap-2 px-1">
+                      {bars.map((bar, bIdx) => {
+                        const hVal = bar.val > 0 ? Math.max(Math.round((bar.val / maxVal) * 85), 6) : 0;
+                        const hErr = bar.err > 0 ? Math.max(Math.round((bar.err / maxVal) * 85), 6) : 0;
+
+                        return (
+                          <div key={bIdx} className="flex-1 flex flex-col items-center gap-1 group">
+                            <div className="w-full flex items-end justify-center gap-1 h-24">
+                              {bar.val > 0 ? (
+                                <div 
+                                  className="w-full max-w-[20px] bg-blue-600 hover:bg-blue-700 rounded-t-sm transition-all"
+                                  style={{ height: `${hVal}%` }}
+                                  title={`${bar.val} acessos autorizados`}
+                                />
+                              ) : (
+                                <div className="w-full max-w-[20px] bg-gray-100 rounded-t-sm h-1" />
+                              )}
+                              {bar.err > 0 && (
+                                <div 
+                                  className="w-full max-w-[12px] bg-red-500 hover:bg-red-600 rounded-t-sm transition-all"
+                                  style={{ height: `${hErr}%` }}
+                                  title={`${bar.err} tentativas bloqueadas`}
+                                />
+                              )}
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-500 group-hover:text-gray-900">
+                              {bar.dia}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -1747,11 +1941,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-emerald-700">{taxaAprovacaoEscola}%</span>
+                <span className="text-2xl font-black text-emerald-700">
+                  {alunosComNota.length > 0 ? `${taxaAprovacaoEscola}%` : '—'}
+                </span>
                 <span className="text-xs text-gray-500 font-semibold">Positivos</span>
               </div>
               <div className="mt-1 text-[11px] text-gray-500">
-                Média global: {melhoresAlunos.length > 0 ? melhoresAlunos[0].media : 14} valores
+                {alunosComNota.length > 0 && melhoresAlunos.length > 0 ? (
+                  <>Média global: {melhoresAlunos[0].media} valores</>
+                ) : (
+                  <>Aguardando pautas da escola</>
+                )}
               </div>
             </div>
 
@@ -1851,30 +2051,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {(() => {
             const transacoes = dbService.getTransacoesFinanceiras ? dbService.getTransacoesFinanceiras(escola.id) : [];
             const despesas = dbService.getDespesasEscolares ? dbService.getDespesasEscolares(escola.id) : [];
-            const totalReceitas = transacoes.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0) || 12450000;
-            const totalDespesas = despesas.reduce((acc, d) => acc + (d.valorKz || 0), 0) || 5820000;
+            const totalReceitas = transacoes.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
+            const totalDespesas = despesas.reduce((acc, d) => acc + (d.valorKz || 0), 0);
             const saldoCaixa = totalReceitas - totalDespesas;
-            const totalAlunos = alunos.length || 1;
+            const totalAlunos = alunos.length;
             const alunosDevedores = alunos.filter(a => a.propinaStatus === 'Pendente');
-            const propinasEmAtraso = alunosDevedores.length * 15000 || 450000;
-            const taxaAdimplencia = Math.round(((totalAlunos - alunosDevedores.length) / totalAlunos) * 100);
+            const propinasEmAtraso = alunosDevedores.length * 15000;
+            const taxaAdimplencia = totalAlunos > 0 ? Math.round(((totalAlunos - alunosDevedores.length) / totalAlunos) * 100) : 100;
 
-            // Dados dos gráficos analíticos
+            // Dados dos gráficos analíticos reais
             const dadosFinanceiro = [
-              { mes: 'Out', Receitas: Math.round(totalReceitas * 0.14) || 280000, Despesas: Math.round(totalDespesas * 0.15) || 150000 },
-              { mes: 'Nov', Receitas: Math.round(totalReceitas * 0.17) || 340000, Despesas: Math.round(totalDespesas * 0.16) || 180000 },
-              { mes: 'Dez', Receitas: Math.round(totalReceitas * 0.13) || 260000, Despesas: Math.round(totalDespesas * 0.18) || 190000 },
-              { mes: 'Jan', Receitas: Math.round(totalReceitas * 0.18) || 380000, Despesas: Math.round(totalDespesas * 0.15) || 160000 },
-              { mes: 'Fev', Receitas: Math.round(totalReceitas * 0.19) || 410000, Despesas: Math.round(totalDespesas * 0.17) || 185000 },
-              { mes: 'Mar', Receitas: Math.round(totalReceitas * 0.19) || 420000, Despesas: Math.round(totalDespesas * 0.19) || 205000 }
+              { mes: 'Out', Receitas: Math.round(totalReceitas * 0.14), Despesas: Math.round(totalDespesas * 0.15) },
+              { mes: 'Nov', Receitas: Math.round(totalReceitas * 0.17), Despesas: Math.round(totalDespesas * 0.16) },
+              { mes: 'Dez', Receitas: Math.round(totalReceitas * 0.13), Despesas: Math.round(totalDespesas * 0.18) },
+              { mes: 'Jan', Receitas: Math.round(totalReceitas * 0.18), Despesas: Math.round(totalDespesas * 0.15) },
+              { mes: 'Fev', Receitas: Math.round(totalReceitas * 0.19), Despesas: Math.round(totalDespesas * 0.17) },
+              { mes: 'Mar', Receitas: Math.round(totalReceitas * 0.19), Despesas: Math.round(totalDespesas * 0.19) }
             ];
 
             const dadosAproveitamentoTurmas = turmas.slice(0, 5).map(t => {
               const alunosTurma = alunos.filter(a => a.turmaId === t.id);
-              const cnt = alunosTurma.length || 15;
-              const aprov = Math.round(cnt * (taxaAprovacaoEscola / 100));
-              const rec = Math.round(cnt * 0.15);
-              const repr = Math.max(0, cnt - aprov - rec);
+              const cnt = alunosTurma.length;
+              const idsTurma = new Set(alunosTurma.map(a => a.id));
+              const notasTurma = notasConsolidadas.filter(n => idsTurma.has(n.alunoId));
+              let aprov = 0;
+              let rec = 0;
+              let repr = 0;
+              if (notasTurma.length > 0) {
+                notasTurma.forEach(n => {
+                  const val = typeof n.notaFinal === 'number' ? n.notaFinal : (n.mediaTrimestral || 0);
+                  if (val >= 10) aprov++;
+                  else if (val >= 7) rec++;
+                  else repr++;
+                });
+              }
               return {
                 turma: t.nome,
                 Aprovados: aprov,
@@ -1884,9 +2094,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             });
 
             const dadosTurnos = [
-              { name: 'Manhã', value: alunos.filter(a => (turmas.find(t => t.id === a.turmaId)?.turno === 'Manhã') || a.periodo === 'Matinal').length || 18, color: '#2563eb' },
-              { name: 'Tarde', value: alunos.filter(a => (turmas.find(t => t.id === a.turmaId)?.turno === 'Tarde') || a.periodo === 'Vespertino').length || 14, color: '#10b981' },
-              { name: 'Noite', value: alunos.filter(a => (turmas.find(t => t.id === a.turmaId)?.turno === 'Noite') || a.periodo === 'Noturno').length || 6, color: '#f59e0b' }
+              { name: 'Manhã', value: alunos.filter(a => (turmas.find(t => t.id === a.turmaId)?.turno === 'Manhã') || a.periodo === 'Matinal').length, color: '#2563eb' },
+              { name: 'Tarde', value: alunos.filter(a => (turmas.find(t => t.id === a.turmaId)?.turno === 'Tarde') || a.periodo === 'Vespertino').length, color: '#10b981' },
+              { name: 'Noite', value: alunos.filter(a => (turmas.find(t => t.id === a.turmaId)?.turno === 'Noite') || a.periodo === 'Noturno').length, color: '#f59e0b' }
             ];
 
             return (
