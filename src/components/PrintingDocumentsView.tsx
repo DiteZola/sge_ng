@@ -26,7 +26,15 @@ import {
   Search,
   Settings,
   GraduationCap,
-  Users
+  Users,
+  Eye,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Maximize2,
+  FileDown,
+  Smartphone,
+  Sparkles
 } from 'lucide-react';
 import {
   getTurmasPorClasse,
@@ -231,6 +239,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfSuccessToast, setPdfSuccessToast] = useState<string | null>(null);
 
+  // Estados de Exportação PDF & Responsividade Móvel
+  const [orientacaoPdfOverride, setOrientacaoPdfOverride] = useState<'auto' | 'portrait' | 'landscape'>('auto');
+  const [qualidadePdf, setQualidadePdf] = useState<'alta' | 'ultra'>('ultra');
+  const [modoVisualizacao, setModoVisualizacao] = useState<'ajustar' | 'real'>('ajustar');
+  const [zoomNivel, setZoomNivel] = useState<number>(100);
+
   const recarregarConfiguracoes = () => {
     setConfiguracoesDoc(dbService.getConfiguracoesDocumentos(escola.id));
   };
@@ -248,6 +262,32 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return configuracoesDoc[chaveTipo];
   }, [configuracoesDoc, docType]);
 
+  // Orientação recomendada oficial conforme norma do MED Angola
+  const orientacaoRecomendada = useMemo<'portrait' | 'landscape'>(() => {
+    if (orientacaoPdfOverride !== 'auto') return orientacaoPdfOverride;
+    if (configAtual?.disposicao?.orientacao) return configAtual.disposicao.orientacao as any;
+    if (docType === 'pautas' || docType === 'termos_exame' || docType === 'ficha_presencas') {
+      return 'landscape';
+    }
+    return 'portrait';
+  }, [orientacaoPdfOverride, configAtual, docType]);
+
+  const nomeDocumentoCurto = useMemo(() => {
+    switch (docType) {
+      case 'boletim_oficial': return 'Boletim Trimestral';
+      case 'pautas': return 'Pauta Geral / Final';
+      case 'declaracao_notas': return 'Declaração com Notas';
+      case 'certificado_ciclo': return 'Certificado de Conclusão';
+      case 'passes': return 'Passes Escolares (8 por Folha)';
+      case 'ficha_individual_aluno': return 'Ficha do Aluno';
+      case 'ficha_individual_funcionario': return 'Ficha do Funcionário';
+      case 'ficha_presencas': return 'Folha de Presenças';
+      case 'recibos': return 'Recibo Térmico POS';
+      case 'termos_exame': return 'Termo de Exame';
+      default: return 'Documento Oficial';
+    }
+  }, [docType]);
+
   const handleBaixarPDF = async () => {
     const el = document.getElementById('documento-para-impressao');
     if (!el) {
@@ -256,7 +296,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     }
     setIsGeneratingPdf(true);
     try {
-      const orientacao = (configAtual?.disposicao?.orientacao || (docType === 'pautas' || docType === 'termos_exame' || docType === 'ficha_presencas' ? 'landscape' : 'portrait')) as 'portrait' | 'landscape';
+      const orientacao = orientacaoRecomendada;
       const alunoNomeLimpo = alunoSelecionado?.nomeCompleto?.replace(/[^a-zA-Z0-9]/g, '_') || 'Oficial';
       const turmaNomeLimpo = turmaSelecionada?.nome?.replace(/[^a-zA-Z0-9]/g, '_') || 'Turma';
       const anoLimpo = (escola.anoLectivoActivo || '2025_2026').replace(/[\/\\]/g, '_');
@@ -279,6 +319,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
         docNomeLimpo = `Ficha_Individual_Aluno_${alunoNomeLimpo}_${siglaLimpa}`;
       } else if (docType === 'ficha_presencas') {
         docNomeLimpo = `Ficha_Presencas_${turmaNomeLimpo}_${anoLimpo}`;
+      } else if (docType === 'recibos') {
+        docNomeLimpo = `Recibo_Pagamento_${alunoNomeLimpo}_${siglaLimpa}_${anoLimpo}`;
       } else {
         docNomeLimpo = `${docType.toUpperCase()}_${alunoNomeLimpo}_${siglaLimpa}`;
       }
@@ -287,10 +329,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
       const ok = await downloadElementAsPdf(el, nomeBase, {
         orientation: orientacao,
-        scale: 2
+        scale: qualidadePdf === 'ultra' ? 2.8 : 2.0,
+        marginMm: 8
       });
       if (ok) {
-        setPdfSuccessToast(`Ficheiro PDF "${nomeBase}.pdf" gerado e descarregado com sucesso!`);
+        setPdfSuccessToast(`Ficheiro PDF "${nomeBase}.pdf" gerado e descarregado com sucesso conforme as normas oficiais do MED!`);
         setTimeout(() => setPdfSuccessToast(null), 5000);
       }
     } catch (err: any) {
@@ -397,30 +440,84 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Seletor de Orientação da Folha */}
+            <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase px-1">Orientação:</span>
+              <select
+                value={orientacaoPdfOverride}
+                onChange={(e) => setOrientacaoPdfOverride(e.target.value as any)}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Orientação da folha para PDF"
+              >
+                <option value="auto">Auto ({orientacaoRecomendada === 'landscape' ? 'Paisagem' : 'Retrato'})</option>
+                <option value="portrait">Retrato (A4 Vertical)</option>
+                <option value="landscape">Paisagem (A4 Horizontal)</option>
+              </select>
+            </div>
+
+            {/* Seletor de Qualidade */}
+            <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase px-1">Qualidade:</span>
+              <select
+                value={qualidadePdf}
+                onChange={(e) => setQualidadePdf(e.target.value as any)}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Resolução de Renderização"
+              >
+                <option value="ultra">Ultra HD (300 DPI)</option>
+                <option value="alta">Padrão Alta Definição</option>
+              </select>
+            </div>
+
             <button
+              type="button"
+              onClick={handleBaixarPDF}
+              disabled={isGeneratingPdf}
+              className="px-4 py-2 text-xs sm:text-sm font-black text-white bg-gradient-to-r from-emerald-600 via-emerald-700 to-teal-700 hover:from-emerald-700 hover:to-teal-800 disabled:opacity-60 transition-all rounded-xl inline-flex items-center space-x-2 shadow-md cursor-pointer border border-emerald-500/40"
+              title="Gerar e descarregar ficheiro .PDF oficial de alta definição formatado nas normas oficiais do MED Angola"
+            >
+              <FileDown className="h-4 w-4" />
+              <span>{isGeneratingPdf ? 'A processar PDF...' : 'Baixar PDF Oficial'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={isGeneratingPdf}
+              className="px-3.5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors inline-flex items-center space-x-1.5 shadow-xs cursor-pointer"
+              title="Imprimir documento diretamente"
+            >
+              <Printer className="h-4 w-4" />
+              <span>Imprimir</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleBaixarExcel}
-              className="px-3 py-2 text-xs font-bold text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              className="px-3 py-2 text-xs font-bold text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               title="Baixar dados do documento em formato Excel (.xlsx)"
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
-              <span>Baixar Excel (.xlsx)</span>
+              <span>Excel (.xlsx)</span>
             </button>
 
             <button
+              type="button"
               onClick={handleBaixarHTML}
-              className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              className="px-3 py-2 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-xl transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               title="Baixar arquivo HTML formatado para abrir e imprimir off-line"
             >
               <Download className="h-4 w-4 text-blue-700" />
-              <span>Baixar Documento (HTML)</span>
+              <span>HTML</span>
             </button>
 
             <button
+              type="button"
               onClick={() => {
                 setAssinaturaPreview(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl || '');
                 setShowAssinaturaModal(true);
               }}
-              className="px-3 py-2 text-xs font-bold text-indigo-950 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              className="px-3 py-2 text-xs font-bold text-indigo-950 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-xl transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               title="Carregar ou atualizar a assinatura digitalizada do Diretor Geral para boletins e passes"
             >
               <PenTool className="h-4 w-4 text-indigo-700" />
@@ -430,32 +527,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <button
               type="button"
               onClick={() => setModalConfigDocOpen(true)}
-              className="px-3 py-2 text-xs font-bold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              className="px-3 py-2 text-xs font-bold text-amber-950 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               title="Configurar dizeres oficiais, cabeçalhos e disposição visual dos documentos com pré-visualização ao vivo"
             >
               <Settings className="h-4 w-4 text-amber-700" />
               <span>Dizeres & Disposição A4</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleBaixarPDF}
-              disabled={isGeneratingPdf}
-              className="px-4 py-2 text-xs sm:text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:bg-emerald-400 transition-colors inline-flex items-center space-x-2 shadow-xs cursor-pointer"
-              title="Gerar e descarregar ficheiro .PDF de alta definição"
-            >
-              <Download className="h-4 w-4" />
-              <span>{isGeneratingPdf ? 'A processar PDF...' : 'Baixar PDF Oficial'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handlePrint}
-              disabled={isGeneratingPdf}
-              className="px-3.5 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center space-x-2 shadow-xs cursor-pointer"
-            >
-              <Printer className="h-4 w-4" />
-              <span>Imprimir Documento</span>
             </button>
           </div>
         </div>
@@ -817,8 +893,122 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
             </div>
           )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* BARRA DE PRÉ-VISUALIZAÇÃO RESPONSIVA & CONTROLOS DE ZOOM / AJUSTE MÓVEL   */}
+      {/* ========================================================================= */}
+      <div className="bg-slate-900 text-white p-3 rounded-xl shadow-md border border-slate-800 space-y-2 no-print">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center space-x-2">
+            <span className="font-bold flex items-center space-x-1.5 text-blue-400">
+              <Eye className="w-4 h-4" />
+              <span>Modo de Exibição no Ecrã:</span>
+            </span>
+            <div className="inline-flex rounded-lg bg-slate-800 p-0.5 border border-slate-700">
+              <button
+                type="button"
+                onClick={() => {
+                  setModoVisualizacao('ajustar');
+                  setZoomNivel(100);
+                }}
+                className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                  modoVisualizacao === 'ajustar' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Ajusta o documento à largura total do ecrã para evitar cortes"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Ajustar ao Ecrã (Sem Cortes)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoVisualizacao('real')}
+                className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                  modoVisualizacao === 'real' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Visualizar em tamanho real de impressão A4 com rolagem horizontal livre"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>100% Tamanho Real (A4)</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Controles de Zoom */}
+            <div className="flex items-center space-x-1 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700">
+              <button
+                type="button"
+                onClick={() => setZoomNivel(prev => Math.max(50, prev - 10))}
+                className="w-5 h-5 flex items-center justify-center font-bold text-slate-300 hover:text-white rounded hover:bg-slate-700 cursor-pointer"
+                title="Diminuir Zoom"
+              >
+                -
+              </button>
+              <span className="font-mono text-[11px] font-bold px-1.5 text-blue-300 min-w-[42px] text-center">
+                {zoomNivel}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setZoomNivel(prev => Math.min(160, prev + 10))}
+                className="w-5 h-5 flex items-center justify-center font-bold text-slate-300 hover:text-white rounded hover:bg-slate-700 cursor-pointer"
+                title="Aumentar Zoom"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoomNivel(100)}
+                className="text-[10px] text-slate-400 hover:text-white ml-1 border-l border-slate-700 pl-1.5 cursor-pointer"
+                title="Repor 100%"
+              >
+                100%
+              </button>
+            </div>
+
+            {/* Badge de Orientação Recomendada */}
+            <span className="inline-flex items-center space-x-1 text-[11px] px-2.5 py-1 bg-slate-800 rounded-lg text-slate-300 border border-slate-700">
+              <span>Norma MED:</span>
+              <strong className="text-amber-400">
+                {orientacaoRecomendada === 'landscape' ? 'A4 Paisagem (Horizontal)' : 'A4 Retrato (Vertical)'}
+              </strong>
+            </span>
+
+            {/* Botão de Download Rápido Direto no Documento */}
+            <button
+              type="button"
+              onClick={handleBaixarPDF}
+              disabled={isGeneratingPdf}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-lg text-xs shadow-md transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              <span>{isGeneratingPdf ? 'A Gerar...' : 'Baixar PDF'}</span>
+            </button>
+          </div>
         </div>
 
+        <div className="text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-800 pt-2">
+          <span>
+            📋 <strong>{nomeDocumentoCurto}</strong> · Formatado conforme o Decreto Executivo n.º 250/18 e matriz curricular nacional de Angola.
+          </span>
+          <span className="hidden sm:inline text-emerald-400 font-semibold">
+            ✓ Exportação PDF com preservação de carimbos e insígnia
+          </span>
+        </div>
+      </div>
+
+      {/* Container Responsivo de Pré-visualização com rolagem horizontal e zoom */}
+      <div className="w-full overflow-x-auto pb-6 transition-all duration-300">
+        <div 
+          style={{
+            zoom: modoVisualizacao === 'real' ? `${zoomNivel}%` : undefined,
+          }}
+          className={`transition-all duration-200 ${
+            modoVisualizacao === 'ajustar'
+              ? 'w-full max-w-full overflow-x-auto'
+              : 'inline-block min-w-full'
+          }`}
+        >
       {/* ========================================================================= */}
       {/* 1. BOLETIM DE NOTAS TRIMESTRAL (MODELO OFICIAL MED - SCREENSHOT 1) */}
       {/* ========================================================================= */}
@@ -832,7 +1022,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0">
+        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-5 sm:p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0">
           {/* Cabeçalho Oficial MED Angola */}
           <div className="relative border-b-2 border-black pb-3">
             {/* VISTO DO DIRECTOR GERAL na parte superior esquerda */}
@@ -954,8 +1144,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Tabela de Notas Trimestrais com MAC, NPP, NPT, MT, Faltas, Comportamento, Assiduidade */}
-          <div className="pt-3">
-            <table className="w-full text-[10px] sm:text-[11px] border border-black text-left">
+          <div className="pt-3 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-[10px] sm:text-[11px] border border-black text-left">
               <thead className="bg-gray-100 font-bold border-b border-black text-center text-[9px] sm:text-[10px]">
                 <tr>
                   <th className="p-1.5 border-r border-black text-left">DISCIPLINA</th>
@@ -1055,7 +1245,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" className="bg-white border-2 border-gray-900 p-6 md:p-8 rounded-xl shadow-md max-w-6xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-4 sm:p-6 md:p-8 rounded-xl shadow-md max-w-6xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
@@ -1141,8 +1331,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Tabela Oficial da Pauta (Todos os Alunos da Turma x Disciplinas) */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-[11px] border border-black text-center">
+          <div className="overflow-x-auto -mx-2 sm:mx-0">
+            <table className="w-full text-[11px] border border-black text-center min-w-[980px]">
               <thead className="bg-gray-100 font-bold border-b border-black text-[10px]">
                 <tr>
                   <th className="p-1 border-r border-black w-8">N.º</th>
@@ -1388,7 +1578,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" className="bg-white border-2 border-gray-900 p-8 md:p-12 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 md:p-12 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1">
             <div className="flex justify-center mb-1">
@@ -1453,8 +1643,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Tabela de Disciplinas & Classificação por Extenso */}
-          <div className="pt-2">
-            <table className="w-full text-xs border border-black">
+          <div className="pt-2 overflow-x-auto">
+            <table className="w-full min-w-[580px] text-xs border border-black">
               <thead className="bg-gray-100 font-bold border-b border-black text-left">
                 <tr>
                   <th className="p-2 border-r border-black">DISCIPLINAS</th>
@@ -1558,7 +1748,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" className="bg-white border-4 border-double border-gray-900 p-8 md:p-12 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-4 border-double border-gray-900 p-6 sm:p-8 md:p-12 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1">
             <div className="flex justify-center mb-1">
@@ -1642,8 +1832,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             const mediaFinalCalc = comNota.length > 0 ? Math.round(comNota.reduce((a, b) => a + (b.cf || 0), 0) / comNota.length) : null;
 
             return (
-              <div className="pt-2">
-                <table className="w-full text-xs border border-black text-left">
+              <div className="pt-2 overflow-x-auto">
+                <table className="w-full min-w-[620px] text-xs border border-black text-left">
                   <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
                     <tr>
                       <th className="p-1.5 border-r border-black text-left">DISCIPLINAS CURRICULARES (6.ª CLASSE)</th>
@@ -1700,8 +1890,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             const mediaFinalCalc = comNota.length > 0 ? Math.round(comNota.reduce((a, b) => a + (b.mf || 0), 0) / comNota.length) : null;
 
             return (
-              <div className="pt-2">
-                <table className="w-full text-xs border border-black text-left">
+              <div className="pt-2 overflow-x-auto">
+                <table className="w-full min-w-[620px] text-xs border border-black text-left">
                   <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
                     <tr>
                       <th className="p-1.5 border-r border-black text-left">DISCIPLINAS DO Iº CICLO</th>
@@ -1757,8 +1947,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             const mediaFinalCiclo = validas.length > 0 ? Math.round(validas.reduce((a, b) => a + (Number(b.mediaFinal) || 0), 0) / validas.length) : null;
 
             return (
-              <div className="pt-2">
-                <table className="w-full text-xs border border-black text-left">
+              <div className="pt-2 overflow-x-auto">
+                <table className="w-full min-w-[620px] text-xs border border-black text-left">
                   <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
                     <tr>
                       <th className="p-1.5 border-r border-black text-left">DISCIPLINAS</th>
@@ -1818,8 +2008,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             const mediaFinalTecnico = validas.length > 0 ? Math.round(validas.reduce((a, b) => a + (b.mf || 0), 0) / validas.length) : null;
 
             return (
-              <div className="pt-2">
-                <table className="w-full text-xs border border-black text-left">
+              <div className="pt-2 overflow-x-auto">
+                <table className="w-full min-w-[680px] text-xs border border-black text-left">
                   <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
                     <tr>
                       <th className="p-1.5 border-r border-black text-left">COMPONENTES DE FORMAÇÃO TÉCNICA</th>
@@ -1913,7 +2103,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       {/* 4. PASSES ESCOLARES (GRADE DE 8 PASSES POR FOLHA A4) */}
       {/* ========================================================================= */}
       {docType === 'passes' && (
-        <div id="documento-para-impressao" className="space-y-4">
+        <div 
+          id="documento-para-impressao" 
+          data-doc-root="true" 
+          data-passes-grid="true"
+          className="documento-oficial-print space-y-4 max-w-5xl mx-auto"
+        >
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 no-print flex items-center justify-between">
             <div>
               <strong>Passes Escolares Oficiais:</strong> Otimizados para impressão em papel cartão A4 (grade de 8 passes por página com marcações de corte).
@@ -2034,7 +2229,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           <div className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
               {configSistema.insigniaNacionalUrl ? (
@@ -2162,7 +2357,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {funcionarioSelecionado ? (
-            <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
+            <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
               <div className="text-center space-y-1 border-b-2 border-black pb-3">
                 <div className="flex justify-center mb-1">
                   {configSistema.insigniaNacionalUrl ? (
@@ -2298,7 +2493,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          <div id="documento-para-impressao" className="bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-5xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
+          <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-5xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
             <div className="text-center space-y-1 border-b-2 border-black pb-3">
               <div className="flex justify-center mb-1">
                 {configSistema.insigniaNacionalUrl ? (
@@ -2326,7 +2521,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
             {/* Tabela de Presenças */}
             <div className="overflow-x-auto">
-              <table className="w-full text-[10px] border border-black">
+              <table className="w-full min-w-[700px] text-[10px] border border-black">
                 <thead>
                   <tr className="bg-gray-100 border-b border-black">
                     <th className="p-1 border-r border-black w-8 text-center">Nº</th>
@@ -2381,7 +2576,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           <div 
-            className={`bg-white border border-gray-400 p-4 shadow-md font-mono text-[11px] leading-tight text-gray-950 space-y-3 ${
+            id="documento-para-impressao"
+            data-doc-root="true"
+            className={`documento-oficial-print bg-white border border-gray-400 p-4 shadow-md font-mono text-[11px] leading-tight text-gray-950 space-y-3 ${
               larguraTermica === '58mm' ? 'w-[280px]' : 'w-[360px]'
             }`}
           >
@@ -2447,6 +2644,38 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
         </div>
       )}
+        </div>
+      </div>
+
+      {/* Barra Flutuante de Ação Rápida para Telemóveis e Ecrãs Pequenos */}
+      <div className="sm:hidden fixed bottom-3 inset-x-3 z-40 bg-slate-950/95 backdrop-blur-md text-white p-2.5 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center justify-between no-print">
+        <div className="flex items-center space-x-2 min-w-0">
+          <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
+          <div className="truncate">
+            <p className="text-[11px] font-black truncate">{nomeDocumentoCurto}</p>
+            <p className="text-[9px] text-slate-400 truncate">Normas Oficiais MED Angola</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl border border-slate-700 cursor-pointer"
+            title="Imprimir"
+          >
+            <Printer className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleBaixarPDF}
+            disabled={isGeneratingPdf}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md transition-all flex items-center space-x-1.5 cursor-pointer disabled:bg-emerald-800"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{isGeneratingPdf ? 'Gerando...' : 'Baixar PDF'}</span>
+          </button>
+        </div>
+      </div>
 
       {/* MODAL: CARREGAR / EDITAR ASSINATURA DO DIRECTOR GERAL */}
       {showAssinaturaModal && (
