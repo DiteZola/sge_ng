@@ -2954,33 +2954,38 @@ export const dbService = {
     }
   },
 
-  // Backup Completo JSON (Todas as coleções e dados sem exceção)
-  gerarBackupJSON: () => {
+  // Backup Completo JSON (Todas as coleções e dados com suporte a isolamento por escola)
+  gerarBackupJSON: (escolaId?: string) => {
+    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escolaAlvo = isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : null;
+
     const backupData = {
       versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Enterprise Cloud/Local)',
       dataExportacao: new Date().toISOString(),
-      escolas: dbService.getEscolas(),
-      alunos: dbService.getAlunos(),
-      turmas: dbService.getTurmas(),
-      disciplinas: dbService.getDisciplinas(),
-      atribuicoes: dbService.getAtribuicoes(),
-      funcionarios: dbService.getFuncionarios(),
+      escolaIdAlvo: escolaId || 'todas',
+      escolas: isEscolaEspecifica && escolaAlvo ? [escolaAlvo] : todasEscolas,
+      alunos: isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === escolaId) : dbService.getAlunos(),
+      turmas: isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === escolaId) : dbService.getTurmas(),
+      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas().filter(d => !(d as any).escolaId || (d as any).escolaId === escolaId) : dbService.getDisciplinas(),
+      atribuicoes: isEscolaEspecifica ? dbService.getAtribuicoes().filter(at => at.escolaId === escolaId) : dbService.getAtribuicoes(),
+      funcionarios: isEscolaEspecifica ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId || f.role === 'AdminGeral') : dbService.getFuncionarios(),
       tiposAvaliacao: dbService.getTiposAvaliacao(),
       regrasMAC: dbService.getRegrasMAC(),
-      avaliacoes: dbService.getAvaliacoes(),
-      notas: dbService.getNotas(),
-      notasConsolidadas: dbService.getNotasConsolidadas(),
-      solicitacoesNota: dbService.getSolicitacoesNota(),
-      juris: dbService.getJuris(),
-      presencas: dbService.getPresencas(),
-      auditoria: dbService.getAuditoria(),
-      mensagens: dbService.getMensagens(),
-      biblioteca: dbService.getBiblioteca(),
-      recibos: dbService.getRecibos(),
+      avaliacoes: isEscolaEspecifica ? dbService.getAvaliacoes().filter(a => a.escolaId === escolaId) : dbService.getAvaliacoes(),
+      notas: isEscolaEspecifica ? dbService.getNotas().filter(n => !(n as any).escolaId || (n as any).escolaId === escolaId) : dbService.getNotas(),
+      notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => (nc as any).escolaId === escolaId) : dbService.getNotasConsolidadas(),
+      solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === escolaId) : dbService.getSolicitacoesNota(),
+      juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === escolaId) : dbService.getJuris(),
+      presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === escolaId) : dbService.getPresencas(),
+      auditoria: isEscolaEspecifica ? dbService.getAuditoria().filter(a => !a.escolaId || a.escolaId === escolaId) : dbService.getAuditoria(),
+      mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === escolaId) : dbService.getMensagens(),
+      biblioteca: isEscolaEspecifica ? dbService.getBiblioteca().filter(b => b.escolaId === escolaId) : dbService.getBiblioteca(),
+      recibos: isEscolaEspecifica ? dbService.getRecibos().filter(r => r.escolaId === escolaId) : dbService.getRecibos(),
       configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
-      transacoesFinanceiras: dbService.getTransacoesFinanceiras(),
-      despesasEscolares: dbService.getDespesasEscolares(),
-      patrimonio: dbService.getPatrimonio(),
+      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras().filter(t => t.escolaId === escolaId) : dbService.getTransacoesFinanceiras(),
+      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares().filter(d => d.escolaId === escolaId) : dbService.getDespesasEscolares(),
+      patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === escolaId) : dbService.getPatrimonio(),
       historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
       configuracaoSistema: dbService.getConfiguracaoSistema(),
       anosLectivos: dbService.getAnosLectivos(),
@@ -2991,14 +2996,15 @@ export const dbService = {
       alertasSeguranca: dbService.getAlertasSeguranca()
     };
 
+    const nomeSufixo = escolaAlvo?.sigla || (isEscolaEspecifica ? 'Instituicao' : 'Rede_Nacional');
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `SGE_NG_Backup_Seguranca_Total_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `SGE_NG_Backup_${nomeSufixo}_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    dbService.registarLog('Backup Integral do Sistema', 'Cópia de segurança completa com todas as tabelas e dados exportada com sucesso.');
+    dbService.registarLog('Backup Integral do Sistema', `Cópia de segurança (${nomeSufixo}) exportada com sucesso.`);
   },
 
   // Restaurar Backup JSON Completo
@@ -3712,23 +3718,57 @@ export const dbService = {
     const sessoes = dbService.getSessoesAtivas();
     const agora = Date.now();
     const limiteOnline = agora - 15 * 60 * 1000; // 15 minutos de tolerância
-    return sessoes.filter(s => {
+
+    const filtradas = sessoes.filter(s => {
       const isOnline = s.online || s.ultimoAcesso >= limiteOnline;
       if (!isOnline) return false;
-      if (!escolaId || escolaId === 'todas') return true;
-      return s.escolaId === escolaId;
+      // Se escolaId foi fornecido (Diretor de Escola), NUNCA exibir sessões do Administrador Geral
+      if (escolaId && escolaId !== 'todas') {
+        if (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral') return false;
+        return s.escolaId === escolaId;
+      }
+      return true;
     });
+
+    // Deduplicação precisa por utilizador mantendo o acesso mais recente
+    const mapaUnico = new Map<string, SessaoAtivaUsuario>();
+    filtradas.forEach(s => {
+      const chave = s.userId || s.userName;
+      const existente = mapaUnico.get(chave);
+      if (!existente || s.ultimoAcesso > existente.ultimoAcesso) {
+        mapaUnico.set(chave, s);
+      }
+    });
+
+    return Array.from(mapaUnico.values());
   },
 
   getUsuariosUltimas24Horas: (escolaId?: string): SessaoAtivaUsuario[] => {
     const sessoes = dbService.getSessoesAtivas();
     const agora = Date.now();
     const limite24h = agora - 24 * 60 * 60 * 1000;
-    return sessoes.filter(s => {
+
+    const filtradas = sessoes.filter(s => {
       if (s.ultimoAcesso < limite24h) return false;
-      if (!escolaId || escolaId === 'todas') return true;
-      return s.escolaId === escolaId;
+      // Se escolaId foi fornecido (Diretor de Escola), NUNCA exibir sessões do Administrador Geral
+      if (escolaId && escolaId !== 'todas') {
+        if (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral') return false;
+        return s.escolaId === escolaId;
+      }
+      return true;
     });
+
+    // Deduplicação precisa por utilizador
+    const mapaUnico = new Map<string, SessaoAtivaUsuario>();
+    filtradas.forEach(s => {
+      const chave = s.userId || s.userName;
+      const existente = mapaUnico.get(chave);
+      if (!existente || s.ultimoAcesso > existente.ultimoAcesso) {
+        mapaUnico.set(chave, s);
+      }
+    });
+
+    return Array.from(mapaUnico.values());
   },
 
   // ==========================================

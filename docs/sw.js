@@ -90,7 +90,7 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "revision": "a5c54e034b26c7583b844dbf9890ca57"
   }, {
     "url": "index.html",
-    "revision": "81011b68717e5a499848db745c67a879"
+    "revision": "b7312ac22088aa646371349178b36ec3"
   }, {
     "url": "icon.svg",
     "revision": "293309fdc038c89ab9bbbe70fd91b917"
@@ -107,13 +107,13 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "url": "assets/purify.es-Bvo9QlJ8.js",
     "revision": null
   }, {
-    "url": "assets/index.es-B1qiNCXp.js",
+    "url": "assets/index.es-BWVpafSv.js",
     "revision": null
   }, {
-    "url": "assets/index-CbkrctOt.css",
+    "url": "assets/index-BWb9HAPV.js",
     "revision": null
   }, {
-    "url": "assets/index-CWbvXjEv.js",
+    "url": "assets/index-B8UtXa_3.css",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",

@@ -11,7 +11,8 @@ import {
   LifeBuoy,
   Cpu,
   Bell,
-  MessageSquare
+  MessageSquare,
+  Compass
 } from 'lucide-react';
 import { Escola, Funcionario } from '../types';
 import { SystemIntegrityStatus } from '../services/firebaseClient';
@@ -37,6 +38,7 @@ interface HeaderProps {
   onNavigateToComunicacao?: () => void;
   onLogout?: () => void;
   onOpenSecurityEngine?: () => void;
+  onOpenTour?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -54,7 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigateToPerfil,
   onNavigateToComunicacao,
   onLogout,
-  onOpenSecurityEngine
+  onOpenSecurityEngine,
+  onOpenTour
 }) => {
   // O Administrador Geral não vê escolas a não ser quando há autorização formal de apoio técnico
   const isAdminGeral = currentUser.role === 'AdminGeral';
@@ -227,6 +230,19 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Cpu className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
                 <span className="hidden md:inline">AES-256</span>
+              </button>
+            )}
+
+            {/* Botão de Tour Guiado / Guia do Sistema */}
+            {onOpenTour && (
+              <button
+                type="button"
+                onClick={onOpenTour}
+                className="flex items-center space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 text-amber-950 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
+                title="Abrir o Guia do Sistema e Tour da Dashboard"
+              >
+                <Compass className="w-4 h-4 text-amber-600 group-hover:rotate-45 transition-transform shrink-0" />
+                <span className="hidden md:inline">Guia do Sistema</span>
               </button>
             )}
 

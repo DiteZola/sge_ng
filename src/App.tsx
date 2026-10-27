@@ -53,6 +53,7 @@ import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
 import { SchoolCalendarView } from './components/SchoolCalendarView';
 import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
+import { GuidedTourModal } from './components/GuidedTourModal';
 import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
 export default function App() {
@@ -64,22 +65,38 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+  const [activeTab, setActiveTabRaw] = useState<NavTab>(() => {
     try {
       const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
       if (!isAuth) return 'dashboard';
-      const u = dbService.getCurrentUser();
-      return u?.role === 'AdminGeral' ? 'dashboard' : 'dashboard';
+      const savedTab = localStorage.getItem('sge_active_tab') as NavTab;
+      if (savedTab) return savedTab;
+      return 'dashboard';
     } catch {
       return 'dashboard';
     }
   });
 
+  const setActiveTab = useCallback((tab: NavTab) => {
+    setActiveTabRaw(tab);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('sge_active_tab', tab);
+      }
+    } catch {}
+  }, []);
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [integrity, setIntegrity] = useState<SystemIntegrityStatus>(verificarIntegridadeSistema());
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
+  const [showTourModal, setShowTourModal] = useState<boolean>(false);
   const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
   const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(() => {
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true') {
+        return false;
+      }
+    } catch {}
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       return false;
     }
@@ -284,6 +301,23 @@ export default function App() {
       window.removeEventListener('sge_security_anomaly_detected', handleSecurityAnomaly);
     };
   }, [currentUser?.role]);
+
+  // Exibição automática do Tour Guiado para novos utilizadores após autenticação
+  useEffect(() => {
+    if (isAuthenticated && currentUser) {
+      try {
+        const jaViuTour = localStorage.getItem(`sge_tour_completed_${currentUser.id || currentUser.role}`);
+        if (jaViuTour !== 'true') {
+          const timer = setTimeout(() => {
+            setShowTourModal(true);
+          }, 800);
+          return () => clearTimeout(timer);
+        }
+      } catch (err) {
+        console.error('Erro ao ler estado do tour guiado:', err);
+      }
+    }
+  }, [isAuthenticated, currentUser?.id, currentUser?.role]);
 
   // Alternância Multi-Escola
   const handleSelectEscola = (escolaId: string) => {
@@ -759,13 +793,25 @@ export default function App() {
     localStorage.setItem('sge_authenticated', 'true');
     setActiveTab('dashboard');
     setLogs(dbService.obterLogs());
+
+    try {
+      const jaViuTour = localStorage.getItem(`sge_tour_completed_${user.id || user.role}`);
+      if (jaViuTour !== 'true') {
+        setTimeout(() => setShowTourModal(true), 600);
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const handleLogout = () => {
     dbService.setCurrentUser(null);
     setAuthenticatedUser(null);
     setIsAuthenticated(false);
-    localStorage.removeItem('sge_authenticated');
+    try {
+      localStorage.removeItem('sge_authenticated');
+      localStorage.removeItem('sge_active_tab');
+    } catch {}
   };
 
   // Handler de Atualização de Perfil pelo próprio Usuário
@@ -1012,8 +1058,8 @@ export default function App() {
           || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
           || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
-  // Ecrã de Verificação Soberana Inicial contra o Firebase
-  if (verificandoAdminOnline) {
+  // Ecrã de Verificação Soberana Inicial contra o Firebase (Apenas se utilizador NÃO estiver autenticado)
+  if (verificandoAdminOnline && !isAuthenticated) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans relative">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950 pointer-events-none" />
@@ -1101,6 +1147,7 @@ export default function App() {
         onNavigateToComunicacao={() => setActiveTab('comunicacao')}
         onLogout={handleLogout}
         onOpenSecurityEngine={() => setShowSecurityModal(true)}
+        onOpenTour={() => setShowTourModal(true)}
       />
 
       {/* Alerta de Regras do Firestore (quando o projeto externo sge4-8b772 tem regras travadas) */}
@@ -1175,6 +1222,7 @@ export default function App() {
           setMobileMenuOpen={setMobileMenuOpen}
           currentUser={effectiveUser}
           onLogout={handleLogout}
+          onOpenTour={() => setShowTourModal(true)}
         />
 
         {/* Content Area com Proteção de Rotas RBAC */}
@@ -1211,6 +1259,7 @@ export default function App() {
                   notasConsolidadas={notasConsolidadas}
                   onNavigate={(tab) => setActiveTab(tab)}
                   onOpenSecurityModal={() => setShowSecurityModal(true)}
+                  onOpenTour={() => setShowTourModal(true)}
                 />
               )}
 
@@ -1513,6 +1562,18 @@ export default function App() {
         isOpen={showSecurityModal}
         onClose={() => setShowSecurityModal(false)}
         onAbrirSetupInicial={() => setTemAdminGeral(false)}
+      />
+
+      {/* Tour Guiado Oficial da Dashboard e Plataforma */}
+      <GuidedTourModal
+        isOpen={showTourModal}
+        onClose={() => setShowTourModal(false)}
+        currentUser={effectiveUser}
+        escola={escola}
+        onNavigateTab={(tab) => {
+          setActiveTab(tab);
+          setShowTourModal(false);
+        }}
       />
     </div>
   );

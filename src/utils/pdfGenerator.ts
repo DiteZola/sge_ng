@@ -30,39 +30,19 @@ function normalizeColorForCanvas(colorStr: string): string {
 }
 
 /**
- * Converte um elemento SVG para imagem Base64 PNG de alta resolução
+ * Aguarda o carregamento de todas as imagens presentes num elemento HTML
  */
-async function rasterizeSvgToDataUrl(svgEl: SVGElement, width: number, height: number): Promise<string | null> {
-  try {
-    const xml = new XMLSerializer().serializeToString(svgEl);
-    const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
-    const URL = window.URL || window.webkitURL || window;
-    const blobURL = URL.createObjectURL(svgBlob);
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    const loadPromise = new Promise<void>((resolve, reject) => {
+async function aguardarImagens(elemento: HTMLElement): Promise<void> {
+  const imagens = Array.from(elemento.querySelectorAll('img'));
+  const promises = imagens.map(img => {
+    if (img.complete && img.naturalHeight !== 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
       img.onload = () => resolve();
-      img.onerror = (e) => reject(e);
+      img.onerror = () => resolve(); // Continua mesmo se uma imagem falhar
+      setTimeout(resolve, 2000); // Timeout de segurança
     });
-
-    img.src = blobURL;
-    await loadPromise;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(width * 2, 120);
-    canvas.height = Math.max(height * 2, 120);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(blobURL);
-    return canvas.toDataURL('image/png');
-  } catch (err) {
-    console.warn('[PDF Generator] Falha ao rasterizar SVG, mantendo original:', err);
-    return null;
-  }
+  });
+  await Promise.all(promises);
 }
 
 /**
@@ -89,14 +69,17 @@ export async function downloadElementAsPdf(
 
   const cleanFilename = filename.replace(/\.pdf$/i, '').trim();
   const orientation = options.orientation || 'portrait';
-  const scale = options.scale || 2.5; // Alta definição 2.5x para máxima nitidez das tabelas e texto
-  const marginMm = options.marginMm ?? 8;
+  const scale = options.scale || 2.4; // 2.4x oferece nitidez de nível de publicação e tamanho de arquivo controlado
+  const marginMm = options.marginMm ?? 6;
 
-  // Dimensões da folha A4 em milímetros
+  // Dimensões oficiais da folha A4 em milímetros
   const a4WidthMm = orientation === 'landscape' ? 297 : 210;
   const a4HeightMm = orientation === 'landscape' ? 210 : 297;
   const printableWidthMm = a4WidthMm - (marginMm * 2);
   const printableHeightMm = a4HeightMm - (marginMm * 2);
+
+  // Aguardar imagens antes da captura
+  await aguardarImagens(element);
 
   const originalBackground = element.style.backgroundColor;
   element.style.backgroundColor = '#ffffff';
@@ -105,28 +88,78 @@ export async function downloadElementAsPdf(
     const isLandscape = orientation === 'landscape';
     const targetA4WidthPx = isLandscape ? 1122 : 794;
 
-    // 1. Clonar e rasterizar SVGs complexos antes da captura para evitar erros de gradiente
+    // Capturar o elemento clonado com html2canvas
     const canvas = await html2canvas(element, {
       scale: scale,
       useCORS: true,
-      allowTaint: false, // CRÍTICO: allowTaint: false é obrigatório para permitir canvas.toDataURL() sem SecurityError
+      allowTaint: false, // allowTaint: false é obrigatório para exportar toDataURL sem erro de segurança
       backgroundColor: '#ffffff',
       logging: false,
       imageTimeout: 15000,
       windowWidth: isLandscape ? 1280 : 1024,
       onclone: (clonedDoc) => {
-        // A. Forçar documento clonado a ter as dimensões virtuais exatas de uma folha A4 oficial
         try {
-          clonedDoc.documentElement.style.width = `${targetA4WidthPx + 40}px`;
-          clonedDoc.documentElement.style.minWidth = `${targetA4WidthPx + 40}px`;
-          clonedDoc.body.style.width = `${targetA4WidthPx + 40}px`;
-          clonedDoc.body.style.minWidth = `${targetA4WidthPx + 40}px`;
+          // 1. INJETAR TODAS AS FOLHAS DE ESTILO DO DOCUMENTO PAI NO CLONE
+          // Isso garante que classes Tailwind, fontes e regras de impressão sejam aplicadas
+          const parentStyles = document.querySelectorAll('style, link[rel="stylesheet"]');
+          parentStyles.forEach(styleNode => {
+            try {
+              clonedDoc.head.appendChild(styleNode.cloneNode(true));
+            } catch {}
+          });
+
+          // 2. INJETAR ESTILOS CRÍTICOS DE IMPRESSÃO MED ANGOLA
+          const overrideStyle = clonedDoc.createElement('style');
+          overrideStyle.innerHTML = `
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+              box-sizing: border-box !important;
+            }
+            body {
+              background-color: #ffffff !important;
+              color: #000000 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+            }
+            .no-print, button, input[type="button"], input[type="submit"], nav {
+              display: none !important;
+            }
+            .print\\:block, .print-only {
+              display: block !important;
+            }
+            .print\\:flex {
+              display: flex !important;
+            }
+            table {
+              border-collapse: collapse !important;
+              width: 100% !important;
+            }
+            th, td {
+              border: 1px solid #111827 !important;
+            }
+            img {
+              max-width: 100% !important;
+              height: auto !important;
+            }
+          `;
+          clonedDoc.head.appendChild(overrideStyle);
+
+          // 3. NORMALIZAR LARGURA DO DOCUMENTO CLONADO PARA O FORMATO A4 EXATO
+          clonedDoc.documentElement.style.width = `${targetA4WidthPx + 20}px`;
+          clonedDoc.documentElement.style.minWidth = `${targetA4WidthPx + 20}px`;
+          clonedDoc.body.style.width = `${targetA4WidthPx + 20}px`;
+          clonedDoc.body.style.minWidth = `${targetA4WidthPx + 20}px`;
           clonedDoc.body.style.margin = '0 auto';
           clonedDoc.body.style.padding = '0';
           clonedDoc.body.style.overflow = 'visible';
           clonedDoc.body.style.backgroundColor = '#ffffff';
 
-          const targetEl = clonedDoc.getElementById('documento-para-impressao') || 
+          // 4. RESETAR QUALQUER ZOOM OU TRANSFORM HERDADO DA INTERFACE
+          const targetEl = clonedDoc.getElementById(typeof elementOrId === 'string' ? elementOrId : (element.id || 'documento-para-impressao')) ||
+                           clonedDoc.getElementById('documento-para-impressao') ||
                            clonedDoc.querySelector('[data-doc-root="true"]') ||
                            clonedDoc.querySelector('.documento-oficial-print');
 
@@ -135,31 +168,39 @@ export async function downloadElementAsPdf(
             hEl.style.width = `${targetA4WidthPx}px`;
             hEl.style.minWidth = `${targetA4WidthPx}px`;
             hEl.style.maxWidth = `${targetA4WidthPx}px`;
+            (hEl.style as any).zoom = '1';
             hEl.style.transform = 'none';
             hEl.style.margin = '0 auto';
             hEl.style.boxSizing = 'border-box';
             hEl.style.overflow = 'visible';
             hEl.style.borderRadius = '0';
             hEl.style.boxShadow = 'none';
+            hEl.style.backgroundColor = '#ffffff';
           }
 
-          // Se for grade de cartões/passes escolares (8 por folha A4), forçar layout 4x2 ou 2x4
+          // Resetar todos os recipientes com zoom no clone
+          const zoomedParents = clonedDoc.querySelectorAll('[style*="zoom"]');
+          zoomedParents.forEach(node => {
+            (node as HTMLElement).style.zoom = '1';
+          });
+
+          // Se for grade de cartões/passes escolares (8 por folha A4)
           const passGrids = clonedDoc.querySelectorAll('[data-passes-grid="true"], .passes-grid-container');
           passGrids.forEach(pg => {
             const el = pg as HTMLElement;
             el.style.display = 'grid';
             el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
-            el.style.gap = '10px';
+            el.style.gap = '8px';
             el.style.width = '100%';
           });
 
-          // Se for grade de 4 boletins por folha A4, forçar 2x2
+          // Se for grade de boletins (4 por folha A4)
           const boletimGrids = clonedDoc.querySelectorAll('.boletins-grid-4');
           boletimGrids.forEach(bg => {
             const el = bg as HTMLElement;
             el.style.display = 'grid';
             el.style.gridTemplateColumns = 'repeat(2, 1fr)';
-            el.style.gap = '12px';
+            el.style.gap = '10px';
             el.style.width = '100%';
           });
 
@@ -171,80 +212,27 @@ export async function downloadElementAsPdf(
             el.style.width = '100%';
             el.style.maxWidth = 'none';
           });
-        } catch (e) {
-          console.warn('[PDF Generator] Aviso no ajuste dimensional do clone:', e);
-        }
 
-        // B. Ocultar botões, barras de ferramentas e controlos de navegação (.no-print)
-        const noPrintElements = clonedDoc.querySelectorAll(
-          '.no-print, button, input[type="button"], input[type="submit"], nav, .action-buttons'
-        );
-        noPrintElements.forEach(el => {
-          (el as HTMLElement).style.display = 'none';
-        });
-
-        // C. Exibir elementos exclusivos de impressão
-        const printElements = clonedDoc.querySelectorAll(
-          '.print\\:block, .print\\:flex, .print\\:table-cell, .print-only'
-        );
-        printElements.forEach(el => {
-          (el as HTMLElement).style.display = 'block';
-        });
-
-        // D. Garantir estilos explícitos nas tabelas e bordas para formatação perfeita MED
-        const tables = clonedDoc.querySelectorAll('table');
-        tables.forEach(table => {
-          const t = table as HTMLElement;
-          t.style.borderCollapse = 'collapse';
-          t.style.width = '100%';
-        });
-
-        const tableCells = clonedDoc.querySelectorAll('th, td');
-        tableCells.forEach(cell => {
-          const c = cell as HTMLElement;
-          if (!c.style.borderColor) {
-            c.style.borderColor = '#000000';
-          }
-        });
-
-        // E. Normalizar dimensões de SVGs
-        const svgElements = clonedDoc.querySelectorAll('svg');
-        svgElements.forEach(svg => {
-          try {
-            if (!svg.getAttribute('xmlns')) {
-              svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-            }
-            const widthAttr = svg.getAttribute('width');
-            const heightAttr = svg.getAttribute('height');
-            if (!widthAttr) {
-              svg.setAttribute('width', '56');
-            }
-            if (!heightAttr) {
-              svg.setAttribute('height', '56');
-            }
-            if (!svg.getAttribute('viewBox')) {
-              svg.setAttribute('viewBox', `0 0 ${svg.getAttribute('width') || 56} ${svg.getAttribute('height') || 56}`);
-            }
-          } catch {}
-        });
-
-        // F. Normalizar cores Tailwind modernas (oklch, color-mix) para evitar falhas no html2canvas
-        const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
-        const allCloned = clonedDoc.querySelectorAll('*');
-        allCloned.forEach(node => {
-          const el = node as HTMLElement;
-          if (!el.style) return;
-          try {
-            const comp = window.getComputedStyle(el);
-            if (!comp) return;
-            for (const prop of colorProps) {
-              const val = (comp as any)[prop];
-              if (val && (val.includes('oklch') || val.includes('color(') || val.includes('lab('))) {
-                (el.style as any)[prop] = normalizeColorForCanvas(val);
+          // Normalizar cores modernas (oklch, color-mix) para compatibilidade com canvas
+          const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
+          const allCloned = clonedDoc.querySelectorAll('*');
+          allCloned.forEach(node => {
+            const el = node as HTMLElement;
+            if (!el.style) return;
+            try {
+              const comp = window.getComputedStyle(el);
+              if (!comp) return;
+              for (const prop of colorProps) {
+                const val = (comp as any)[prop];
+                if (val && (val.includes('oklch') || val.includes('color(') || val.includes('lab('))) {
+                  (el.style as any)[prop] = normalizeColorForCanvas(val);
+                }
               }
-            }
-          } catch {}
-        });
+            } catch {}
+          });
+        } catch (cloneErr) {
+          console.warn('[PDF Generator] Aviso no ajuste do clone:', cloneErr);
+        }
       }
     });
 
@@ -261,12 +249,12 @@ export async function downloadElementAsPdf(
     const canvasTotalWidth = canvas.width;
     const totalHeightMm = (canvasTotalHeight * imgWidthMm) / canvasTotalWidth;
 
-    // Se couber numa única página
-    if (totalHeightMm <= printableHeightMm) {
+    // Se couber numa única página A4
+    if (totalHeightMm <= printableHeightMm + 2) {
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      pdf.addImage(imgData, 'JPEG', marginMm, marginMm, imgWidthMm, totalHeightMm, undefined, 'FAST');
+      pdf.addImage(imgData, 'JPEG', marginMm, marginMm, imgWidthMm, Math.min(totalHeightMm, printableHeightMm), undefined, 'FAST');
     } else {
-      // Fatiamento preciso página a página em Canvas independente para evitar sobreposição ou cortes
+      // Fatiamento preciso página a página em Canvas independente
       const pageHeightPx = (canvasTotalWidth * printableHeightMm) / imgWidthMm;
       let yOffset = 0;
       let pageIndex = 0;

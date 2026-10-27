@@ -40,7 +40,9 @@ import {
   DollarSign,
   Wallet,
   X,
-  EyeOff
+  EyeOff,
+  Compass,
+  Sparkles
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -85,6 +87,7 @@ interface DashboardViewProps {
   notasConsolidadas: NotaTrimestralConsolidada[];
   onNavigate: (tab: any) => void;
   onOpenSecurityModal?: () => void;
+  onOpenTour?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -96,7 +99,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   turmas,
   notasConsolidadas,
   onNavigate,
-  onOpenSecurityModal
+  onOpenSecurityModal,
+  onOpenTour
 }) => {
   // Lista de todas as escolas
   const todasEscolas = propsEscolas || dbService.getEscolas();
@@ -3495,7 +3499,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   { id: 'Professor', label: 'Professores' },
                   { id: 'DiretorGeral', label: 'Diretores' },
                   { id: 'Secretaria', label: 'Secretaria' },
-                  { id: 'AdminGeral', label: 'Admin Geral' }
+                  ...(isAdminGeral ? [{ id: 'AdminGeral', label: 'Admin Geral' }] : [])
                 ].map(f => (
                   <button
                     key={f.id}
@@ -3521,6 +3525,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
               {(() => {
                 const sessoesExibidas = usuarios24Horas.filter(s => {
+                  if (!isAdminGeral && (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral')) return false;
                   if (filtroSessoesPapel === 'ONLINE') return s.online;
                   if (filtroSessoesPapel !== 'TODOS') return s.userRole === filtroSessoesPapel;
                   return true;

@@ -34,7 +34,9 @@ import {
   Calculator,
   MessageSquare,
   BarChart3,
-  Search
+  Search,
+  Compass,
+  Sparkles
 } from 'lucide-react';
 import { UserRole, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -112,6 +114,7 @@ interface SidebarProps {
   setMobileMenuOpen: (open: boolean) => void;
   currentUser?: Funcionario;
   onLogout?: () => void;
+  onOpenTour?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -121,7 +124,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   mobileMenuOpen,
   setMobileMenuOpen,
   currentUser,
-  onLogout
+  onLogout,
+  onOpenTour
 }) => {
   // Menu oficial categorizado conforme especificação estrita do MED
   const menuGrupos: MenuGroup[] = [
@@ -568,6 +572,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </div>
+
+        {/* Botão de Tour & Guia do Sistema no Menu Lateral */}
+        {onOpenTour && (
+          <div className="px-3 pb-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (mobileMenuOpen) setMobileMenuOpen(false);
+                onOpenTour();
+              }}
+              className="w-full flex items-center justify-between p-2 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-200 text-amber-950 transition-all text-xs font-bold shadow-2xs group cursor-pointer"
+              title="Abrir o Guia do Sistema e Tour da Dashboard"
+            >
+              <div className="flex items-center space-x-2">
+                <Compass className="w-4 h-4 text-amber-600 group-hover:rotate-45 transition-transform" />
+                <span>Tour da Plataforma</span>
+              </div>
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            </button>
+          </div>
+        )}
 
         {/* User Account & Logout in Sidebar Footer */}
         {currentUser && (

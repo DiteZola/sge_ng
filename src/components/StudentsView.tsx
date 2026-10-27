@@ -53,6 +53,7 @@ import { dbService } from '../services/storage';
 import { validarElegibilidadeCertificado, formatarTextoPorGenero, obterInformacaoEscala } from '../services/macEngine';
 import { converterNotaParaCertificadoExtenso, converterNotaParaExtenso } from '../utils/numberToWords';
 import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '../utils/curriculoAngola';
+import { processarFotoUpload } from '../utils/imageCompressor';
 import { AngolaDateInput } from './AngolaDateInput';
 import { LocationPicker } from './LocationPicker';
 import { InsigniaAngola } from '../constants/insignia';
@@ -447,21 +448,26 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setShowHistoricoModal(true);
   };
 
-  // Upload de foto diretamente do dispositivo do utilizador
-  const handleFotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [comprimindoFoto, setComprimindoFoto] = useState(false);
+
+  // Upload de foto diretamente do dispositivo do utilizador (suporta até 10 MB com compressão de alta fidelidade)
+  const handleFotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('A imagem selecionada é muito pesada (máximo 5MB). Por favor selecione uma imagem menor.');
-        return;
+    if (!file) return;
+
+    setComprimindoFoto(true);
+    try {
+      const res = await processarFotoUpload(file, 1200, 0.90);
+      if (res.sucesso && res.dataUrl) {
+        setFotoUrl(res.dataUrl);
+      } else {
+        alert(res.erro || 'Falha ao processar a fotografia selecionada.');
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setFotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    } catch (err: any) {
+      alert(`Erro no processamento da imagem: ${err.message || 'Erro desconhecido'}`);
+    } finally {
+      setComprimindoFoto(false);
+      e.target.value = '';
     }
   };
 
@@ -1706,11 +1712,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
                       <label className="inline-flex items-center space-x-2 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer shadow-xs transition-colors">
                         <Upload className="h-4 w-4" />
-                        <span>Selecionar Foto no Dispositivo</span>
+                        <span>{comprimindoFoto ? 'A Processar Foto (10 MB)...' : 'Selecionar Foto no Dispositivo'}</span>
                         <input 
                           type="file" 
                           accept="image/*" 
                           onChange={handleFotoUpload} 
+                          disabled={comprimindoFoto}
                           className="hidden" 
                         />
                       </label>
@@ -1726,7 +1733,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       )}
                     </div>
                     <p className="text-[11px] text-gray-500">
-                      Selecione uma imagem do seu telefone ou computador (PNG, JPG, máx. 5MB). Esta foto constará nos cartões escolares e boletins oficiais.
+                      Selecione uma imagem do seu telefone ou computador (PNG, JPG, máx. 10 MB com compressão inteligente em alta resolução). Esta foto constará nos cartões escolares e boletins oficiais.
                     </p>
                   </div>
                 </div>

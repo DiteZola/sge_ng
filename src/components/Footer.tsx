@@ -21,17 +21,13 @@ export const Footer: React.FC<FooterProps> = ({
       } ${className}`}
     >
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs">
-        {/* Lado Esquerdo: Copyright e Entidade Oficial */}
+        {/* Lado Esquerdo: Copyright e Sistema */}
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 text-center sm:text-left">
           <span className="font-semibold text-slate-900 dark:text-slate-200">
             &copy; {anoAtual} Sistema de Gestão Escolar (SGE-NG)
           </span>
           <span className="hidden sm:inline text-slate-400">&bull;</span>
-          <span className="text-slate-600 dark:text-slate-400 font-medium">
-            Governo da República de Angola &bull; Ministério da Educação (MED)
-          </span>
-          <span className="hidden md:inline text-slate-400">&bull;</span>
-          <span className="hidden md:inline text-[11px] text-slate-400">
+          <span className="text-slate-500 dark:text-slate-400 font-medium">
             Todos os direitos reservados
           </span>
         </div>
