@@ -715,11 +715,17 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                         <tr key={`${func.id}-${func.escolaId || ''}-${func.numeroBI || ''}`} className="hover:bg-gray-50/80">
                           <td className="p-3">
                             <div className="flex items-center space-x-3">
-                              <img 
-                                src={func.fotoUrl} 
-                                alt={func.nomeCompleto} 
-                                className="h-8 w-8 rounded-full object-cover border border-gray-200 shrink-0" 
-                              />
+                              {func.fotoUrl && func.fotoUrl.trim() !== '' ? (
+                                <img 
+                                  src={func.fotoUrl} 
+                                  alt={func.nomeCompleto} 
+                                  className="h-8 w-8 rounded-full object-cover border border-gray-200 shrink-0" 
+                                />
+                              ) : (
+                                <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs border border-blue-200 shrink-0">
+                                  {func.nomeCompleto ? func.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'FC'}
+                                </div>
+                              )}
                               <div>
                                 <h4 className="font-bold text-gray-900">{func.nomeCompleto}</h4>
                                 <span className="text-[10px] text-gray-500">BI: {func.numeroBI}</span>
@@ -862,11 +868,17 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                 {maisAssiduos.slice(0, 3).map((item, idx) => (
                   <div key={idx} className="p-2.5 bg-green-50/50 border border-green-200 rounded-lg flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <img 
-                        src={item.funcionario.fotoUrl} 
-                        alt={item.funcionario.nomeCompleto} 
-                        className="h-9 w-9 rounded-full object-cover border border-green-300" 
-                      />
+                      {item.funcionario.fotoUrl && item.funcionario.fotoUrl.trim() !== '' ? (
+                        <img 
+                          src={item.funcionario.fotoUrl} 
+                          alt={item.funcionario.nomeCompleto} 
+                          className="h-9 w-9 rounded-full object-cover border border-green-300 shrink-0" 
+                        />
+                      ) : (
+                        <div className="h-9 w-9 rounded-full bg-green-100 text-green-800 flex items-center justify-center font-bold text-xs border border-green-300 shrink-0">
+                          {item.funcionario.nomeCompleto ? item.funcionario.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'FC'}
+                        </div>
+                      )}
                       <div>
                         <h4 className="font-bold text-gray-900">{item.funcionario.nomeCompleto}</h4>
                         <span className="text-[10px] text-gray-500">{item.funcionario.cargo}</span>
@@ -898,11 +910,17 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   return (
                     <div key={idx} className="p-2.5 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-between">
                       <div className="flex items-center space-x-3">
-                        <img 
-                          src={item.funcionario.fotoUrl} 
-                          alt={item.funcionario.nomeCompleto} 
-                          className="h-9 w-9 rounded-full object-cover border" 
-                        />
+                        {item.funcionario.fotoUrl && item.funcionario.fotoUrl.trim() !== '' ? (
+                          <img 
+                            src={item.funcionario.fotoUrl} 
+                            alt={item.funcionario.nomeCompleto} 
+                            className="h-9 w-9 rounded-full object-cover border shrink-0" 
+                          />
+                        ) : (
+                          <div className="h-9 w-9 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-xs border border-gray-300 shrink-0">
+                            {item.funcionario.nomeCompleto ? item.funcionario.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'FC'}
+                          </div>
+                        )}
                         <div>
                           <h4 className="font-bold text-gray-900">{item.funcionario.nomeCompleto}</h4>
                           <span className="text-[10px] text-gray-500">{item.funcionario.cargo}</span>
@@ -957,7 +975,13 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     return (
                       <tr key={`${func.id}-${func.escolaId || ''}-${func.numeroBI || ''}`} className="hover:bg-gray-50/70">
                         <td className="p-3 font-bold text-gray-900 flex items-center space-x-2.5">
-                          <img src={func.fotoUrl} alt={func.nomeCompleto} className="h-7 w-7 rounded-full object-cover border" />
+                          {func.fotoUrl && func.fotoUrl.trim() !== '' ? (
+                            <img src={func.fotoUrl} alt={func.nomeCompleto} className="h-7 w-7 rounded-full object-cover border shrink-0" />
+                          ) : (
+                            <div className="h-7 w-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-[10px] shrink-0 border border-blue-200">
+                              {func.nomeCompleto ? func.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'FC'}
+                            </div>
+                          )}
                           <span>{func.nomeCompleto}</span>
                         </td>
                         <td className="p-3">
@@ -1044,7 +1068,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
               <div className="bg-gray-50/80 p-4 rounded-xl border border-gray-200">
                 <label className="font-bold text-gray-800 block mb-2">Fotografia Oficial do Funcionário (Tipo Passe)</label>
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                  {fotoUrl ? (
+                  {fotoUrl && fotoUrl.trim() !== '' ? (
                     <div className="relative group">
                       <img 
                         src={fotoUrl} 
@@ -1752,7 +1776,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
               {/* Foto e Identificação */}
               <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
-                {funcParaFicha.fotoUrl ? (
+                {funcParaFicha.fotoUrl && funcParaFicha.fotoUrl.trim() !== '' ? (
                   <img 
                     src={funcParaFicha.fotoUrl} 
                     alt={funcParaFicha.nomeCompleto} 

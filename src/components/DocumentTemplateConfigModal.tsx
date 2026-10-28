@@ -444,7 +444,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
 
                     {configAtual.disposicao.exibirLogoEscola && (
                       <div className="w-14 h-14 flex items-center justify-center shrink-0 border border-gray-200 rounded p-1 bg-gray-50">
-                        {escola.logotipo ? (
+                        {escola.logotipo && escola.logotipo.trim() !== '' ? (
                           <img src={escola.logotipo} alt="Escola" className="max-h-full max-w-full object-contain" />
                         ) : (
                           <Building2 className="w-8 h-8 text-blue-800" />

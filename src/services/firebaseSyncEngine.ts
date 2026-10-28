@@ -232,18 +232,28 @@ class FirebaseSyncEngine {
           const t = d.data() as Turma;
           if (t && t.id) turmasRemotas.push(t);
         });
-        localStorage.setItem(STORAGE_KEYS.TURMAS, JSON.stringify(turmasRemotas));
+        const localRaw = localStorage.getItem(STORAGE_KEYS.TURMAS);
+        const localTurmas: Turma[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+        const map = new Map<string, Turma>();
+        localTurmas.forEach(lt => map.set(lt.id, lt));
+        turmasRemotas.forEach(rt => map.set(rt.id, { ...map.get(rt.id), ...rt }));
+        localStorage.setItem(STORAGE_KEYS.TURMAS, JSON.stringify(Array.from(map.values())));
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
       }, (err) => console.warn('[SGE Realtime] Escuta de turmas:', err));
 
-      // 4. Escuta em tempo real de Alunos
+      // 4. Escuta em tempo real de Alunos (com fusão segura para não perder cadastros locais)
       onSnapshot(collection(firestoreDb, "alunos"), (snapshot) => {
         const alunosRemotos: Aluno[] = [];
         snapshot.forEach(d => {
           const a = d.data() as Aluno;
           if (a && a.id && !isDemoAluno(a)) alunosRemotos.push(a);
         });
-        localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(alunosRemotos));
+        const localRaw = localStorage.getItem(STORAGE_KEYS.ALUNOS);
+        const localAlunos: Aluno[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+        const map = new Map<string, Aluno>();
+        localAlunos.filter(la => !isDemoAluno(la)).forEach(la => map.set(la.id, la));
+        alunosRemotos.forEach(ra => map.set(ra.id, { ...map.get(ra.id), ...ra }));
+        localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(Array.from(map.values())));
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
       }, (err) => console.warn('[SGE Realtime] Escuta de alunos:', err));
 
@@ -254,7 +264,12 @@ class FirebaseSyncEngine {
           const at = d.data();
           if (at && at.id) atribsRemotas.push(at);
         });
-        localStorage.setItem(STORAGE_KEYS.ATRIBUICOES, JSON.stringify(atribsRemotas));
+        const localRaw = localStorage.getItem(STORAGE_KEYS.ATRIBUICOES);
+        const localAtribs: any[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+        const map = new Map<string, any>();
+        localAtribs.forEach(la => map.set(la.id, la));
+        atribsRemotas.forEach(ra => map.set(ra.id, { ...map.get(ra.id), ...ra }));
+        localStorage.setItem(STORAGE_KEYS.ATRIBUICOES, JSON.stringify(Array.from(map.values())));
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
       }, (err) => console.warn('[SGE Realtime] Escuta de atribuicoes:', err));
 
@@ -265,7 +280,12 @@ class FirebaseSyncEngine {
           const j = d.data();
           if (j && j.id) jurisRemotos.push(j);
         });
-        localStorage.setItem(STORAGE_KEYS.JURIS, JSON.stringify(jurisRemotos));
+        const localRaw = localStorage.getItem(STORAGE_KEYS.JURIS);
+        const localJuris: any[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+        const map = new Map<string, any>();
+        localJuris.forEach(lj => map.set(lj.id, lj));
+        jurisRemotos.forEach(rj => map.set(rj.id, { ...map.get(rj.id), ...rj }));
+        localStorage.setItem(STORAGE_KEYS.JURIS, JSON.stringify(Array.from(map.values())));
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
       }, (err) => console.warn('[SGE Realtime] Escuta de juris:', err));
     } catch (e) {
@@ -803,8 +823,22 @@ class FirebaseSyncEngine {
           const a = d.data() as Aluno;
           if (a && a.id && !isDemoAluno(a)) alunosRemotos.push(a);
         });
-        if (alunosRemotos.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(alunosRemotos));
+        const localRaw = localStorage.getItem(STORAGE_KEYS.ALUNOS);
+        const localAlunos: Aluno[] = (localRaw && localRaw !== 'undefined' && localRaw !== 'null') ? JSON.parse(localRaw) : [];
+        const map = new Map<string, Aluno>();
+        localAlunos.filter(la => !isDemoAluno(la)).forEach(la => map.set(la.id, la));
+        alunosRemotos.forEach(ra => map.set(ra.id, { ...map.get(ra.id), ...ra }));
+        localStorage.setItem(STORAGE_KEYS.ALUNOS, JSON.stringify(Array.from(map.values())));
+      } else {
+        // Se o Firestore de alunos estiver vazio mas o dispositivo tiver alunos cadastrados, envia para o Firestore
+        const localRaw = localStorage.getItem(STORAGE_KEYS.ALUNOS);
+        if (localRaw && localRaw !== 'undefined' && localRaw !== 'null') {
+          try {
+            const localAlunos: Aluno[] = JSON.parse(localRaw);
+            for (const a of localAlunos.filter(a => !isDemoAluno(a))) {
+              await setDoc(doc(firestoreDb, "alunos", a.id), { ...a, atualizadoEm: new Date().toISOString() }, { merge: true });
+            }
+          } catch {}
         }
       }
 

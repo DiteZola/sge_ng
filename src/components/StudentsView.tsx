@@ -551,19 +551,29 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleSaveAluno = (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    if (!nomeCompleto.trim()) {
+      alert('Por favor, informe o nome completo do estudante.');
+      return;
+    }
+
     const turmaSelecionada = turmas.find(t => t.id === turmaId);
     const classeFinal = turmaSelecionada ? normalizarClasse(turmaSelecionada.classe) : normalizarClasse(modalClasse);
     const cursoFinal = isSegundoCiclo(classeFinal)
       ? (turmaSelecionada?.curso || modalCurso || 'Ciências Físicas e Biológicas (PUNIV)')
       : getCursoDaTurma(turmaSelecionada);
 
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escolaIdFinal = editingAluno?.escolaId || turmaSelecionada?.escolaId || escola?.id || escolaAtiva?.id || (dbService.getEscolas()[0]?.id) || 'esc-001';
+
     const novoAluno: Aluno = {
       id: editingAluno ? editingAluno.id : `aluno-${Date.now()}`,
-      escolaId: editingAluno?.escolaId || 'esc-001',
+      escolaId: escolaIdFinal,
       codigoMatricula: codigoMatricula.trim() || editingAluno?.codigoMatricula || `${new Date().getFullYear()}/MED-${Math.floor(1000 + Math.random() * 9000)}`,
       numeroProcesso: numeroProcesso || editingAluno?.numeroProcesso || `PROC-${Math.floor(1000 + Math.random() * 9000)}`,
       numeroOrdem: editingAluno?.numeroOrdem || 1,
-      nomeCompleto,
+      nomeCompleto: nomeCompleto.trim(),
       genero,
       numeroBI: numeroDocumento || '000000000LA000',
       tipoDocumento,
@@ -575,7 +585,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       municipioNascimento,
       provinciaOrigem,
       telefone: telefoneEncarregado,
-      turmaId,
+      turmaId: turmaId || turmaSelecionada?.id || turmas[0]?.id || '',
       classeId: classeFinal,
       curso: cursoFinal,
       nomePai,
@@ -607,6 +617,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     onSalvarAluno(novoAluno);
     setShowAlunoModal(false);
+    setEditingAluno(null);
   };
 
   // Funções de Confirmação de Matrícula (Renovação de Alunos já Cadastrados)
@@ -1527,11 +1538,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3">
-                  <img
-                    src={aluno.fotoUrl}
-                    alt={aluno.nomeCompleto}
-                    className="h-12 w-12 rounded-full object-cover border-2 border-blue-600"
-                  />
+                  {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
+                    <img
+                      src={aluno.fotoUrl}
+                      alt={aluno.nomeCompleto}
+                      className="h-12 w-12 rounded-full object-cover border-2 border-blue-600 shrink-0"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-blue-100 border-2 border-blue-600 flex items-center justify-center font-bold text-blue-800 text-sm shrink-0">
+                      {aluno.nomeCompleto ? aluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'AL'}
+                    </div>
+                  )}
                   <div>
                     <h3 className="text-xs font-bold text-gray-900 leading-snug">{aluno.nomeCompleto}</h3>
                     <p className="text-[11px] text-gray-500 font-mono">{aluno.codigoMatricula}</p>
@@ -1685,7 +1702,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <label className="font-bold text-gray-800 block mb-2">Fotografia Tipo Passe do Estudante</label>
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                  {fotoUrl ? (
+                  {fotoUrl && fotoUrl.trim() !== '' ? (
                     <div className="relative group">
                       <img 
                         src={fotoUrl} 
@@ -2251,7 +2268,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               const tAtual = turmas.find(tm => tm.id === al.turmaId);
               return (
                 <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center space-x-3 text-xs">
-                  {al.fotoUrl ? (
+                  {al.fotoUrl && al.fotoUrl.trim() !== '' ? (
                     <img
                       src={al.fotoUrl}
                       alt={al.nomeCompleto}
@@ -2457,7 +2474,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               {/* Cabeçalho */}
               <div className="text-center space-y-1 border-b-2 border-black pb-3">
                 <div className="flex justify-center mb-1">
-                  {configSistema.insigniaNacionalUrl ? (
+                  {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
                     <img
                       src={configSistema.insigniaNacionalUrl}
                       alt="Insígnia da República de Angola"
@@ -2503,7 +2520,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
               {/* Foto e Dados Pessoais do Aluno */}
               <div className="flex items-start space-x-4 border-b border-gray-300 pb-3 font-sans text-xs">
-                {alunoConfirmadoComprovativo.aluno.fotoUrl ? (
+                {alunoConfirmadoComprovativo.aluno.fotoUrl && alunoConfirmadoComprovativo.aluno.fotoUrl.trim() !== '' ? (
                   <img
                     src={alunoConfirmadoComprovativo.aluno.fotoUrl}
                     alt={alunoConfirmadoComprovativo.aluno.nomeCompleto}
@@ -3612,11 +3629,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             {resultadoConsulta && (
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-2 text-xs">
                 <div className="flex items-center space-x-3">
-                  <img
-                    src={resultadoConsulta.fotoUrl}
-                    alt={resultadoConsulta.nomeCompleto}
-                    className="h-12 w-12 rounded-full object-cover border"
-                  />
+                  {resultadoConsulta.fotoUrl && resultadoConsulta.fotoUrl.trim() !== '' ? (
+                    <img
+                      src={resultadoConsulta.fotoUrl}
+                      alt={resultadoConsulta.nomeCompleto}
+                      className="h-12 w-12 rounded-full object-cover border shrink-0"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm shrink-0">
+                      {resultadoConsulta.nomeCompleto ? resultadoConsulta.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'AL'}
+                    </div>
+                  )}
                   <div>
                     <h4 className="font-bold text-gray-900">{resultadoConsulta.nomeCompleto}</h4>
                     <p className="text-gray-500 font-mono text-[11px]">Matrícula: {resultadoConsulta.codigoMatricula}</p>
@@ -3709,7 +3732,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             {/* Identificação Geral com Foto */}
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="shrink-0 text-center">
-                {alunoDossieModal.fotoUrl ? (
+                {alunoDossieModal.fotoUrl && alunoDossieModal.fotoUrl.trim() !== '' ? (
                   <img
                     src={alunoDossieModal.fotoUrl}
                     alt={alunoDossieModal.nomeCompleto}

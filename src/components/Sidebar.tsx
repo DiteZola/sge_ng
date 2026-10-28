@@ -603,7 +603,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="w-full flex items-center space-x-2.5 mb-2 p-1 rounded-lg hover:bg-white transition-colors text-left cursor-pointer group"
               title="Abrir Meu Perfil para atualizar dados, foto ou palavra-passe"
             >
-              {currentUser.fotoUrl ? (
+              {currentUser.fotoUrl && currentUser.fotoUrl.trim() !== '' ? (
                 <img 
                   src={currentUser.fotoUrl} 
                   alt={currentUser.nomeCompleto} 

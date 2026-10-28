@@ -548,7 +548,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
                     <div className="h-12 w-12 rounded-full bg-emerald-100 border-2 border-emerald-400 flex items-center justify-center text-emerald-800 font-bold overflow-hidden shrink-0">
-                      {alunoConsultado.fotoUrl ? (
+                      {alunoConsultado.fotoUrl && alunoConsultado.fotoUrl.trim() !== '' ? (
                         <img src={alunoConsultado.fotoUrl} alt={alunoConsultado.nomeCompleto} className="h-full w-full object-cover" />
                       ) : (
                         alunoConsultado.nomeCompleto.substring(0, 2).toUpperCase()

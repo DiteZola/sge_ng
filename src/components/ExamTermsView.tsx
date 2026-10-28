@@ -680,7 +680,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                 {/* Cabeçalho Oficial MED Angola */}
                 <div className="text-center space-y-1 border-b-2 border-black pb-3">
                   <div className="flex justify-center mb-1">
-                    {configSistema.insigniaNacionalUrl ? (
+                    {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
                       <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
                     ) : (
                       <InsigniaAngola size={56} />
@@ -805,7 +805,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                   <div className="space-y-1">
                     <p className="font-bold text-gray-900 uppercase text-[11px]">O Director Geral</p>
                     <div className="h-10 flex items-center justify-center">
-                      {(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl) ? (
+                      {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                         <img 
                           src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
                           alt="Assinatura Director" 

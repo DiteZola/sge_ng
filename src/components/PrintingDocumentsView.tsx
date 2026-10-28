@@ -1043,7 +1043,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
               <p className="text-[7.5px] font-bold text-gray-700 leading-tight">O Director Geral</p>
               <div className="h-8 my-0.5 flex items-center justify-center border-b border-gray-400">
-                {(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl) ? (
+                {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                   <img 
                     src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
                     alt="Assinatura Diretor" 
@@ -1058,7 +1058,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
 
             {/* Logotipo da Escola na parte superior direita */}
-            {(escola.logotipoUrl || escola.logotipo) && (
+            {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) && (
               <div className="absolute right-0 top-0 block print:block">
                 <img 
                   src={escola.logotipoUrl || escola.logotipo} 
@@ -1072,7 +1072,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             {/* Insígnia Nacional da República de Angola Centralizada antes de REPÚBLICA DE ANGOLA */}
             <div className="text-center space-y-0.5">
               <div className="flex justify-center mb-1">
-                {configSistema.insigniaNacionalUrl ? (
+                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                   <img 
                     src={configSistema.insigniaNacionalUrl} 
                     alt="Insígnia da República de Angola" 
@@ -1249,7 +1249,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
-              {configSistema.insigniaNacionalUrl ? (
+              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img 
                   src={configSistema.insigniaNacionalUrl} 
                   alt="Insígnia da República de Angola" 
@@ -1499,7 +1499,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {/* Director Geral com Assinatura Digitalizada */}
                 <div className="space-y-1 flex flex-col items-center justify-end">
                   <p className="font-black text-gray-950 uppercase text-[11px]">O Director Geral da Instituição</p>
-                  {(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl) ? (
+                  {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                     <div className="h-10 flex items-center justify-center -mb-1">
                       <img 
                         src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
@@ -1542,7 +1542,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </div>
                 <div className="space-y-1 flex flex-col items-center justify-end">
                   <p className="font-bold text-gray-950 uppercase text-[11px]">Visto do Director Geral</p>
-                  {(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl) ? (
+                  {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                     <div className="h-10 flex items-center justify-center -mb-1">
                       <img 
                         src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
@@ -1582,7 +1582,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1">
             <div className="flex justify-center mb-1">
-              {configSistema.insigniaNacionalUrl ? (
+              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img 
                   src={configSistema.insigniaNacionalUrl} 
                   alt="Insígnia da República de Angola" 
@@ -1752,7 +1752,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Cabeçalho Oficial com Insígnia Centralizada */}
           <div className="text-center space-y-1">
             <div className="flex justify-center mb-1">
-              {configSistema.insigniaNacionalUrl ? (
+              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img 
                   src={configSistema.insigniaNacionalUrl} 
                   alt="Insígnia da República de Angola" 
@@ -2079,7 +2079,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
 
             <div className="space-y-1">
-              {(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl) ? (
+              {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                 <div className="h-10 flex items-center justify-center -mb-1">
                   <img 
                     src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
@@ -2147,7 +2147,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                           </p>
                         </div>
                         <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                          {configSistema.insigniaNacionalUrl ? (
+                          {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                             <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-5 w-5 object-contain" referrerPolicy="no-referrer" />
                           ) : (
                             <InsigniaAngola size={16} />
@@ -2161,7 +2161,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
                     {/* Foto & Dados do Aluno */}
                     <div className="flex items-center space-x-2.5 mt-2">
-                      {aluno.fotoUrl ? (
+                      {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
                         <img 
                           src={aluno.fotoUrl} 
                           alt={aluno.nomeCompleto} 
@@ -2191,7 +2191,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     </div>
 
                     <div className="flex flex-col items-center justify-end text-center min-w-[50px]">
-                      {(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl) ? (
+                      {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                         <img 
                           src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
                           alt="Assinatura Diretor" 
@@ -2232,7 +2232,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
         <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-6">
           <div className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
-              {configSistema.insigniaNacionalUrl ? (
+              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
               ) : (
                 <InsigniaAngola size={56} />
@@ -2267,7 +2267,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* Foto e Dados Pessoais */}
           <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
-            {alunoSelecionado.fotoUrl ? (
+            {alunoSelecionado.fotoUrl && alunoSelecionado.fotoUrl.trim() !== '' ? (
               <img 
                 src={alunoSelecionado.fotoUrl} 
                 alt={alunoSelecionado.nomeCompleto} 
@@ -2360,7 +2360,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
               <div className="text-center space-y-1 border-b-2 border-black pb-3">
                 <div className="flex justify-center mb-1">
-                  {configSistema.insigniaNacionalUrl ? (
+                  {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                     <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
                   ) : (
                     <InsigniaAngola size={56} />
@@ -2379,7 +2379,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
               {/* Foto e Identificação */}
               <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
-                {funcionarioSelecionado.fotoUrl ? (
+                {funcionarioSelecionado.fotoUrl && funcionarioSelecionado.fotoUrl.trim() !== '' ? (
                   <img 
                     src={funcionarioSelecionado.fotoUrl} 
                     alt={funcionarioSelecionado.nomeCompleto} 
@@ -2496,7 +2496,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-800 p-6 md:p-8 rounded-xl shadow-md max-w-5xl mx-auto text-black print:border-none print:shadow-none print:p-0 space-y-5">
             <div className="text-center space-y-1 border-b-2 border-black pb-3">
               <div className="flex justify-center mb-1">
-                {configSistema.insigniaNacionalUrl ? (
+                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                   <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
                 ) : (
                   <InsigniaAngola size={56} />
@@ -2749,7 +2749,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   Pré-visualização Oficial
                 </span>
                 <div className="h-16 flex items-center justify-center bg-white border border-gray-200 rounded-lg p-2">
-                  {assinaturaPreview ? (
+                  {Boolean(assinaturaPreview?.trim()) ? (
                     <img
                       src={assinaturaPreview}
                       alt="Assinatura Diretor"

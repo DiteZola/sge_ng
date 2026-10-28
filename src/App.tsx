@@ -141,11 +141,7 @@ export default function App() {
     }
   });
 
-  const currentUser: Funcionario = authenticatedUser || (
-    funcionarios.find(f => f.role === 'AdminGeral' && f.ativo) ||
-    funcionarios[0] ||
-    DEFAULT_ADMIN_GERAL_PRODUCAO
-  );
+  const currentUser: Funcionario = authenticatedUser || dbService.getCurrentUser();
 
   // Modo de Apoio Técnico Emergencial (Admin Geral assumindo o papel de Diretor Geral)
   const [modoApoioTecnico, setModoApoioTecnico] = useState<{
@@ -186,6 +182,12 @@ export default function App() {
     setLivros(dbService.obterLivros());
     setLogs(dbService.obterLogs());
     setAnosLectivos(dbService.getAnosLectivos());
+
+    // Garantir que a sessão e utilizador autenticado nunca são desvirtuados
+    const userLogado = dbService.getCurrentUser();
+    if (userLogado && userLogado.id && userLogado.nomeCompleto) {
+      setAuthenticatedUser(userLogado);
+    }
   }, []);
 
   // Listener para status online/offline e verificação do Administrador Geral no Firebase
@@ -193,6 +195,15 @@ export default function App() {
     let ativo = true;
 
     const verificarAdmin = async () => {
+      // Se o utilizador já se encontra autenticado neste dispositivo, NUNCA exibe configuração inicial nem altera sessão
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true') {
+        if (ativo) {
+          setMostrarSetupInicial(false);
+          setVerificandoAdminOnline(false);
+        }
+        return;
+      }
+
       // Se estiver offline:
       // "se a internet estiver offline não mostra esta página"
       if (typeof navigator !== 'undefined' && !navigator.onLine) {

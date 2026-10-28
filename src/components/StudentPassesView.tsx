@@ -486,7 +486,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                       <div className="border-b pb-1 flex items-center justify-between" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
                         {isAtivo('insignia') && (
                           <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                            {configSistema.insigniaNacionalUrl ? (
+                            {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                               <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-6 w-6 object-contain" />
                             ) : (
                               <InsigniaAngola size={20} />
@@ -511,7 +511,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                         {isAtivo('logotipo') && (
                           <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                            {(escola.logotipoUrl || escola.logotipo) ? (
+                            {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) ? (
                               <img src={escola.logotipoUrl || escola.logotipo} alt="Logo" className="h-6 w-6 object-contain rounded" />
                             ) : (
                               <Award className="h-5 w-5" style={{ color: passConfig.corPrimaria }} />
@@ -538,7 +538,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                         {/* Foto do Aluno em formato 3x4 ampliado */}
                         {isAtivo('foto') && (
                           <div className="shrink-0 flex flex-col items-center">
-                            {aluno.fotoUrl ? (
+                            {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
                               <img 
                                 src={aluno.fotoUrl} 
                                 alt={aluno.nomeCompleto} 
@@ -622,7 +622,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                         {isAtivo('assinaturaDiretor') && (
                           <div className="flex flex-col items-center justify-end text-center min-w-[55px]">
-                            {(passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl) ? (
+                            {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
                               <img
                                 src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
                                 alt="Assinatura"
@@ -802,7 +802,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                           }}
                         />
                       </label>
-                      {(passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl) && (
+                      {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) && (
                         <div className="flex items-center space-x-2 bg-white px-2 py-1 rounded border border-gray-300">
                           <img
                             src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
@@ -875,7 +875,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                     <div className="border-b pb-1 flex items-center justify-between" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
                       {isAtivo('insignia') && (
                         <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                          {configSistema.insigniaNacionalUrl ? (
+                          {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                             <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-5 w-5 object-contain" />
                           ) : (
                             <InsigniaAngola size={18} />
@@ -910,7 +910,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                     {/* Corpo */}
                     <div className={`flex items-start gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
                       {isAtivo('foto') && (
-                        alunoExemplo.fotoUrl ? (
+                        alunoExemplo.fotoUrl && alunoExemplo.fotoUrl.trim() !== '' ? (
                           <img 
                             src={alunoExemplo.fotoUrl} 
                             alt="Foto" 
@@ -946,7 +946,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                       {isAtivo('validade') && <span>Val: <strong>{dataValidade}</strong></span>}
                       {isAtivo('assinaturaDiretor') && (
                         <div className="flex flex-col items-center">
-                          {(passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl) ? (
+                          {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
                             <img
                               src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
                               alt="Assinatura"

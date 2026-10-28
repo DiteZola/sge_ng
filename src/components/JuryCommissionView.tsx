@@ -1638,7 +1638,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
             {/* Header da Ficha do Aluno */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-4 gap-4">
               <div className="flex items-center space-x-4">
-                {analiseSelecionada.aluno.fotoUrl ? (
+                {analiseSelecionada.aluno.fotoUrl && analiseSelecionada.aluno.fotoUrl.trim() !== '' ? (
                   <img
                     src={analiseSelecionada.aluno.fotoUrl}
                     alt={analiseSelecionada.aluno.nomeCompleto}
@@ -2044,7 +2044,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
               {/* Cabeçalho Oficial */}
               <div className="text-center space-y-1">
                 <div className="flex justify-center mb-2">
-                  {configSistema.insigniaNacionalUrl ? (
+                  {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
                     <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-14 w-14 object-contain mx-auto" />
                   ) : (
                     <InsigniaAngola size={56} />

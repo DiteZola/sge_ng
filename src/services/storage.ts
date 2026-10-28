@@ -56,11 +56,16 @@ import {
   RegistroAlteracaoNotaDirecao,
   ConfiguracaoDocumentoCustomizado,
   DelegacaoCobrancaFinanceira,
-  SessaoAtivaUsuario
+  SessaoAtivaUsuario,
+  DelegacaoPoderes,
+  TipoDelegacao,
+  AcaoDelegadaLog
 } from '../types';
 
 const STORAGE_KEYS = {
   ESCOLAS: 'sge_escolas',
+  DELEGACOES_PODERES: 'sge_delegacoes_poderes',
+  ACOES_DELEGADAS_LOGS: 'sge_acoes_delegadas_logs',
   ALUNOS: 'sge_alunos',
   TURMAS: 'sge_turmas',
   DISCIPLINAS: 'sge_disciplinas',
@@ -512,30 +517,19 @@ export const DEFAULT_PRESENCAS_ALUNOS: PresencaAlunoItem[] = [];
 
 // Initializer
 export function inicializarArmazenamento(): void {
-  // Se o Administrador Geral ainda NÃO foi configurado oficialmente pelo utilizador:
-  // Garante limpeza TOTAL de resquícios de testes anteriores para que o sistema permaneça 100% virgem
-  if (typeof window !== 'undefined' && localStorage.getItem('sge_admin_configured') !== 'true') {
-    localStorage.removeItem(STORAGE_KEYS.SETUP_MASTER_LOCK);
-    localStorage.removeItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO);
-    localStorage.removeItem('sge_authenticated');
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    setLocal(STORAGE_KEYS.ESCOLAS, []);
-    setLocal(STORAGE_KEYS.ALUNOS, []);
-    setLocal(STORAGE_KEYS.TURMAS, []);
-    setLocal(STORAGE_KEYS.ATRIBUICOES, []);
-    setLocal(STORAGE_KEYS.FUNCIONARIOS, []);
-    setLocal(STORAGE_KEYS.NOTAS, []);
-    setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, []);
-    setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, []);
-    setLocal(STORAGE_KEYS.JURIS, []);
-    setLocal(STORAGE_KEYS.TERMOS_EXAME, []);
-    setLocal(STORAGE_KEYS.PRESENCAS, []);
-    setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []);
-    setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, []);
-    setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, []);
-    setLocal(STORAGE_KEYS.PATRIMONIO, []);
-    setLocal(STORAGE_KEYS.HORARIOS, []);
-    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
+  if (typeof window === 'undefined') return;
+
+  // Se já há utilizador autenticado ou dados registados no dispositivo, preserva integralmente a sessão
+  const isAuth = localStorage.getItem('sge_authenticated') === 'true';
+  const hasUser = !!localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+  const rawFuncs = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
+  const funcs = (rawFuncs && rawFuncs !== 'undefined' && rawFuncs !== 'null') ? JSON.parse(rawFuncs) : [];
+  const temAdmin = Array.isArray(funcs) && funcs.some((f: any) => f.role === 'AdminGeral' && f.ativo !== false);
+
+  if (isAuth || hasUser || temAdmin || (Array.isArray(funcs) && funcs.length > 0)) {
+    localStorage.setItem('sge_admin_configured', 'true');
+    localStorage.setItem(STORAGE_KEYS.SETUP_MASTER_LOCK, 'true');
+    localStorage.setItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, 'true');
   }
 
   if (!localStorage.getItem(STORAGE_KEYS.ESCOLAS)) {
@@ -747,23 +741,13 @@ export function inicializarArmazenamento(): void {
       } catch {}
     }
 
-    // Se nenhuma escola foi criada ainda, garante que não existam alunos, turmas, notas ou funcionários de escola órfãos
+    // Purga apenas funcionários com nomes fictícios ou de teste antigos se não houver escolas
     const escolasAtuais = dbService.getEscolas();
     if (escolasAtuais.length === 0) {
-      setLocal(STORAGE_KEYS.ALUNOS, []);
-      setLocal(STORAGE_KEYS.TURMAS, []);
-      setLocal(STORAGE_KEYS.ATRIBUICOES, []);
-      setLocal(STORAGE_KEYS.NOTAS, []);
-      setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, []);
-      setLocal(STORAGE_KEYS.JURIS, []);
-      setLocal(STORAGE_KEYS.TERMOS_EXAME, []);
-      setLocal(STORAGE_KEYS.PRESENCAS, []);
-      setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []);
-      // Manter apenas Administrador Geral nos funcionários
       const funcs = dbService.getFuncionarios();
-      const apenasAdmin = funcs.filter(f => f.role === 'AdminGeral');
-      if (apenasAdmin.length !== funcs.length) {
-        setLocal(STORAGE_KEYS.FUNCIONARIOS, apenasAdmin);
+      const funcsReais = funcs.filter(f => f.role === 'AdminGeral' || (f.nomeCompleto && f.password));
+      if (funcsReais.length !== funcs.length) {
+        setLocal(STORAGE_KEYS.FUNCIONARIOS, funcsReais);
       }
     }
   } catch (e) {
@@ -2028,11 +2012,18 @@ export const dbService = {
   // Alunos
   getAlunos: (): Aluno[] => getLocal(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS),
   salvarAluno: (aluno: Aluno) => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    if (!aluno.escolaId) {
+      aluno.escolaId = escolaAtiva?.id || 'esc-001';
+    }
     const alunos = dbService.getAlunos();
     const idx = alunos.findIndex(a => a.id === aluno.id);
     if (idx >= 0) alunos[idx] = aluno;
     else alunos.push(aluno);
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
+    try {
+      offlineStorage.registarMutacao('Alunos', 'ATUALIZAR', `Aluno ${aluno.nomeCompleto} guardado`, 'SGE');
+    } catch {}
     firebaseSyncEngine.salvarAluno(aluno);
     dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${aluno.nomeCompleto} (${aluno.codigoMatricula}) gravado.`);
   },
@@ -4132,6 +4123,92 @@ export const dbService = {
         `Delegação de cobrança financeira de "${alvo.funcionarioNome}" revogada pelo Diretor Geral.`
       );
     }
+  },
+
+  // ==========================================
+  // DELEGAÇÃO DE PODERES (MATRÍCULAS E COBRANÇA DE EMOLUMENTOS)
+  // Autorizado: Diretor Geral e Subdiretor Administrativo
+  // ==========================================
+  getDelegacoesPoderes: (escolaId?: string, tipo?: TipoDelegacao): DelegacaoPoderes[] => {
+    const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    return todas.filter(d => {
+      if (escolaId && d.escolaId !== escolaId) return false;
+      if (tipo && d.tipo !== tipo) return false;
+      return true;
+    });
+  },
+
+  salvarDelegacaoPoderes: (delegacao: DelegacaoPoderes): void => {
+    const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    const idx = todas.findIndex(d => d.id === delegacao.id);
+    if (idx >= 0) {
+      todas[idx] = { ...delegacao, atualizadoEm: new Date().toISOString() };
+    } else {
+      todas.unshift({ ...delegacao, criadoEm: delegacao.criadoEm || new Date().toISOString() });
+    }
+    setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
+
+    dbService.registarLog(
+      'Delegação de Competências',
+      `${delegacao.delegadoPorCargo === 'DiretorGeral' ? 'O Diretor Geral' : 'O Subdiretor Administrativo'} (${delegacao.delegadoPorNome}) delegou poderes de ${delegacao.tipo === 'Matriculas' ? 'Matrículas & Confirmações' : 'Cobrança de Emolumentos'} a "${delegacao.funcionarioNome}" (${delegacao.funcionarioCargo}).`
+    );
+  },
+
+  revogarDelegacaoPoderes: (delegacaoId: string, revogadoPorNome: string): void => {
+    const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    const alvo = todas.find(d => d.id === delegacaoId);
+    if (alvo) {
+      alvo.ativo = false;
+      alvo.atualizadoEm = new Date().toISOString();
+      setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
+
+      dbService.registarLog(
+        'Revogação de Delegação',
+        `Delegação de ${alvo.tipo === 'Matriculas' ? 'Matrículas' : 'Cobrança de Emolumentos'} de "${alvo.funcionarioNome}" foi revogada por ${revogadoPorNome}.`
+      );
+    }
+  },
+
+  verificarPoderesDelegados: (funcionarioId: string, escolaId: string): { podeMatricular: boolean; podeCobrarEmolumentos: boolean; delegacoesAtivas: DelegacaoPoderes[] } => {
+    if (!funcionarioId) return { podeMatricular: false, podeCobrarEmolumentos: false, delegacoesAtivas: [] };
+    const hoje = new Date().toISOString().split('T')[0];
+    const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    
+    const ativas = todas.filter(d => 
+      d.funcionarioId === funcionarioId &&
+      (!escolaId || d.escolaId === escolaId) &&
+      d.ativo &&
+      (!d.dataFim || d.dataFim >= hoje) &&
+      d.dataInicio <= hoje
+    );
+
+    return {
+      podeMatricular: ativas.some(d => d.tipo === 'Matriculas'),
+      podeCobrarEmolumentos: ativas.some(d => d.tipo === 'CobrancaEmolumentos'),
+      delegacoesAtivas: ativas
+    };
+  },
+
+  registarAcaoDelegada: (logData: Omit<AcaoDelegadaLog, 'id' | 'dataHora'>): void => {
+    const logs = getLocal<AcaoDelegadaLog[]>(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []);
+    const novoLog: AcaoDelegadaLog = {
+      ...logData,
+      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      dataHora: new Date().toISOString()
+    };
+    logs.unshift(novoLog);
+    if (logs.length > 2000) logs.pop();
+    setLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, logs);
+  },
+
+  getLogsAcoesDelegadas: (escolaId?: string, tipo?: TipoDelegacao, funcionarioId?: string): AcaoDelegadaLog[] => {
+    const logs = getLocal<AcaoDelegadaLog[]>(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []);
+    return logs.filter(l => {
+      if (escolaId && l.escolaId !== escolaId) return false;
+      if (tipo && l.tipo !== tipo) return false;
+      if (funcionarioId && l.funcionarioId !== funcionarioId) return false;
+      return true;
+    });
   },
 
   // ==========================================

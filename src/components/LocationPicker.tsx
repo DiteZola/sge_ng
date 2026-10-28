@@ -187,7 +187,16 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSalvarNovo} className="space-y-3">
+            <div
+              className="space-y-3"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSalvarNovo(e as any);
+                }
+              }}
+            >
               <div>
                 <label className="block text-[11px] font-bold text-gray-700 mb-1">
                   Nome {modalTipo === 'provincia' ? 'da Província' : modalTipo === 'municipio' ? 'do Município' : 'do País'}:
@@ -207,18 +216,19 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                 <button
                   type="button"
                   onClick={() => setModalTipo(null)}
-                  className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg"
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
-                  type="submit"
-                  className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+                  type="button"
+                  onClick={handleSalvarNovo}
+                  className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs cursor-pointer"
                 >
                   Guardar & Selecionar
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

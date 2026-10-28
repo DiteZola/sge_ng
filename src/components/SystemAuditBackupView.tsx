@@ -1431,7 +1431,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
 
               {/* Insígnia Centralizada */}
               <div className="flex justify-center my-2">
-                {insigniaPreview ? (
+                {insigniaPreview && insigniaPreview.trim() !== '' ? (
                   <img
                     src={insigniaPreview}
                     alt="Insígnia da República de Angola"
@@ -1555,7 +1555,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
               </span>
 
               <div className="flex justify-center">
-                {logotipoPreview ? (
+                {logotipoPreview && logotipoPreview.trim() !== '' ? (
                   <img
                     src={logotipoPreview}
                     alt={`Logotipo da ${escola.nomeOficial}`}

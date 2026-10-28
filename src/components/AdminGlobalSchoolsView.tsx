@@ -602,7 +602,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                     <div className="flex items-start space-x-3.5">
                       <div className="h-14 w-14 rounded-xl bg-blue-100 border border-blue-200 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
-                        {esc.logotipo ? (
+                        {esc.logotipo && esc.logotipo.trim() !== '' ? (
                           <img 
                             src={esc.logotipo} 
                             alt={esc.nomeOficial} 

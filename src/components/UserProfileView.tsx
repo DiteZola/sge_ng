@@ -134,7 +134,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
       <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <div className="relative group">
-            {fotoUrl ? (
+            {fotoUrl && fotoUrl.trim() !== '' ? (
               <img 
                 src={fotoUrl} 
                 alt={currentUser.nomeCompleto} 

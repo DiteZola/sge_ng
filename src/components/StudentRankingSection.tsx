@@ -715,7 +715,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                   <thead>
                     <tr className="bg-amber-100/70 border-b border-amber-300 text-amber-950 font-black text-[11px] uppercase tracking-wider">
                       <th className="py-2.5 px-3 text-center w-12">N.º</th>
-                      <th className="py-2.5 px-3 w-14 text-center">Foto</th>
+                      <th className="py-2.5 px-3 w-16 text-center">Fotografia</th>
                       <th className="py-2.5 px-4">Nome Completo do Estudante</th>
                       <th className="py-2.5 px-4 text-center">Classe</th>
                       <th className="py-2.5 px-4 text-center">Turma</th>
@@ -727,25 +727,25 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                     {top5Melhores.map((item) => (
                       <tr key={item.aluno.id} className="hover:bg-amber-50/40 transition-colors">
                         <td className="py-2.5 px-3 text-center font-black">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500 text-white text-xs font-black shadow-2xs">
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500 text-white text-xs font-black shadow-2xs">
                             {item.posicao}
                           </span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          {item.aluno.fotoUrl ? (
+                          {item.aluno.fotoUrl && item.aluno.fotoUrl.trim() !== '' ? (
                             <img 
                               src={item.aluno.fotoUrl} 
                               alt={item.aluno.nomeCompleto} 
-                              className="w-9 h-9 rounded-full object-cover mx-auto border-2 border-amber-400"
+                              className="w-10 h-10 rounded-full object-cover mx-auto border-2 border-amber-400 shadow-xs" 
                             />
                           ) : (
-                            <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center font-black text-xs mx-auto">
-                              {item.aluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                            <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-800 border-2 border-amber-300 flex items-center justify-center font-black text-xs mx-auto shadow-xs">
+                              {item.aluno.nomeCompleto ? item.aluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'AL'}
                             </div>
                           )}
                         </td>
                         <td className="py-2.5 px-4 font-bold text-slate-900">
-                          <div>{item.aluno.nomeCompleto}</div>
+                          <div className="text-xs font-black text-slate-900">{item.aluno.nomeCompleto}</div>
                           <div className="text-[10px] text-slate-500 font-mono">
                             Proc. n.º {item.aluno.numeroProcesso || item.aluno.codigoMatricula}
                           </div>
@@ -792,8 +792,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-rose-100/70 border-b border-rose-300 text-rose-950 font-black text-[11px] uppercase tracking-wider">
-                      <th className="py-2.5 px-3 text-center w-12">Prior.</th>
-                      <th className="py-2.5 px-3 w-14 text-center">Foto</th>
+                      <th className="py-2.5 px-3 text-center w-12">N.º</th>
+                      <th className="py-2.5 px-3 w-16 text-center">Fotografia</th>
                       <th className="py-2.5 px-4">Nome Completo do Estudante</th>
                       <th className="py-2.5 px-4 text-center">Classe</th>
                       <th className="py-2.5 px-4 text-center">Turma</th>
@@ -806,25 +806,25 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                     {alunosAtencaoPedagogica.map((item) => (
                       <tr key={item.aluno.id} className="hover:bg-rose-50/40 transition-colors">
                         <td className="py-2.5 px-3 text-center font-black">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white text-xs font-black shadow-2xs">
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-rose-600 text-white text-xs font-black shadow-2xs">
                             {item.posicao}
                           </span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          {item.aluno.fotoUrl ? (
+                          {item.aluno.fotoUrl && item.aluno.fotoUrl.trim() !== '' ? (
                             <img 
                               src={item.aluno.fotoUrl} 
                               alt={item.aluno.nomeCompleto} 
-                              className="w-9 h-9 rounded-full object-cover mx-auto border-2 border-rose-400"
+                              className="w-10 h-10 rounded-full object-cover mx-auto border-2 border-rose-400 shadow-xs" 
                             />
                           ) : (
-                            <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center justify-center font-black text-xs mx-auto">
-                              {item.aluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                            <div className="w-10 h-10 rounded-full bg-rose-100 text-rose-800 border-2 border-rose-300 flex items-center justify-center font-black text-xs mx-auto shadow-xs">
+                              {item.aluno.nomeCompleto ? item.aluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'AL'}
                             </div>
                           )}
                         </td>
                         <td className="py-2.5 px-4 font-bold text-slate-900">
-                          <div>{item.aluno.nomeCompleto}</div>
+                          <div className="text-xs font-black text-slate-900">{item.aluno.nomeCompleto}</div>
                           <div className="text-[10px] text-slate-500 font-mono">
                             Proc. n.º {item.aluno.numeroProcesso || item.aluno.codigoMatricula}
                           </div>
@@ -1055,7 +1055,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </p>
             
             <div className="h-16 flex items-center justify-center">
-              {escola.assinaturaDiretorUrl ? (
+              {escola.assinaturaDiretorUrl && escola.assinaturaDiretorUrl.trim() !== '' ? (
                 <img 
                   src={escola.assinaturaDiretorUrl} 
                   alt="Assinatura do Director" 

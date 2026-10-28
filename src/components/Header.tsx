@@ -253,7 +253,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center space-x-2 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all text-left cursor-pointer"
               title="Aceder ao Meu Perfil para atualizar dados, foto e senha"
             >
-              {currentUser.fotoUrl ? (
+              {currentUser.fotoUrl && currentUser.fotoUrl.trim() !== '' ? (
                 <img 
                   src={currentUser.fotoUrl} 
                   alt={currentUser.nomeCompleto} 

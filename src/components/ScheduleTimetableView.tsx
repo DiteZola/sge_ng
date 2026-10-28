@@ -455,7 +455,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
             {/* Cabeçalho Oficial do Horário Escolar */}
             <div className="text-center border-b-2 border-black pb-3 mb-4">
               <div className="flex justify-center mb-1">
-                {configSistema.insigniaNacionalUrl ? (
+                {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
                   <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-12 w-12 object-contain mx-auto" />
                 ) : (
                   <InsigniaAngola size={42} />

@@ -7,9 +7,15 @@ export type UserRole =
   | 'CoordenadorPedagogico'
   | 'ChefeSecretaria'
   | 'Secretario'
+  | 'SecretarioEscolar'
   | 'CoordenadorTurno'
+  | 'CoordenadorDisciplina'
   | 'Professor'
   | 'Secretaria'
+  | 'Tesoureiro'
+  | 'Bibliotecario'
+  | 'Estagiario'
+  | 'TecnicoTI'
   | 'Encarregado';
 
 export type NivelEnsino = 
@@ -76,6 +82,9 @@ export interface Escola {
   moduloFinanceiroAtivo?: boolean;
   emissaoPassesAtiva?: boolean;
   permitirConsultaPautaOnline?: boolean;
+  // Configurações do Portal do Encarregado (Diretor Geral)
+  permitirBoletimNoPortalEncarregado?: boolean;
+  trimestreBoletimPortal?: '1' | '2' | '3' | 'todos';
   // Configurações de Emissão de Passes e Boletins (Diretor)
   layoutBoletinsPadrao?: '1_por_folha' | '2_por_folha' | '4_por_folha';
   layoutPassesPadrao?: '8_por_folha' | 'individual';
@@ -1360,5 +1369,47 @@ export interface SessaoAtivaUsuario {
   loginTime: number;
   online: boolean;
 }
+
+// ==========================================
+// DELEGAÇÃO DE PODERES E AUDITORIA EXECUTIVA
+// ==========================================
+
+export type TipoDelegacao = 'Matriculas' | 'CobrancaEmolumentos';
+
+export interface DelegacaoPoderes {
+  id: string;
+  escolaId: string;
+  delegadoPorId: string;
+  delegadoPorNome: string;
+  delegadoPorCargo: 'DiretorGeral' | 'SubdiretorAdministrativo' | 'SubdirectorAdministrativo';
+  funcionarioId: string;
+  funcionarioNome: string;
+  funcionarioCargo: string;
+  tipo: TipoDelegacao; // 'Matriculas' ou 'CobrancaEmolumentos'
+  dataInicio: string; // YYYY-MM-DD
+  dataFim?: string; // YYYY-MM-DD (opcional)
+  ativo: boolean;
+  motivo?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface AcaoDelegadaLog {
+  id: string;
+  escolaId: string;
+  delegacaoId?: string;
+  funcionarioId: string;
+  funcionarioNome: string;
+  tipo: TipoDelegacao;
+  acao: 'Matricula' | 'Confirmacao' | 'Cobranca' | 'Anulacao';
+  detalhes: string;
+  alunoId?: string;
+  alunoNome?: string;
+  valorCobrado?: number;
+  numeroRecibo?: string;
+  formaPagamento?: string;
+  dataHora: string;
+}
+
 
 

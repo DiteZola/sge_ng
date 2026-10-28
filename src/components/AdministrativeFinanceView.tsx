@@ -1926,7 +1926,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
           <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-4">
             <div className="text-center space-y-1">
               <div className="flex justify-center mb-2">
-                {configSistema.insigniaNacionalUrl ? (
+                {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
                   <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-14 w-14 object-contain mx-auto" />
                 ) : (
                   <InsigniaAngola size={56} />
@@ -2404,7 +2404,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             <div id="recibo-imprimir-modal" className="p-4 bg-slate-50 border-2 border-slate-300 rounded-xl space-y-3 text-xs">
               <div className="text-center space-y-0.5">
                 <div className="flex justify-center mb-1">
-                  {configSistema.insigniaNacionalUrl ? (
+                  {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
                     <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-12 w-12 object-contain mx-auto" />
                   ) : (
                     <InsigniaAngola size={48} />
