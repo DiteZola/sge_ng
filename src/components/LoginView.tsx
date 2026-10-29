@@ -24,6 +24,7 @@ import { InsigniaAngola } from '../constants/insignia';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Footer } from './Footer';
 import { ConfiguracaoSistema } from '../types';
+import { ParentStudentReportView } from './ParentStudentReportView';
 
 interface LoginViewProps {
   escolas: Escola[];
@@ -494,7 +495,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       {/* Modal Consultar (Para os Encarregados) */}
       {showConsultarModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white text-slate-900 max-w-lg w-full rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white text-slate-900 max-w-3xl w-full rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center space-x-2 text-emerald-700">
                 <GraduationCap className="h-6 w-6 text-emerald-600" />
@@ -542,51 +543,23 @@ export const LoginView: React.FC<LoginViewProps> = ({
               </div>
             )}
 
-            {/* Resultado da Consulta */}
+            {/* Resultado da Consulta Enriquecido */}
             {alunoConsultado && (
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-12 w-12 rounded-full bg-emerald-100 border-2 border-emerald-400 flex items-center justify-center text-emerald-800 font-bold overflow-hidden shrink-0">
-                      {alunoConsultado.fotoUrl && alunoConsultado.fotoUrl.trim() !== '' ? (
-                        <img src={alunoConsultado.fotoUrl} alt={alunoConsultado.nomeCompleto} className="h-full w-full object-cover" />
-                      ) : (
-                        alunoConsultado.nomeCompleto.substring(0, 2).toUpperCase()
-                      )}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900">{alunoConsultado.nomeCompleto}</h4>
-                      <p className="text-[11px] text-slate-600">
-                        Processo: <span className="font-mono font-bold text-slate-800">{alunoConsultado.codigoMatricula}</span>
-                      </p>
-                      <p className="text-[11px] text-slate-600">
-                        Turma: <span className="font-bold text-slate-800">{alunoConsultado.classeId} Classe</span>
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                    alunoConsultado.estado === 'Ativo' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {alunoConsultado.estado}
+              <div className="space-y-4">
+                <ParentStudentReportView
+                  aluno={alunoConsultado}
+                  escola={escolas.find(e => e.id === alunoConsultado.escolaId) || selectedEscola}
+                  modoModal={false}
+                />
+
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-xs text-slate-600">
+                    Deseja aceder a todas as opções interativas e comunicados do educando?
                   </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">Encarregado Declarado:</span>
-                    <span className="font-bold text-slate-800">{alunoConsultado.nomeEncarregado || 'Não especificado'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">Contacto do Encarregado:</span>
-                    <span className="font-bold text-slate-800">{alunoConsultado.telefoneEncarregado || 'Não especificado'}</span>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end space-x-2">
                   <button
                     type="button"
                     onClick={() => handleEntrarComoEncarregado(alunoConsultado)}
-                    className="w-full py-2 px-4 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+                    className="w-full sm:w-auto py-2.5 px-5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs shrink-0"
                   >
                     <span>Entrar no Painel do Educando</span>
                     <ArrowRight className="h-3.5 w-3.5" />

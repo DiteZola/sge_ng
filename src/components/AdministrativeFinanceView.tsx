@@ -364,6 +364,27 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
     dbService.salvarTransacaoFinanceira(novaTransacao);
     setTransacoes(dbService.getTransacoesFinanceiras(escola.id));
+
+    // Auditoria de Cobrança por Operador Delegado
+    try {
+      const poderes = dbService.verificarPoderesDelegados(currentUser.id, escola.id);
+      if (poderes.podeCobrarEmolumentos) {
+        dbService.registarAcaoDelegada({
+          escolaId: escola.id,
+          funcionarioId: currentUser.id,
+          funcionarioNome: currentUser.nomeCompleto,
+          tipo: 'CobrancaEmolumentos',
+          acao: 'Cobranca',
+          alunoNome: aluno?.nomeCompleto || 'Discente',
+          alunoId: aluno?.id,
+          valorCobrado: pagValor,
+          numeroRecibo: numeroRecibo,
+          formaPagamento: pagMetodo,
+          detalhes: `Recebimento de emolumento (${pagTipo}) de ${pagValor.toLocaleString('pt-AO')} Kz (Recibo nº ${numeroRecibo}) averbado por operador delegado.`
+        });
+      }
+    } catch {}
+
     setShowNovoPagamentoModal(false);
     setReciboParaImprimir(novaTransacao);
     notificar(`Pagamento registado com sucesso! Recibo nº ${numeroRecibo} emitido.`);

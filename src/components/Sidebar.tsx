@@ -136,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'dashboard',
           label: userRole === 'AdminGeral' ? 'Painel Central Ministerial' : 'Painel de Controlo',
           icon: LayoutDashboard,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'Professor', 'Secretaria', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
           badge: userRole === 'AdminGeral' ? 'Macro' : undefined
         }
       ]
@@ -231,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'alunos',
           label: userRole === 'Encarregado' ? 'Acompanhar Educando' : 'Alunos',
           icon: Users,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina'],
           badge: 'Matrículas'
         },
         {
@@ -315,14 +315,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'pagamentos',
           label: userRole === 'Encarregado' ? 'Pagamentos de Propinas' : 'Pagamentos & Caixa',
           icon: DollarSign,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'Tesoureiro', 'SecretarioEscolar'],
           badge: 'Caixa'
         },
         {
           id: 'relatorios_financeiros',
           label: 'Relatórios Financeiros',
           icon: TrendingUp,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'ChefeSecretaria'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'ChefeSecretaria', 'Tesoureiro', 'SecretarioEscolar'],
           badge: 'Balanço'
         }
       ]
@@ -334,20 +334,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'comunicacao',
           label: 'Comunicação & Mensagens Internas',
           icon: MessageSquare,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
           badge: 'Mensagens'
         },
         {
           id: 'biblioteca',
           label: 'Biblioteca Escolar',
           icon: Library,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Professor', 'Secretaria']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Professor', 'Secretaria', 'Bibliotecario']
         },
         {
           id: 'patrimonio',
           label: 'Património Escolar',
           icon: Boxes,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'Tesoureiro', 'TecnicoTI'],
           badge: 'Inventário'
         }
       ]
@@ -359,14 +359,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'usuarios_perfis',
           label: userRole === 'AdminGeral' ? 'Diretores & Credenciais' : 'Usuários e Perfis',
           icon: UserCog,
-          roles: ['AdminGeral', 'DiretorGeral'],
+          roles: ['AdminGeral', 'DiretorGeral', 'TecnicoTI', 'SecretarioEscolar'],
           badge: 'RBAC'
         },
         {
           id: 'configuracoes',
           label: 'Configurações do Sistema',
           icon: Settings,
-          roles: ['AdminGeral', 'DiretorGeral']
+          roles: ['AdminGeral', 'DiretorGeral', 'TecnicoTI']
         },
         {
           id: 'formulas_notas',
@@ -379,21 +379,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'auditoria_logs',
           label: 'Auditoria & Segurança AES-256',
           icon: ShieldCheck,
-          roles: ['AdminGeral', 'DiretorGeral'],
+          roles: ['AdminGeral', 'DiretorGeral', 'TecnicoTI'],
           badge: 'Forense'
         },
         {
           id: 'backup_restauro',
           label: 'Backup & Sincronização',
           icon: Database,
-          roles: ['AdminGeral', 'DiretorGeral'],
+          roles: ['AdminGeral', 'DiretorGeral', 'TecnicoTI'],
           badge: 'Integral'
         },
         {
           id: 'apoio_tecnico',
           label: userRole === 'AdminGeral' ? 'Central de Apoio Técnico' : 'Apoio Técnico DTI',
           icon: LifeBuoy,
-          roles: ['AdminGeral', 'DiretorGeral'],
+          roles: ['AdminGeral', 'DiretorGeral', 'TecnicoTI'],
           badge: 'Suporte'
         }
       ]
@@ -405,7 +405,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'meu_perfil',
           label: 'Meu Perfil & Senha',
           icon: User,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'Professor', 'Secretaria', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
           badge: 'Ativo'
         }
       ]
@@ -465,9 +465,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const escolaAtiva = dbService.getEscolaAtiva();
             const temSessaoApoioAtiva = Boolean(escolaAtiva?.sessaoApoioTecnicoAtiva);
             const delegacoesEscola = currentUser ? dbService.getDelegacoesCobranca(escolaAtiva?.id || '') : [];
-            const temDelegacaoCobranca = currentUser 
+            const poderesDelegados = currentUser ? dbService.verificarPoderesDelegados(currentUser.id, escolaAtiva?.id || '') : { podeMatricular: false, podeCobrarEmolumentos: false, delegacoesAtivas: [] };
+            const temDelegacaoMatriculas = poderesDelegados.podeMatricular;
+            const temDelegacaoCobranca = poderesDelegados.podeCobrarEmolumentos || (currentUser 
               ? delegacoesEscola.some(d => d.funcionarioId === currentUser.id && d.ativo)
-              : false;
+              : false);
 
             const menusAdminGeralPadrao: NavTab[] = [
               'dashboard', 
@@ -501,7 +503,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 return true;
               }
 
-              // 2. Delegação Financeira pelo Diretor Geral (ao Subdiretor Pedagógico, Professor ou Secretário)
+              // 2. Delegações de Poderes pelo Diretor Geral / Subdiretor Administrativo
+              if (item.id === 'alunos' && temDelegacaoMatriculas) {
+                return true;
+              }
               if (item.id === 'pagamentos' && temDelegacaoCobranca) {
                 return true;
               }
@@ -539,6 +544,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {itensPermitidos.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeTab === item.id;
+                    const badgeExibido = (item.id === 'alunos' && temDelegacaoMatriculas && !item.roles.includes(userRole))
+                      ? 'Delegado'
+                      : (item.id === 'pagamentos' && temDelegacaoCobranca && !item.roles.includes(userRole))
+                        ? 'Delegado Caixa'
+                        : item.badge;
+
                     return (
                       <button
                         key={item.id}
@@ -555,11 +566,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
                           <span className="truncate">{item.label}</span>
                         </div>
-                        {item.badge ? (
+                        {badgeExibido ? (
                           <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ml-1.5 ${
-                            isActive ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-600'
+                            badgeExibido.startsWith('Delegado') 
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : (isActive ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-600')
                           }`}>
-                            {item.badge}
+                            {badgeExibido}
                           </span>
                         ) : (
                           isActive && <ChevronRight className="h-3.5 w-3.5 text-blue-600 shrink-0" />

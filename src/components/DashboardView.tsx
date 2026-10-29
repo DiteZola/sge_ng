@@ -73,6 +73,7 @@ import {
 import { dbService } from '../services/storage';
 import { securityEngine, AlertaSegurancaVisual } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
+import { ParentStudentReportView } from './ParentStudentReportView';
 import { StudentRankingSection } from './StudentRankingSection';
 import * as XLSX from 'xlsx';
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
@@ -3245,85 +3246,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* ========================================================================= */}
       {isEncarregado && (
         <div className="space-y-6">
-          <div className="bg-white border-2 border-blue-600 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                  Encarregado de Educação
-                </span>
-                <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
-              </div>
-              <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
-                Acompanhamento Pedagógico do Educando
-              </h1>
-              <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
-                Consulte em tempo real as notas, assiduidade, avisos escolares e histórico trimestral.
-              </p>
-            </div>
+          {(() => {
+            const alunoIdPorSufixo = currentUser.id.startsWith('enc-') ? currentUser.id.replace('enc-', '') : null;
+            const alunoDoEncarregado = (alunoIdPorSufixo ? (alunos.find(a => a.id === alunoIdPorSufixo) || todosAlunos.find(a => a.id === alunoIdPorSufixo)) : null) ||
+              alunos.find(a => a.nomeEncarregado?.toLowerCase() === currentUser.nomeCompleto.toLowerCase() || a.telefoneEncarregado === currentUser.telefone) ||
+              alunos[0];
 
-            <button
-              onClick={() => onNavigate('documentos')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
-            >
-              <FileText className="h-4 w-4" />
-              <span>Ver Boletim Completo</span>
-            </button>
-          </div>
-
-          {/* Ficha Resumida do Estudante */}
-          {alunos.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-              <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-                <div className="flex items-center space-x-3">
-                  <div className="h-12 w-12 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-black text-lg">
-                    {alunos[0].nomeCompleto.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-gray-900">{alunos[0].nomeCompleto}</h3>
-                    <p className="text-xs text-gray-500">
-                      Nº Processo: <span className="font-mono font-bold text-gray-800">{alunos[0].codigoMatricula}</span> · Turma: <span className="font-bold text-gray-800">{turmas[0]?.nome || 'A'}</span>
-                    </p>
-                  </div>
+            if (!alunoDoEncarregado) {
+              return (
+                <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-sm text-gray-500">
+                  Nenhum educando associado encontrado no registo desta instituição de ensino.
                 </div>
-                <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Matrícula Confirmada
-                </span>
-              </div>
+              );
+            }
 
-              {/* Quadro de Notas Recentes */}
-              <div className="mt-4">
-                <h4 className="text-xs font-bold text-gray-900 mb-2">Notas do Trimestre {escola.trimestreActivo}</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
-                    <span className="text-[11px] font-semibold text-emerald-800">Língua Portuguesa</span>
-                    <div className="text-xl font-black text-emerald-700 mt-1">15.0</div>
-                    <span className="text-[10px] text-emerald-600">Aprovado</span>
-                  </div>
-                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
-                    <span className="text-[11px] font-semibold text-emerald-800">Matemática</span>
-                    <div className="text-xl font-black text-emerald-700 mt-1">14.5</div>
-                    <span className="text-[10px] text-emerald-600">Aprovado</span>
-                  </div>
-                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
-                    <span className="text-[11px] font-semibold text-emerald-800">Ciências da Natureza</span>
-                    <div className="text-xl font-black text-emerald-700 mt-1">16.0</div>
-                    <span className="text-[10px] text-emerald-600">Aprovado</span>
-                  </div>
-                  <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-center">
-                    <span className="text-[11px] font-semibold text-blue-800">Média Geral</span>
-                    <div className="text-xl font-black text-blue-700 mt-1">15.2</div>
-                    <span className="text-[10px] text-blue-600">Bom Desempenho</span>
-                  </div>
-                </div>
-              </div>
+            const turmaDoAluno = turmas.find(t => t.id === alunoDoEncarregado.turmaId) || todasTurmas.find(t => t.id === alunoDoEncarregado.turmaId);
 
-              {/* Faltas */}
-              <div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between text-xs">
-                <span className="text-gray-700 font-medium">Assiduidade do Aluno:</span>
-                <span className="font-bold text-emerald-700">0 faltas no trimestre (Regular)</span>
-              </div>
-            </div>
-          )}
+            return (
+              <ParentStudentReportView
+                aluno={alunoDoEncarregado}
+                escola={escola}
+                turma={turmaDoAluno}
+                notas={notasConsolidadas}
+              />
+            );
+          })()}
         </div>
       )}
 

@@ -54,6 +54,7 @@ import { SchoolCalendarView } from './components/SchoolCalendarView';
 import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
 import { GuidedTourModal } from './components/GuidedTourModal';
+import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
 export default function App() {
@@ -690,6 +691,78 @@ export default function App() {
       'estudantes',
       'documentos',
       'comunicacao'
+    ],
+    SecretarioEscolar: [
+      'dashboard',
+      'calendario_escolar',
+      'classes',
+      'cursos',
+      'disciplinas',
+      'turmas',
+      'turnos',
+      'horarios',
+      'presencas',
+      'alunos',
+      'declaracoes',
+      'certificados',
+      'pautas',
+      'boletins',
+      'passes_escolares',
+      'termos_exame',
+      'pagamentos',
+      'relatorios_financeiros',
+      'usuarios_perfis',
+      'meu_perfil',
+      'comunicacao',
+      'documentos'
+    ],
+    CoordenadorDisciplina: [
+      'dashboard',
+      'calendario_escolar',
+      'alunos',
+      'presencas',
+      'horarios',
+      'pautas',
+      'boletins',
+      'meu_perfil',
+      'comunicacao'
+    ],
+    Tesoureiro: [
+      'dashboard',
+      'calendario_escolar',
+      'pagamentos',
+      'relatorios_financeiros',
+      'patrimonio',
+      'meu_perfil',
+      'comunicacao'
+    ],
+    Bibliotecario: [
+      'dashboard',
+      'calendario_escolar',
+      'biblioteca',
+      'horarios',
+      'meu_perfil',
+      'comunicacao'
+    ],
+    Estagiario: [
+      'dashboard',
+      'calendario_escolar',
+      'horarios',
+      'presencas',
+      'meu_perfil',
+      'comunicacao'
+    ],
+    TecnicoTI: [
+      'dashboard',
+      'calendario_escolar',
+      'usuarios_perfis',
+      'configuracoes',
+      'auditoria_logs',
+      'backup_restauro',
+      'apoio_tecnico',
+      'patrimonio',
+      'meu_perfil',
+      'comunicacao'
     ]
   };
 
@@ -1057,7 +1130,9 @@ export default function App() {
   );
 
   const temSessaoApoioAdminGeral = Boolean(modoApoioTecnico) || (currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva));
-  const temDelegacaoCobranca = dbService.getDelegacoesCobranca(escola.id).some(d => d.funcionarioId === currentUser.id && d.ativo);
+  const poderesDelegados = dbService.verificarPoderesDelegados(currentUser.id, escola.id);
+  const temDelegacaoMatriculas = poderesDelegados.podeMatricular;
+  const temDelegacaoCobranca = poderesDelegados.podeCobrarEmolumentos || (poderesDelegados as any).podeCobrar || dbService.getDelegacoesCobranca(escola.id).some(d => d.funcionarioId === currentUser.id && d.ativo);
 
   const isAbaPermitida = 
     Boolean(modoApoioTecnico)
@@ -1066,6 +1141,7 @@ export default function App() {
         ? false // Administrador geral não precisa ver comissões de júri
         : (temSessaoApoioAdminGeral // Admin Geral em apoio técnico tem acesso aos outros módulos
           || (activeTab === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
+          || (activeTab === 'alunos' && temDelegacaoMatriculas) // Acesso por delegação de matrículas do Diretor
           || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
           || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
@@ -1140,6 +1216,9 @@ export default function App() {
     <div className="min-h-screen bg-[#FFFFFF] text-[#111827] flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* Barra de Progresso e Notificação de Sincronização em Tempo Real com o Firebase */}
       <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
+
+      {/* Notificação Flutuante de Instalação PWA */}
+      <PWAInstallNotification />
 
       {/* Header Superior Seguro */}
       <Header

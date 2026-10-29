@@ -4169,8 +4169,8 @@ export const dbService = {
     }
   },
 
-  verificarPoderesDelegados: (funcionarioId: string, escolaId: string): { podeMatricular: boolean; podeCobrarEmolumentos: boolean; delegacoesAtivas: DelegacaoPoderes[] } => {
-    if (!funcionarioId) return { podeMatricular: false, podeCobrarEmolumentos: false, delegacoesAtivas: [] };
+  verificarPoderesDelegados: (funcionarioId: string, escolaId: string): { podeMatricular: boolean; podeCobrarEmolumentos: boolean; podeCobrar?: boolean; delegacoesAtivas: DelegacaoPoderes[] } => {
+    if (!funcionarioId) return { podeMatricular: false, podeCobrarEmolumentos: false, podeCobrar: false, delegacoesAtivas: [] };
     const hoje = new Date().toISOString().split('T')[0];
     const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
     
@@ -4182,9 +4182,11 @@ export const dbService = {
       d.dataInicio <= hoje
     );
 
+    const temCobranca = ativas.some(d => d.tipo === 'CobrancaEmolumentos');
     return {
       podeMatricular: ativas.some(d => d.tipo === 'Matriculas'),
-      podeCobrarEmolumentos: ativas.some(d => d.tipo === 'CobrancaEmolumentos'),
+      podeCobrarEmolumentos: temCobranca,
+      podeCobrar: temCobranca,
       delegacoesAtivas: ativas
     };
   },

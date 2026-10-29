@@ -29,6 +29,7 @@ import { Escola, Funcionario, Turma, Aluno } from '../types';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
+import { DelegationsManagementView } from './DelegationsManagementView';
 
 export interface DespachoDirecao {
   id: string;
@@ -79,7 +80,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
   onSalvarEscola,
   onNavigate
 }) => {
-  const [subAba, setSubAba] = useState<'painel' | 'despachos' | 'reunioes' | 'comissoes'>('painel');
+  const [subAba, setSubAba] = useState<'painel' | 'despachos' | 'reunioes' | 'comissoes' | 'delegacoes'>('painel');
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const notificar = (msg: string) => {
@@ -167,6 +168,29 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
       `Emissão de passes escolares ${novoEstado ? 'ATIVADA' : 'DESATIVADA'} pela Direção Geral.`
     );
     notificar(`Emissão de Passes Escolares com QR Code ${novoEstado ? 'ATIVADA' : 'DESATIVADA'}.`);
+  };
+
+  const handleToggleBoletimPortal = () => {
+    const novoEstado = escola.permitirBoletimNoPortalEncarregado !== true;
+    const atualizada = { ...escola, permitirBoletimNoPortalEncarregado: novoEstado };
+    dbService.salvarEscola(atualizada);
+    if (onSalvarEscola) onSalvarEscola(atualizada);
+    dbService.registarLog(
+      'Direção Geral',
+      `Visualização de boletins no Portal do Encarregado ${novoEstado ? 'PERMITIDA' : 'BLOQUEADA'} pelo Diretor Geral.`
+    );
+    notificar(`Boletim de notas no Portal do Encarregado ${novoEstado ? 'PERMITIDO' : 'BLOQUEADO'} com sucesso.`);
+  };
+
+  const handleSelectTrimestreBoletimPortal = (trim: '1' | '2' | '3' | 'todos') => {
+    const atualizada = { ...escola, trimestreBoletimPortal: trim };
+    dbService.salvarEscola(atualizada);
+    if (onSalvarEscola) onSalvarEscola(atualizada);
+    dbService.registarLog(
+      'Direção Geral',
+      `Trimestre de visualização no Portal do Encarregado configurado para: ${trim === 'todos' ? 'Todos os Trimestres' : trim + 'º Trimestre'}.`
+    );
+    notificar(`Boletim do Encarregado: visualização definida para ${trim === 'todos' ? 'Todos os Trimestres' : trim + 'º Trimestre'}.`);
   };
 
   const handleSalvarDespacho = (e: React.FormEvent) => {
@@ -491,7 +515,19 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           }`}
         >
           <Users className="h-4 w-4" />
-          <span>Comissões Institucionais de Trabalho</span>
+          <span>Comissões Institucionais</span>
+        </button>
+
+        <button
+          onClick={() => setSubAba('delegacoes')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center space-x-2 cursor-pointer ${
+            subAba === 'delegacoes'
+              ? 'bg-blue-700 text-white shadow-xs'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+          }`}
+        >
+          <Award className="h-4 w-4" />
+          <span>Delegação de Poderes (Matrículas & Cobrança)</span>
         </button>
       </div>
 
@@ -566,7 +602,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* 1. Matrículas */}
               <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/70 space-y-3">
                 <div className="flex items-center justify-between">
@@ -646,6 +682,56 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
                   {escola.emissaoPassesAtiva !== false ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
                   <span>{escola.emissaoPassesAtiva !== false ? 'Suspender Passes' : 'Ativar Emissão de Passes'}</span>
                 </button>
+              </div>
+
+              {/* 4. Portal dos Encarregados (Boletim de Notas) */}
+              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-gray-900">Boletim no Portal Encarregado</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    escola.permitirBoletimNoPortalEncarregado ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {escola.permitirBoletimNoPortalEncarregado ? 'Autorizado' : 'Restrito'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Autoriza a consulta do boletim pelo encarregado e define os trimestres liberados.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleToggleBoletimPortal}
+                  className={`w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    escola.permitirBoletimNoPortalEncarregado
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-xs'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                  }`}
+                >
+                  {escola.permitirBoletimNoPortalEncarregado ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                  <span>{escola.permitirBoletimNoPortalEncarregado ? 'Suspender Boletim' : 'Liberar no Portal'}</span>
+                </button>
+                {escola.permitirBoletimNoPortalEncarregado && (
+                  <div className="pt-1 border-t border-gray-200">
+                    <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">
+                      Trimestre Liberado:
+                    </label>
+                    <div className="grid grid-cols-4 gap-1 text-[10px]">
+                      {(['1', '2', '3', 'todos'] as const).map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => handleSelectTrimestreBoletimPortal(t)}
+                          className={`py-1 rounded font-bold transition-colors cursor-pointer text-center ${
+                            (escola.trimestreBoletimPortal || 'todos') === t
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
+                          }`}
+                        >
+                          {t === 'todos' ? 'Todos' : `${t}º Trim`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -962,6 +1048,16 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 5. ABA: DELEGAÇÃO DE PODERES (MATRÍCULAS & COBRANÇA DE EMOLUMENTOS) */}
+      {subAba === 'delegacoes' && (
+        <DelegationsManagementView
+          escola={escola}
+          currentUser={currentUser}
+          funcionarios={funcionarios}
+          alunos={alunos}
+        />
       )}
 
       {/* MODAL: NOVO DESPACHO */}

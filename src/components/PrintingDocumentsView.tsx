@@ -1201,7 +1201,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <strong>Observação Pedagógica:</strong> {mediaGeralCalculada === '—' ? 'Sem notas lançadas' : Number(mediaGeralCalculada) >= 10 ? 'Aproveitamento Positivo (Apto)' : 'Necessita de Apoio Pedagógico'}
               </p>
               <p className="text-gray-500 text-[9px] pt-1">
-                Emitido aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })} via SGE-NG Angola.
+                Data de emissão: {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
               </p>
             </div>
 
@@ -1217,15 +1217,21 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* Assinaturas Oficiais */}
           <div className="grid grid-cols-2 gap-8 pt-8 text-[10px] sm:text-[11px] text-center mt-6">
-            <div>
-              <div className="w-52 border-b border-black mx-auto" />
-              <p className="font-bold text-gray-900 mt-1">O(A) Director(a) de Turma</p>
-              <p className="text-gray-600 text-[10px]">{turmaDoAluno?.coordenadorId ? 'Docente Coordenador' : 'Prof. Responsável'}</p>
+            <div className="space-y-1">
+              <p className="font-bold text-gray-950 uppercase text-xs">O(A) Director(a) de Turma</p>
+              <div className="h-6" />
+              <div className="w-56 border-b border-black mx-auto my-1.5" />
+              <p className="font-bold text-gray-900 text-xs uppercase">
+                {dbService.getFuncionarios().find(f => f.id === turmaDoAluno?.coordenadorId)?.nomeCompleto || 'Docente Responsável'}
+              </p>
             </div>
-            <div>
-              <div className="w-52 border-b border-black mx-auto" />
-              <p className="font-bold text-gray-900 mt-1">O Subdirector Pedagógico</p>
-              <p className="text-gray-600 text-[10px]">{escola.subdiretorPedagogicoNome || 'Não Atribuído'}</p>
+            <div className="space-y-1">
+              <p className="font-bold text-gray-950 uppercase text-xs">O Subdirector Pedagógico</p>
+              <div className="h-6" />
+              <div className="w-56 border-b border-black mx-auto my-1.5" />
+              <p className="font-bold text-gray-900 text-xs uppercase">
+                {escola.subdiretorPedagogicoNome || '—'}
+              </p>
             </div>
           </div>
         </div>
@@ -1720,15 +1726,27 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* Assinaturas Oficiais com Sub-Directora e Director */}
           <div className="grid grid-cols-2 gap-8 pt-8 text-xs text-center border-t border-gray-300">
-            <div>
-              <div className="w-56 border-b border-black mx-auto" />
-              <p className="font-bold text-gray-900 mt-1">A Sub-Directora</p>
-              <p className="text-gray-700 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Não Atribuído'}</p>
+            <div className="space-y-1">
+              <p className="font-bold text-gray-950 uppercase text-xs">A Subdirectora Pedagógica</p>
+              <div className="h-8" />
+              <div className="w-56 border-b border-black mx-auto my-1.5" />
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.subdiretorPedagogicoNome || '—'}</p>
             </div>
-            <div>
-              <div className="w-56 border-b border-black mx-auto" />
-              <p className="font-bold text-gray-900 mt-1">O Director</p>
-              <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Não Atribuído'}</p>
+            <div className="space-y-1 flex flex-col items-center justify-end">
+              <p className="font-bold text-gray-950 uppercase text-xs">O Director Geral</p>
+              {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                <div className="h-10 flex items-center justify-center -mb-1">
+                  <img 
+                    src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
+                    alt="Assinatura do Director" 
+                    className="max-h-9 max-w-[140px] object-contain mix-blend-multiply" 
+                  />
+                </div>
+              ) : (
+                <div className="h-8" />
+              )}
+              <div className="w-56 border-b border-black mx-auto my-1.5" />
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.diretorGeralNome || '—'}</p>
             </div>
           </div>
         </div>
@@ -2063,12 +2081,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Assinaturas Oficiais com QR Code de Autenticidade e Assinatura do Director */}
           <div className="grid grid-cols-3 gap-4 pt-6 text-xs text-center border-t border-gray-300">
             <div className="space-y-1">
-              <div className="h-10 flex items-center justify-center -mb-1">
-                <span className="text-[10px] text-gray-400 italic">Visto da Secretaria</span>
-              </div>
-              <div className="w-40 border-b border-black mx-auto" />
-              <p className="font-bold text-gray-900 mt-1">Conferido por</p>
-              <p className="text-gray-500 text-[10px]">A Secretaria Escolar</p>
+              <p className="font-bold text-gray-950 uppercase text-xs">A Secretaria Escolar</p>
+              <div className="h-8" />
+              <div className="w-44 border-b border-black mx-auto my-1.5" />
+              <p className="font-bold text-gray-900 text-xs uppercase">Chefe de Secretaria</p>
             </div>
 
             <div className="flex flex-col items-center justify-center">
@@ -2078,7 +2094,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <span className="text-[8px] text-gray-500 mt-0.5">Certificação MED</span>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1 flex flex-col items-center justify-end">
+              <p className="font-bold text-gray-950 uppercase text-xs">O Director Geral</p>
               {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                 <div className="h-10 flex items-center justify-center -mb-1">
                   <img 
@@ -2088,11 +2105,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   />
                 </div>
               ) : (
-                <div className="h-10" />
+                <div className="h-8" />
               )}
-              <div className="w-40 border-b border-black mx-auto" />
-              <p className="font-bold text-gray-900 mt-1">O Director Geral</p>
-              <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Não Atribuído'}</p>
+              <div className="w-48 border-b border-black mx-auto my-1.5" />
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.diretorGeralNome || '—'}</p>
             </div>
           </div>
         </div>

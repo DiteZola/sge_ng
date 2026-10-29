@@ -616,6 +616,27 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     };
 
     onSalvarAluno(novoAluno);
+
+    // Auditoria de Ação Delegada
+    try {
+      const userLogado = dbService.getCurrentUser();
+      if (userLogado) {
+        const poderes = dbService.verificarPoderesDelegados(userLogado.id, escolaIdFinal);
+        if (poderes.podeMatricular) {
+          dbService.registarAcaoDelegada({
+            escolaId: escolaIdFinal,
+            funcionarioId: userLogado.id,
+            funcionarioNome: userLogado.nomeCompleto,
+            tipo: 'Matriculas',
+            acao: editingAluno ? 'Confirmacao' : 'Matricula',
+            alunoNome: novoAluno.nomeCompleto,
+            alunoId: novoAluno.id,
+            detalhes: `${editingAluno ? 'Reconfirmação' : 'Matrícula'} do discente ${novoAluno.nomeCompleto} (${novoAluno.classeId}) averbada por operador delegado.`
+          });
+        }
+      }
+    } catch {}
+
     setShowAlunoModal(false);
     setEditingAluno(null);
   };
@@ -676,6 +697,28 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     };
 
     onSalvarAluno(alunoAtualizado);
+
+    // Auditoria de Ação Delegada
+    try {
+      const userLogado = dbService.getCurrentUser();
+      const escId = alunoAtualizado.escolaId || dbService.getEscolaAtiva()?.id || '';
+      if (userLogado && escId) {
+        const poderes = dbService.verificarPoderesDelegados(userLogado.id, escId);
+        if (poderes.podeMatricular) {
+          dbService.registarAcaoDelegada({
+            escolaId: escId,
+            funcionarioId: userLogado.id,
+            funcionarioNome: userLogado.nomeCompleto,
+            tipo: 'Matriculas',
+            acao: 'Confirmacao',
+            alunoNome: alunoAtualizado.nomeCompleto,
+            alunoId: alunoAtualizado.id,
+            detalhes: `Reconfirmação de matrícula do aluno ${alunoAtualizado.nomeCompleto} para a ${alunoAtualizado.classeId} Classe por operador delegado.`
+          });
+        }
+      }
+    } catch {}
+
     setShowConfirmacaoModal(false);
     setAlunoConfirmadoComprovativo({
       aluno: alunoAtualizado,

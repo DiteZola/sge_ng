@@ -1419,9 +1419,15 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                       <option value="SubdiretorAdministrativo">Subdiretor Administrativo (Finanças, Património & Logística)</option>
                       <option value="CoordenadorPedagogico">Coordenação Pedagógica (MAC, Apoio a Docentes & Júris)</option>
                       <option value="CoordenadorTurno">Coordenador de Turno (Turmas, Assiduidade & Turnos)</option>
+                      <option value="CoordenadorDisciplina">Coordenador de Disciplina (Supervisão Disciplinar & Assiduidade)</option>
                       <option value="ChefeSecretaria">Chefe de Secretaria (Processos, Pautas, Certificados & Perfis)</option>
+                      <option value="SecretarioEscolar">Secretário Escolar (Dossiers de Matrícula, Documentação & Expediente)</option>
                       <option value="Secretaria">Secretaria Escolar (Matrículas, Documentos & Passes)</option>
                       <option value="Secretario">Secretário (Atendimento, Documentação & Pautas)</option>
+                      <option value="Tesoureiro">Tesoureiro (Caixa, Cobrança de Emolumentos & Relatórios Financeiros)</option>
+                      <option value="Bibliotecario">Bibliotecário (Biblioteca Escolar & Gestão do Acervo)</option>
+                      <option value="TecnicoTI">Técnico de Informática (Suporte Técnico, Backups & Segurança TI)</option>
+                      <option value="Estagiario">Estagiário (Apoio Pedagógico & Administrativo sob Delegação)</option>
                       <option value="DiretorGeral">Diretor Geral (Direção Executiva Institucional)</option>
                     </select>
                   </div>
