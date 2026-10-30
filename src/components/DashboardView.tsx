@@ -1897,29 +1897,111 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            {/* Menus Rápidos Mais Importantes e Prioritários da Escola (Apenas 2) */}
+            {/* Menus Rápidos de Ação Relevantes por Perfil */}
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => onNavigate('avaliacoes')}
-                className="px-4 py-2.5 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
-                title="Lançamento e Homologação de Notas da Avaliação Contínua (MAC)"
-              >
-                <Award className="h-4 w-4 text-amber-300 shrink-0" />
-                <span>1. Lançamento & Coordenação MAC</span>
-              </button>
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="px-4 py-2.5 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-2 cursor-pointer"
-                title="Validação oficial de pautas trimestrais e emissão de boletins de notas"
-              >
-                <FileText className="h-4 w-4 text-blue-700 shrink-0" />
-                <span>2. Validar Pautas & Boletins</span>
-              </button>
+              {currentUser.role === 'Professor' ? (
+                <>
+                  <button
+                    onClick={() => onNavigate('avaliacoes')}
+                    className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Lançamento e Avaliação Contínua (MAC)"
+                  >
+                    <Award className="h-4 w-4 text-amber-300 shrink-0" />
+                    <span>Lançar Notas (MAC)</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('turmas')}
+                    className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Ver turmas e alunos atribuídos"
+                  >
+                    <Users className="h-4 w-4 text-blue-700 shrink-0" />
+                    <span>Minhas Turmas</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('presencas')}
+                    className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Folha de Presenças e Faltas"
+                  >
+                    <Calendar className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span>Folha de Presenças</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('boletins')}
+                    className="px-3.5 py-2 text-xs font-bold text-purple-900 bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Boletins de Notas da Turma"
+                  >
+                    <FileText className="h-4 w-4 text-purple-700 shrink-0" />
+                    <span>Boletins de Notas</span>
+                  </button>
+                </>
+              ) : currentUser.role === 'Encarregado' ? (
+                <>
+                  <button
+                    onClick={() => onNavigate('boletins')}
+                    className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Ver Boletim Trimestral do Educando"
+                  >
+                    <FileText className="h-4 w-4 text-amber-300 shrink-0" />
+                    <span>Boletim do Educando</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('pagamentos')}
+                    className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Consultar Propinas e Emolumentos"
+                  >
+                    <DollarSign className="h-4 w-4 text-emerald-700 shrink-0" />
+                    <span>Consultar Propinas</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('horarios')}
+                    className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Horário Escolar do Educando"
+                  >
+                    <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span>Horário Escolar</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => onNavigate('alunos')}
+                    className="px-3.5 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Matricular novo discente ou reconfirmar matrícula"
+                  >
+                    <PlusCircle className="h-4 w-4 text-emerald-200 shrink-0" />
+                    <span>Nova Matrícula</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('pagamentos')}
+                    className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Registar e confirmar pagamento de propina ou emolumento"
+                  >
+                    <DollarSign className="h-4 w-4 text-amber-300 shrink-0" />
+                    <span>Registar Pagamento</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('avaliacoes')}
+                    className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Lançamento e Coordenação MAC"
+                  >
+                    <Award className="h-4 w-4 text-blue-700 shrink-0" />
+                    <span>Lançar Notas (MAC)</span>
+                  </button>
+                  <button
+                    onClick={() => onNavigate('documentos')}
+                    className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    title="Emissão oficial de Pautas Gerais, Boletins e Declarações"
+                  >
+                    <FileText className="h-4 w-4 text-indigo-700 shrink-0" />
+                    <span>Emitir Documentos</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
           {/* Métricas Principais da Escola & Monitorização em Tempo Real */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3.5">
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-gray-600">Alunos Matriculados</span>
@@ -1936,6 +2018,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="mt-1 text-[11px] text-gray-500">
                 {turmas.length} turmas em 3 turnos
               </div>
+            </div>
+
+            {/* Distinção por Género (Rapazes vs Raparigas) */}
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+              {(() => {
+                const rapazes = alunos.filter(a => a.genero === 'M').length;
+                const raparigas = alunos.filter(a => a.genero === 'F').length;
+                const pctRapazes = alunos.length > 0 ? Math.round((rapazes / alunos.length) * 100) : 0;
+                const pctRaparigas = alunos.length > 0 ? Math.round((raparigas / alunos.length) * 100) : 0;
+                return (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-600">Alunos por Género</span>
+                      <div className="h-8 w-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
+                        <Users className="h-4 w-4" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[10px] text-blue-800 font-bold block">Rapazes (M)</span>
+                        <span className="text-lg font-black text-blue-950">{rapazes}</span>
+                        <span className="text-[10px] text-blue-700 font-semibold ml-1">({pctRapazes}%)</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-rose-800 font-bold block">Raparigas (F)</span>
+                        <span className="text-lg font-black text-rose-950">{raparigas}</span>
+                        <span className="text-[10px] text-rose-700 font-semibold ml-1">({pctRaparigas}%)</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 w-full bg-rose-200 h-2 rounded-full overflow-hidden flex">
+                      <div className="bg-blue-600 h-full transition-all" style={{ width: `${pctRapazes}%` }} title={`Rapazes: ${pctRapazes}%`} />
+                      <div className="bg-rose-500 h-full transition-all" style={{ width: `${pctRaparigas}%` }} title={`Raparigas: ${pctRaparigas}%`} />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">

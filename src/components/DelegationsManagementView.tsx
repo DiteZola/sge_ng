@@ -78,6 +78,7 @@ export const DelegationsManagementView: React.FC<DelegationsManagementViewProps>
   const ehDiretorOuSub = currentUser.role === 'DiretorGeral' || 
     currentUser.role === 'SubdiretorAdministrativo' || 
     currentUser.role === 'SubdirectorAdministrativo' ||
+    currentUser.role === 'ChefeSecretaria' ||
     currentUser.role === 'AdminGeral';
 
   // Filtragens
@@ -121,14 +122,20 @@ export const DelegationsManagementView: React.FC<DelegationsManagementViewProps>
       return;
     }
 
+    const cargoDelegador = (currentUser.role === 'SubdiretorAdministrativo' || currentUser.role === 'SubdirectorAdministrativo') 
+      ? 'SubdiretorAdministrativo' 
+      : currentUser.role === 'ChefeSecretaria'
+        ? 'ChefeSecretaria'
+        : currentUser.role === 'AdminGeral'
+          ? 'AdminGeral'
+          : 'DiretorGeral';
+
     const nova: DelegacaoPoderes = {
       id: `del-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       escolaId: escola.id,
       delegadoPorId: currentUser.id,
       delegadoPorNome: currentUser.nomeCompleto,
-      delegadoPorCargo: (currentUser.role === 'SubdiretorAdministrativo' || currentUser.role === 'SubdirectorAdministrativo') 
-        ? 'SubdiretorAdministrativo' 
-        : 'DiretorGeral',
+      delegadoPorCargo: cargoDelegador,
       funcionarioId: func.id,
       funcionarioNome: func.nomeCompleto,
       funcionarioCargo: func.cargo || func.role,

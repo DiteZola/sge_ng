@@ -1427,6 +1427,7 @@ export default function App() {
               {/* 3. GESTÃO: Alunos */}
               {(activeTab === 'alunos' || activeTab === 'estudantes') && (
                 <StudentsView
+                  escola={escola}
                   alunos={alunos}
                   turmas={turmas}
                   onSalvarAluno={handleSalvarAluno}
@@ -1529,6 +1530,7 @@ export default function App() {
                   currentUser={currentUser}
                   alunos={alunos}
                   turmas={turmas}
+                  onSalvarAluno={handleSalvarAluno}
                   initialSubTab={
                     activeTab === 'pagamentos' ? 'pagamentos' :
                     activeTab === 'relatorios_financeiros' ? 'relatorios' : 'visao_geral'

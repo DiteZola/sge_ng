@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   CreditCard, 
@@ -31,6 +31,7 @@ import {
   normalizarClasse,
   isSegundoCiclo,
   isPrimeiroCiclo,
+  isEnsinoPrimario,
   CLASSES_ENSINO_PRIMARIO,
   CLASSES_PRIMEIRO_CICLO,
   CLASSES_SEGUNDO_CICLO,
@@ -69,7 +70,25 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   const [selectedClasseFilter, setSelectedClasseFilter] = useState<string>('TODAS');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [visualizacao, setVisualizacao] = useState<'frente' | 'verso' | 'ambos'>('ambos');
-  const [dataValidade, setDataValidade] = useState<string>('2026-07-31');
+
+  const dataFimAnoAtivo = useMemo(() => {
+    const anos = dbService.getAnosLectivosConfigs();
+    const anoAtivo = anos.find(a => a.rotulo === escola.anoLectivoActivo || a.ano === escola.anoLectivoActivo || a.estado === 'Aberto');
+    return anoAtivo?.dataFim || '2026-07-31';
+  }, [escola.anoLectivoActivo]);
+
+  const [dataValidade, setDataValidade] = useState<string>(() => {
+    const anos = dbService.getAnosLectivosConfigs();
+    const anoAtivo = anos.find(a => a.rotulo === escola.anoLectivoActivo || a.ano === escola.anoLectivoActivo || a.estado === 'Aberto');
+    return anoAtivo?.dataFim || '2026-07-31';
+  });
+
+  useEffect(() => {
+    if (dataFimAnoAtivo) {
+      setDataValidade(dataFimAnoAtivo);
+    }
+  }, [dataFimAnoAtivo]);
+
   const [dataEmissao, setDataEmissao] = useState<string>(new Date().toISOString().split('T')[0]);
   
   // Painel de Configurações do Passe
@@ -542,11 +561,11 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                               <img 
                                 src={aluno.fotoUrl} 
                                 alt={aluno.nomeCompleto} 
-                                className="h-20 w-16 rounded object-cover border-2 border-slate-700 shadow-2xs print:border-black"
+                                className="h-24 w-20 rounded-md object-cover border-2 border-slate-700 shadow-2xs print:border-black"
                               />
                             ) : (
-                              <div className="h-20 w-16 rounded border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs print:border-black">
-                                <User className="h-6 w-6 text-gray-300 mb-0.5" />
+                              <div className="h-24 w-20 rounded-md border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs print:border-black">
+                                <User className="h-8 w-8 text-gray-300 mb-0.5" />
                                 <span>FOTO 3x4</span>
                               </div>
                             )}
@@ -588,11 +607,16 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                             </div>
                           )}
 
-                          {isAtivo('curso') && (aluno.curso || turma?.curso) && (
-                            <div className="text-gray-600 truncate text-[7.5px]">
-                              Curso: <strong>{aluno.curso || turma?.curso}</strong>
-                            </div>
-                          )}
+                          {(() => {
+                            const clNorm = normalizarClasse(aluno.classeId || turma?.classe || '');
+                            const ehPrimarioOuICiclo = isEnsinoPrimario(clNorm) || isPrimeiroCiclo(clNorm);
+                            if (ehPrimarioOuICiclo) return null;
+                            return isAtivo('curso') && (aluno.curso || turma?.curso) ? (
+                              <div className="text-gray-600 truncate text-[7.5px]">
+                                Curso: <strong>{aluno.curso || turma?.curso}</strong>
+                              </div>
+                            ) : null;
+                          })()}
 
                           {isAtivo('encarregado') && aluno.encarregadoNome && (
                             <div className="text-gray-600 truncate text-[7px]">

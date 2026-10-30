@@ -474,8 +474,8 @@ export interface NotaTrimestralConsolidada {
   mediaTrimestral: number; // MT
   notaFinal?: number; // MT / CF Final para deliberação do Júri
   notaExame?: number; // Nota do Exame Estadual / Nacional
-  comportamentoNota: number; // 0-20
-  comportamentoConceito: string; // Excelente, Muito Bom, Bom, Regular, Mau
+  comportamentoNota?: number; // 0-20
+  comportamentoConceito?: string; // Excelente, Muito Bom, Bom, Regular, Mau
   assiduidadeConceito?: string; // Excelente, Muito Bom, Bom, Regular
   faltas: number;
   validadaPelaDirecao: boolean;
@@ -1381,7 +1381,7 @@ export interface DelegacaoPoderes {
   escolaId: string;
   delegadoPorId: string;
   delegadoPorNome: string;
-  delegadoPorCargo: 'DiretorGeral' | 'SubdiretorAdministrativo' | 'SubdirectorAdministrativo';
+  delegadoPorCargo: 'DiretorGeral' | 'SubdiretorAdministrativo' | 'SubdirectorAdministrativo' | 'ChefeSecretaria' | 'AdminGeral';
   funcionarioId: string;
   funcionarioNome: string;
   funcionarioCargo: string;

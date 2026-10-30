@@ -11,7 +11,7 @@ export function normalizarNomeClasse(classe: string): string {
   return classe.trim().replace(/ª$/, '').replace(/ classe$/i, '').trim();
 }
 
-export function obterDisciplinasPorClasseECurso(
+function obterDisciplinasBase(
   todasDisciplinas: Disciplina[],
   classe: string,
   curso?: string
@@ -136,6 +136,16 @@ export function obterDisciplinasPorClasseECurso(
   }
 
   return todasDisciplinas;
+}
+
+export function obterDisciplinasPorClasseECurso(
+  todasDisciplinas: Disciplina[],
+  classe: string,
+  curso?: string
+): Disciplina[] {
+  const lista = obterDisciplinasBase(todasDisciplinas, classe, curso);
+  // Garante que todas as disciplinas seguem rigorosamente a ordenação configurada
+  return lista.slice().sort((a, b) => (a.ordem || 99) - (b.ordem || 99));
 }
 
 import { downloadElementAsPdf } from './pdfGenerator';

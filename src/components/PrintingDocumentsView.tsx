@@ -174,14 +174,25 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   const [dataInicioPresencas, setDataInicioPresencas] = useState<string>('2026-03-01');
   const [dataFimPresencas, setDataFimPresencas] = useState<string>('2026-03-31');
 
-  // Selecionar aluno ativo
-  const alunoSelecionado = alunos.find(a => a.id === selectedAlunoId) || alunos[0];
+  // Selecionar aluno ativo estritamente dentro da turma e classe selecionadas
+  const alunoSelecionado = alunosFiltradosIndividual.find(a => a.id === selectedAlunoId) || alunosFiltradosIndividual[0] || alunos[0];
   const turmaDoAluno = turmas.find(t => t.id === alunoSelecionado?.turmaId) || turmas[0];
 
   // Filtro de alunos da turma para passes ou emissão em lote
-  const turmaSelecionada = turmas.find(t => t.id === selectedTurmaId) || turmaDoAluno;
-  const alunosDaTurma = alunos.filter(a => a.turmaId === turmaSelecionada?.id || a.turmaId === selectedTurmaId);
-  const alunosDaClasse = alunos.filter(a => a.classeId === selectedClasse);
+  const turmaSelecionada = turmasDaClasseSelecionada.find(t => t.id === selectedTurmaId) || turmasDaClasseSelecionada[0] || turmaDoAluno;
+  const alunosDaTurma = alunos.filter(a => a.turmaId === turmaSelecionada?.id);
+  const alunosDaClasse = alunos.filter(a => {
+    const t = turmas.find(tm => tm.id === a.turmaId);
+    const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
+    return cl === normalizarClasse(selectedClasse);
+  });
+
+  // Sincronizar o discente selecionado automaticamente quando o filtro ou classe muda
+  useEffect(() => {
+    if (alunosFiltradosIndividual.length > 0 && !alunosFiltradosIndividual.some(a => a.id === selectedAlunoId)) {
+      setSelectedAlunoId(alunosFiltradosIndividual[0].id);
+    }
+  }, [alunosFiltradosIndividual, selectedAlunoId]);
 
   // Alunos no escopo de impressão
   const alunosParaImprimir = modoEmissao === 'turma' 
@@ -1411,12 +1422,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                         <td className="p-1 border-r border-black font-bold text-emerald-800">{totalPositivas}</td>
                         <td className="p-1 border-r border-black font-bold text-red-700">{totalNegativas}</td>
                         <td className="p-1 border-r border-black font-bold bg-gray-50">
-                          {disciplinasComNota > 0 ? (somaNotas / disciplinasComNota).toFixed(1) : '-'}
+                          {disciplinasDaClasseDocumento.length > 0 
+                            ? (somaNotas / disciplinasDaClasseDocumento.length).toFixed(1) 
+                            : (disciplinasComNota > 0 ? (somaNotas / disciplinasComNota).toFixed(1) : '-')}
                         </td>
                         <td className="p-1 border-r border-black font-bold text-[9px] bg-green-50/30">
                           {(() => {
                             const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
-                            const notasComp = notasAluno.filter(n => typeof n.comportamentoNota === 'number' && n.comportamentoNota > 0).map(n => n.comportamentoNota);
+                            const notasComp = notasAluno
+                              .map(n => n.comportamentoNota)
+                              .filter((n): n is number => typeof n === 'number' && n > 0);
                             if (notasComp.length === 0) {
                               return <span className="text-gray-400 font-normal">—</span>;
                             }
@@ -2084,7 +2099,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <p className="font-bold text-gray-950 uppercase text-xs">A Secretaria Escolar</p>
               <div className="h-8" />
               <div className="w-44 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">Chefe de Secretaria</p>
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.chefeSecretariaNome || 'Chefe da Secretaria'}</p>
             </div>
 
             <div className="flex flex-col items-center justify-center">

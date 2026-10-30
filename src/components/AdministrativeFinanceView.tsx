@@ -78,6 +78,7 @@ interface AdministrativeFinanceViewProps {
   currentUser: Funcionario;
   alunos: Aluno[];
   turmas: Turma[];
+  onSalvarAluno?: (aluno: Aluno) => void;
   initialSubTab?: 'visao_geral' | 'pagamentos' | 'despesas' | 'devedores' | 'patrimonio' | 'configuracao' | 'relatorios';
 }
 
@@ -86,6 +87,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   currentUser,
   alunos,
   turmas,
+  onSalvarAluno,
   initialSubTab
 }) => {
   // Delegações Financeiras
@@ -249,7 +251,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [modalPagBuscaAluno, setModalPagBuscaAluno] = useState('');
 
   const alunosParaPagamento = useMemo(() => {
-    let list = alunos.filter(a => a.escolaId === escola.id);
+    let list = alunos.filter(a => !a.escolaId || a.escolaId === escola.id);
     if (modalPagFiltroClasse !== 'TODAS') {
       list = list.filter(a => {
         const t = turmas.find(tm => tm.id === a.turmaId);
@@ -364,6 +366,19 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
     dbService.salvarTransacaoFinanceira(novaTransacao);
     setTransacoes(dbService.getTransacoesFinanceiras(escola.id));
+
+    // Atualização e sincronização imediata dos dados do discente
+    if (aluno) {
+      const alunoAtualizado: Aluno = {
+        ...aluno,
+        propinaStatus: 'Regularizada',
+        escolaId: aluno.escolaId || escola.id
+      };
+      dbService.salvarAluno(alunoAtualizado);
+      if (onSalvarAluno) {
+        onSalvarAluno(alunoAtualizado);
+      }
+    }
 
     // Auditoria de Cobrança por Operador Delegado
     try {

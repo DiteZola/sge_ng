@@ -718,6 +718,28 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     );
   }, [disciplinas, filtroClasseDisciplinas, filtroCicloDisciplinas]);
 
+  const handleMoverOrdemDisciplina = (disc: Disciplina, direcao: 'cima' | 'baixo') => {
+    const list = [...disciplinasFiltradas];
+    const idx = list.findIndex(d => d.id === disc.id);
+    if (idx < 0) return;
+    const targetIdx = direcao === 'cima' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+
+    const outro = list[targetIdx];
+    const ordemDisc = disc.ordem || idx + 1;
+    const ordemOutro = outro.ordem || targetIdx + 1;
+
+    const discAtualizada = { ...disc, ordem: ordemOutro };
+    const outroAtualizada = { ...outro, ordem: ordemDisc };
+
+    dbService.salvarDisciplina(discAtualizada);
+    dbService.salvarDisciplina(outroAtualizada);
+    if (onSalvarDisciplina) {
+      onSalvarDisciplina(discAtualizada);
+      onSalvarDisciplina(outroAtualizada);
+    }
+  };
+
   // Ações de Configuração de Avaliação (Diretor & Administrador Geral)
   const handleSalvarNovoTipoAvaliacao = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1329,22 +1351,43 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                       <span className="text-blue-700 font-medium">{disc.componente}</span>
                     </div>
                     <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => handleAbrirEditarDisciplina(disc)}
-                        className="inline-flex items-center space-x-1 text-xs text-blue-700 hover:text-blue-900 font-bold cursor-pointer"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Editar</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleEliminarDisciplinaLocal(disc.id, disc.nome)}
-                        className="inline-flex items-center space-x-1 text-xs text-red-600 hover:text-red-800 font-bold cursor-pointer"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Eliminar</span>
-                      </button>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => handleMoverOrdemDisciplina(disc, 'cima')}
+                          className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[10px] font-bold cursor-pointer"
+                          title="Subir posição nos documentos oficiais"
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoverOrdemDisciplina(disc, 'baixo')}
+                          className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[10px] font-bold cursor-pointer"
+                          title="Descer posição nos documentos oficiais"
+                        >
+                          ▼
+                        </button>
+                        <span className="text-[10px] text-gray-400 font-mono ml-1">Ord. {disc.ordem || idx + 1}</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAbrirEditarDisciplina(disc)}
+                          className="inline-flex items-center space-x-1 text-xs text-blue-700 hover:text-blue-900 font-bold cursor-pointer"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Editar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEliminarDisciplinaLocal(disc.id, disc.nome)}
+                          className="inline-flex items-center space-x-1 text-xs text-red-600 hover:text-red-800 font-bold cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Eliminar</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

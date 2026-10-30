@@ -545,8 +545,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         npt: retificacaoTipoNota === 'NPT' ? notaFinalValida : 10,
         mediaTrimestral: notaFinalValida,
         notaFinal: notaFinalValida,
-        comportamentoNota: 16,
-        comportamentoConceito: 'Bom',
+        comportamentoNota: undefined,
+        comportamentoConceito: undefined,
         faltas: 0,
         validadaPelaDirecao: true
       });
@@ -1742,7 +1742,14 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                             {calcMF.mediaFinal}
                           </td>
                         )}
-                        <td className="p-2 border-r border-gray-300 text-[11px]">Exemplar</td>
+                        <td className="p-2 border-r border-gray-300 text-[11px] font-bold text-gray-700">
+                          {(() => {
+                            const notaCons = notasConsolidadas.find(
+                              c => c.alunoId === aluno.id && c.disciplinaId === selectedDisciplinaId && String(c.trimestre) === String(selectedTrimestre)
+                            );
+                            return notaCons?.comportamentoConceito || (notaCons?.comportamentoNota ? `${notaCons.comportamentoNota}v` : '—');
+                          })()}
+                        </td>
                         <td className="p-2">
                           <span className={`font-bold ${aprov ? 'text-green-700' : 'text-red-700'}`}>
                             {turmaAtiva.classe === 'Iniciação' 

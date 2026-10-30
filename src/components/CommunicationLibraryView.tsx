@@ -41,18 +41,36 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   onMarcarComoLida,
   onMarcarTodasComoLidas
 }) => {
-  const [activeTab, setActiveTab] = useState<'mensagens' | 'biblioteca'>('mensagens');
+  const [activeTab, setActiveTab] = useState<'comunicados' | 'mensagens_diretas' | 'biblioteca'>('comunicados');
   const [filtroMensagens, setFiltroMensagens] = useState<'todas' | 'nao_lidas' | 'lidas'>('todas');
 
   const totalNaoLidas = mensagens.filter(m => !m.lida).length;
   const totalLidas = mensagens.filter(m => !!m.lida).length;
-  const mensagensExibidas = mensagens.filter(m => {
+
+  // Separação oficial: Comunicados vs Mensagens Diretas
+  const comunicadosLista = mensagens.filter(m => 
+    m.tipo === 'GERAL' || 
+    m.tipo === 'GRUPO' || 
+    m.destinatarioTipo === 'Todos' || 
+    m.destinatarioTipo === 'Docentes' || 
+    m.destinatarioTipo === 'Secretaria'
+  );
+
+  const mensagensDiretasLista = mensagens.filter(m => 
+    m.tipo === 'DIRECTA' || 
+    m.destinatarioTipo === 'Individual' || 
+    m.destinatarioId === currentUser.id || 
+    m.remetenteId === currentUser.id ||
+    m.destinatarioId === 'admin-geral'
+  );
+
+  const itensExibidos = (activeTab === 'comunicados' ? comunicadosLista : mensagensDiretasLista).filter(m => {
     if (filtroMensagens === 'nao_lidas') return !m.lida;
     if (filtroMensagens === 'lidas') return !!m.lida;
     return true;
   });
 
-  // Estado envio de mensagem
+  // Estado envio de mensagem / comunicado
   const [tipoDestino, setTipoDestino] = useState<'Todos' | 'Docentes' | 'Secretaria' | 'Individual'>('Todos');
   const [destinatarioId, setDestinatarioId] = useState('');
   const [assunto, setAssunto] = useState('');
@@ -70,16 +88,20 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     e.preventDefault();
     if (!assunto || !conteudo) return;
 
+    const isDirecta = activeTab === 'mensagens_diretas' || tipoDestino === 'Individual';
+    const destTipoFinal = isDirecta ? 'Individual' : tipoDestino;
+    const destIdFinal = isDirecta ? destinatarioId : undefined;
+
     const novaMsg: Mensagem = {
       id: `msg-${Date.now()}`,
       escolaId: escola.id,
       remetenteId: currentUser.id,
       remetenteNome: currentUser.nomeCompleto,
-      remetentePapel: currentUser.cargo,
-      remetenteCargo: currentUser.cargo,
-      tipo: tipoDestino === 'Todos' ? 'GERAL' : (tipoDestino === 'Individual' ? 'DIRECTA' : 'GRUPO'),
-      destinatarioTipo: tipoDestino,
-      destinatarioId: tipoDestino === 'Individual' ? destinatarioId : undefined,
+      remetentePapel: currentUser.cargo || currentUser.role,
+      remetenteCargo: currentUser.cargo || currentUser.role,
+      tipo: isDirecta ? 'DIRECTA' : (tipoDestino === 'Todos' ? 'GERAL' : 'GRUPO'),
+      destinatarioTipo: destTipoFinal,
+      destinatarioId: destIdFinal,
       titulo: assunto,
       assunto,
       conteudo,
@@ -120,40 +142,60 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
 
   return (
     <div className="space-y-6">
-      {/* Tab Switcher */}
-      <div className="flex gap-2 border-b border-gray-200 pb-3">
+      {/* Tab Switcher com Separação Oficial */}
+      <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
         <button
-          onClick={() => setActiveTab('mensagens')}
-          className={`px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-colors border-2 ${
-            activeTab === 'mensagens'
-              ? 'bg-blue-50 text-blue-700 border-blue-600'
+          onClick={() => setActiveTab('comunicados')}
+          className={`px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-colors border-2 flex items-center space-x-2 ${
+            activeTab === 'comunicados'
+              ? 'bg-blue-50 text-blue-700 border-blue-600 shadow-2xs'
               : 'text-gray-700 hover:bg-gray-100 border-transparent'
           }`}
         >
-          Mensagens & Comunicados Escolares
+          <Bell className="w-4 h-4 text-blue-600" />
+          <span>Comunicados Oficiais & Circulares ({comunicadosLista.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('mensagens_diretas')}
+          className={`px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-colors border-2 flex items-center space-x-2 ${
+            activeTab === 'mensagens_diretas'
+              ? 'bg-blue-50 text-blue-700 border-blue-600 shadow-2xs'
+              : 'text-gray-700 hover:bg-gray-100 border-transparent'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4 text-emerald-600" />
+          <span>Mensagens Diretas & Direção ({mensagensDiretasLista.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('biblioteca')}
-          className={`px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-colors border-2 ${
+          className={`px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-colors border-2 flex items-center space-x-2 ${
             activeTab === 'biblioteca'
-              ? 'bg-blue-50 text-blue-700 border-blue-600'
+              ? 'bg-blue-50 text-blue-700 border-blue-600 shadow-2xs'
               : 'text-gray-700 hover:bg-gray-100 border-transparent'
           }`}
         >
-          Biblioteca Digital & Manuais MED
+          <BookOpen className="w-4 h-4 text-amber-600" />
+          <span>Biblioteca Digital & Manuais MED ({livros.length})</span>
         </button>
       </div>
 
-      {/* 1. MENSAGENS */}
-      {activeTab === 'mensagens' && (
+      {/* 1. COMUNICADOS OFICIAIS OU MENSAGENS DIRETAS */}
+      {(activeTab === 'comunicados' || activeTab === 'mensagens_diretas') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Caixa de Entrada / Comunicados */}
+            {/* Caixa de Entrada */}
             <div className="lg:col-span-2 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
                 <div className="flex items-center space-x-2">
-                  <Bell className="w-4 h-4 text-blue-600" />
-                  <h3 className="font-bold text-gray-900 text-sm">Comunicados & Notificações Ativas</h3>
+                  {activeTab === 'comunicados' ? (
+                    <Bell className="w-4 h-4 text-blue-600" />
+                  ) : (
+                    <Mail className="w-4 h-4 text-emerald-600" />
+                  )}
+                  <h3 className="font-bold text-gray-900 text-sm">
+                    {activeTab === 'comunicados' ? 'Circulares & Despachos Oficiais' : 'Conversas Diretas & Linha com Admin Geral'}
+                  </h3>
                 </div>
 
                 {/* Botão Marcar Todas como Lidas */}
@@ -181,7 +223,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   }`}
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Todas ({mensagens.length})</span>
+                  <span>Todas ({activeTab === 'comunicados' ? comunicadosLista.length : mensagensDiretasLista.length})</span>
                 </button>
 
                 <button
@@ -194,10 +236,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   }`}
                 >
                   <Mail className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Não Lidas ({totalNaoLidas})</span>
-                  {totalNaoLidas > 0 && (
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping inline-block" />
-                  )}
+                  <span>Não Lidas ({itensExibidos.filter(m => !m.lida).length})</span>
                 </button>
 
                 <button
@@ -210,20 +249,20 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   }`}
                 >
                   <MailOpen className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Lidas ({totalLidas})</span>
+                  <span>Lidas</span>
                 </button>
               </div>
 
-              {/* Lista de Mensagens */}
+              {/* Lista de Mensagens / Comunicados */}
               <div className="space-y-3">
-                {mensagensExibidas.length === 0 ? (
+                {itensExibidos.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-gray-500 text-xs">
-                    {filtroMensagens === 'nao_lidas'
-                      ? 'Parabéns! Todas as notificações e comunicados já foram visualizados.'
-                      : 'Nenhuma mensagem encontrada nesta pasta.'}
+                    {activeTab === 'comunicados' 
+                      ? 'Nenhum comunicado oficial ativo no momento.' 
+                      : 'Nenhuma mensagem direta trocada com utilizadores ou com a Administração Geral.'}
                   </div>
                 ) : (
-                  mensagensExibidas.map((msg) => {
+                  itensExibidos.map((msg) => {
                     const naoLida = !msg.lida;
 
                     return (
@@ -238,8 +277,14 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                         <div className="flex justify-between items-start gap-2">
                           <div className="space-y-1">
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                                {msg.destinatarioTipo === 'Todos' ? 'Geral para Todos' : msg.destinatarioTipo}
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                msg.destinatarioId === 'admin-geral' || msg.remetentePapel === 'AdminGeral'
+                                  ? 'bg-purple-100 text-purple-900 border-purple-300 font-black'
+                                  : 'bg-blue-100 text-blue-800 border-blue-200'
+                              }`}>
+                                {msg.destinatarioId === 'admin-geral' 
+                                  ? 'Para: Administrador Geral' 
+                                  : (msg.destinatarioTipo === 'Todos' ? 'Geral para Todos' : msg.destinatarioTipo)}
                               </span>
 
                               {naoLida ? (
@@ -266,7 +311,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                                 type="button"
                                 onClick={() => onMarcarComoLida(msg.id)}
                                 className="flex items-center space-x-1 px-2.5 py-1 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-lg text-[10px] font-bold transition-all shadow-2xs cursor-pointer"
-                                title="Marcar este comunicado como lido"
+                                title="Marcar este item como lido"
                               >
                                 <CheckCheck className="w-3 h-3 text-emerald-600" />
                                 <span>Marcar como lida</span>
@@ -291,40 +336,52 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
               </div>
             </div>
 
-          {/* Formulário Novo Comunicado */}
+          {/* Formulário Novo Comunicado ou Mensagem Direta */}
           <div className="bg-white border-2 border-blue-600 rounded-xl p-5 shadow-xs space-y-4 h-fit">
             <div className="flex items-center space-x-2">
               <Send className="h-5 w-5 text-blue-600" />
-              <h3 className="font-bold text-gray-900 text-sm">Emitir Novo Comunicado</h3>
+              <h3 className="font-bold text-gray-900 text-sm">
+                {activeTab === 'comunicados' ? 'Emitir Novo Comunicado Oficial' : 'Enviar Mensagem Direta'}
+              </h3>
             </div>
 
             <form onSubmit={handleSend} className="space-y-3 text-xs">
-              <div>
-                <label className="font-semibold text-gray-700 block mb-1">Destinatários</label>
-                <select
-                  value={tipoDestino}
-                  onChange={(e) => setTipoDestino(e.target.value as any)}
-                  className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                >
-                  <option value="Todos">Toda a Comunidade Escolar</option>
-                  <option value="Docentes">Apenas Corpo Docente</option>
-                  <option value="Secretaria">Secretaria & Administração</option>
-                  <option value="Individual">Utilizador Individual</option>
-                </select>
-              </div>
-
-              {tipoDestino === 'Individual' && (
+              {activeTab === 'comunicados' ? (
                 <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Destinatário Específico</label>
+                  <label className="font-semibold text-gray-700 block mb-1">Destinatários do Comunicado</label>
+                  <select
+                    value={tipoDestino}
+                    onChange={(e) => setTipoDestino(e.target.value as any)}
+                    className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  >
+                    <option value="Todos">Toda a Comunidade Escolar</option>
+                    <option value="Docentes">Apenas Corpo Docente</option>
+                    <option value="Secretaria">Secretaria & Administração</option>
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Destinatário</label>
                   <select
                     value={destinatarioId}
                     onChange={(e) => setDestinatarioId(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                    required
+                    className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
                   >
-                    <option value="">Selecione o funcionário...</option>
-                    {funcionarios.map((f, fIdx) => (
-                      <option key={`${f.id}-${f.escolaId || ''}-${fIdx}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
-                    ))}
+                    <option value="">Selecione o destinatário...</option>
+                    {/* Linha direta com o Administrador Geral do Sistema para Diretores e Administradores */}
+                    {currentUser.role !== 'AdminGeral' && (
+                      <option value="admin-geral" className="font-black text-purple-900 bg-purple-50">
+                        🏛️ Administrador Geral (Supervisão Central MED)
+                      </option>
+                    )}
+                    {funcionarios
+                      .filter(f => f.id !== currentUser.id)
+                      .map((f, fIdx) => (
+                        <option key={`${f.id}-${f.escolaId || ''}-${fIdx}`} value={f.id}>
+                          {f.nomeCompleto} ({f.cargo || f.role})
+                        </option>
+                      ))}
                   </select>
                 </div>
               )}
@@ -336,29 +393,29 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   required
                   value={assunto}
                   onChange={(e) => setAssunto(e.target.value)}
-                  placeholder="Ex: Reunião Pedagógica Trimestral"
+                  placeholder={activeTab === 'comunicados' ? "Ex: Reunião Pedagógica Trimestral" : "Ex: Solicitação de suporte / Dúvida operacional"}
                   className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-600 focus:outline-none font-medium"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-gray-700 block mb-1">Conteúdo da Mensagem</label>
+                <label className="font-semibold text-gray-700 block mb-1">Conteúdo</label>
                 <textarea
                   required
                   rows={4}
                   value={conteudo}
                   onChange={(e) => setConteudo(e.target.value)}
-                  placeholder="Digite o comunicado oficial..."
+                  placeholder={activeTab === 'comunicados' ? "Digite os termos do comunicado oficial..." : "Digite a mensagem direta..."}
                   className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full py-2 font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center justify-center space-x-1.5"
+                className="w-full py-2 font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs"
               >
                 <Send className="h-4 w-4" />
-                <span>Publicar Comunicado</span>
+                <span>{activeTab === 'comunicados' ? 'Publicar Comunicado' : 'Enviar Mensagem Direta'}</span>
               </button>
             </form>
           </div>

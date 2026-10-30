@@ -46,7 +46,8 @@ import {
   NotaFinalDisciplinaHistorico,
   OcorrenciaHistoricoAluno,
   FaltasAnoHistorico,
-  DividasAnoHistorico
+  DividasAnoHistorico,
+  Escola
 } from '../types';
 import * as XLSX from 'xlsx';
 import { dbService } from '../services/storage';
@@ -76,6 +77,7 @@ import {
 } from '../services/academicHierarchyService';
 
 interface StudentsViewProps {
+  escola?: Escola;
   alunos: Aluno[];
   turmas: Turma[];
   onSalvarAluno: (aluno: Aluno) => void;
@@ -122,6 +124,7 @@ const DISCIPLINAS_ANGOLA_PADRAO = [
 ];
 
 export const StudentsView: React.FC<StudentsViewProps> = ({
+  escola: escolaProp,
   alunos,
   turmas,
   onSalvarAluno,
@@ -143,7 +146,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const debouncedSearch = useDebouncedSearch(searchTerm, 200);
 
   const configSistema = dbService.getConfiguracaoSistema();
-  const escola = dbService.getEscolaAtiva();
+  const escola = escolaProp || dbService.getEscolaAtiva();
 
   // Modal Novo / Edição de Aluno
   const [showAlunoModal, setShowAlunoModal] = useState(false);
