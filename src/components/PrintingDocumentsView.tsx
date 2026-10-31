@@ -94,6 +94,25 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       setDocType(initialDocType);
     }
   }, [initialDocType]);
+  const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(), [escola.id]);
+  const anosLectivosDisponiveis = useMemo(() => {
+    const list = new Set<string>();
+    if (escola.anoLectivoActivo) list.add(escola.anoLectivoActivo);
+    anosLectivosConfigs.forEach((c: any) => { if (c?.ano) list.add(c.ano); });
+    turmas.forEach(t => { if (t.anoLectivo) list.add(t.anoLectivo); });
+    alunos.forEach(a => { 
+      if (a.anoLectivo) list.add(a.anoLectivo); 
+      if (a.anoMatricula) list.add(a.anoMatricula);
+    });
+    list.add('2025/2026');
+    list.add('2024/2025');
+    list.add('2023/2024');
+    return Array.from(list).sort().reverse();
+  }, [escola.anoLectivoActivo, anosLectivosConfigs, turmas, alunos]);
+
+  const [selectedAnoLectivo, setSelectedAnoLectivo] = useState<string>(
+    escola.anoLectivoActivo || '2025/2026'
+  );
   const [selectedAlunoId, setSelectedAlunoId] = useState<string>(alunos[0]?.id || 'aluno-ndilu');
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmas[0]?.id || '');
   const [selectedClasse, setSelectedClasse] = useState<string>('9ª');
@@ -106,13 +125,23 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     ...CLASSES_SEGUNDO_CICLO
   ], []);
 
+  // Turmas filtradas estritamente pelo ano lectivo selecionado
+  const turmasDoAnoDocumento = useMemo(() => {
+    return turmas.filter(t => !t.anoLectivo || t.anoLectivo === selectedAnoLectivo);
+  }, [turmas, selectedAnoLectivo]);
+
   const turmasDaClasseSelecionada = useMemo(() => {
-    const list = getTurmasPorClasse(turmas, selectedClasse);
-    return list.length > 0 ? list : turmas;
-  }, [turmas, selectedClasse]);
+    const list = getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse);
+    return list.length > 0 ? list : turmasDoAnoDocumento;
+  }, [turmasDoAnoDocumento, selectedClasse]);
 
   const alunosFiltradosIndividual = useMemo(() => {
-    let list = alunos;
+    let list = alunos.filter(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const anoDoAluno = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
+      return !selectedAnoLectivo || anoDoAluno === selectedAnoLectivo;
+    });
+
     if (selectedClasse && selectedClasse !== 'TODAS') {
       list = list.filter(a => {
         const t = turmas.find(tm => tm.id === a.turmaId);
@@ -132,7 +161,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       );
     }
     return list;
-  }, [alunos, selectedClasse, selectedTurmaId, buscaAlunoDocumento, turmas]);
+  }, [alunos, selectedClasse, selectedTurmaId, buscaAlunoDocumento, turmas, selectedAnoLectivo, escola.anoLectivoActivo]);
 
   const [larguraTermica, setLarguraTermica] = useState<'58mm' | '80mm'>('58mm');
   const [modoEmissao, setModoEmissao] = useState<'individual' | 'turma' | 'classe'>('individual');
@@ -180,12 +209,22 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
   // Filtro de alunos da turma para passes ou emissão em lote
   const turmaSelecionada = turmasDaClasseSelecionada.find(t => t.id === selectedTurmaId) || turmasDaClasseSelecionada[0] || turmaDoAluno;
-  const alunosDaTurma = alunos.filter(a => a.turmaId === turmaSelecionada?.id);
-  const alunosDaClasse = alunos.filter(a => {
-    const t = turmas.find(tm => tm.id === a.turmaId);
-    const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
-    return cl === normalizarClasse(selectedClasse);
-  });
+  const alunosDaTurma = useMemo(() => {
+    return alunos.filter(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
+      return a.turmaId === turmaSelecionada?.id && (!selectedAnoLectivo || ano === selectedAnoLectivo);
+    });
+  }, [alunos, turmaSelecionada?.id, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
+
+  const alunosDaClasse = useMemo(() => {
+    return alunos.filter(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
+      const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
+      return cl === normalizarClasse(selectedClasse) && (!selectedAnoLectivo || ano === selectedAnoLectivo);
+    });
+  }, [alunos, selectedClasse, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
 
   // Sincronizar o discente selecionado automaticamente quando o filtro ou classe muda
   useEffect(() => {
@@ -211,11 +250,14 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return filtrarDisciplinasDaClasse(disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento);
   }, [disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento]);
 
-  // Notas consolidadas do aluno filtradas estritamente pelas disciplinas daquela classe
+  // Notas consolidadas do aluno filtradas estritamente pelas disciplinas daquela classe e ano lectivo
   const notasDoAluno = useMemo(() => {
-    const raw = notasConsolidadas.filter(n => n.alunoId === alunoSelecionado?.id);
+    const raw = notasConsolidadas.filter(n => 
+      n.alunoId === alunoSelecionado?.id &&
+      (!n.anoLectivo || n.anoLectivo === selectedAnoLectivo)
+    );
     return raw.filter(n => disciplinasDaClasseDocumento.some(d => d.id === n.disciplinaId));
-  }, [notasConsolidadas, alunoSelecionado?.id, disciplinasDaClasseDocumento]);
+  }, [notasConsolidadas, alunoSelecionado?.id, disciplinasDaClasseDocumento, selectedAnoLectivo]);
 
   // Determinar dinamicamente o nível e modelo do certificado para classes terminais
   const tipoCertificadoEfetivo = useMemo(() => {
@@ -310,7 +352,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       const orientacao = orientacaoRecomendada;
       const alunoNomeLimpo = alunoSelecionado?.nomeCompleto?.replace(/[^a-zA-Z0-9]/g, '_') || 'Oficial';
       const turmaNomeLimpo = turmaSelecionada?.nome?.replace(/[^a-zA-Z0-9]/g, '_') || 'Turma';
-      const anoLimpo = (escola.anoLectivoActivo || '2025_2026').replace(/[\/\\]/g, '_');
+      const anoLimpo = (selectedAnoLectivo || escola.anoLectivoActivo || '2025_2026').replace(/[\/\\]/g, '_');
       const siglaLimpa = (escola.sigla || 'MED').replace(/[^a-zA-Z0-9]/g, '_');
 
       let docNomeLimpo = '';
@@ -764,7 +806,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           )}
         </div>
 
-        {/* Filter Selection Controls com Hierarquia Classe -> Turma -> Sala -> Curso */}
+        {/* Filter Selection Controls com Hierarquia Ano Lectivo -> Classe -> Turma -> Sala -> Curso */}
         <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3 text-xs">
           {/* Informação contextual de associação */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
@@ -772,6 +814,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               Coerência Académica de Emissão:
             </span>
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
+                Ano Lectivo: {selectedAnoLectivo}
+              </span>
               <span className="px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900 border border-blue-200">
                 Classe: {alunoSelecionado?.classeId || turmaSelecionada?.classe || selectedClasse}
               </span>
@@ -786,16 +831,42 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* 1. Seleção de Classe */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {/* 1. Seleção de Ano Lectivo */}
             <div>
-              <label className="font-bold text-gray-700 block mb-1">1. Classe Curricular</label>
+              <label className="font-bold text-gray-700 block mb-1">1. Ano Lectivo *</label>
+              <select
+                value={selectedAnoLectivo}
+                onChange={(e) => {
+                  const novoAno = e.target.value;
+                  setSelectedAnoLectivo(novoAno);
+                  const turmasDoNovoAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === novoAno);
+                  const validas = getTurmasPorClasse(turmasDoNovoAno, selectedClasse);
+                  if (validas.length > 0) {
+                    setSelectedTurmaId(validas[0].id);
+                  } else if (turmasDoNovoAno.length > 0) {
+                    setSelectedTurmaId(turmasDoNovoAno[0].id);
+                  }
+                }}
+                className="w-full p-2 border border-gray-300 rounded-lg font-bold text-indigo-900 bg-white focus:ring-2 focus:ring-indigo-600 focus:outline-none"
+              >
+                {anosLectivosDisponiveis.map(ano => (
+                  <option key={ano} value={ano}>
+                    {ano} {ano === escola.anoLectivoActivo ? '(Activo)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. Seleção de Classe */}
+            <div>
+              <label className="font-bold text-gray-700 block mb-1">2. Classe Curricular</label>
               <select
                 value={selectedClasse}
                 onChange={(e) => {
                   const novaCl = e.target.value;
                   setSelectedClasse(novaCl);
-                  const validas = getTurmasPorClasse(turmas, novaCl);
+                  const validas = getTurmasPorClasse(turmasDoAnoDocumento, novaCl);
                   if (validas.length > 0) {
                     setSelectedTurmaId(validas[0].id);
                   }
@@ -808,10 +879,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </select>
             </div>
 
-            {/* 2. Seleção de Turma */}
+            {/* 3. Seleção de Turma */}
             <div>
               <label className="font-bold text-gray-700 block mb-1">
-                2. Turma ({turmasDaClasseSelecionada.length} na {selectedClasse})
+                3. Turma ({turmasDaClasseSelecionada.length})
               </label>
               <select
                 value={selectedTurmaId}
@@ -826,11 +897,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </select>
             </div>
 
-            {/* 3. Seletor de Aluno ou Informação de Emissão */}
+            {/* 4. Seletor de Aluno ou Informação de Emissão */}
             {modoEmissao === 'individual' ? (
               <div className="sm:col-span-2">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-gray-700">3. Selecionar Aluno</label>
+                  <label className="font-bold text-gray-700">4. Selecionar Aluno</label>
                   <span className="text-[10px] text-gray-500 font-semibold">
                     {alunosFiltradosIndividual.length} estudantes correspondentes
                   </span>
@@ -1106,7 +1177,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </h1>
               <div className="pt-2">
                 <span className="text-xs sm:text-sm font-black uppercase border border-black px-4 py-1 inline-block bg-gray-50">
-                  BOLETIM DE NOTAS — {escola.trimestreActivo || 'II'}º TRIMESTRE
+                  BOLETIM DE NOTAS — {escola.trimestreActivo || 'II'}º TRIMESTRE • ANO LECTIVO {alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
                 </span>
               </div>
             </div>
@@ -1115,6 +1186,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Dados Pessoais e Académicos do Aluno */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] sm:text-[11px] py-3 border-b border-black">
             <div>
+              <span className="text-gray-600 block">Ano Lectivo:</span>
+              <strong className="text-blue-900 font-bold">{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
+            </div>
+            <div>
               <span className="text-gray-600 block">N.º de Ordem:</span>
               <strong className="font-mono text-sm">{alunoSelecionado.numeroOrdem || '1'}</strong>
             </div>
@@ -1122,9 +1197,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <span className="text-gray-600 block">N.º de Matrícula:</span>
               <strong className="font-mono">{alunoSelecionado.codigoMatricula || alunoSelecionado.numeroInterno}</strong>
             </div>
-            <div className="sm:col-span-2">
+            <div>
               <span className="text-gray-600 block">Nome do(a) Aluno(a):</span>
-              <strong className="text-xs uppercase">{alunoSelecionado.nomeCompleto}</strong>
+              <strong className="text-xs uppercase truncate block">{alunoSelecionado.nomeCompleto}</strong>
             </div>
 
             <div>
@@ -1311,7 +1386,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               ) : (
                 <div className="space-y-1">
                   <span className="text-sm sm:text-base font-black uppercase border-2 border-dashed border-amber-600 px-6 py-1.5 inline-block bg-amber-50 text-amber-950 tracking-wider">
-                    PAUTA GERAL (PROVISÓRIA) — ANO LECTIVO {turmaSelecionada.anoLectivo || escola.anoLectivoActivo}
+                    PAUTA GERAL (PROVISÓRIA) — ANO LECTIVO {turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
                   </span>
                   <div className="pt-1">
                     <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-lg text-[11px] text-amber-900 text-center font-bold">
@@ -1324,7 +1399,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Dados da Turma & Classe */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs py-2 border-b border-black">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs py-2 border-b border-black">
+            <div>
+              <span className="text-gray-600 block text-[10px]">Ano Lectivo:</span>
+              <strong className="text-sm text-blue-900">{turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
+            </div>
             <div>
               <span className="text-gray-600 block text-[10px]">Classe:</span>
               <strong className="text-sm">{turmaSelecionada.classe}</strong>
@@ -1644,7 +1723,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
 
             <p>
-              Concluiu com aproveitamento a <strong>{alunoSelecionado.classeId || 'Décima (10ª) Classe'}</strong>, no Ano Lectivo de <strong>{escola.anoLectivoActivo || '2021/2022'}</strong>, no Curso de <strong>{alunoSelecionado.curso || 'Ciências Humanas'}</strong>, no Período <strong>{alunoSelecionado.periodo || 'Matinal'}</strong>, com a seguinte classificação curricular:
+              Concluiu com aproveitamento a <strong>{alunoSelecionado.classeId || 'Décima (10ª) Classe'}</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>, no Curso de <strong>{alunoSelecionado.curso || 'Ciências Humanas'}</strong>, no Período <strong>{alunoSelecionado.periodo || 'Matinal'}</strong>, com a seguinte classificação curricular:
             </p>
           </div>
 
@@ -1833,16 +1912,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
             <p>
               {tipoCertificadoEfetivo === 'primario_6' && (
-                <>Concluiu a <strong>6.ª Classe do Ensino Primário</strong>, no Ano Lectivo de <strong>{escola.anoLectivoActivo || '2024/2025'}</strong>, nos termos da matriz curricular nacional do Ensino Primário, tendo obtido as seguintes classificações:</>
+                <>Concluiu a <strong>6.ª Classe do Ensino Primário</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, nos termos da matriz curricular nacional do Ensino Primário, tendo obtido as seguintes classificações:</>
               )}
               {tipoCertificadoEfetivo === 'iciclo_9' && (
-                <>Concluiu a <strong>9.ª Classe do Iº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{escola.anoLectivoActivo || '2024/2025'}</strong>, tendo obtido aproveitamento no Exame de Saída e as seguintes classificações:</>
+                <>Concluiu a <strong>9.ª Classe do Iº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, tendo obtido aproveitamento no Exame de Saída e as seguintes classificações:</>
               )}
               {tipoCertificadoEfetivo === 'iiciclo_12' && (
-                <>Concluiu a <strong>12.ª Classe do IIº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{escola.anoLectivoActivo || '2024/2025'}</strong>, na Área de <strong>{alunoSelecionado.curso || 'Ciências Económicas e Jurídicas'}</strong>, tendo obtido as seguintes classificações:</>
+                <>Concluiu a <strong>12.ª Classe do IIº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, na Área de <strong>{alunoSelecionado.curso || 'Ciências Económicas e Jurídicas'}</strong>, tendo obtido as seguintes classificações:</>
               )}
               {tipoCertificadoEfetivo === 'tecnico_12_13' && (
-                <>Concluiu a Formação Técnico-Profissional (<strong>{alunoSelecionado.classeId || '12.ª / 13.ª classe'}</strong>), no Ano Lectivo de <strong>{escola.anoLectivoActivo || '2024/2025'}</strong>, no Curso de Técnico Médio de <strong>{alunoSelecionado.curso || 'Técnico de Informática'}</strong>, tendo obtido as seguintes classificações:</>
+                <>Concluiu a Formação Técnico-Profissional (<strong>{alunoSelecionado.classeId || '12.ª / 13.ª classe'}</strong>), no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, no Curso de Técnico Médio de <strong>{alunoSelecionado.curso || 'Técnico de Informática'}</strong>, tendo obtido as seguintes classificações:</>
               )}
             </p>
           </div>
@@ -2186,7 +2265,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                         </div>
                       </div>
                       <span className="text-[7px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full inline-block mt-0.5">
-                        Cartão de Estudante • {escola.anoLectivoActivo}
+                        Cartão de Estudante • {aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
                       </span>
                     </div>
 
@@ -2206,10 +2285,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       )}
                       <div className="min-w-0 text-[10px] leading-tight space-y-0.5">
                         <h4 className="font-extrabold text-gray-900 truncate">{aluno.nomeCompleto}</h4>
-                        <p className="text-gray-600">Classe: <strong>{turma?.classe}</strong></p>
+                        <p className="text-gray-600">Classe: <strong>{turma?.classe || aluno.classeId}</strong></p>
                         <p className="text-gray-600">Turma: <strong>{turma?.nome}</strong></p>
                         <p className="text-gray-600 truncate">Turno: <strong>{turma?.turno || 'Manhã'}</strong></p>
-                        <p className="text-gray-600 truncate">Curso: <strong>{aluno.curso || 'Geral'}</strong></p>
+                        {isSegundoCiclo(turma?.classe || aluno.classeId) && (
+                          <p className="text-gray-600 truncate">Curso: <strong>{aluno.curso || turma?.curso || 'Geral'}</strong></p>
+                        )}
+                        <p className="text-gray-500 text-[8px] font-semibold pt-0.5">
+                          Validade: 31/07/{(aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026').split('/')[1] || '2026'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -2275,7 +2359,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <h2 className="text-base font-black uppercase text-gray-950 pt-1">{escola.nomeOficial}</h2>
             <div className="pt-2">
               <span className="text-xs sm:text-sm font-black uppercase border-2 border-black px-6 py-1.5 inline-block bg-blue-50">
-                FICHA INDIVIDUAL DO ALUNO — ANO LECTIVO {escola.anoLectivoActivo}
+                FICHA INDIVIDUAL DO ALUNO — ANO LECTIVO {alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
               </span>
             </div>
           </div>
@@ -2547,7 +2631,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <div className="flex justify-between items-center text-xs font-bold bg-gray-50 p-2.5 rounded border border-gray-300">
               <div>Turma: <span className="text-blue-900 font-extrabold">{turmaSelecionada?.nome}</span> ({turmaSelecionada?.classe})</div>
               <div>Turno: <span>{turmaSelecionada?.turno || 'Manhã'}</span> • Sala: <span>{turmaSelecionada?.sala || '01'}</span></div>
-              <div>Ano Lectivo: <span>{turmaSelecionada?.anoLectivo || escola.anoLectivoActivo}</span></div>
+              <div>Ano Lectivo: <span>{turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</span></div>
             </div>
 
             {/* Tabela de Presenças */}
@@ -2667,8 +2751,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
             <div className="text-center pt-2 border-t border-dashed border-gray-400 space-y-1 text-[9px]">
               <p className="font-bold">OBRIGADO PELA SUA PREFERÊNCIA</p>
-              <p className="text-[8px] text-gray-500">Processado pelo SGE-NG Angola</p>
-              <p className="text-[8px] font-mono">HASH: 9A8F-4B2C-1E7D-8901</p>
+              <p className="text-[8px] text-gray-500">Documento Oficial de Tesouraria Escolar</p>
               <p className="pt-2">--------------------------------</p>
               <p className="text-[8px] text-gray-400">[CORTE DO TALÃO AQUI]</p>
             </div>

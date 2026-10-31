@@ -2016,6 +2016,12 @@ export const dbService = {
     if (!aluno.escolaId) {
       aluno.escolaId = escolaAtiva?.id || 'esc-001';
     }
+    if (!aluno.anoLectivo) {
+      aluno.anoLectivo = aluno.anoMatricula || escolaAtiva?.anoLectivoActivo || '2025/2026';
+    }
+    if (!aluno.anoMatricula) {
+      aluno.anoMatricula = aluno.anoLectivo;
+    }
     const alunos = dbService.getAlunos();
     const idx = alunos.findIndex(a => a.id === aluno.id);
     if (idx >= 0) alunos[idx] = aluno;
@@ -2025,11 +2031,17 @@ export const dbService = {
       offlineStorage.registarMutacao('Alunos', 'ATUALIZAR', `Aluno ${aluno.nomeCompleto} guardado`, 'SGE');
     } catch {}
     firebaseSyncEngine.salvarAluno(aluno);
-    dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${aluno.nomeCompleto} (${aluno.codigoMatricula}) gravado.`);
+    dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${aluno.nomeCompleto} (${aluno.codigoMatricula}) gravado para o Ano Lectivo ${aluno.anoLectivo}.`);
   },
   salvarAlunos: (alunos: Aluno[]) => {
-    setLocal(STORAGE_KEYS.ALUNOS, alunos);
-    alunos.forEach(a => firebaseSyncEngine.salvarAluno(a));
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const alunosComAno = alunos.map(a => ({
+      ...a,
+      anoLectivo: a.anoLectivo || a.anoMatricula || escolaAtiva?.anoLectivoActivo || '2025/2026',
+      anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || '2025/2026'
+    }));
+    setLocal(STORAGE_KEYS.ALUNOS, alunosComAno);
+    alunosComAno.forEach(a => firebaseSyncEngine.salvarAluno(a));
   },
   excluirAluno: (id: string) => {
     const alunos = dbService.getAlunos().filter(a => a.id !== id);
@@ -2051,10 +2063,10 @@ export const dbService = {
     const aluno = alunos[idx];
 
     const historicoAntigo = [...(aluno.historicoAnterior || [])];
-    if (aluno.classeId && aluno.anoMatricula) {
+    if (aluno.classeId && (aluno.anoLectivo || aluno.anoMatricula)) {
       historicoAntigo.push({
         classe: aluno.classeId,
-        anoLectivo: aluno.anoMatricula || '2024/2025',
+        anoLectivo: aluno.anoLectivo || aluno.anoMatricula || '2024/2025',
         mediaFinal: 14,
         aprovado: true,
         concluido: true
@@ -2069,6 +2081,7 @@ export const dbService = {
       curso: dados.novoCurso || aluno.curso || 'Geral',
       codigoMatricula: dados.novoNumeroMatricula || aluno.codigoMatricula,
       anoMatricula: dados.anoLectivo,
+      anoLectivo: dados.anoLectivo,
       estado: 'Ativo',
       historicoAnterior: historicoAntigo
     };
@@ -2083,13 +2096,17 @@ export const dbService = {
   // Turmas
   getTurmas: (): Turma[] => getLocal(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS),
   salvarTurma: (turma: Turma) => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    if (!turma.anoLectivo) {
+      turma.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+    }
     const turmas = dbService.getTurmas();
     const idx = turmas.findIndex(t => t.id === turma.id);
     if (idx >= 0) turmas[idx] = turma;
     else turmas.push(turma);
     setLocal(STORAGE_KEYS.TURMAS, turmas);
     firebaseSyncEngine.salvarTurma(turma);
-    dbService.registarLog('Gestão de Turma', `Turma "${turma.nome}" (${turma.classe}) guardada com sucesso.`);
+    dbService.registarLog('Gestão de Turma', `Turma "${turma.nome}" (${turma.classe}) guardada para o Ano Lectivo ${turma.anoLectivo}.`);
   },
   salvarTurmas: (turmas: Turma[]) => {
     setLocal(STORAGE_KEYS.TURMAS, turmas);

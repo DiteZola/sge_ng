@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   Search, 
@@ -131,6 +131,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   onExcluirAluno
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const configSistema = dbService.getConfiguracaoSistema();
+  const escola = escolaProp || dbService.getEscolaAtiva();
+
+  const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(), []);
+  const anosLectivosDisponiveis = useMemo(() => {
+    const fromConfigs = anosLectivosConfigs.map((c: any) => c.rotulo || c.ano).filter(Boolean);
+    const fromStorage = dbService.getAnosLectivos();
+    const set = new Set<string>([...fromConfigs, ...fromStorage, escola.anoLectivoActivo || '2025/2026', '2025/2026', '2024/2025']);
+    return Array.from(set).filter(Boolean);
+  }, [anosLectivosConfigs, escola.anoLectivoActivo]);
+
+  const [selectedAnoLectivoFilter, setSelectedAnoLectivoFilter] = useState<string>(escola.anoLectivoActivo || '2025/2026');
   const [selectedClasseFilter, setSelectedClasseFilter] = useState('TODAS');
   const [selectedTurmaFilter, setSelectedTurmaFilter] = useState('TODAS');
   const [selectedSalaFilter, setSelectedSalaFilter] = useState('TODAS');
@@ -138,15 +150,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [selectedEstadoFilter, setSelectedEstadoFilter] = useState('TODOS');
   const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking'>('lista');
   
-  // Modal de Matrícula: Associação Estrita Classe -> Turma -> Sala -> Curso
+  // Modal de Matrícula: Associação Estrita Ano Letivo -> Classe -> Turma -> Sala -> Curso
+  const [modalAnoLectivo, setModalAnoLectivo] = useState(escola.anoLectivoActivo || '2025/2026');
   const [modalClasse, setModalClasse] = useState('1ª');
   const [modalCurso, setModalCurso] = useState('Ciências Físicas e Biológicas (PUNIV)');
 
   // Proteção de segurança contra ataques ReDoS e sobrecarga de CPU por digitação contínua
   const debouncedSearch = useDebouncedSearch(searchTerm, 200);
-
-  const configSistema = dbService.getConfiguracaoSistema();
-  const escola = escolaProp || dbService.getEscolaAtiva();
 
   // Modal Novo / Edição de Aluno
   const [showAlunoModal, setShowAlunoModal] = useState(false);
@@ -189,6 +199,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Estado para a Funcionalidade de Confirmação de Matrícula (Alunos Existentes)
   const [showConfirmacaoModal, setShowConfirmacaoModal] = useState(false);
+  const [confirmAnoLectivo, setConfirmAnoLectivo] = useState(escola.anoLectivoActivo || '2025/2026');
   const [confirmAlunoId, setConfirmAlunoId] = useState('');
   const [confirmClasse, setConfirmClasse] = useState('');
   const [confirmTurmaId, setConfirmTurmaId] = useState('');
@@ -246,13 +257,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const turmasFinais = ['6ª', '9ª', '12ª', '13ª'];
 
-  // Turmas filtradas pela classe selecionada
+  // Turmas filtradas pelo ano letivo e pela classe selecionada
+  const turmasDoAnoFiltro = useMemo(() => {
+    if (selectedAnoLectivoFilter === 'TODOS') return turmas;
+    return turmas.filter(t => !t.anoLectivo || t.anoLectivo === selectedAnoLectivoFilter);
+  }, [turmas, selectedAnoLectivoFilter]);
+
   const turmasDoFiltro = selectedClasseFilter === 'TODAS'
-    ? turmas
-    : getTurmasPorClasse(turmas, selectedClasseFilter);
+    ? turmasDoAnoFiltro
+    : getTurmasPorClasse(turmasDoAnoFiltro, selectedClasseFilter);
 
   // Salas e Classes disponíveis para os filtros coerentes
-  const todasSalas = Array.from(new Set(turmas.map(t => t.sala).filter(Boolean))).sort();
+  const todasSalas: string[] = Array.from(new Set(turmasDoAnoFiltro.map((t: Turma) => t.sala).filter((s): s is string => Boolean(s)))).sort();
   const todasClasses = [
     'Iniciação',
     ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
@@ -260,8 +276,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     ...CLASSES_SEGUNDO_CICLO
   ];
 
-  // Turmas para o modal de matrícula filtradas pela classe do modal
-  const turmasDoModal = getTurmasPorClasse(turmas, modalClasse);
+  // Turmas para o modal de matrícula filtradas pela classe e ano letivo do modal
+  const turmasDoModal = useMemo(() => {
+    const turmasDoAnoModal = turmas.filter(t => !t.anoLectivo || t.anoLectivo === modalAnoLectivo);
+    const porClasse = getTurmasPorClasse(turmasDoAnoModal, modalClasse);
+    return porClasse.length > 0 ? porClasse : getTurmasPorClasse(turmas, modalClasse);
+  }, [turmas, modalAnoLectivo, modalClasse]);
+
   const turmaSelecionadaModal = turmas.find(t => t.id === turmaId) || turmasDoModal[0];
 
   const filteredAlunos = alunos.filter(a => {
@@ -269,6 +290,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const classeDoAluno = turmaDoAluno ? normalizarClasse(turmaDoAluno.classe) : normalizarClasse(a.classeId);
     const salaDoAluno = turmaDoAluno?.sala || '';
     const cursoDoAluno = turmaDoAluno?.curso || a.curso || '';
+    const anoDoAluno = a.anoLectivo || a.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
+
+    // 0. Filtro Coerente de Ano Letivo
+    if (selectedAnoLectivoFilter !== 'TODOS') {
+      if (anoDoAluno !== selectedAnoLectivoFilter) return false;
+    }
 
     // 1. Filtro Coerente de Classe
     if (selectedClasseFilter !== 'TODAS') {
@@ -487,7 +514,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setNaturalidade('Luanda');
     setMunicipioNascimento('Luanda');
     setProvinciaOrigem('Luanda');
-    const primeiraTurma = turmas[0];
+    const anoPadrao = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '2025/2026');
+    setModalAnoLectivo(anoPadrao);
+    const turmasDoAnoPadrao = turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoPadrao);
+    const primeiraTurma = turmasDoAnoPadrao[0] || turmas[0];
     const initialClasse = primeiraTurma ? normalizarClasse(primeiraTurma.classe) : '1ª';
     setModalClasse(initialClasse);
     setTurmaId(primeiraTurma?.id || '');
@@ -527,6 +557,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setMunicipioNascimento(aluno.municipioNascimento || aluno.naturalidade || 'Luanda');
     setProvinciaOrigem(aluno.provinciaOrigem);
     const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
+    const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
+    setModalAnoLectivo(anoDoAluno);
     const cls = turmaDoAluno ? normalizarClasse(turmaDoAluno.classe) : normalizarClasse(aluno.classeId || '1ª');
     setModalClasse(cls);
     setTurmaId(aluno.turmaId);
@@ -605,7 +637,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       estado,
       propinaStatus: editingAluno?.propinaStatus || 'Regularizada',
       cadastradoEm: editingAluno?.cadastradoEm || new Date().toISOString().split('T')[0],
-      anoMatricula: '2025/2026',
+      anoLectivo: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
+      anoMatricula: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
       // Ficha Médica e de Saúde
       grupoSanguineo,
       alergias: alergias.trim(),
@@ -650,6 +683,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       alert('Não há alunos cadastrados no sistema para confirmação de matrícula.');
       return;
     }
+    const anoDestino = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '2025/2026');
+    setConfirmAnoLectivo(anoDestino);
     const primeiro = alunos[0];
     setConfirmAlunoId(primeiro.id);
     handleSelectAlunoConfirmacao(primeiro.id);
@@ -671,8 +706,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     }
     setConfirmClasse(proxClasse);
 
-    // Sugerir turma correspondente
-    const turmaSugerida = turmas.find(t => t.classe === proxClasse) || turmas[0];
+    // Sugerir turma correspondente do ano letivo de confirmação
+    const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === confirmAnoLectivo);
+    const turmaSugerida = turmasAno.find(t => t.classe === proxClasse) || turmas.find(t => t.classe === proxClasse) || turmas[0];
     setConfirmTurmaId(turmaSugerida?.id || turmas[0]?.id || '');
     setConfirmTurno(turmaSugerida?.turno || al.periodo || 'Manhã');
     setConfirmCurso(al.curso || turmaSugerida?.curso || '');
@@ -695,7 +731,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       curso: confirmCurso || al.curso,
       codigoMatricula: confirmCodigoMatricula.trim() || al.codigoMatricula,
       estado: 'Ativo',
-      anoMatricula: '2025/2026',
+      anoLectivo: confirmAnoLectivo,
+      anoMatricula: confirmAnoLectivo,
       propinaStatus: 'Regularizada'
     };
 
@@ -1451,13 +1488,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         />
       ) : (
         <>
-          {/* Filter Bar com Hierarquia Coerente: Classe -> Turma -> Sala -> Curso e Proteções Anti-DDoS/ReDoS */}
+          {/* Filter Bar com Hierarquia Coerente: Ano Lectivo -> Classe -> Turma -> Sala -> Curso e Proteções Anti-DDoS/ReDoS */}
           <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
           <div className="flex items-center space-x-2">
             <span className="text-xs font-bold text-gray-900">Pesquisa Coerente & Filtros Acadêmicos:</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-              Classe • Turma • Sala {selectedClasseFilter !== 'TODAS' && isSegundoCiclo(selectedClasseFilter) ? '• Curso (2º Ciclo)' : ''}
+              Ano Lectivo • Classe • Turma • Sala {selectedClasseFilter !== 'TODAS' && isSegundoCiclo(selectedClasseFilter) ? '• Curso (2º Ciclo)' : ''}
             </span>
           </div>
           <span className="text-[11px] text-gray-500">
@@ -1465,8 +1502,28 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          {/* 1. Pesquisa Sanitizada com Debounce e Proteção Anti-ReDoS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          {/* 1. Seleção de Ano Letivo */}
+          <div>
+            <select
+              value={selectedAnoLectivoFilter}
+              onChange={(e) => {
+                const novoAno = e.target.value;
+                setSelectedAnoLectivoFilter(novoAno);
+                setSelectedTurmaFilter('TODAS');
+              }}
+              className="w-full py-2 px-3 text-xs font-black text-blue-900 border-2 border-blue-200 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none bg-blue-50/60"
+            >
+              <option value="TODOS">Todos os Anos</option>
+              {anosLectivosDisponiveis.map((ano: string) => (
+                <option key={`flt-ano-${ano}`} value={ano}>
+                  Ano {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 2. Pesquisa Sanitizada com Debounce e Proteção Anti-ReDoS */}
           <div className="relative sm:col-span-2">
             <Search className="h-4 w-4 absolute left-3 top-3 text-gray-400" />
             <input
@@ -1479,7 +1536,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             />
           </div>
 
-          {/* 2. Seleção de Classe */}
+          {/* 3. Seleção de Classe */}
           <div>
             <select
               value={selectedClasseFilter}
@@ -1487,7 +1544,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 const novaClasse = e.target.value;
                 setSelectedClasseFilter(novaClasse);
                 if (novaClasse !== 'TODAS') {
-                  const turmasValidas = getTurmasPorClasse(turmas, novaClasse);
+                  const turmasValidas = getTurmasPorClasse(turmasDoAnoFiltro, novaClasse);
                   if (turmasValidas.length > 0 && !turmasValidas.some(t => t.id === selectedTurmaFilter)) {
                     setSelectedTurmaFilter('TODAS');
                   }
@@ -1502,7 +1559,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             </select>
           </div>
 
-          {/* 3. Seleção de Turma (Filtrada dinamicamente pela Classe) */}
+          {/* 4. Seleção de Turma (Filtrada dinamicamente pela Classe e Ano Letivo) */}
           <div>
             <select
               value={selectedTurmaFilter}
@@ -1512,7 +1569,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               <option value="TODAS">
                 {selectedClasseFilter !== 'TODAS' ? `Todas as Turmas (${selectedClasseFilter})` : 'Todas as Turmas'}
               </option>
-              {turmasDoFiltro.map(t => (
+              {turmasDoFiltro.map((t: Turma) => (
                 <option key={`flt-turma-${t.id}`} value={t.id}>
                   {t.nome} ({t.sala || 'Sala'})
                 </option>
@@ -1520,7 +1577,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             </select>
           </div>
 
-          {/* 4. Seleção de Sala */}
+          {/* 5. Seleção de Sala */}
           <div>
             <select
               value={selectedSalaFilter}
@@ -1528,7 +1585,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               className="w-full py-2 px-3 text-xs font-semibold text-gray-800 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
             >
               <option value="TODAS">Todas as Salas</option>
-              {todasSalas.map(s => (
+              {todasSalas.map((s: string) => (
                 <option key={`flt-sala-${s}`} value={s}>{s}</option>
               ))}
             </select>
@@ -1621,8 +1678,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
               </div>
 
-              {/* Informações acadêmicas coerentes MED: Classe • Turma • Sala • Curso */}
+              {/* Informações acadêmicas coerentes MED: Ano Lectivo • Classe • Turma • Sala • Curso */}
               <div className="text-xs text-gray-600 space-y-1 pt-1 border-t border-gray-100">
+                <div className="flex justify-between items-center">
+                  <span>Ano Lectivo:</span>
+                  <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[11px] border border-indigo-200">
+                    {aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || escola.anoLectivoActivo || '2025/2026'}
+                  </span>
+                </div>
                 <div className="flex justify-between items-center">
                   <span>Classe / Turma:</span>
                   <strong className="text-gray-900">{aluno.classeId || turma?.classe} • {turma?.nome}</strong>
@@ -1907,18 +1970,42 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
               </div>
 
-              {/* 2. DADOS ESCOLARES & TURMA COM ASSOCIAÇÃO COERENTE CLASSE -> TURMA -> SALA -> CURSO */}
+              {/* 2. DADOS ESCOLARES & TURMA COM ASSOCIAÇÃO COERENTE ANO LECTIVO -> CLASSE -> TURMA -> SALA -> CURSO */}
               <div className="bg-gray-50/80 p-4 rounded-xl border border-gray-200 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b pb-2 border-gray-200">
                   <h4 className="font-bold text-gray-800 text-sm text-blue-900">
                     2. Enquadramento Escolar & Matrícula Oficial (MED Angola)
                   </h4>
                   <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200 self-start sm:self-auto">
-                    Associação Estrita: Classe • Turma • Sala {isSegundoCiclo(modalClasse) ? '• Curso' : ''}
+                    Associação Estrita: Ano Lectivo • Classe • Turma • Sala {isSegundoCiclo(modalClasse) ? '• Curso' : ''}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                  <div>
+                    <label className="font-semibold text-gray-700 block mb-1">Ano Lectivo *</label>
+                    <select
+                      value={modalAnoLectivo}
+                      onChange={(e) => {
+                        const novoAno = e.target.value;
+                        setModalAnoLectivo(novoAno);
+                        const turmasDoNovoAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === novoAno);
+                        const porCls = getTurmasPorClasse(turmasDoNovoAno, modalClasse);
+                        if (porCls.length > 0) {
+                          setTurmaId(porCls[0].id);
+                          if (porCls[0].curso) setModalCurso(porCls[0].curso);
+                        }
+                      }}
+                      className="w-full p-2 border border-blue-400 bg-blue-50/40 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none font-bold text-blue-950"
+                    >
+                      {anosLectivosDisponiveis.map((ano: string) => (
+                        <option key={`modal-ano-${ano}`} value={ano}>
+                          {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div>
                     <label className="font-semibold text-gray-700 block mb-1">Nº de Matrícula *</label>
                     <input
@@ -1932,13 +2019,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">1º Passo: Classe do Aluno *</label>
+                    <label className="font-semibold text-gray-700 block mb-1">1º Passo: Classe *</label>
                     <select
                       value={modalClasse}
                       onChange={(e) => {
                         const novaClasse = e.target.value;
                         setModalClasse(novaClasse);
-                        const turmasDaNovaCls = getTurmasPorClasse(turmas, novaClasse);
+                        const turmasDoAnoAtual = turmas.filter(t => !t.anoLectivo || t.anoLectivo === modalAnoLectivo);
+                        const turmasDaNovaCls = getTurmasPorClasse(turmasDoAnoAtual, novaClasse);
                         if (turmasDaNovaCls.length > 0) {
                           setTurmaId(turmasDaNovaCls[0].id);
                           if (turmasDaNovaCls[0].curso) {
@@ -1955,7 +2043,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">2º Passo: Turma da {modalClasse} *</label>
+                    <label className="font-semibold text-gray-700 block mb-1">2º Passo: Turma ({modalClasse}) *</label>
                     <select
                       value={turmaId}
                       onChange={(e) => {
@@ -1967,9 +2055,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none font-semibold bg-white"
                     >
                       {turmasDoModal.length === 0 ? (
-                        <option value="">Nenhuma turma para {modalClasse}</option>
+                        <option value="">Nenhuma turma para {modalClasse} em {modalAnoLectivo}</option>
                       ) : (
-                        turmasDoModal.map(t => (
+                        turmasDoModal.map((t: Turma) => (
                           <option key={`modal-t-${t.id}`} value={t.id}>
                             {t.nome} ({t.turno})
                           </option>
@@ -1979,7 +2067,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Sala Associada (Automática)</label>
+                    <label className="font-semibold text-gray-700 block mb-1">Sala Associada</label>
                     <div className="w-full p-2 border border-gray-200 bg-white rounded-md text-xs font-bold text-blue-800 flex items-center justify-between shadow-2xs">
                       <span>{getSalaDaTurma(turmaSelecionadaModal)}</span>
                       <span className="text-[10px] text-gray-500 font-normal">Cap: {turmaSelecionadaModal?.capacidade || 45} vagas</span>
@@ -2348,7 +2436,32 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   Novos Dados Académicos para Confirmação:
                 </span>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Ano Lectivo da Renovação *</label>
+                    <select
+                      value={confirmAnoLectivo}
+                      onChange={(e) => {
+                        const novoAno = e.target.value;
+                        setConfirmAnoLectivo(novoAno);
+                        const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === novoAno);
+                        const tNova = turmasAno.find(t => t.classe === confirmClasse) || turmas.find(t => t.classe === confirmClasse);
+                        if (tNova) {
+                          setConfirmTurmaId(tNova.id);
+                          setConfirmTurno(tNova.turno || 'Manhã');
+                          if (tNova.curso) setConfirmCurso(tNova.curso);
+                        }
+                      }}
+                      className="w-full p-2 border border-emerald-400 rounded-lg font-bold bg-emerald-50/50 text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    >
+                      {anosLectivosDisponiveis.map((ano: string) => (
+                        <option key={`conf-ano-${ano}`} value={ano}>
+                          Ano {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block font-bold text-gray-700 mb-1">Classe a Confirmar *</label>
                     <select
@@ -2356,7 +2469,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       onChange={(e) => {
                         const novaClasse = e.target.value;
                         setConfirmClasse(novaClasse);
-                        const tNova = turmas.find(t => t.classe === novaClasse);
+                        const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === confirmAnoLectivo);
+                        const tNova = turmasAno.find(t => t.classe === novaClasse) || turmas.find(t => t.classe === novaClasse);
                         if (tNova) {
                           setConfirmTurmaId(tNova.id);
                           setConfirmTurno(tNova.turno || 'Manhã');
@@ -2384,8 +2498,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     >
                       {turmas
-                        .filter(t => !confirmClasse || t.classe === confirmClasse)
-                        .map(t => (
+                        .filter((t: Turma) => (!confirmClasse || t.classe === confirmClasse) && (!t.anoLectivo || t.anoLectivo === confirmAnoLectivo))
+                        .map((t: Turma) => (
                           <option key={t.id} value={t.id}>
                             {t.nome} ({t.classe} - {t.turno} • Sala {t.sala})
                           </option>
