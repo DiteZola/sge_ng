@@ -655,18 +655,23 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
         <div className="grid grid-cols-3 gap-6 pt-10 text-center text-xs mt-6 border-t border-black">
           <div>
             <div className="w-44 border-b border-black mx-auto" />
-            <p className="font-bold text-gray-900 mt-1">O(A) Professor(a) / Director de Turma</p>
-            <p className="text-gray-600 text-[10px]">Data e Assinatura</p>
-          </div>
-          <div>
-            <div className="w-44 border-b border-black mx-auto" />
-            <p className="font-bold text-gray-900 mt-1">A Coordenação Pedagógica</p>
-            <p className="text-gray-600 text-[10px]">Visto em Conformidade</p>
+            <p className="font-bold text-gray-900 mt-1">O(A) Director(a) de Turma</p>
+            <p className="text-gray-700 font-semibold text-[11px]">{turmaSelecionada?.coordenadorNome || 'Director de Turma'}</p>
+            <p className="text-gray-500 text-[10px]">Data e Assinatura</p>
           </div>
           <div>
             <div className="w-44 border-b border-black mx-auto" />
             <p className="font-bold text-gray-900 mt-1">O Subdirector Pedagógico</p>
-            <p className="text-gray-600 text-[10px]">{escola.subdiretorPedagogicoNome || 'Direcção da Escola'}</p>
+            <p className="text-gray-700 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
+            <p className="text-gray-500 text-[10px]">Visto em Conformidade</p>
+          </div>
+          <div>
+            <div className="w-44 border-b border-black mx-auto" />
+            <p className="font-bold text-gray-900 mt-1">
+              {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
+            </p>
+            <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Direcção da Instituição'}</p>
+            <p className="text-gray-500 text-[10px]">Homologado</p>
           </div>
         </div>
       </div>

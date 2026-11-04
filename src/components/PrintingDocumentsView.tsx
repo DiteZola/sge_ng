@@ -130,9 +130,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return turmas.filter(t => !t.anoLectivo || t.anoLectivo === selectedAnoLectivo);
   }, [turmas, selectedAnoLectivo]);
 
+  // Turmas da classe selecionada: se uma classe for escolhida, retorna estritamente as suas turmas
   const turmasDaClasseSelecionada = useMemo(() => {
-    const list = getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse);
-    return list.length > 0 ? list : turmasDoAnoDocumento;
+    if (!selectedClasse || selectedClasse === 'TODAS') {
+      return turmasDoAnoDocumento;
+    }
+    return getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse);
   }, [turmasDoAnoDocumento, selectedClasse]);
 
   const alunosFiltradosIndividual = useMemo(() => {
@@ -179,6 +182,32 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     'auto' | 'primario_6' | 'iciclo_9' | 'iiciclo_12' | 'tecnico_12_13'
   >('auto');
 
+  // Gestão de Pautas Oficiais (Geral/Final, Trimestral, Por Disciplina) & Modos de Apresentação
+  const [pautaSubTipo, setPautaSubTipo] = useState<'geral_final' | 'trimestral' | 'disciplina'>('geral_final');
+  const [pautaTrimestre, setPautaTrimestre] = useState<'1' | '2' | '3'>('1');
+  const [pautaDisciplinaId, setPautaDisciplinaId] = useState<string>('');
+  const [pautaModoExibicao, setPautaModoExibicao] = useState<'sintetica' | 'analitica'>('sintetica');
+
+  // Funções Auxiliares de Assinatura com Diferenciação Rigorosa de Gênero Institucional
+  const getTituloDiretor = (esc: Escola): string => {
+    if ((esc as any).diretorGenero === 'F') return 'A Directora Geral';
+    const nome = (esc.diretorGeralNome || '').toLowerCase();
+    if (nome.startsWith('dra.') || nome.startsWith('drª.') || nome.startsWith('profª.') || nome.startsWith('professora')) return 'A Directora Geral';
+    return 'O Director Geral';
+  };
+
+  const getTituloSubPedagogico = (esc: Escola): string => {
+    if ((esc as any).subdiretorPedagogicoGenero === 'F') return 'A Subdirectora Pedagógica';
+    const nome = (esc.subdiretorPedagogicoNome || '').toLowerCase();
+    if (nome.startsWith('dra.') || nome.startsWith('drª.') || nome.startsWith('profª.') || nome.startsWith('professora')) return 'A Subdirectora Pedagógica';
+    return 'O Subdirector Pedagógico';
+  };
+
+  const getTituloChefeSecretaria = (esc: Escola): string => {
+    if ((esc as any).chefeSecretariaGenero === 'F') return 'A Chefe da Secretaria';
+    return 'O Chefe da Secretaria';
+  };
+
   const configSistema = dbService.getConfiguracaoSistema();
   const [showAssinaturaModal, setShowAssinaturaModal] = useState(false);
   const [assinaturaPreview, setAssinaturaPreview] = useState(
@@ -207,17 +236,57 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   const alunoSelecionado = alunosFiltradosIndividual.find(a => a.id === selectedAlunoId) || alunosFiltradosIndividual[0] || alunos[0];
   const turmaDoAluno = turmas.find(t => t.id === alunoSelecionado?.turmaId) || turmas[0];
 
-  // Filtro de alunos da turma para passes ou emissão em lote
-  const turmaSelecionada = turmasDaClasseSelecionada.find(t => t.id === selectedTurmaId) || turmasDaClasseSelecionada[0] || turmaDoAluno;
+  // Sincronizar turma selecionada sempre que o filtro de classe mudar
+  useEffect(() => {
+    if (turmasDaClasseSelecionada.length > 0) {
+      if (!turmasDaClasseSelecionada.some(t => t.id === selectedTurmaId)) {
+        setSelectedTurmaId(turmasDaClasseSelecionada[0].id);
+      }
+    } else {
+      setSelectedTurmaId('');
+    }
+  }, [turmasDaClasseSelecionada, selectedTurmaId]);
+
+  // Turma selecionada estritamente dentro da classe do documento
+  const turmaSelecionada: Turma = useMemo(() => {
+    if (selectedTurmaId && selectedTurmaId !== 'TODAS') {
+      const encontrada = turmasDaClasseSelecionada.find(t => t.id === selectedTurmaId);
+      if (encontrada) return encontrada;
+    }
+    return turmasDaClasseSelecionada[0] || ({
+      id: '',
+      nome: 'Sem Turma Registada',
+      classe: selectedClasse !== 'TODAS' ? selectedClasse : '7ª',
+      turno: 'Manhã',
+      sala: 'Sala 01',
+      curso: 'Ensino Geral',
+      capacidade: 45,
+      escolaId: escola.id,
+      anoLectivo: selectedAnoLectivo || escola.anoLectivoActivo
+    } as Turma);
+  }, [turmasDaClasseSelecionada, selectedTurmaId, selectedClasse, escola.id, escola.anoLectivoActivo, selectedAnoLectivo]);
+
+  // Alunos exclusivos e estritos da turma e classe selecionada
   const alunosDaTurma = useMemo(() => {
+    if (!turmaSelecionada.id) return [];
     return alunos.filter(a => {
+      if (a.turmaId !== turmaSelecionada.id) return false;
+
+      // Se a turma tiver classe definida, o aluno deve pertencer a essa classe
+      if (turmaSelecionada.classe && a.classeId) {
+        if (normalizarClasse(a.classeId) !== normalizarClasse(turmaSelecionada.classe)) {
+          return false;
+        }
+      }
+
       const t = turmas.find(tm => tm.id === a.turmaId);
       const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
-      return a.turmaId === turmaSelecionada?.id && (!selectedAnoLectivo || ano === selectedAnoLectivo);
+      return !selectedAnoLectivo || ano === selectedAnoLectivo;
     });
-  }, [alunos, turmaSelecionada?.id, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
+  }, [alunos, turmaSelecionada, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
 
   const alunosDaClasse = useMemo(() => {
+    if (!selectedClasse || selectedClasse === 'TODAS') return [];
     return alunos.filter(a => {
       const t = turmas.find(tm => tm.id === a.turmaId);
       const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
@@ -897,8 +966,76 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </select>
             </div>
 
-            {/* 4. Seletor de Aluno ou Informação de Emissão */}
-            {modoEmissao === 'individual' ? (
+            {/* 4. Seletor de Pauta (quando docType === 'pautas') OU Aluno / Modo de Emissão */}
+            {docType === 'pautas' ? (
+              <div className="sm:col-span-2 space-y-2 bg-blue-50/80 p-2.5 rounded-xl border border-blue-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="font-bold text-gray-800 block mb-1 text-[11px]">Tipo de Pauta Oficial</label>
+                    <select
+                      value={pautaSubTipo}
+                      onChange={(e) => setPautaSubTipo(e.target.value as any)}
+                      className="w-full p-1.5 border border-blue-400 bg-white font-bold rounded-lg text-xs text-blue-900 focus:outline-none"
+                    >
+                      <option value="geral_final">Pauta Geral / Final Homologada</option>
+                      <option value="trimestral">Pauta Trimestral Oficial</option>
+                      <option value="disciplina">Pauta por Disciplina Curricular</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-800 block mb-1 text-[11px]">Modo de Exibição das Notas</label>
+                    <select
+                      value={pautaModoExibicao}
+                      onChange={(e) => setPautaModoExibicao(e.target.value as any)}
+                      className="w-full p-1.5 border border-slate-300 bg-white font-bold rounded-lg text-xs text-slate-800 focus:outline-none"
+                    >
+                      <option value="sintetica">Modo Sintético (Apenas Médias)</option>
+                      <option value="analitica">Modo Analítico (MAC, PPT, MT, MFD, % & Obs)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-blue-200/60">
+                  {pautaSubTipo === 'trimestral' && (
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[11px] font-bold text-blue-900">Trimestre:</span>
+                      <div className="flex gap-1">
+                        {(['1', '2', '3'] as const).map(tri => (
+                          <button
+                            key={`pauta-tri-${tri}`}
+                            type="button"
+                            onClick={() => setPautaTrimestre(tri)}
+                            className={`px-2.5 py-0.5 rounded text-[11px] font-bold border transition-colors cursor-pointer ${
+                              pautaTrimestre === tri 
+                                ? 'bg-blue-600 text-white border-blue-700 shadow-2xs' 
+                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            {tri}º Tri
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {pautaSubTipo === 'disciplina' && (
+                    <div className="flex-1 flex items-center space-x-1.5">
+                      <span className="text-[11px] font-bold text-blue-900 shrink-0">Disciplina:</span>
+                      <select
+                        value={pautaDisciplinaId || disciplinasDaClasseDocumento[0]?.id || ''}
+                        onChange={(e) => setPautaDisciplinaId(e.target.value)}
+                        className="w-full p-1 border border-emerald-400 bg-white font-bold rounded text-xs text-emerald-950 focus:outline-none"
+                      >
+                        {disciplinasDaClasseDocumento.map(d => (
+                          <option key={d.id} value={d.id}>{d.nome} {d.sigla ? `(${d.sigla})` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : modoEmissao === 'individual' ? (
               <div className="sm:col-span-2">
                 <div className="flex items-center justify-between mb-1">
                   <label className="font-bold text-gray-700">4. Selecionar Aluno</label>
@@ -937,8 +1074,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             )}
           </div>
 
-          {/* Pesquisa rápida de aluno sanitizada no modo individual */}
-          {modoEmissao === 'individual' && (
+          {/* Pesquisa rápida de aluno sanitizada no modo individual (exceto em pautas) */}
+          {docType !== 'pautas' && modoEmissao === 'individual' && (
             <div className="relative pt-1">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3.5" />
               <input
@@ -1363,38 +1500,33 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               {escola.nomeOficial}
             </h2>
 
-            {/* Distinção Rigorosa: Pauta Final Homologada vs Pauta Geral Provisória */}
+            {/* Distinção Rigorosa: Pauta Geral/Final vs Trimestral vs Por Disciplina */}
             <div className="pt-2">
-              {juriTurmaSelecionada ? (
-                <div className="space-y-1">
-                  <span className="text-sm sm:text-base font-black uppercase border-2 border-black px-6 py-1.5 inline-block bg-emerald-50 text-emerald-950 tracking-wider">
-                    PAUTA FINAL HOMOLOGADA — ANO LECTIVO {turmaSelecionada.anoLectivo || escola.anoLectivoActivo}
+              <div className="space-y-1">
+                <span className="text-sm sm:text-base font-black uppercase border-2 border-black px-6 py-1.5 inline-block bg-blue-50 text-blue-950 tracking-wider">
+                  {pautaSubTipo === 'disciplina' ? (
+                    `PAUTA DA DISCIPLINA DE ${disciplinasDaClasseDocumento.find(d => d.id === pautaDisciplinaId)?.nome?.toUpperCase() || 'DISCIPLINA'} — ANO LECTIVO ${turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}`
+                  ) : pautaSubTipo === 'trimestral' ? (
+                    `PAUTA OFICIAL DO ${pautaTrimestre}º TRIMESTRE — ANO LECTIVO ${turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}`
+                  ) : juriTurmaSelecionada ? (
+                    `PAUTA FINAL HOMOLOGADA — ANO LECTIVO ${turmaSelecionada.anoLectivo || escola.anoLectivoActivo}`
+                  ) : (
+                    `PAUTA GERAL FINAL — ANO LECTIVO ${turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}`
+                  )}
+                </span>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-xs">
+                  <span className="px-3 py-0.5 bg-slate-100 text-slate-800 font-bold rounded-full border border-slate-300">
+                    Modo: {pautaModoExibicao === 'sintetica' ? '📊 Sintético (Médias Finais)' : '📑 Analítico Completo (MAC, PPT, MT, MFD & %)'}
                   </span>
-                  <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-xs">
+                  {juriTurmaSelecionada && (
                     <span className="px-3 py-0.5 bg-emerald-100 text-emerald-900 font-black rounded-full border border-emerald-300 inline-flex items-center space-x-1">
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Homologada pelo Júri de Exames</span>
+                      <span>Homologada pelo Júri (Sessão {juriTurmaSelecionada.numeroSessao || 'Oficial'})</span>
                     </span>
-                    <span className="font-mono font-bold text-gray-700 bg-gray-100 px-2.5 py-0.5 rounded border border-gray-300">
-                      Sessão: {juriTurmaSelecionada.numeroSessao || 'Sessão Oficial'} • Ata n.º {juriTurmaSelecionada.ata?.numeroAta || '001/2026'}
-                    </span>
-                    <span className="text-gray-500 font-semibold text-[11px]">
-                      Homologada em: {new Date(juriTurmaSelecionada.pautaHomologadaEm || Date.now()).toLocaleDateString('pt-AO')}
-                    </span>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <div className="space-y-1">
-                  <span className="text-sm sm:text-base font-black uppercase border-2 border-dashed border-amber-600 px-6 py-1.5 inline-block bg-amber-50 text-amber-950 tracking-wider">
-                    PAUTA GERAL (PROVISÓRIA) — ANO LECTIVO {turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
-                  </span>
-                  <div className="pt-1">
-                    <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-lg text-[11px] text-amber-900 text-center font-bold">
-                      ⚠️ AGUARDANDO DELIBERAÇÃO DA COMISSÃO DE JÚRI • As notas desta pauta geral refletem o aproveitamento contínuo preliminar. Conforme normas do MED, a emissão definitiva de Certificados e Declarações requer a Pauta Final Homologada pela Comissão de Júri.
-                    </div>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -1422,153 +1554,267 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
             <div>
               <span className="text-gray-600 block text-[10px]">Curso:</span>
-              <strong className="truncate block">{turmaSelecionada.curso || 'Ensino Secundário Geral'}</strong>
+              <strong className="truncate block">{turmaSelecionada.curso || 'Ensino Geral'}</strong>
             </div>
           </div>
 
-          {/* Tabela Oficial da Pauta (Todos os Alunos da Turma x Disciplinas) */}
-          <div className="overflow-x-auto -mx-2 sm:mx-0">
-            <table className="w-full text-[11px] border border-black text-center min-w-[980px]">
-              <thead className="bg-gray-100 font-bold border-b border-black text-[10px]">
-                <tr>
-                  <th className="p-1 border-r border-black w-8">N.º</th>
-                  <th className="p-1 border-r border-black w-24">Proc. n.º</th>
-                  <th className="p-1 border-r border-black text-left min-w-[180px]">Nome Completo do Estudante</th>
-                  {disciplinasDaClasseDocumento.map(d => (
-                    <th key={d.id} className="p-1 border-r border-black w-12" title={d.nome}>
-                      {d.sigla || d.nome.substring(0, 4)}
-                    </th>
-                  ))}
-                  <th className="p-1 border-r border-black w-10 text-emerald-800" title="Disciplinas Positivas">Pos.</th>
-                  <th className="p-1 border-r border-black w-10 text-red-800" title="Disciplinas Negativas">Neg.</th>
-                  <th className="p-1 border-r border-black w-12 bg-gray-200">Média</th>
-                  <th className="p-1 border-r border-black w-24 bg-green-50" title="Somatório / Média das Avaliações Comportamentais dos Professores">Comportamento Geral</th>
-                  <th className="p-1 min-w-[110px]">Resultado Final</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-black">
-                {alunosDaTurma.length === 0 ? (
-                  <tr>
-                    <td colSpan={disciplinasDaClasseDocumento.length + 7} className="p-6 text-center text-gray-500 italic">
-                      Nenhum estudante matriculado nesta turma para o ano letivo selecionado.
-                    </td>
-                  </tr>
-                ) : (
-                  alunosDaTurma.map((aluno, idx) => {
-                    const notasHomologadas = dbService.obterNotasHomologadasAluno(aluno.id);
-                    const deliberacao = juriTurmaSelecionada?.deliberacoes?.[aluno.id];
-                    let totalPositivas = 0;
-                    let totalNegativas = 0;
-                    let somaNotas = 0;
-                    let disciplinasComNota = 0;
+          {/* TABELA DA PAUTA: 1. CASO PAUTA POR DISCIPLINA */}
+          {pautaSubTipo === 'disciplina' ? (() => {
+            const discAtual = disciplinasDaClasseDocumento.find(d => d.id === pautaDisciplinaId) || disciplinasDaClasseDocumento[0];
+            const escalaAprovacao = 10;
+            let totalPos = 0;
+            let totalNeg = 0;
 
-                    const escalaAprovacao = 10;
-
-                    return (
-                      <tr key={aluno.id} className="hover:bg-gray-50">
-                        <td className="p-1 border-r border-black font-mono font-bold">{idx + 1}</td>
-                        <td className="p-1 border-r border-black font-mono text-[10px]">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
-                        <td className="p-1 border-r border-black text-left font-bold text-gray-900 truncate max-w-[200px]">{aluno.nomeCompleto}</td>
-                        
-                        {disciplinasDaClasseDocumento.map(d => {
-                          const nConsol = notasHomologadas.find(nh => nh.disciplinaId === d.id) || notasConsolidadas.find(nc => nc.alunoId === aluno.id && nc.disciplinaId === d.id);
-                          const notaValor = nConsol?.notaFinal || nConsol?.mediaTrimestral;
-                          const notaAlterada = deliberacao?.notasAlteradas?.find(na => na.disciplinaId === d.id);
-
-                          if (notaValor !== undefined && notaValor !== null) {
-                            somaNotas += Number(notaValor);
-                            disciplinasComNota++;
-                            if (notaValor >= escalaAprovacao) totalPositivas++;
-                            else totalNegativas++;
-                          }
-
-                          return (
-                            <td key={d.id} className="p-1 border-r border-black font-mono text-center font-bold">
-                              {notaValor !== undefined && notaValor !== null ? (
-                                <span className={`inline-flex items-center space-x-0.5 ${notaValor >= escalaAprovacao ? 'text-emerald-800' : 'text-red-700'}`}>
-                                  <span>{Math.round(notaValor)}</span>
-                                  {notaAlterada && (
-                                    <span className="text-[9px] text-purple-700 font-black" title={`Ajustada pelo Júri de ${notaAlterada.notaAnterior} para ${notaAlterada.novaNota}. Motivo: ${notaAlterada.motivo}`}>*</span>
-                                  )}
-                                </span>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
-                            </td>
-                          );
-                        })}
-
-                        <td className="p-1 border-r border-black font-bold text-emerald-800">{totalPositivas}</td>
-                        <td className="p-1 border-r border-black font-bold text-red-700">{totalNegativas}</td>
-                        <td className="p-1 border-r border-black font-bold bg-gray-50">
-                          {disciplinasDaClasseDocumento.length > 0 
-                            ? (somaNotas / disciplinasDaClasseDocumento.length).toFixed(1) 
-                            : (disciplinasComNota > 0 ? (somaNotas / disciplinasComNota).toFixed(1) : '-')}
-                        </td>
-                        <td className="p-1 border-r border-black font-bold text-[9px] bg-green-50/30">
-                          {(() => {
-                            const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
-                            const notasComp = notasAluno
-                              .map(n => n.comportamentoNota)
-                              .filter((n): n is number => typeof n === 'number' && n > 0);
-                            if (notasComp.length === 0) {
-                              return <span className="text-gray-400 font-normal">—</span>;
-                            }
-                            const mediaComp = notasComp.reduce((a, b) => a + b, 0) / notasComp.length;
-                            const conceito = converterComportamentoParaConceito(mediaComp);
-                            return (
-                              <span className={`inline-block px-1.5 py-0.5 rounded font-black ${
-                                conceito === 'Excelente' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
-                                conceito === 'Bom' ? 'bg-blue-100 text-blue-800 border border-blue-300' :
-                                conceito === 'Suficiente' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
-                                conceito === 'Insuficiente' ? 'bg-orange-100 text-orange-800 border border-orange-300' :
-                                'bg-rose-100 text-rose-800 border border-rose-300'
-                              }`}>
-                                {conceito} ({mediaComp.toFixed(0)}v)
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td className="p-1 text-center font-bold">
-                          {juriTurmaSelecionada ? (
-                            deliberacao ? (
-                              <span className={`px-2 py-0.5 text-[9px] font-black rounded-full ${
-                                deliberacao.decisao === 'Aprovar' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
-                                deliberacao.decisao === 'Recurso' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
-                                'bg-red-100 text-red-900 border border-red-300'
-                              }`}>
-                                {deliberacao.decisao === 'Aprovar' ? 'Aprovado' : deliberacao.decisao === 'Recurso' ? 'Recurso' : 'Não Aprovado'}
-                              </span>
-                            ) : totalNegativas <= 2 ? (
-                              <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-emerald-100 text-emerald-800">Transita</span>
-                            ) : (
-                              <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-red-100 text-red-800">Não Transita</span>
-                            )
-                          ) : (
-                            <span className="text-[9px] text-amber-800 font-semibold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                              Aguardando Júri
-                            </span>
-                          )}
+            return (
+              <div className="overflow-x-auto -mx-2 sm:mx-0">
+                <table className="w-full text-[11px] border border-black text-center min-w-[850px]">
+                  <thead className="bg-gray-100 font-bold border-b border-black text-[10px]">
+                    <tr>
+                      <th className="p-1.5 border-r border-black w-8">N.º</th>
+                      <th className="p-1.5 border-r border-black w-24">Proc. n.º</th>
+                      <th className="p-1.5 border-r border-black text-left min-w-[200px]">Nome Completo do Estudante</th>
+                      <th className="p-1.5 border-r border-black w-14" title="Avaliação Contínua">MAC</th>
+                      <th className="p-1.5 border-r border-black w-14" title="Prova do Professor / Trimestral">PPT/NPP</th>
+                      <th className="p-1.5 border-r border-black w-14" title="1º Trimestre">MT1</th>
+                      <th className="p-1.5 border-r border-black w-14" title="2º Trimestre">MT2</th>
+                      <th className="p-1.5 border-r border-black w-14" title="3º Trimestre">MT3</th>
+                      <th className="p-1.5 border-r border-black w-16 bg-gray-200" title="Média Final da Disciplina">MFD</th>
+                      <th className="p-1.5 border-r border-black w-24 bg-green-50">Comportamento</th>
+                      <th className="p-1.5 min-w-[120px]">Observação / Resultado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-black">
+                    {alunosDaTurma.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="p-6 text-center text-gray-500 italic">
+                          Nenhum estudante matriculado nesta turma para o ano lectivo selecionado.
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                    ) : (
+                      alunosDaTurma.map((aluno, idx) => {
+                        const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (!discAtual || n.disciplinaId === discAtual.id));
+                        const n1 = notasAluno.find(n => String(n.trimestre).includes('1'));
+                        const n2 = notasAluno.find(n => String(n.trimestre).includes('2'));
+                        const n3 = notasAluno.find(n => String(n.trimestre).includes('3'));
+                        
+                        const mac = n1?.mac ?? n2?.mac ?? n3?.mac ?? '—';
+                        const npp = n1?.npp ?? n2?.npp ?? n3?.npp ?? '—';
+                        const mt1 = n1?.mediaTrimestral ?? n1?.notaFinal ?? '—';
+                        const mt2 = n2?.mediaTrimestral ?? n2?.notaFinal ?? '—';
+                        const mt3 = n3?.mediaTrimestral ?? n3?.notaFinal ?? '—';
 
-          {/* Legenda de Notas Alteradas pelo Júri */}
-          <div className="flex flex-wrap items-center justify-between text-[10px] text-gray-600 pt-1 border-t border-gray-200">
+                        const mfdRaw = n3?.notaFinal ?? n3?.mediaTrimestral ?? n2?.notaFinal ?? n1?.notaFinal;
+                        const mfd = mfdRaw !== undefined && mfdRaw !== null ? Math.round(Number(mfdRaw)) : null;
+
+                        if (mfd !== null) {
+                          if (mfd >= escalaAprovacao) totalPos++;
+                          else totalNeg++;
+                        }
+
+                        return (
+                          <tr key={aluno.id} className="hover:bg-gray-50">
+                            <td className="p-1.5 border-r border-black font-mono font-bold">{idx + 1}</td>
+                            <td className="p-1.5 border-r border-black font-mono text-[10px]">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
+                            <td className="p-1.5 border-r border-black text-left font-bold text-gray-900 truncate max-w-[220px]">{aluno.nomeCompleto}</td>
+                            <td className="p-1.5 border-r border-black font-mono">{mac}</td>
+                            <td className="p-1.5 border-r border-black font-mono">{npp}</td>
+                            <td className="p-1.5 border-r border-black font-mono">{mt1}</td>
+                            <td className="p-1.5 border-r border-black font-mono">{mt2}</td>
+                            <td className="p-1.5 border-r border-black font-mono">{mt3}</td>
+                            <td className="p-1.5 border-r border-black font-mono font-bold bg-gray-50">
+                              {mfd !== null ? (
+                                <span className={mfd >= escalaAprovacao ? 'text-emerald-800' : 'text-rose-700'}>
+                                  {mfd}
+                                </span>
+                              ) : '—'}
+                            </td>
+                            <td className="p-1.5 border-r border-black text-[9px] bg-green-50/30">
+                              {aluno.comportamentoConceito || 'Bom'}
+                            </td>
+                            <td className="p-1.5 text-center font-bold">
+                              {mfd !== null ? (
+                                <span className={`px-2 py-0.5 text-[9px] font-black rounded-full ${
+                                  mfd >= escalaAprovacao 
+                                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
+                                    : mfd >= 7 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-rose-100 text-rose-900 border border-rose-300'
+                                }`}>
+                                  {mfd >= escalaAprovacao ? 'Aprovado' : mfd >= 7 ? 'Recurso' : 'Não Transita'}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400 text-[10px]">Sem Notas</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })() : (
+            /* TABELA DA PAUTA GERAL OU TRIMESTRAL */
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <table className="w-full text-[11px] border border-black text-center min-w-[980px]">
+                <thead className="bg-gray-100 font-bold border-b border-black text-[10px]">
+                  <tr>
+                    <th className="p-1 border-r border-black w-8">N.º</th>
+                    <th className="p-1 border-r border-black w-24">Proc. n.º</th>
+                    <th className="p-1 border-r border-black text-left min-w-[180px]">Nome Completo do Estudante</th>
+                    {disciplinasDaClasseDocumento.map(d => (
+                      <th key={d.id} className="p-1 border-r border-black w-12" title={d.nome}>
+                        {d.sigla || d.nome.substring(0, 4)}
+                      </th>
+                    ))}
+                    <th className="p-1 border-r border-black w-10 text-emerald-800" title="Disciplinas Positivas">Pos.</th>
+                    <th className="p-1 border-r border-black w-10 text-red-800" title="Disciplinas Negativas">Neg.</th>
+                    <th className="p-1 border-r border-black w-12 bg-gray-200">Média</th>
+                    <th className="p-1 border-r border-black w-24 bg-green-50" title="Comportamento Geral">Comportamento</th>
+                    <th className="p-1 min-w-[110px]">Resultado Final</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black">
+                  {alunosDaTurma.length === 0 ? (
+                    <tr>
+                      <td colSpan={disciplinasDaClasseDocumento.length + 7} className="p-6 text-center text-gray-500 italic">
+                        Nenhum estudante matriculado nesta turma para o ano letivo selecionado.
+                      </td>
+                    </tr>
+                  ) : (
+                    alunosDaTurma.map((aluno, idx) => {
+                      const notasHomologadas = dbService.obterNotasHomologadasAluno(aluno.id);
+                      const deliberacao = juriTurmaSelecionada?.deliberacoes?.[aluno.id];
+                      let totalPositivas = 0;
+                      let totalNegativas = 0;
+                      let somaNotas = 0;
+                      let disciplinasComNota = 0;
+                      const escalaAprovacao = 10;
+
+                      return (
+                        <tr key={aluno.id} className="hover:bg-gray-50">
+                          <td className="p-1 border-r border-black font-mono font-bold">{idx + 1}</td>
+                          <td className="p-1 border-r border-black font-mono text-[10px]">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
+                          <td className="p-1 border-r border-black text-left font-bold text-gray-900 truncate max-w-[200px]">{aluno.nomeCompleto}</td>
+                          
+                          {disciplinasDaClasseDocumento.map(d => {
+                            const nConsol = notasHomologadas.find(nh => nh.disciplinaId === d.id) || 
+                              notasConsolidadas.find(nc => nc.alunoId === aluno.id && nc.disciplinaId === d.id && (pautaSubTipo !== 'trimestral' || String(nc.trimestre).includes(pautaTrimestre)));
+                            
+                            const notaValor = pautaSubTipo === 'trimestral'
+                              ? (nConsol?.mediaTrimestral ?? nConsol?.notaFinal)
+                              : (nConsol?.notaFinal ?? nConsol?.mediaTrimestral);
+                            
+                            const notaAlterada = deliberacao?.notasAlteradas?.find(na => na.disciplinaId === d.id);
+
+                            if (notaValor !== undefined && notaValor !== null) {
+                              somaNotas += Number(notaValor);
+                              disciplinasComNota++;
+                              if (notaValor >= escalaAprovacao) totalPositivas++;
+                              else totalNegativas++;
+                            }
+
+                            return (
+                              <td key={d.id} className="p-1 border-r border-black font-mono text-center font-bold">
+                                {notaValor !== undefined && notaValor !== null ? (
+                                  <span className={`inline-flex items-center space-x-0.5 ${notaValor >= escalaAprovacao ? 'text-emerald-800' : 'text-red-700'}`}>
+                                    <span>{Math.round(Number(notaValor))}</span>
+                                    {notaAlterada && (
+                                      <span className="text-[9px] text-purple-700 font-black" title={`Ajustada pelo Júri de ${notaAlterada.notaAnterior} para ${notaAlterada.novaNota}.`}>*</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                            );
+                          })}
+
+                          <td className="p-1 border-r border-black font-bold text-emerald-800">{totalPositivas}</td>
+                          <td className="p-1 border-r border-black font-bold text-red-700">{totalNegativas}</td>
+                          <td className="p-1 border-r border-black font-bold bg-gray-50">
+                            {disciplinasComNota > 0 ? (somaNotas / disciplinasComNota).toFixed(1) : '-'}
+                          </td>
+                          <td className="p-1 border-r border-black font-bold text-[9px] bg-green-50/30">
+                            {(() => {
+                              const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
+                              const notasComp = notasAluno.map(n => n.comportamentoNota).filter((n): n is number => typeof n === 'number' && n > 0);
+                              if (notasComp.length === 0) return <span className="text-gray-400 font-normal">—</span>;
+                              const mediaComp = notasComp.reduce((a, b) => a + b, 0) / notasComp.length;
+                              const conceito = converterComportamentoParaConceito(mediaComp);
+                              return (
+                                <span className="px-1.5 py-0.5 rounded font-black text-slate-800">
+                                  {conceito}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          <td className="p-1 text-center font-bold">
+                            {juriTurmaSelecionada ? (
+                              deliberacao ? (
+                                <span className={`px-2 py-0.5 text-[9px] font-black rounded-full ${
+                                  deliberacao.decisao === 'Aprovar' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                                  deliberacao.decisao === 'Recurso' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                                  'bg-red-100 text-red-900 border border-red-300'
+                                }`}>
+                                  {deliberacao.decisao === 'Aprovar' ? 'Aprovado' : deliberacao.decisao === 'Recurso' ? 'Recurso' : 'Não Aprovado'}
+                                </span>
+                              ) : totalNegativas <= 2 ? (
+                                <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-emerald-100 text-emerald-800">Transita</span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-red-100 text-red-800">Não Transita</span>
+                              )
+                            ) : (
+                              totalNegativas === 0 && disciplinasComNota > 0 ? (
+                                <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-emerald-100 text-emerald-800">Aprovado</span>
+                              ) : totalNegativas <= 2 ? (
+                                <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-amber-100 text-amber-800">Apto Recurso</span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-rose-100 text-rose-800">Não Transita</span>
+                              )
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Sumário Estatístico e Percentagens Oficiais da Turma */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-gray-50 border border-black rounded text-xs text-center">
             <div>
-              <span>* Indica nota alterada deliberativamente pela Comissão de Júri de Exame em conformidade com o regulamento do MED.</span>
+              <span className="text-gray-600 block text-[10px] uppercase font-bold">Estudantes Avaliados</span>
+              <strong className="text-sm font-mono text-gray-900">{alunosDaTurma.length}</strong>
             </div>
-            <div className="font-semibold text-gray-800">
-              Total de Estudantes Avaliados: {alunosDaTurma.length}
+            <div>
+              <span className="text-emerald-700 block text-[10px] uppercase font-bold">Aproveitamento Positivo</span>
+              <strong className="text-sm font-mono text-emerald-800">
+                {alunosDaTurma.length > 0 ? `${Math.round((alunosDaTurma.filter(a => {
+                  const n = notasConsolidadas.filter(nc => nc.alunoId === a.id);
+                  const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < 10).length;
+                  return neg <= 2;
+                }).length / alunosDaTurma.length) * 100)}%` : '0%'}
+              </strong>
+            </div>
+            <div>
+              <span className="text-rose-700 block text-[10px] uppercase font-bold">Taxa de Insucesso / Negativas</span>
+              <strong className="text-sm font-mono text-rose-800">
+                {alunosDaTurma.length > 0 ? `${Math.round((alunosDaTurma.filter(a => {
+                  const n = notasConsolidadas.filter(nc => nc.alunoId === a.id);
+                  const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < 10).length;
+                  return neg > 2;
+                }).length / alunosDaTurma.length) * 100)}%` : '0%'}
+              </strong>
+            </div>
+            <div>
+              <span className="text-blue-700 block text-[10px] uppercase font-bold">Ano Lectivo Homologado</span>
+              <strong className="text-sm font-mono text-blue-900">{turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
             </div>
           </div>
 
-          {/* Assinaturas Oficiais com Traço Rigoroso Entre Título e Nome */}
+          {/* Assinaturas Oficiais com Traço Rigoroso Entre Título e Nome & Gênero */}
           <div className="pt-6 border-t-2 border-black">
             <div className="text-center font-bold text-[10px] uppercase tracking-wider mb-6 text-gray-800">
               {juriTurmaSelecionada 
@@ -1583,7 +1829,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <p className="font-black text-gray-950 uppercase text-[11px]">O Presidente da Comissão de Júri</p>
                   <div className="w-48 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Não Atribuído'}
+                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Docente Nomeado'}
                   </p>
                 </div>
 
@@ -1592,13 +1838,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <p className="font-black text-gray-950 uppercase text-[11px]">O Secretário da Comissão de Júri</p>
                   <div className="w-48 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Não Atribuído'}
+                    {juriTurmaSelecionada.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Docente Nomeado'}
                   </p>
                 </div>
 
-                {/* Director Geral com Assinatura Digitalizada */}
+                {/* Director Geral com Assinatura Digitalizada & Gênero */}
                 <div className="space-y-1 flex flex-col items-center justify-end">
-                  <p className="font-black text-gray-950 uppercase text-[11px]">O Director Geral da Instituição</p>
+                  <p className="font-black text-gray-950 uppercase text-[11px]">{getTituloDiretor(escola)}</p>
                   {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                     <div className="h-10 flex items-center justify-center -mb-1">
                       <img 
@@ -1612,36 +1858,36 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   )}
                   <div className="w-48 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {escola.diretorGeralNome || 'Não Atribuído'}
+                    {escola.diretorGeralNome || 'Direção Geral'}
                   </p>
                 </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-center text-xs">
                 <div className="space-y-1">
-                  <p className="font-bold text-gray-950 uppercase text-[11px]">O Director de Turma</p>
+                  <p className="font-bold text-gray-950 uppercase text-[11px]">O(A) Coordenador(a) de Turma</p>
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
-                  <p className="font-medium text-gray-700 text-[10px]">
-                    {turmaSelecionada.coordenadorId ? 'Prof. Coordenador da Turma' : 'Docente Responsável'}
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {turmaSelecionada.coordenadorNome || dbService.getFuncionarios().find(f => f.id === turmaSelecionada?.coordenadorId)?.nomeCompleto || 'Docente Responsável'}
                   </p>
                 </div>
                 <div className="space-y-1">
                   <p className="font-bold text-gray-950 uppercase text-[11px]">O Coordenador de Disciplina</p>
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
-                  <p className="font-medium text-gray-700 text-[10px]">Corpo Docente</p>
+                  <p className="font-bold text-gray-800 text-[11px]">Corpo Docente</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="font-bold text-gray-950 uppercase text-[11px]">O Subdirector Pedagógico</p>
+                  <p className="font-bold text-gray-950 uppercase text-[11px]">{getTituloSubPedagogico(escola)}</p>
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
-                  <p className="font-medium text-gray-700 text-[10px]">
-                    {escola.subdiretorPedagogicoNome || 'Não Atribuído'}
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {escola.subdiretorPedagogicoNome || 'Subdireção Pedagógica'}
                   </p>
                 </div>
                 <div className="space-y-1 flex flex-col items-center justify-end">
-                  <p className="font-bold text-gray-950 uppercase text-[11px]">Visto do Director Geral</p>
+                  <p className="font-bold text-gray-950 uppercase text-[11px]">{getTituloDiretor(escola)}</p>
                   {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                     <div className="h-10 flex items-center justify-center -mb-1">
                       <img 
@@ -1654,8 +1900,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     <div className="h-6" />
                   )}
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
-                  <p className="font-bold text-gray-800 text-[10px]">
-                    {escola.diretorGeralNome || 'Não Atribuído'}
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {escola.diretorGeralNome || 'Direção Geral'}
                   </p>
                 </div>
               </div>
@@ -1821,13 +2067,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Assinaturas Oficiais com Sub-Directora e Director */}
           <div className="grid grid-cols-2 gap-8 pt-8 text-xs text-center border-t border-gray-300">
             <div className="space-y-1">
-              <p className="font-bold text-gray-950 uppercase text-xs">A Subdirectora Pedagógica</p>
+              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloSubPedagogico(escola)}</p>
               <div className="h-8" />
               <div className="w-56 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{escola.subdiretorPedagogicoNome || '—'}</p>
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.subdiretorPedagogicoNome || 'Subdireção Pedagógica'}</p>
             </div>
             <div className="space-y-1 flex flex-col items-center justify-end">
-              <p className="font-bold text-gray-950 uppercase text-xs">O Director Geral</p>
+              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloDiretor(escola)}</p>
               {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                 <div className="h-10 flex items-center justify-center -mb-1">
                   <img 
@@ -1840,7 +2086,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <div className="h-8" />
               )}
               <div className="w-56 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{escola.diretorGeralNome || '—'}</p>
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.diretorGeralNome || 'Direção Geral'}</p>
             </div>
           </div>
         </div>
@@ -1949,9 +2195,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
                     <tr>
                       <th className="p-1.5 border-r border-black text-left">DISCIPLINAS CURRICULARES (6.ª CLASSE)</th>
-                      <th className="p-1.5 border-r border-black w-24">Avaliação Contínua (MAC)</th>
-                      <th className="p-1.5 border-r border-black w-24">Prova de Exame</th>
-                      <th className="p-1.5 border-r border-black w-20 bg-gray-200">Classificação Final</th>
+                      <th className="p-1.5 border-r border-black w-28">Avaliação Contínua (MAC)</th>
+                      <th className="p-1.5 border-r border-black w-28 bg-gray-200">Classificação Final</th>
                       <th className="p-1.5 w-44">Classificação por Extenso</th>
                     </tr>
                   </thead>
@@ -1960,14 +2205,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       <tr key={idx} className="hover:bg-gray-50">
                         <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
                         <td className="p-1.5 border-r border-black text-center font-mono">{row.mac !== null ? row.mac : '—'}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono">{row.pe !== null ? row.pe : '—'}</td>
                         <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.cf !== null ? row.cf : '—'}</td>
                         <td className="p-1.5 text-center font-medium">{row.cf !== null ? converterNotaParaCertificadoExtenso(row.cf) : '—'}</td>
                       </tr>
                     ))}
                     <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
                       <td className="p-2 border-r border-black uppercase">MÉDIA GERAL DO ENSINO PRIMÁRIO</td>
-                      <td colSpan={2} className="p-2 border-r border-black text-center">Conclusão do Ensino Primário</td>
+                      <td className="p-2 border-r border-black text-center">Conclusão do Ensino Primário</td>
                       <td className="p-2 border-r border-black text-center text-sm font-black">{mediaFinalCalc !== null ? mediaFinalCalc : '—'}</td>
                       <td className="p-2 text-center text-xs font-black uppercase">{mediaFinalCalc !== null ? converterNotaParaCertificadoExtenso(mediaFinalCalc) : 'Sem notas lançadas'}</td>
                     </tr>
@@ -1982,19 +2226,20 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             const discs = disciplinasDaClasseDocumento.length > 0
               ? disciplinasDaClasseDocumento
               : disciplinas.filter(d => d.nivelEnsino === 'ICiclo');
+            const histMulti = alunoSelecionado?.historicoMultiAno || [];
             const linhas = discs.map(disc => {
+              const hItem = histMulti.find(h => h.disciplinaNome.toLowerCase() === disc.nome.toLowerCase() || disc.nome.toLowerCase().includes(h.disciplinaNome.toLowerCase()));
               const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : undefined;
-              const mf = val !== undefined && val !== null ? Math.round(val) : null;
-              const provaVal = n ? (n.provaTrimestral ?? n.npt) : undefined;
-              const ex = provaVal !== undefined ? Math.round(provaVal) : null;
-              const mediaTrim = n && n.mediaTrimestral !== undefined ? Math.round(n.mediaTrimestral) : '—';
+              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : (hItem?.notaFinal || hItem?.mediaFinal);
+              const mf = val !== undefined && val !== null && (val as any) !== '—' ? Math.round(Number(val)) : null;
+              const n9 = n?.notaFinal ?? n?.mediaTrimestral ?? hItem?.nota12 ?? '—';
+              const n7 = hItem?.nota10 ?? '—';
+              const n8 = hItem?.nota11 ?? '—';
               return {
                 disc: disc.nome,
-                n7: '—',
-                n8: '—',
-                n9: mediaTrim,
-                ex: ex !== null ? ex : '—',
+                n7,
+                n8,
+                n9: n9 !== '—' && n9 !== undefined ? Math.round(Number(n9)) : '—',
                 mf
               };
             });
@@ -2007,10 +2252,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <thead className="bg-gray-100 font-bold border-b border-black text-center text-[10px]">
                     <tr>
                       <th className="p-1.5 border-r border-black text-left">DISCIPLINAS DO Iº CICLO</th>
-                      <th className="p-1.5 border-r border-black w-14">7.ª Classe</th>
-                      <th className="p-1.5 border-r border-black w-14">8.ª Classe</th>
-                      <th className="p-1.5 border-r border-black w-14">9.ª Classe</th>
-                      <th className="p-1.5 border-r border-black w-14">Exame</th>
+                      <th className="p-1.5 border-r border-black w-16">7.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-16">8.ª Classe</th>
+                      <th className="p-1.5 border-r border-black w-20">9.ª Classe</th>
                       <th className="p-1.5 border-r border-black w-16 bg-gray-200">M. Final</th>
                       <th className="p-1.5 w-40">Média por Extenso</th>
                     </tr>
@@ -2021,15 +2265,14 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                         <td className="p-1.5 border-r border-black font-medium">{row.disc}</td>
                         <td className="p-1.5 border-r border-black text-center font-mono">{row.n7}</td>
                         <td className="p-1.5 border-r border-black text-center font-mono">{row.n8}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono">{row.n9}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono">{row.ex}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono font-bold">{row.n9}</td>
                         <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{row.mf !== null ? row.mf : '—'}</td>
                         <td className="p-1.5 text-center font-medium">{row.mf !== null ? converterNotaParaCertificadoExtenso(row.mf) : '—'}</td>
                       </tr>
                     ))}
                     <tr className="bg-gray-100 font-black border-t-2 border-black text-xs">
                       <td className="p-2 border-r border-black uppercase">MÉDIA GERAL DO Iº CICLO</td>
-                      <td colSpan={4} className="p-2 border-r border-black text-center">Conclusão do Iº Ciclo Geral</td>
+                      <td colSpan={3} className="p-2 border-r border-black text-center">Conclusão do Iº Ciclo Geral</td>
                       <td className="p-2 border-r border-black text-center text-sm font-black">{mediaFinalCalc !== null ? mediaFinalCalc : '—'}</td>
                       <td className="p-2 text-center text-xs font-black uppercase">{mediaFinalCalc !== null ? converterNotaParaCertificadoExtenso(mediaFinalCalc) : 'Sem notas lançadas'}</td>
                     </tr>
@@ -2175,7 +2418,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Assinaturas Oficiais com QR Code de Autenticidade e Assinatura do Director */}
           <div className="grid grid-cols-3 gap-4 pt-6 text-xs text-center border-t border-gray-300">
             <div className="space-y-1">
-              <p className="font-bold text-gray-950 uppercase text-xs">A Secretaria Escolar</p>
+              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloChefeSecretaria(escola)}</p>
               <div className="h-8" />
               <div className="w-44 border-b border-black mx-auto my-1.5" />
               <p className="font-bold text-gray-900 text-xs uppercase">{escola.chefeSecretariaNome || 'Chefe da Secretaria'}</p>
@@ -2189,7 +2432,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
 
             <div className="space-y-1 flex flex-col items-center justify-end">
-              <p className="font-bold text-gray-950 uppercase text-xs">O Director Geral</p>
+              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloDiretor(escola)}</p>
               {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                 <div className="h-10 flex items-center justify-center -mb-1">
                   <img 
@@ -2202,7 +2445,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <div className="h-8" />
               )}
               <div className="w-48 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{escola.diretorGeralNome || '—'}</p>
+              <p className="font-bold text-gray-900 text-xs uppercase">{escola.diretorGeralNome || 'Direção Geral'}</p>
             </div>
           </div>
         </div>
@@ -2430,19 +2673,43 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          {/* Assinaturas */}
+          {/* Registo de Ocorrências e Acontecimentos no Dossiê Escolar */}
+          {alunoSelecionado.ocorrencias && alunoSelecionado.ocorrencias.length > 0 && (
+            <div className="border-b border-black pb-4 text-xs space-y-2">
+              <h4 className="font-black uppercase text-[11px] text-gray-800">Registo Oficial de Ocorrências no Dossiê do Aluno</h4>
+              <div className="space-y-1.5">
+                {alunoSelecionado.ocorrencias.map((ocorr, oIdx) => (
+                  <div key={ocorr.id || oIdx} className="bg-gray-50 border border-gray-300 p-2.5 rounded text-[11px] space-y-0.5">
+                    <div className="flex justify-between items-center font-bold">
+                      <span className="text-gray-900">[{ocorr.data}] {ocorr.tipo} {ocorr.gravidade ? `(Gravidade: ${ocorr.gravidade})` : ''}</span>
+                      <span className="text-gray-600 font-normal">Averbado por: {ocorr.registadoPor} ({ocorr.cargo})</span>
+                    </div>
+                    <p className="text-gray-800">{ocorr.descricao}</p>
+                    {ocorr.resolucao && (
+                      <p className="text-gray-600 italic"><strong>Resolução / Medida Adotada:</strong> {ocorr.resolucao}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Assinaturas Limpas e Oficiais */}
           <div className="pt-6 grid grid-cols-3 gap-4 text-center text-xs">
             <div className="space-y-6">
-              <p className="text-gray-700">O(A) Encarregado(a)</p>
+              <p className="text-gray-700 font-bold">O(A) Encarregado(a) de Educação</p>
               <div className="border-b border-black w-40 mx-auto" />
+              <p className="font-semibold text-gray-800 text-[11px]">{alunoSelecionado.nomeEncarregado || alunoSelecionado.encarregadoNome || 'Encarregado de Educação'}</p>
             </div>
             <div className="space-y-6">
-              <p className="text-gray-700">O Chefe de Secretaria</p>
+              <p className="text-gray-700 font-bold">{getTituloChefeSecretaria(escola)}</p>
               <div className="border-b border-black w-40 mx-auto" />
+              <p className="font-semibold text-gray-800 text-[11px]">{escola.chefeSecretariaNome || 'Chefe da Secretaria'}</p>
             </div>
             <div className="space-y-6">
-              <p className="text-gray-700">O Director Geral</p>
+              <p className="text-gray-700 font-bold">{getTituloDiretor(escola)}</p>
               <div className="border-b border-black w-40 mx-auto" />
+              <p className="font-semibold text-gray-800 text-[11px]">{escola.diretorGeralNome || 'Direção Geral'}</p>
             </div>
           </div>
         </div>
@@ -2666,15 +2933,22 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </table>
             </div>
 
-            {/* Assinaturas */}
-            <div className="pt-6 grid grid-cols-2 gap-8 text-center text-xs">
-              <div className="space-y-6">
-                <p className="text-gray-700">O(A) Director(a) de Turma / Professor</p>
-                <div className="border-b border-black w-48 mx-auto" />
+            {/* Assinaturas Oficiais com Coordenador, Subdirector e Director Geral */}
+            <div className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs">
+              <div className="space-y-4">
+                <p className="font-bold text-gray-900">O(A) Coordenador(a) de Turma</p>
+                <div className="border-b border-black w-44 mx-auto" />
+                <p className="font-semibold text-gray-800 text-[11px]">{turmaSelecionada.coordenadorNome || 'Docente Responsável'}</p>
               </div>
-              <div className="space-y-6">
-                <p className="text-gray-700">O Subdirector Pedagógico</p>
-                <div className="border-b border-black w-48 mx-auto" />
+              <div className="space-y-4">
+                <p className="font-bold text-gray-900">{getTituloSubPedagogico(escola)}</p>
+                <div className="border-b border-black w-44 mx-auto" />
+                <p className="font-semibold text-gray-800 text-[11px]">{escola.subdiretorPedagogicoNome || 'Subdireção Pedagógica'}</p>
+              </div>
+              <div className="space-y-4">
+                <p className="font-bold text-gray-900">{getTituloDiretor(escola)}</p>
+                <div className="border-b border-black w-44 mx-auto" />
+                <p className="font-semibold text-gray-800 text-[11px]">{escola.diretorGeralNome || 'Direção Geral'}</p>
               </div>
             </div>
           </div>

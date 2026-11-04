@@ -2002,33 +2002,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Métricas Principais da Escola & Monitorização em Tempo Real */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3.5">
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Alunos Matriculados</span>
-                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                  <Users className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{alunos.length}</span>
-                <span className="text-xs text-emerald-700 font-semibold">
-                  {alunos.filter(a => a.estado === 'Ativo').length} ativos
-                </span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                {turmas.length} turmas em 3 turnos
-              </div>
-            </div>
+            {(() => {
+              const anoActivo = escola.anoLectivoActivo || '2025/2026';
+              const alunosAno = alunos.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo);
+              const rapazes = alunosAno.filter(a => a.genero === 'M').length;
+              const raparigas = alunosAno.filter(a => a.genero === 'F').length;
+              const pctRapazes = alunosAno.length > 0 ? Math.round((rapazes / alunosAno.length) * 100) : 0;
+              const pctRaparigas = alunosAno.length > 0 ? Math.round((raparigas / alunosAno.length) * 100) : 0;
 
-            {/* Distinção por Género (Rapazes vs Raparigas) */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              {(() => {
-                const rapazes = alunos.filter(a => a.genero === 'M').length;
-                const raparigas = alunos.filter(a => a.genero === 'F').length;
-                const pctRapazes = alunos.length > 0 ? Math.round((rapazes / alunos.length) * 100) : 0;
-                const pctRaparigas = alunos.length > 0 ? Math.round((raparigas / alunos.length) * 100) : 0;
-                return (
-                  <>
+              return (
+                <>
+                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-600">Alunos Matriculados ({anoActivo})</span>
+                      <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                        <Users className="h-4 w-4" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline space-x-2">
+                      <span className="text-2xl font-black text-gray-950">{alunosAno.length}</span>
+                      <span className="text-xs text-emerald-700 font-semibold">
+                        {alunosAno.filter(a => a.estado === 'Ativo').length} ativos
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-gray-500">
+                      {turmas.length} turmas em 3 turnos
+                    </div>
+                  </div>
+
+                  {/* Distinção por Género (Rapazes vs Raparigas) */}
+                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-gray-600">Alunos por Género</span>
                       <div className="h-8 w-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
@@ -2051,10 +2054,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div className="bg-blue-600 h-full transition-all" style={{ width: `${pctRapazes}%` }} title={`Rapazes: ${pctRapazes}%`} />
                       <div className="bg-rose-500 h-full transition-all" style={{ width: `${pctRaparigas}%` }} title={`Raparigas: ${pctRaparigas}%`} />
                     </div>
-                  </>
-                );
-              })()}
-            </div>
+                  </div>
+                </>
+              );
+            })()}
 
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
               <div className="flex items-center justify-between">
@@ -2172,8 +2175,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* RESUMO FINANCEIRO EXECUTIVO DA DIREÇÃO ESCOLAR (PROPINAS, DESPESAS, SALDO) */}
           {/* ========================================================================= */}
           {(() => {
-            const transacoes = dbService.getTransacoesFinanceiras ? dbService.getTransacoesFinanceiras(escola.id) : [];
-            const despesas = dbService.getDespesasEscolares ? dbService.getDespesasEscolares(escola.id) : [];
+            const transacoes = dbService.getTransacoesFinanceiras ? dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo) : [];
+            const despesas = dbService.getDespesasEscolares ? dbService.getDespesasEscolares(escola.id, escola.anoLectivoActivo) : [];
             const totalReceitas = transacoes.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
             const totalDespesas = despesas.reduce((acc, d) => acc + (d.valorKz || 0), 0);
             const saldoCaixa = totalReceitas - totalDespesas;

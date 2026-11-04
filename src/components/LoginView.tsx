@@ -132,31 +132,29 @@ export const LoginView: React.FC<LoginViewProps> = ({
         console.warn('[Login] Falha ao consultar Firebase, buscando no dispositivo:', err);
       }
 
-      // Se não encontrou no Firebase ou offline, verificar na lista carregada em memória/dispositivo
+      // Se não encontrou no Firebase ou offline, verificar na lista carregada em memória/dispositivo com correspondência estrita
       if (!utilizadorEncontrado) {
         const funcsFrescos = dbService.getFuncionarios();
         const idSemEspaco = idLimpo.replace(/\s+/g, '');
         utilizadorEncontrado = funcsFrescos.find(f => {
           const fEmail = (f.email || '').trim().toLowerCase();
           const fBi = (f.numeroBI || '').toLowerCase().replace(/\s+/g, '');
-          const fNome = (f.nomeCompleto || '').toLowerCase();
+          const fNome = (f.nomeCompleto || '').trim().toLowerCase();
+          const fId = (f.id || '').trim().toLowerCase();
           return fEmail === idLimpo ||
                  fBi === idSemEspaco ||
                  fNome === idLimpo ||
-                 fNome.includes(idLimpo) ||
-                 (ehAdminGeral && f.role === 'AdminGeral');
+                 fId === idLimpo;
         }) || null;
       }
 
-      // Se ainda não encontrado, permitir fallback de admin se credencial bater com admin
-      if (!utilizadorEncontrado) {
+      // Se ainda não encontrado e o utilizador digitou explicitamente o utilizador admin mestre
+      if (!utilizadorEncontrado && (idLimpo === 'admin' || idLimpo === 'admin.geral' || idLimpo === 'admingeral' || idLimpo === 'superadmin')) {
         const funcsTodos = dbService.getFuncionarios();
-        if (idLimpo.includes('admin') || ehAdminGeral) {
-          utilizadorEncontrado = funcsTodos.find(f => f.role === 'AdminGeral') || null;
-        }
+        utilizadorEncontrado = funcsTodos.find(f => f.role === 'AdminGeral' && f.ativo) || null;
       }
 
-      const ehRealmenteAdminGeral = ehAdminGeral || (utilizadorEncontrado?.role === 'AdminGeral');
+      const ehRealmenteAdminGeral = (utilizadorEncontrado?.role === 'AdminGeral') || (idLimpo === 'admin' || idLimpo === 'admingeral' || idLimpo === 'superadmin');
 
       if (!utilizadorEncontrado) {
         const tentativa = dbService.registarTentativaLogin(identificador, false);
@@ -232,7 +230,16 @@ export const LoginView: React.FC<LoginViewProps> = ({
       dbService.registarTentativaLogin(identificador, true);
       firebaseSyncEngine.atualizarUsuarioNoDispositivo(utilizadorEncontrado);
 
-      const escolaParaLogin = selectedEscola || escolas[0] || dbService.getEscolaAtiva();
+      let escolaParaLogin = selectedEscola;
+      if (utilizadorEncontrado.escolaId && utilizadorEncontrado.role !== 'AdminGeral') {
+        const escolaDoUsuario = escolas.find(e => e.id === utilizadorEncontrado.escolaId);
+        if (escolaDoUsuario) {
+          escolaParaLogin = escolaDoUsuario;
+        }
+      }
+      if (!escolaParaLogin) {
+        escolaParaLogin = escolas[0] || dbService.getEscolaAtiva();
+      }
       setIsLoading(false);
       onLogin(utilizadorEncontrado, escolaParaLogin, selectedAno || escolaParaLogin.anoLectivoActivo || '2025/2026');
     } catch (err: any) {

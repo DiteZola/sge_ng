@@ -47,7 +47,8 @@ import {
   OcorrenciaHistoricoAluno,
   FaltasAnoHistorico,
   DividasAnoHistorico,
-  Escola
+  Escola,
+  NotaMultiAno
 } from '../types';
 import * as XLSX from 'xlsx';
 import { dbService } from '../services/storage';
@@ -80,6 +81,7 @@ interface StudentsViewProps {
   escola?: Escola;
   alunos: Aluno[];
   turmas: Turma[];
+  initialSubTab?: 'lista' | 'ranking' | 'historico';
   onSalvarAluno: (aluno: Aluno) => void;
   onExcluirAluno: (id: string) => void;
 }
@@ -119,14 +121,33 @@ const DISCIPLINAS_ANGOLA_PADRAO = [
   'Informática / TIC',
   'Geologia',
   'Filosofia',
-  'Desenho Técnico',
-  'Metodologia de Investigação Científica'
+  'Desenho Técnico'
 ];
+
+// Determina as classes obrigatórias do ciclo para o histórico do estudante
+export const obterClassesDoCiclo = (classeReferencia?: string, curso?: string): string[] => {
+  const norm = (classeReferencia || '').trim();
+  // Ensino Primário: 1ª à 6ª Classe
+  if (['1ª', '2ª', '3ª', '4ª', '5ª', '6ª', 'Iniciação'].some(c => norm.includes(c)) || norm.toLowerCase().includes('primário')) {
+    return ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
+  }
+  // Iº Ciclo do Ensino Secundário Geral: 7ª à 9ª Classe
+  if (['7ª', '8ª', '9ª'].some(c => norm.includes(c)) || norm.toLowerCase().includes('i ciclo') || norm.toLowerCase().includes('1º ciclo')) {
+    return ['7ª', '8ª', '9ª'];
+  }
+  // Ensino Técnico Profissional: 10ª à 13ª Classe
+  if (norm.includes('13ª') || (curso && (curso.toLowerCase().includes('técnico') || curso.toLowerCase().includes('informática') || curso.toLowerCase().includes('construção') || curso.toLowerCase().includes('eletricidade')))) {
+    return ['10ª', '11ª', '12ª', '13ª'];
+  }
+  // IIº Ciclo do Ensino Secundário Geral: 10ª à 12ª Classe
+  return ['10ª', '11ª', '12ª'];
+};
 
 export const StudentsView: React.FC<StudentsViewProps> = ({
   escola: escolaProp,
   alunos,
   turmas,
+  initialSubTab,
   onSalvarAluno,
   onExcluirAluno
 }) => {
@@ -148,12 +169,116 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [selectedSalaFilter, setSelectedSalaFilter] = useState('TODAS');
   const [selectedCursoFilter, setSelectedCursoFilter] = useState('TODOS');
   const [selectedEstadoFilter, setSelectedEstadoFilter] = useState('TODOS');
-  const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking'>('lista');
+  const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking' | 'historico'>(initialSubTab || 'lista');
   
+  useEffect(() => {
+    if (initialSubTab) {
+      setAbaAtiva(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  // Aluno selecionado para navegação direta na aba Histórico Escolar
+  const [alunoHistoricoId, setAlunoHistoricoId] = useState<string>(() => alunos[0]?.id || '');
+
   // Modal de Matrícula: Associação Estrita Ano Letivo -> Classe -> Turma -> Sala -> Curso
   const [modalAnoLectivo, setModalAnoLectivo] = useState(escola.anoLectivoActivo || '2025/2026');
   const [modalClasse, setModalClasse] = useState('1ª');
   const [modalCurso, setModalCurso] = useState('Ciências Físicas e Biológicas (PUNIV)');
+
+  // Sincronização automática quando o Diretor ou Administrador altera o ano lectivo activo no cabeçalho
+  useEffect(() => {
+    if (escola.anoLectivoActivo) {
+      setSelectedAnoLectivoFilter(escola.anoLectivoActivo);
+      setModalAnoLectivo(escola.anoLectivoActivo);
+      setConfirmAnoLectivo(escola.anoLectivoActivo);
+    }
+  }, [escola.anoLectivoActivo]);
+
+  // Modal de Histórico Escolar Completo & Aba Dedicada
+  const [showHistoricoModal, setShowHistoricoModal] = useState(false);
+  const [historicoAluno, setHistoricoAluno] = useState<Aluno | null>(null);
+  const [historicoCompleto, setHistoricoCompleto] = useState<HistoricoEscolarCompleto | null>(null);
+  const [classeAtivaIdx, setClasseAtivaIdx] = useState<number>(0);
+  const [notasEmLote, setNotasEmLote] = useState<Record<string, number>>({});
+  const [feedbackHistorico, setFeedbackHistorico] = useState<string | null>(null);
+
+  // Sincronização automática do aluno selecionado para a aba dedicada de Histórico Escolar
+  // MED ANGOLA: Garante todas as classes do nível (1ª à 6ª, 7ª à 9ª, 10ª à 12ª/13ª)
+  useEffect(() => {
+    if (abaAtiva === 'historico' && alunos.length > 0) {
+      const target = alunos.find(a => a.id === alunoHistoricoId) || alunos[0];
+      if (target && (!historicoAluno || historicoAluno.id !== target.id)) {
+        setHistoricoAluno(target);
+        const turma = turmas.find(t => t.id === target.turmaId);
+        const classeRef = target.classeId || turma?.classe || '10ª';
+        const classesDoCiclo = obterClassesDoCiclo(classeRef, target.curso);
+
+        let hist = dbService.getHistoricoEscolarCompleto(target.id);
+        const anoBase = parseInt(escola.anoLectivoActivo?.split('/')[0] || '2025', 10);
+
+        // Se não tiver histórico ou faltar classes do ciclo, compor todas as classes
+        const classesExistentes = hist?.classes || [];
+        const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
+          const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
+          if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
+            return encontrada;
+          }
+
+          const diffAnos = classesDoCiclo.length - 1 - idx;
+          const anoLetivoEst = `${anoBase - diffAnos}/${anoBase - diffAnos + 1}`;
+          const discPadrao = CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8);
+          const escalaInfo = obterInformacaoEscala(cls);
+
+          // Verificar se no historicoAnterior antigo tem nota
+          const histAnt = target.historicoAnterior?.find(h => h.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
+          const notaBase = histAnt?.mediaFinal || escalaInfo.notaAprovacao || 10;
+
+          const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => ({
+            disciplinaNome: nome,
+            notaFinal: notaBase,
+            resultado: (notaBase >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+          }));
+
+          return {
+            classe: cls,
+            anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
+            escolaOrigem: encontrada?.escolaOrigem || histAnt?.escolaOrigem || escola.nomeOficial || 'Escola de Origem',
+            mediaGeralClasse: notaBase,
+            notasDisciplinas,
+            ocorrencias: target.ocorrencias || [],
+            faltas: {
+              anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
+              classe: cls,
+              totalAulasPrevistas: 720,
+              faltasJustificadas: 0,
+              faltasInjustificadas: 0,
+              totalPresencas: 720,
+              percentualAssiduidade: 100,
+              observacao: 'Frequência regular.'
+            },
+            dividas: {
+              anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
+              classe: cls,
+              status: 'Regularizado',
+              totalDividaAKZ: 0,
+              totalPagoAKZ: 120000,
+              mesesPendentes: [],
+              observacoes: 'Regularizado.'
+            }
+          };
+        });
+
+        hist = {
+          alunoId: target.id,
+          classes: classesAtualizadas,
+          dataUltimaAtualizacao: new Date().toISOString()
+        };
+        dbService.salvarHistoricoEscolarCompleto(hist);
+        setHistoricoCompleto(hist);
+        setClasseAtivaIdx(0);
+      }
+    }
+  }, [abaAtiva, alunoHistoricoId, alunos, historicoAluno, turmas, escola.anoLectivoActivo, escola.nomeOficial]);
 
   // Proteção de segurança contra ataques ReDoS e sobrecarga de CPU por digitação contínua
   const debouncedSearch = useDebouncedSearch(searchTerm, 200);
@@ -209,12 +334,6 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [alunoConfirmadoComprovativo, setAlunoConfirmadoComprovativo] = useState<{ aluno: Aluno; turmaAnterior?: string; turmaNova?: Turma } | null>(null);
   const [showComprovativoModal, setShowComprovativoModal] = useState(false);
 
-  // Modal de Histórico Escolar Completo (Notas Finais por Disciplina em Cada Classe)
-  const [showHistoricoModal, setShowHistoricoModal] = useState(false);
-  const [historicoAluno, setHistoricoAluno] = useState<Aluno | null>(null);
-  const [historicoCompleto, setHistoricoCompleto] = useState<HistoricoEscolarCompleto | null>(null);
-  const [classeAtivaIdx, setClasseAtivaIdx] = useState<number>(0);
-
   // Sub-abas do Histórico Escolar Completo
   const [subAbaHistorico, setSubAbaHistorico] = useState<'notas' | 'ocorrencias' | 'faltas' | 'dividas' | 'resumo'>('notas');
 
@@ -232,11 +351,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   // Formulário para registar nova ocorrência / acontecimento escolar
   const [showNovaOcorrenciaForm, setShowNovaOcorrenciaForm] = useState(false);
   const [novaOcorrTipo, setNovaOcorrTipo] = useState<'Disciplinar' | 'Pedagógico' | 'Elogio' | 'Reunião Encarregado' | 'Advertência' | 'Louvor' | 'Outro'>('Disciplinar');
+  const [novaOcorrGravidade, setNovaOcorrGravidade] = useState<'Leve' | 'Média' | 'Grave'>('Leve');
   const [novaOcorrData, setNovaOcorrData] = useState(() => new Date().toISOString().split('T')[0]);
   const [novaOcorrDescricao, setNovaOcorrDescricao] = useState('');
   const [novaOcorrRegistadoPor, setNovaOcorrRegistadoPor] = useState('');
-  const [novaOcorrCargo, setNovaOcorrCargo] = useState('Coordenador');
+  const [novaOcorrCargo, setNovaOcorrCargo] = useState('Professor');
   const [novaOcorrResolucao, setNovaOcorrResolucao] = useState('');
+  const [novaOcorrNotificarEncarregado, setNovaOcorrNotificarEncarregado] = useState(true);
+  const [showDossieOcorrenciaForm, setShowDossieOcorrenciaForm] = useState(false);
 
   // Edição de faltas e dívidas do ano letivo ativo
   const [editandoFaltas, setEditandoFaltas] = useState(false);
@@ -600,7 +722,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       : getCursoDaTurma(turmaSelecionada);
 
     const escolaAtiva = dbService.getEscolaAtiva();
-    const escolaIdFinal = editingAluno?.escolaId || turmaSelecionada?.escolaId || escola?.id || escolaAtiva?.id || (dbService.getEscolas()[0]?.id) || 'esc-001';
+    const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || (dbService.getEscolas()[0]?.id) || 'esc-001';
 
     const novoAluno: Aluno = {
       id: editingAluno ? editingAluno.id : `aluno-${Date.now()}`,
@@ -635,7 +757,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       endereco,
       fotoUrl: fotoUrl || '',
       estado,
-      propinaStatus: editingAluno?.propinaStatus || 'Regularizada',
+      propinaStatus: editingAluno?.propinaStatus || 'Pendente',
       cadastradoEm: editingAluno?.cadastradoEm || new Date().toISOString().split('T')[0],
       anoLectivo: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
       anoMatricula: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
@@ -930,6 +1052,144 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     });
   };
 
+  // Sincronização automática do estado local de notas em lote com a classe ativa
+  useEffect(() => {
+    if (historicoCompleto && historicoCompleto.classes[classeAtivaIdx]) {
+      const cls = historicoCompleto.classes[classeAtivaIdx];
+      const initialNotas: Record<string, number> = {};
+      cls.notasDisciplinas.forEach(nd => {
+        initialNotas[nd.disciplinaNome] = nd.notaFinal;
+      });
+      setNotasEmLote(initialNotas);
+    }
+  }, [classeAtivaIdx, historicoCompleto]);
+
+  // Sincronização centralizada do Histórico com Aluno e Certificados Multi-Ano
+  const sincronizarHistoricoComAluno = (aluno: Aluno, classes: HistoricoClasseDisciplinas[]) => {
+    const historicoAnteriorSincronizado: HistoricoAnoAnterior[] = classes.map(c => {
+      const eInfo = obterInformacaoEscala(c.classe);
+      return {
+        classe: c.classe,
+        anoLectivo: c.anoLectivo,
+        escolaOrigem: c.escolaOrigem,
+        mediaFinal: c.mediaGeralClasse || eInfo.notaAprovacao,
+        aprovado: (c.mediaGeralClasse || 0) >= eInfo.notaAprovacao,
+        concluido: true
+      };
+    });
+
+    const discMap = new Map<string, {
+      categoria: 'Formação Geral' | 'Formação Específica' | 'Disciplina Opcional';
+      nota10?: number | string;
+      nota11?: number | string;
+      nota12?: number | string;
+      notas: number[];
+    }>();
+
+    classes.forEach(c => {
+      const is1 = c.classe.includes('10ª') || c.classe.includes('7ª') || c.classe.includes('1ª');
+      const is2 = c.classe.includes('11ª') || c.classe.includes('8ª') || c.classe.includes('2ª');
+      const is3 = c.classe.includes('12ª') || c.classe.includes('9ª') || c.classe.includes('3ª');
+
+      c.notasDisciplinas.forEach(nd => {
+        const nome = nd.disciplinaNome.trim();
+        if (!discMap.has(nome)) {
+          discMap.set(nome, {
+            categoria: 'Formação Geral',
+            notas: []
+          });
+        }
+        const item = discMap.get(nome)!;
+        if (is1) item.nota10 = nd.notaFinal;
+        if (is2) item.nota11 = nd.notaFinal;
+        if (is3) item.nota12 = nd.notaFinal;
+        item.notas.push(nd.notaFinal);
+      });
+    });
+
+    const historicoMultiAno: NotaMultiAno[] = Array.from(discMap.entries()).map(([disciplinaNome, data]) => {
+      const mf = data.notas.length > 0 ? Math.round(data.notas.reduce((a, b) => a + b, 0) / data.notas.length) : 10;
+      return {
+        disciplinaNome,
+        categoria: data.categoria,
+        nota10: data.nota10 ?? '—',
+        nota11: data.nota11 ?? '—',
+        nota12: data.nota12 ?? '—',
+        mediaFinal: mf,
+        notaFinal: mf
+      };
+    });
+
+    const alunoAtualizado: Aluno = {
+      ...aluno,
+      historicoAnterior: historicoAnteriorSincronizado,
+      historicoMultiAno
+    };
+
+    onSalvarAluno(alunoAtualizado);
+    setHistoricoAluno(alunoAtualizado);
+  };
+
+  // Salvar TODAS as médias das disciplinas da classe de uma vez só!
+  const handleSalvarTodasMediasNaClasse = () => {
+    if (!historicoCompleto || !historicoAluno) return;
+    const classeAtual = historicoCompleto.classes[classeAtivaIdx];
+    if (!classeAtual) return;
+
+    const escalaInfo = obterInformacaoEscala(classeAtual.classe);
+
+    const notasAtualizadas = classeAtual.notasDisciplinas.map(nd => {
+      const rawVal = notasEmLote[nd.disciplinaNome];
+      let nota = rawVal !== undefined ? parseFloat(String(rawVal)) : nd.notaFinal;
+      if (isNaN(nota)) nota = 10;
+      if (nota < 0) nota = 0;
+      if (nota > escalaInfo.escalaMaxima) nota = escalaInfo.escalaMaxima;
+
+      return {
+        ...nd,
+        notaFinal: parseFloat(nota.toFixed(1)),
+        resultado: (nota >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+      };
+    });
+
+    const soma = notasAtualizadas.reduce((acc, d) => acc + d.notaFinal, 0);
+    const mediaGeralClasse = parseFloat((soma / (notasAtualizadas.length || 1)).toFixed(1));
+
+    const classesAtualizadas = [...historicoCompleto.classes];
+    classesAtualizadas[classeAtivaIdx] = {
+      ...classeAtual,
+      notasDisciplinas: notasAtualizadas,
+      mediaGeralClasse
+    };
+
+    const novoHistorico: HistoricoEscolarCompleto = {
+      ...historicoCompleto,
+      classes: classesAtualizadas,
+      dataUltimaAtualizacao: new Date().toISOString()
+    };
+
+    dbService.salvarHistoricoEscolarCompleto(novoHistorico);
+    setHistoricoCompleto(novoHistorico);
+
+    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
+
+    setFeedbackHistorico(`✓ Todas as ${notasAtualizadas.length} médias da ${classeAtual.classe} classe foram gravadas e sincronizadas com sucesso (Média: ${mediaGeralClasse} Valores)!`);
+    setTimeout(() => setFeedbackHistorico(null), 4000);
+  };
+
+  // Atribuir nota rápida a todas as disciplinas para agilizar lançamento em lote
+  const handleAplicarNotaRapidaATodas = (valor: number) => {
+    if (!historicoCompleto) return;
+    const classeAtual = historicoCompleto.classes[classeAtivaIdx];
+    if (!classeAtual) return;
+
+    const novoMapa: Record<string, number> = { ...notasEmLote };
+    classeAtual.notasDisciplinas.forEach(nd => {
+      novoMapa[nd.disciplinaNome] = valor;
+    });
+    setNotasEmLote(novoMapa);
+  };
+
   // Funções do Histórico Escolar Completo
   const handleAdicionarDisciplinaNaClasse = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1155,6 +1415,77 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setHistoricoAluno(alunoAtualizado);
   };
 
+  // Inicializa ou regenera todas as classes curriculares obrigatórias do ciclo do estudante
+  const handleInicializarCicloCompleto = () => {
+    if (!historicoAluno) return;
+    const turma = turmas.find(t => t.id === historicoAluno.turmaId);
+    const classeRef = historicoAluno.classeId || turma?.classe || '10ª';
+    const classesDoCiclo = obterClassesDoCiclo(classeRef, historicoAluno.curso);
+    const anoBase = parseInt(escola.anoLectivoActivo?.split('/')[0] || '2025', 10);
+    const classesExistentes = historicoCompleto?.classes || [];
+
+    const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
+      const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
+      if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
+        return encontrada;
+      }
+
+      const diffAnos = classesDoCiclo.length - 1 - idx;
+      const anoLetivoEst = `${anoBase - diffAnos}/${anoBase - diffAnos + 1}`;
+      const discPadrao = CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8);
+      const escalaInfo = obterInformacaoEscala(cls);
+
+      const histAnt = historicoAluno.historicoAnterior?.find(h => h.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
+      const notaBase = histAnt?.mediaFinal || escalaInfo.notaAprovacao || 10;
+
+      const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => ({
+        disciplinaNome: nome,
+        notaFinal: notaBase,
+        resultado: (notaBase >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+      }));
+
+      return {
+        classe: cls,
+        anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
+        escolaOrigem: encontrada?.escolaOrigem || histAnt?.escolaOrigem || escola.nomeOficial || 'Escola de Origem',
+        mediaGeralClasse: notaBase,
+        notasDisciplinas,
+        ocorrencias: historicoAluno.ocorrencias || [],
+        faltas: {
+          anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
+          classe: cls,
+          totalAulasPrevistas: 720,
+          faltasJustificadas: 0,
+          faltasInjustificadas: 0,
+          totalPresencas: 720,
+          percentualAssiduidade: 100,
+          observacao: 'Frequência regular.'
+        },
+        dividas: {
+          anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
+          classe: cls,
+          status: 'Regularizado',
+          totalDividaAKZ: 0,
+          totalPagoAKZ: 120000,
+          mesesPendentes: [],
+          observacoes: 'Regularizado.'
+        }
+      };
+    });
+
+    const novoHist: HistoricoEscolarCompleto = {
+      alunoId: historicoAluno.id,
+      classes: classesAtualizadas,
+      dataUltimaAtualizacao: new Date().toISOString()
+    };
+    dbService.salvarHistoricoEscolarCompleto(novoHist);
+    setHistoricoCompleto(novoHist);
+    setClasseAtivaIdx(0);
+    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
+    setFeedbackHistorico(`Ciclo completo gerado com sucesso: ${classesDoCiclo.join(', ')}.`);
+    setTimeout(() => setFeedbackHistorico(null), 4000);
+  };
+
   // Exportar histórico escolar em Excel (.xlsx)
   const handleExportarHistoricoExcel = () => {
     if (!historicoCompleto || !historicoAluno) return;
@@ -1254,7 +1585,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setHistoricoAluno(alunoAtualizado);
   };
 
-  // Adicionar acontecimento / ocorrência escolar registada por coordenadores ou professores
+  // Adicionar acontecimento / ocorrência escolar (Professores, Coordenadores, Diretores, Subdiretores, Secretários)
   const handleAdicionarOcorrencia = (e: React.FormEvent) => {
     e.preventDefault();
     if (!historicoCompleto || !historicoAluno) return;
@@ -1263,16 +1594,21 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     if (!novaOcorrDescricao.trim()) return;
 
+    const userLogado = dbService.getCurrentUser();
+    const nomeRegistador = novaOcorrRegistadoPor.trim() || userLogado?.nomeCompleto || 'Direção Escolar';
+
     const novaOcorr: OcorrenciaHistoricoAluno = {
       id: `ocorr-${Date.now()}`,
       data: novaOcorrData,
       tipo: novaOcorrTipo,
+      gravidade: novaOcorrGravidade,
       descricao: novaOcorrDescricao.trim(),
-      registadoPor: novaOcorrRegistadoPor.trim() || 'Coordenação Pedagógica',
+      registadoPor: nomeRegistador,
       cargo: novaOcorrCargo,
-      anoLectivo: classeAtual.anoLectivo,
+      anoLectivo: classeAtual.anoLectivo || escola.anoLectivoActivo || '2025/2026',
       classe: classeAtual.classe,
-      resolucao: novaOcorrResolucao.trim() || 'Averbado no processo escolar do estudante.'
+      resolucao: novaOcorrResolucao.trim() || 'Averbado no dossiê oficial do estudante.',
+      notificarEncarregado: novaOcorrNotificarEncarregado
     };
 
     const ocorrenciasAtualizadas = [novaOcorr, ...(classeAtual.ocorrencias || [])];
@@ -1290,10 +1626,83 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     dbService.salvarHistoricoEscolarCompleto(novoHistorico);
     setHistoricoCompleto(novoHistorico);
+
+    // Salvar também diretamente no aluno para persistência universal e espelho no dossiê
+    const alunoOcorrencias = [novaOcorr, ...(historicoAluno.ocorrencias || [])];
+    const alunoAtualizado: Aluno = {
+      ...historicoAluno,
+      ocorrencias: alunoOcorrencias
+    };
+    onSalvarAluno(alunoAtualizado);
+    setHistoricoAluno(alunoAtualizado);
+
+    // Registar no log de auditoria
+    dbService.registarLog(
+      'Registo de Ocorrência Escolar',
+      `Ocorrência (${novaOcorr.tipo} - ${novaOcorr.gravidade}) averbada para o discente ${historicoAluno.nomeCompleto} por ${nomeRegistador} (${novaOcorr.cargo}).`
+    );
+
     setNovaOcorrDescricao('');
-    setNovaOcorrRegistadoPor('');
     setNovaOcorrResolucao('');
     setShowNovaOcorrenciaForm(false);
+  };
+
+  const handleRegistarOcorrenciaNoDossie = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!alunoDossieModal) return;
+
+    const userLogado = dbService.getCurrentUser();
+    const nomeRegistador = novaOcorrRegistadoPor.trim() || userLogado?.nomeCompleto || 'Direção Escolar';
+    const cargoRegistador = novaOcorrCargo || userLogado?.cargo || userLogado?.role || 'Professor';
+
+    const novaOcorr: OcorrenciaHistoricoAluno = {
+      id: `ocorr-dos-${Date.now()}`,
+      data: novaOcorrData || new Date().toISOString().split('T')[0],
+      anoLectivo: escola.anoLectivoActivo || '2025/2026',
+      tipo: novaOcorrTipo,
+      gravidade: novaOcorrGravidade,
+      descricao: novaOcorrDescricao.trim() || 'Ocorrência averbada no dossiê oficial.',
+      registadoPor: nomeRegistador,
+      cargo: cargoRegistador,
+      resolucao: novaOcorrResolucao.trim() || 'Averbado no dossiê do estudante para acompanhamento pedagógico e disciplinar.',
+      notificadoEncarregado: novaOcorrNotificarEncarregado
+    };
+
+    const ocorrenciasAtualizadas = [novaOcorr, ...(alunoDossieModal.ocorrencias || [])];
+    const alunoAtualizado: Aluno = {
+      ...alunoDossieModal,
+      ocorrencias: ocorrenciasAtualizadas
+    };
+
+    onSalvarAluno(alunoAtualizado);
+    setAlunoDossieModal(alunoAtualizado);
+
+    // Salvar também no histórico multianual se existir
+    try {
+      const hist = dbService.getHistoricoEscolarCompleto(alunoDossieModal.id);
+      if (hist && hist.classes.length > 0) {
+        const idxUltima = hist.classes.length - 1;
+        const classesAt = [...hist.classes];
+        classesAt[idxUltima] = {
+          ...classesAt[idxUltima],
+          ocorrencias: [novaOcorr, ...(classesAt[idxUltima].ocorrencias || [])]
+        };
+        dbService.salvarHistoricoEscolarCompleto({
+          ...hist,
+          classes: classesAt,
+          dataUltimaAtualizacao: new Date().toISOString()
+        });
+      }
+    } catch {}
+
+    dbService.registarLog(
+      'Registo de Ocorrência no Dossiê',
+      `Ocorrência (${novaOcorr.tipo} - ${novaOcorr.gravidade}) registada para o discente ${alunoDossieModal.nomeCompleto} por ${nomeRegistador} (${cargoRegistador}).`
+    );
+
+    setNovaOcorrDescricao('');
+    setNovaOcorrResolucao('');
+    setShowDossieOcorrenciaForm(false);
   };
 
   const handleRemoverOcorrencia = (idOcorr: string) => {
@@ -1316,6 +1725,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     dbService.salvarHistoricoEscolarCompleto(novoHistorico);
     setHistoricoCompleto(novoHistorico);
+
+    const alunoOcorrencias = (historicoAluno.ocorrencias || []).filter(o => o.id !== idOcorr);
+    const alunoAtualizado: Aluno = {
+      ...historicoAluno,
+      ocorrencias: alunoOcorrencias
+    };
+    onSalvarAluno(alunoAtualizado);
+    setHistoricoAluno(alunoAtualizado);
   };
 
   const handleSalvarFaltas = (e: React.FormEvent) => {
@@ -1450,7 +1867,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         </div>
       </div>
 
-      {/* Abas Principais: Quadro Geral de Estudantes vs Ranking Oficial de Desempenho */}
+      {/* Abas Principais: Quadro Geral vs Ranking vs Histórico Escolar & Dossiê */}
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3 no-print">
         <button
           type="button"
@@ -1477,6 +1894,24 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           <Trophy className="h-4 w-4" />
           <span>Ranking de Desempenho (Top 5 & Menor Rendimento)</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setAbaAtiva('historico');
+            if (alunos.length > 0 && !alunoHistoricoId) {
+              setAlunoHistoricoId(alunos[0].id);
+            }
+          }}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-2 ${
+            abaAtiva === 'historico'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs'
+              : 'bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100'
+          }`}
+        >
+          <BookOpen className="h-4 w-4" />
+          <span>Histórico Escolar & Dossiê de Ocorrências</span>
+        </button>
       </div>
 
       {abaAtiva === 'ranking' ? (
@@ -1486,6 +1921,837 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           turmas={turmas} 
           isDiretorPanel={false} 
         />
+      ) : abaAtiva === 'historico' ? (
+        <div className="space-y-6">
+          {/* Seletor & Pesquisa do Estudante para Histórico */}
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
+              <div className="flex items-center space-x-2">
+                <BookOpen className="w-5 h-5 text-emerald-700" />
+                <h3 className="text-sm font-black text-gray-900">
+                  Dossiê & Histórico Escolar Multianual do Estudante
+                </h3>
+              </div>
+              <span className="text-[11px] text-gray-500">
+                Averbe notas das classes anteriores (7ª, 8ª, 9ª, 10ª, 11ª, 12ª, 13ª), ocorrências e assiduidade
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Selecione o Estudante:
+                </label>
+                <select
+                  value={alunoHistoricoId}
+                  onChange={(e) => setAlunoHistoricoId(e.target.value)}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                >
+                  {alunos.map(a => {
+                    const t = turmas.find(tm => tm.id === a.turmaId);
+                    return (
+                      <option key={`sel-hist-${a.id}`} value={a.id}>
+                        {a.nomeCompleto} — Matrícula: {a.codigoMatricula} ({a.classeId || t?.classe} • {t?.nome || 'Turma'})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Pesquisa Rápida:
+                </label>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome ou nº de matrícula..."
+                    onChange={(e) => {
+                      const termo = e.target.value.toLowerCase().trim();
+                      if (termo) {
+                        const match = alunos.find(a => 
+                          a.nomeCompleto.toLowerCase().includes(termo) ||
+                          a.codigoMatricula.toLowerCase().includes(termo) ||
+                          (a.numeroDocumento || '').toLowerCase().includes(termo)
+                        );
+                        if (match) setAlunoHistoricoId(match.id);
+                      }
+                    }}
+                    className="w-full pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Cartão de Destaque do Aluno Selecionado */}
+          {historicoAluno && (
+            <div className="bg-white p-5 rounded-2xl border-2 border-emerald-500/30 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+                <div className="flex items-center space-x-3.5">
+                  {historicoAluno.fotoUrl && historicoAluno.fotoUrl.trim() !== '' ? (
+                    <img
+                      src={historicoAluno.fotoUrl}
+                      alt={historicoAluno.nomeCompleto}
+                      className="h-14 w-14 rounded-full object-cover border-2 border-emerald-600 shadow-sm"
+                    />
+                  ) : (
+                    <div className="h-14 w-14 rounded-full bg-emerald-100 text-emerald-800 font-black text-sm flex items-center justify-center border-2 border-emerald-600">
+                      {historicoAluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-base font-black text-gray-950">{historicoAluno.nomeCompleto}</h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                        historicoAluno.estado === 'Ativo' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {historicoAluno.estado}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 font-mono mt-0.5">
+                      Nº Matrícula: <strong>{historicoAluno.codigoMatricula}</strong> • Nº Processo: <strong>{historicoAluno.numeroProcesso || historicoAluno.codigoMatricula}</strong>
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-[11px] text-gray-600 mt-1">
+                      <span>Classe Atual: <strong>{historicoAluno.classeId || '10ª Classe'}</strong></span>
+                      <span>•</span>
+                      <span>Turma: <strong>{turmas.find(t => t.id === historicoAluno.turmaId)?.nome || 'Turma A'}</strong></span>
+                      {historicoAluno.curso && (
+                        <>
+                          <span>•</span>
+                          <span>Curso: <strong>{historicoAluno.curso}</strong></span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAlunoDossieModal(historicoAluno)}
+                    className="px-3.5 py-2 text-xs font-bold text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>Dossiê & Ficha Biográfica</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportarHistoricoExcel}
+                    className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-4 h-4 text-emerald-700" />
+                    <span>Exportar Excel (.xlsx)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenHistoricoModal(historicoAluno)}
+                    className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl inline-flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>Gerir no Modal Avançado</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-abas de Navegação: Notas Anteriores vs Ocorrências vs Faltas vs Dívidas */}
+              <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setSubAbaHistorico('notas')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                    subAbaHistorico === 'notas'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Notas das Classes Anteriores (Certificados MED)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubAbaHistorico('ocorrencias')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                    subAbaHistorico === 'ocorrencias'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Ocorrências & Acontecimentos ({historicoAluno.ocorrencias?.length || 0})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubAbaHistorico('faltas')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                    subAbaHistorico === 'faltas'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Assiduidade & Faltas</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubAbaHistorico('dividas')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                    subAbaHistorico === 'dividas'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Dívidas & Encargos Financeiros</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSubAbaHistorico('resumo')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                    subAbaHistorico === 'resumo'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Quadro Consolidado Multianual</span>
+                </button>
+              </div>
+
+              {/* CONTEÚDO DA SUB-ABA SELECIONADA */}
+              {historicoCompleto && (() => {
+                const classeAtual = historicoCompleto.classes[classeAtivaIdx] || historicoCompleto.classes[0];
+                if (!classeAtual) {
+                  return (
+                    <div className="p-8 text-center text-xs text-gray-500 bg-gray-50 rounded-xl border border-gray-200">
+                      Nenhuma classe anterior arquivada no histórico deste estudante.
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowAddClasseForm(true)}
+                          className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer"
+                        >
+                          + Adicionar Primeira Classe
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-4">
+                    {/* SELETOR DE CLASSES ANTERIORES */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-gray-600">Classe em Exibição:</span>
+                        {historicoCompleto.classes.map((c, idx) => (
+                          <button
+                            key={`cls-sel-${idx}`}
+                            type="button"
+                            onClick={() => setClasseAtivaIdx(idx)}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                              classeAtivaIdx === idx
+                                ? 'bg-emerald-700 text-white shadow-xs'
+                                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            {c.classe} Classe ({c.anoLectivo})
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleInicializarCicloCompleto}
+                          className="px-3 py-1 bg-emerald-50 border border-emerald-400 text-emerald-900 hover:bg-emerald-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                          title="Inicializa ou complementa automaticamente todas as classes obrigatórias do ciclo curricular (1ª à 6ª, 7ª à 9ª ou 10ª à 12ª/13ª)"
+                        >
+                          <Award className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>Gerar Ciclo Completo de Classes</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddClasseForm(!showAddClasseForm)}
+                          className="px-3 py-1 bg-white border border-emerald-400 text-emerald-800 hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Nova Classe</span>
+                        </button>
+                        {historicoCompleto.classes.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverClasse(classeAtivaIdx)}
+                            className="px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 rounded-lg font-bold border border-red-200 cursor-pointer"
+                            title="Remover esta classe"
+                          >
+                            Eliminar Classe
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* FORMULÁRIO NOVA CLASSE */}
+                    {showAddClasseForm && (
+                      <form onSubmit={handleCriarNovaClasse} className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-3 text-xs">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-black text-emerald-900">Adicionar Classe ao Histórico Escolar</h4>
+                          <button type="button" onClick={() => setShowAddClasseForm(false)} className="text-gray-500 font-bold">✕</button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="font-bold text-gray-700 block mb-1">Classe Curricular *</label>
+                            <input
+                              type="text"
+                              required
+                              value={novaClasseNome}
+                              onChange={(e) => setNovaClasseNome(e.target.value)}
+                              placeholder="Ex: 7ª, 8ª, 9ª, 10ª, 11ª..."
+                              className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-bold text-gray-700 block mb-1">Ano Lectivo de Conclusão *</label>
+                            <input
+                              type="text"
+                              required
+                              value={novaClasseAno}
+                              onChange={(e) => setNovaClasseAno(e.target.value)}
+                              placeholder="Ex: 2023/2024"
+                              className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="font-bold text-gray-700 block mb-1">Escola de Origem</label>
+                            <input
+                              type="text"
+                              value={novaClasseEscola}
+                              onChange={(e) => setNovaClasseEscola(e.target.value)}
+                              placeholder="Ex: Colégio Esperança ou em branco"
+                              className="w-full p-2 border border-gray-300 rounded-lg bg-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end space-x-2 pt-1">
+                          <button type="button" onClick={() => setShowAddClasseForm(false)} className="px-3 py-1.5 text-gray-600">Cancelar</button>
+                          <button type="submit" className="px-4 py-1.5 bg-emerald-700 text-white font-bold rounded-lg shadow-xs cursor-pointer">Gravar Classe</button>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* 1. ABA NOTAS DAS DISCIPLINAS: LANÇAMENTO EM LOTE DE TODAS AS DISCIPLINAS DE UMA VEZ */}
+                    {subAbaHistorico === 'notas' && (() => {
+                      const escalaInfo = obterInformacaoEscala(classeAtual.classe);
+                      const notasValores = classeAtual.notasDisciplinas.map(d => {
+                        const val = notasEmLote[d.disciplinaNome];
+                        return val !== undefined ? Number(val) : d.notaFinal;
+                      });
+                      const soma = notasValores.reduce((acc, v) => acc + (isNaN(v) ? 0 : v), 0);
+                      const mediaAoVivo = notasValores.length > 0 ? parseFloat((soma / notasValores.length).toFixed(1)) : 0;
+                      const aprovadoAoVivo = mediaAoVivo >= escalaInfo.notaAprovacao;
+
+                      return (
+                        <div className="space-y-4">
+                          {feedbackHistorico && (
+                            <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-950 rounded-xl text-xs font-bold flex items-center justify-between shadow-2xs">
+                              <span>{feedbackHistorico}</span>
+                              <button type="button" onClick={() => setFeedbackHistorico(null)} className="text-emerald-800 font-bold cursor-pointer">✕</button>
+                            </div>
+                          )}
+
+                          {/* Barra de Ações Rápidas de Lançamento em Lote */}
+                          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border-2 border-emerald-500/30 rounded-2xl shadow-2xs">
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-2">
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-700 text-white font-black text-xs">
+                                  {classeAtual.classe} Classe
+                                </span>
+                                <span className="text-xs font-bold text-gray-800">
+                                  Ano Lectivo: {classeAtual.anoLectivo} • Origem: {classeAtual.escolaOrigem || escola.nomeOficial}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-gray-600">
+                                Todas as disciplinas curriculares desta classe dispostas para lançamento simultâneo. Alimenta automaticamente os Certificados Oficiais MED ({classeAtual.classe}).
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-3">
+                              {/* Indicador de Média Geral em Tempo Real */}
+                              <div className="px-3 py-1.5 bg-white border border-gray-300 rounded-xl flex items-center space-x-2 shadow-2xs">
+                                <span className="text-[10px] font-bold uppercase text-gray-500">Média Geral:</span>
+                                <span className={`text-sm font-black ${aprovadoAoVivo ? 'text-emerald-700' : 'text-red-700'}`}>
+                                  {mediaAoVivo} Val
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${aprovadoAoVivo ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                                  {aprovadoAoVivo ? 'Aprovado' : 'Não Transita'}
+                                </span>
+                              </div>
+
+                              {/* Botão de Gravação em Lote Principal */}
+                              <button
+                                type="button"
+                                onClick={handleSalvarTodasMediasNaClasse}
+                                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-black text-xs shadow-xs inline-flex items-center space-x-1.5 cursor-pointer transition-all transform active:scale-95"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>Guardar Todas as Médias Desta Classe de Uma Vez</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Barra de Preenchimento Rápido / Atalhos de Notas */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-bold text-gray-600 text-[11px]">Atribuir Nota Base a Todas:</span>
+                              {[10, 12, 14, 15, 16, 18].map(val => (
+                                <button
+                                  key={`btn-val-${val}`}
+                                  type="button"
+                                  onClick={() => handleAplicarNotaRapidaATodas(val)}
+                                  className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-900 border border-gray-300 hover:border-emerald-500 rounded-lg font-bold text-xs cursor-pointer shadow-2xs transition-colors"
+                                  title={`Definir ${val} valores em todas as disciplinas desta classe`}
+                                >
+                                  {val} Val
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={handleCarregarCurriculoPadrao}
+                                className="px-3 py-1 bg-blue-50 border border-blue-300 text-blue-800 hover:bg-blue-100 rounded-lg text-xs font-bold inline-flex items-center space-x-1 cursor-pointer"
+                                title="Recarregar todas as disciplinas da matriz oficial MED de Angola"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>Recarregar Matriz Oficial MED</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Tabela de Todas as Disciplinas com Inputs Diretos */}
+                          <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                            <table className="w-full text-xs text-left">
+                              <thead className="bg-gray-100 text-gray-800 uppercase font-black text-[10px] tracking-wider border-b border-gray-200">
+                                <tr>
+                                  <th className="p-3 w-10 text-center">Nº</th>
+                                  <th className="p-3">Disciplina Curricular ({classeAtual.notasDisciplinas.length})</th>
+                                  <th className="p-3 w-36 text-center">Média Final (0-20)</th>
+                                  <th className="p-3 w-44">Classificação por Extenso</th>
+                                  <th className="p-3 w-28 text-center">Aproveitamento</th>
+                                  <th className="p-3 w-16 text-center">Ações</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200">
+                                {classeAtual.notasDisciplinas.map((d, dIdx) => {
+                                  const notaAtual = notasEmLote[d.disciplinaNome] !== undefined 
+                                    ? notasEmLote[d.disciplinaNome] 
+                                    : d.notaFinal;
+                                  const aprovado = Number(notaAtual) >= escalaInfo.notaAprovacao;
+
+                                  return (
+                                    <tr key={`disc-${dIdx}`} className="hover:bg-slate-50 transition-colors">
+                                      <td className="p-3 text-center font-bold text-gray-500">{dIdx + 1}</td>
+                                      <td className="p-3 font-bold text-gray-900">
+                                        <div className="flex items-center space-x-2">
+                                          <span>{d.disciplinaNome}</span>
+                                          {d.professorNome && (
+                                            <span className="text-[10px] text-gray-400 font-normal">({d.professorNome})</span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <div className="inline-flex items-center justify-center space-x-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const nv = Math.max(0, Number((Number(notaAtual) - 1).toFixed(1)));
+                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
+                                            }}
+                                            className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
+                                          >
+                                            -
+                                          </button>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="20"
+                                            step="0.5"
+                                            value={notaAtual}
+                                            onChange={(e) => {
+                                              const v = parseFloat(e.target.value) || 0;
+                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: Math.min(20, Math.max(0, v)) }));
+                                            }}
+                                            className="w-16 p-1 text-center font-black text-sm border-2 border-emerald-500/40 rounded-lg bg-emerald-50/20 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const nv = Math.min(20, Number((Number(notaAtual) + 1).toFixed(1)));
+                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
+                                            }}
+                                            className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      </td>
+                                      <td className="p-3 font-semibold text-gray-600">
+                                        {converterNotaParaCertificadoExtenso(Number(notaAtual))}
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                          aprovado ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                        }`}>
+                                          {aprovado ? 'Aprovado' : 'Não Transita'}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoverDisciplina(dIdx)}
+                                          className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                          title="Remover disciplina"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Botão de Gravação no Rodapé */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                            <span className="text-xs text-gray-500">
+                              Lançamento em lote: clique no botão ao lado para persistir simultaneamente todas as classificações e atualizar o certificado oficial.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleSalvarTodasMediasNaClasse}
+                              className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-black text-xs shadow-xs inline-flex items-center space-x-2 cursor-pointer transition-all justify-center"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Guardar Todas as Médias Desta Classe de Uma Vez</span>
+                            </button>
+                          </div>
+
+                          {/* Formulário para Adicionar Disciplina Avulsa */}
+                          <form onSubmit={handleAdicionarDisciplinaNaClasse} className="flex flex-wrap items-end gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs">
+                            <div className="flex-1 min-w-[200px]">
+                              <label className="font-bold text-gray-700 block mb-1">Adicionar Disciplina Avulsa / Opcional:</label>
+                              <input
+                                type="text"
+                                required
+                                value={novaDiscNome}
+                                onChange={(e) => setNovaDiscNome(e.target.value)}
+                                placeholder="Nome da disciplina curricular..."
+                                className="w-full p-2 border border-gray-300 rounded-lg bg-white"
+                              />
+                            </div>
+                            <div className="w-28">
+                              <label className="font-bold text-gray-700 block mb-1">Nota Final:</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="20"
+                                step="0.5"
+                                value={novaDiscNota}
+                                onChange={(e) => setNovaDiscNota(e.target.value)}
+                                placeholder="10"
+                                className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
+                              />
+                            </div>
+                            <button
+                              type="submit"
+                              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Adicionar Disciplina</span>
+                            </button>
+                          </form>
+                        </div>
+                      );
+                    })()}
+
+                    {/* 2. ABA OCORRÊNCIAS & ACONTECIMENTOS */}
+                    {subAbaHistorico === 'ocorrencias' && (
+                      <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                          <div>
+                            <span className="text-xs font-black text-amber-950 block">
+                              Registo de Ocorrências & Acontecimentos na {classeAtual.classe} Classe
+                            </span>
+                            <span className="text-[11px] text-amber-800">
+                              Podem ser averbadas por professores, coordenadores pedagógicos, diretores, subdiretores e secretários.
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowNovaOcorrenciaForm(!showNovaOcorrenciaForm)}
+                            className="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg text-xs flex items-center space-x-1 shadow-xs cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>{showNovaOcorrenciaForm ? 'Fechar Formulário' : 'Nova Ocorrência'}</span>
+                          </button>
+                        </div>
+
+                        {/* Formulário Nova Ocorrência */}
+                        {showNovaOcorrenciaForm && (
+                          <form onSubmit={handleAdicionarOcorrencia} className="p-4 bg-white border-2 border-amber-400 rounded-xl shadow-md space-y-3 text-xs">
+                            <h4 className="font-black text-gray-900 border-b pb-1">Registar Acontecimento Escolar</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                              <div>
+                                <label className="font-bold text-gray-700 block mb-1">Tipo de Ocorrência *</label>
+                                <select
+                                  value={novaOcorrTipo}
+                                  onChange={(e) => setNovaOcorrTipo(e.target.value as any)}
+                                  className="w-full p-2 border rounded-lg font-bold bg-white"
+                                >
+                                  <option value="Disciplinar">Disciplinar</option>
+                                  <option value="Pedagógico">Pedagógico</option>
+                                  <option value="Advertência">Advertência Formal</option>
+                                  <option value="Louvor">Louvor / Mérito</option>
+                                  <option value="Elogio">Elogio</option>
+                                  <option value="Reunião Encarregado">Reunião com Encarregado</option>
+                                  <option value="Outro">Outro</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="font-bold text-gray-700 block mb-1">Gravidade *</label>
+                                <select
+                                  value={novaOcorrGravidade}
+                                  onChange={(e) => setNovaOcorrGravidade(e.target.value as any)}
+                                  className="w-full p-2 border rounded-lg font-bold bg-white"
+                                >
+                                  <option value="Leve">Leve</option>
+                                  <option value="Média">Média</option>
+                                  <option value="Grave">Grave</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="font-bold text-gray-700 block mb-1">Data *</label>
+                                <input
+                                  type="date"
+                                  required
+                                  value={novaOcorrData}
+                                  onChange={(e) => setNovaOcorrData(e.target.value)}
+                                  className="w-full p-2 border rounded-lg bg-white font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-bold text-gray-700 block mb-1">Registado Por (Cargo) *</label>
+                                <select
+                                  value={novaOcorrCargo}
+                                  onChange={(e) => setNovaOcorrCargo(e.target.value)}
+                                  className="w-full p-2 border rounded-lg font-bold bg-white"
+                                >
+                                  <option value="Professor">Professor(a)</option>
+                                  <option value="Coordenador">Coordenador(a)</option>
+                                  <option value="Diretor Geral">Diretor(a) Geral</option>
+                                  <option value="Subdiretor Pedagógico">Subdiretor(a) Pedagógico</option>
+                                  <option value="Subdiretor Administrativo">Subdiretor(a) Administrativo</option>
+                                  <option value="Secretário">Secretário(a)</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="font-bold text-gray-700 block mb-1">Descrição do Ocorrido *</label>
+                                <textarea
+                                  required
+                                  rows={2}
+                                  value={novaOcorrDescricao}
+                                  onChange={(e) => setNovaOcorrDescricao(e.target.value)}
+                                  placeholder="Relate detalhadamente o acontecimento..."
+                                  className="w-full p-2 border rounded-lg"
+                                />
+                              </div>
+                              <div>
+                                <label className="font-bold text-gray-700 block mb-1">Resolução / Medida Adotada *</label>
+                                <textarea
+                                  required
+                                  rows={2}
+                                  value={novaOcorrResolucao}
+                                  onChange={(e) => setNovaOcorrResolucao(e.target.value)}
+                                  placeholder="Medida pedagógica ou disciplinar tomada..."
+                                  className="w-full p-2 border rounded-lg"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center pt-2">
+                              <label className="flex items-center space-x-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={novaOcorrNotificarEncarregado}
+                                  onChange={(e) => setNovaOcorrNotificarEncarregado(e.target.checked)}
+                                  className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                                />
+                                <span>Notificar encarregado de educação</span>
+                              </label>
+                              <div className="flex space-x-2">
+                                <button type="button" onClick={() => setShowNovaOcorrenciaForm(false)} className="px-3 py-1.5 text-gray-600">Cancelar</button>
+                                <button type="submit" className="px-4 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg shadow-xs cursor-pointer">Averbar Ocorrência</button>
+                              </div>
+                            </div>
+                          </form>
+                        )}
+
+                        {/* Lista de Ocorrências */}
+                        {classeAtual.ocorrencias && classeAtual.ocorrencias.length > 0 ? (
+                          <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs text-xs">
+                            <table className="w-full text-left">
+                              <thead className="bg-gray-100 text-gray-800 uppercase font-black text-[10px] tracking-wider border-b border-gray-200">
+                                <tr>
+                                  <th className="p-3 w-24">Data</th>
+                                  <th className="p-3 w-28">Tipo</th>
+                                  <th className="p-3 w-20">Gravidade</th>
+                                  <th className="p-3">Descrição</th>
+                                  <th className="p-3 w-36">Registado Por</th>
+                                  <th className="p-3 w-40">Resolução</th>
+                                  <th className="p-3 w-16 text-center">Ações</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200">
+                                {classeAtual.ocorrencias.map((o) => (
+                                  <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
+                                    <td className="p-3 font-mono text-gray-600">{o.data}</td>
+                                    <td className="p-3 font-bold text-gray-900">{o.tipo}</td>
+                                    <td className="p-3">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        o.gravidade === 'Grave' ? 'bg-red-100 text-red-800' : o.gravidade === 'Média' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                                      }`}>
+                                        {o.gravidade}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-gray-800">{o.descricao}</td>
+                                    <td className="p-3 text-gray-700">
+                                      <strong>{o.registadoPor}</strong>
+                                      <span className="block text-[10px] text-gray-500">{o.cargo}</span>
+                                    </td>
+                                    <td className="p-3 text-gray-700">{o.resolucao || '—'}</td>
+                                    <td className="p-3 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoverOcorrencia(o.id)}
+                                        className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                        title="Remover ocorrência"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="p-6 text-center text-xs text-gray-500 bg-gray-50 rounded-xl border border-gray-200">
+                            Nenhuma ocorrência averbada nesta classe para este estudante.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 3. ABA FALTAS E ASSIDUIDADE */}
+                    {subAbaHistorico === 'faltas' && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-gray-500 block">Total Aulas Previstas</span>
+                            <span className="text-xl font-black text-gray-900">{classeAtual.faltas?.totalAulasPrevistas || 720}</span>
+                          </div>
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-blue-600 block">Faltas Justificadas</span>
+                            <span className="text-xl font-black text-blue-900">{classeAtual.faltas?.faltasJustificadas ?? 0}</span>
+                          </div>
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-red-600 block">Faltas Injustificadas</span>
+                            <span className="text-xl font-black text-red-900">{classeAtual.faltas?.faltasInjustificadas ?? 0}</span>
+                          </div>
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-emerald-600 block">Taxa de Assiduidade</span>
+                            <span className="text-xl font-black text-emerald-900">{classeAtual.faltas?.percentualAssiduidade ?? 100}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 4. ABA DÍVIDAS E ENCARGOS */}
+                    {subAbaHistorico === 'dividas' && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-gray-500 block">Situação Financeira</span>
+                            <span className="text-sm font-black px-2.5 py-0.5 rounded-full inline-block mt-1 bg-emerald-100 text-emerald-800">
+                              {classeAtual.dividas?.status || 'Regularizado'}
+                            </span>
+                          </div>
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-gray-500 block">Total Liquidado</span>
+                            <span className="text-base font-black text-emerald-900 mt-1 block">
+                              {(classeAtual.dividas?.totalPagoAKZ || 120000).toLocaleString('pt-AO')} Kz
+                            </span>
+                          </div>
+                          <div className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs">
+                            <span className="text-[10px] font-bold uppercase text-gray-500 block">Saldo Pendente</span>
+                            <span className="text-base font-black text-gray-900 mt-1 block">
+                              0 Kz (Sem Dívida)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 5. ABA RESUMO MULTIANUAL */}
+                    {subAbaHistorico === 'resumo' && (
+                      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs text-xs">
+                        <table className="w-full text-left">
+                          <thead className="bg-gray-100 text-gray-800 uppercase font-black text-[10px] tracking-wider border-b border-gray-200">
+                            <tr>
+                              <th className="p-3">Classe</th>
+                              <th className="p-3">Ano Letivo</th>
+                              <th className="p-3">Escola de Origem</th>
+                              <th className="p-3 text-center">Média Geral</th>
+                              <th className="p-3 text-center">Ocorrências</th>
+                              <th className="p-3 text-center">Situação Final</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {historicoCompleto.classes.map((c, cIdx) => (
+                              <tr key={`res-${cIdx}`} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-3 font-bold text-gray-900">{c.classe} Classe</td>
+                                <td className="p-3 font-mono text-gray-600">{c.anoLectivo}</td>
+                                <td className="p-3 text-gray-700">{c.escolaOrigem || escola.nomeOficial}</td>
+                                <td className="p-3 text-center font-black text-emerald-700">{c.mediaGeralClasse ?? 10} / 20</td>
+                                <td className="p-3 text-center font-bold text-amber-700">{c.ocorrencias?.length || 0}</td>
+                                <td className="p-3 text-center">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    Transitou
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
       ) : (
         <>
           {/* Filter Bar com Hierarquia Coerente: Ano Lectivo -> Classe -> Turma -> Sala -> Curso e Proteções Anti-DDoS/ReDoS */}
@@ -3207,20 +4473,34 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         <div>
                           <h4 className="text-sm font-black text-indigo-950 flex items-center space-x-2">
                             <MessageSquare className="w-4 h-4 text-indigo-700" />
-                            <span>Acontecimentos Registados por Coordenadores e Professores</span>
+                            <span>Dossiê de Ocorrências & Acontecimentos do Estudante</span>
                           </h4>
                           <p className="text-xs text-indigo-800 mt-0.5">
-                            Histórico de acontecimentos disciplinares, pedagógicos, elogios, advertências e reuniões com encarregados de educação da <strong>{classeAtual.classe} Classe ({classeAtual.anoLectivo})</strong>.
+                            Registo disciplinar, pedagógico, advertências, elogios e reuniões com encarregados. Autorizado para professores, coordenadores, direção, subdiretores e secretários ({classeAtual.classe} Classe • {classeAtual.anoLectivo}).
                           </p>
                         </div>
 
                         <button
                           type="button"
-                          onClick={() => setShowNovaOcorrenciaForm(!showNovaOcorrenciaForm)}
+                          onClick={() => {
+                            const u = dbService.getCurrentUser();
+                            if (u) {
+                              setNovaOcorrRegistadoPor(u.nomeCompleto);
+                              if (u.role === 'Professor' || u.ehProfessor) setNovaOcorrCargo('Professor');
+                              else if (u.role === 'DiretorGeral') setNovaOcorrCargo('Diretor Geral');
+                              else if (u.role === 'SubdiretorPedagogico') setNovaOcorrCargo('Subdiretor Pedagógico');
+                              else if (u.role === 'SubdiretorAdministrativo') setNovaOcorrCargo('Subdiretor Administrativo');
+                              else if (u.role === 'ChefeSecretaria') setNovaOcorrCargo('Chefe da Secretaria');
+                              else if (u.role === 'Secretaria' || u.role === 'Secretario') setNovaOcorrCargo('Secretário(a) Escolar');
+                              else if (u.role === 'CoordenadorTurno') setNovaOcorrCargo('Coordenador de Turno');
+                              else if (u.role === 'CoordenadorPedagogico') setNovaOcorrCargo('Coordenador Pedagógico');
+                            }
+                            setShowNovaOcorrenciaForm(!showNovaOcorrenciaForm);
+                          }}
                           className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs cursor-pointer shrink-0"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Registar Novo Acontecimento</span>
+                          <span>Registar Nova Ocorrência</span>
                         </button>
                       </div>
 
@@ -3228,13 +4508,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       {showNovaOcorrenciaForm && (
                         <form onSubmit={handleAdicionarOcorrencia} className="p-4 bg-white border-2 border-indigo-400 rounded-xl shadow-md space-y-3 text-xs">
                           <div className="flex items-center justify-between border-b pb-2">
-                            <span className="font-black text-indigo-950">Novo Registo de Acontecimento Escolar</span>
+                            <span className="font-black text-indigo-950">Novo Registo de Ocorrência no Dossiê do Aluno</span>
                             <button type="button" onClick={() => setShowNovaOcorrenciaForm(false)} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                             <div>
-                              <label className="block font-bold text-gray-700 mb-1">Data do Acontecimento</label>
+                              <label className="block font-bold text-gray-700 mb-1">Data da Ocorrência *</label>
                               <input
                                 type="date"
                                 required
@@ -3245,7 +4525,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                             </div>
 
                             <div>
-                              <label className="block font-bold text-gray-700 mb-1">Tipo de Acontecimento</label>
+                              <label className="block font-bold text-gray-700 mb-1">Tipo de Ocorrência *</label>
                               <select
                                 value={novaOcorrTipo}
                                 onChange={(e) => setNovaOcorrTipo(e.target.value as any)}
@@ -3253,70 +4533,102 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                               >
                                 <option value="Disciplinar">Disciplinar</option>
                                 <option value="Pedagógico">Pedagógico</option>
+                                <option value="Advertência">Advertência Formal</option>
                                 <option value="Elogio">Elogio / Mérito</option>
                                 <option value="Reunião Encarregado">Reunião com Encarregado</option>
-                                <option value="Advertência">Advertência Formal</option>
                                 <option value="Louvor">Louvor Oficial</option>
-                                <option value="Outro">Outro Acontecimento</option>
+                                <option value="Outro">Outra Ocorrência</option>
                               </select>
                             </div>
 
                             <div>
-                              <label className="block font-bold text-gray-700 mb-1">Cargo do Responsável</label>
+                              <label className="block font-bold text-gray-700 mb-1">Gravidade *</label>
+                              <select
+                                value={novaOcorrGravidade}
+                                onChange={(e) => setNovaOcorrGravidade(e.target.value as any)}
+                                className="w-full p-2 border rounded-lg bg-white font-bold"
+                              >
+                                <option value="Leve">Leve (Advertência / Registo)</option>
+                                <option value="Média">Média (Reunião / Acompanhamento)</option>
+                                <option value="Grave">Grave (Suspensão / Termo de Culpa)</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block font-bold text-gray-700 mb-1">Cargo do Responsável *</label>
                               <select
                                 value={novaOcorrCargo}
                                 onChange={(e) => setNovaOcorrCargo(e.target.value)}
                                 className="w-full p-2 border rounded-lg bg-white font-bold"
                               >
-                                <option value="Coordenador">Coordenador Pedagógico</option>
-                                <option value="Coordenador de Turno">Coordenador de Turno</option>
                                 <option value="Professor">Professor da Turma</option>
                                 <option value="Diretor de Turma">Diretor de Turma</option>
-                                <option value="Diretor">Diretor Geral / Adjunto</option>
+                                <option value="Coordenador Pedagógico">Coordenador Pedagógico</option>
+                                <option value="Coordenador de Turno">Coordenador de Turno</option>
+                                <option value="Coordenador de Disciplina">Coordenador de Disciplina</option>
+                                <option value="Subdiretor Pedagógico">Subdiretor Pedagógico</option>
+                                <option value="Subdiretor Administrativo">Subdiretor Administrativo</option>
+                                <option value="Chefe da Secretaria">Chefe da Secretaria</option>
+                                <option value="Secretário(a) Escolar">Secretário(a) Escolar</option>
+                                <option value="Diretor Geral">Diretor Geral</option>
                               </select>
                             </div>
                           </div>
 
-                          <div>
-                            <label className="block font-bold text-gray-700 mb-1">Registado Por (Nome do Coordenador ou Docente)</label>
-                            <input
-                              type="text"
-                              required
-                              value={novaOcorrRegistadoPor}
-                              onChange={(e) => setNovaOcorrRegistadoPor(e.target.value)}
-                              placeholder="Ex: Coordenação Pedagógica ou Nome do Responsável"
-                              className="w-full p-2 border rounded-lg bg-white"
-                            />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block font-bold text-gray-700 mb-1">Registado Por (Nome do Operador / Docente) *</label>
+                              <input
+                                type="text"
+                                required
+                                value={novaOcorrRegistadoPor}
+                                onChange={(e) => setNovaOcorrRegistadoPor(e.target.value)}
+                                placeholder="Nome completo do responsável pelo registo..."
+                                className="w-full p-2 border rounded-lg bg-white"
+                              />
+                            </div>
+
+                            <div className="flex items-center pt-5">
+                              <label className="flex items-center space-x-2 font-bold text-gray-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={novaOcorrNotificarEncarregado}
+                                  onChange={(e) => setNovaOcorrNotificarEncarregado(e.target.checked)}
+                                  className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                />
+                                <span>Notificar Encarregado de Educação no Portal</span>
+                              </label>
+                            </div>
                           </div>
 
                           <div>
-                            <label className="block font-bold text-gray-700 mb-1">Descrição Pormenorizada do Acontecimento</label>
+                            <label className="block font-bold text-gray-700 mb-1">Descrição Detalhada da Ocorrência *</label>
                             <textarea
                               required
                               rows={3}
                               value={novaOcorrDescricao}
                               onChange={(e) => setNovaOcorrDescricao(e.target.value)}
-                              placeholder="Descreva o facto ocorrido com rigor pedagógico..."
+                              placeholder="Descreva o facto ocorrido com rigor pedagógico e detalhes circunstanciais..."
                               className="w-full p-2 border rounded-lg bg-white"
                             />
                           </div>
 
                           <div>
-                            <label className="block font-bold text-gray-700 mb-1">Resolução ou Medida Adotada</label>
+                            <label className="block font-bold text-gray-700 mb-1">Resolução / Medida Adotada ou Encaminhamento</label>
                             <input
                               type="text"
                               value={novaOcorrResolucao}
                               onChange={(e) => setNovaOcorrResolucao(e.target.value)}
-                              placeholder="Ex: Averbado em livro de honra / Encarregado assinou termo de compromisso..."
+                              placeholder="Ex: Assinado termo de compromisso, convocado encarregado, advertência oral averbada..."
                               className="w-full p-2 border rounded-lg bg-white"
                             />
                           </div>
 
-                          <div className="flex justify-end gap-2 pt-2">
+                          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
                             <button
                               type="button"
                               onClick={() => setShowNovaOcorrenciaForm(false)}
-                              className="px-3.5 py-1.5 bg-gray-100 text-gray-700 rounded-lg font-bold"
+                              className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold"
                             >
                               Cancelar
                             </button>
@@ -3324,7 +4636,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                               type="submit"
                               className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-xs cursor-pointer"
                             >
-                              Guardar Acontecimento
+                              Salvar no Dossiê do Estudante
                             </button>
                           </div>
                         </form>
@@ -3334,8 +4646,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       {(!classeAtual.ocorrencias || classeAtual.ocorrencias.length === 0) ? (
                         <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-300 rounded-xl">
                           <MessageSquare className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                          <p className="text-xs font-bold text-gray-700">Nenhum acontecimento registado para a {classeAtual.classe} Classe.</p>
-                          <p className="text-[11px] text-gray-500 mt-1">Utilize o botão acima para registar acontecimentos disciplinares, pedagógicos ou reuniões.</p>
+                          <p className="text-xs font-bold text-gray-700">Nenhuma ocorrência registada no dossiê para a {classeAtual.classe} Classe.</p>
+                          <p className="text-[11px] text-gray-500 mt-1">Professores, coordenadores, subdiretores, secretários e direção podem registar acontecimentos disciplinares ou pedagógicos.</p>
                         </div>
                       ) : (
                         <div className="space-y-3">
@@ -3348,16 +4660,32 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                   ? 'bg-purple-100 text-purple-800 border-purple-300'
                                   : 'bg-blue-100 text-blue-800 border-blue-300';
 
+                            const gravidadeBadge = ocorr.gravidade === 'Grave'
+                              ? 'bg-red-600 text-white'
+                              : ocorr.gravidade === 'Média'
+                                ? 'bg-amber-500 text-white'
+                                : 'bg-slate-200 text-slate-800';
+
                             return (
                               <div key={ocorr.id || oIdx} className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs space-y-2 hover:border-indigo-300 transition-all">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
-                                  <div className="flex items-center space-x-2">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor}`}>
                                       {ocorr.tipo}
                                     </span>
+                                    {ocorr.gravidade && (
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${gravidadeBadge}`}>
+                                        {ocorr.gravidade}
+                                      </span>
+                                    )}
                                     <span className="text-xs font-bold text-gray-900">
                                       Data: {ocorr.data}
                                     </span>
+                                    {ocorr.notificarEncarregado && (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                        Encarregado Notificado
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center space-x-2 text-[11px] text-gray-500">
                                     <span>Registado por: <strong>{ocorr.registadoPor}</strong> ({ocorr.cargo})</span>
@@ -3372,14 +4700,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                   </div>
                                 </div>
 
-                                <p className="text-xs text-gray-800 leading-relaxed font-medium">
+                                <p className="text-xs text-gray-800 leading-relaxed font-medium whitespace-pre-wrap">
                                   {ocorr.descricao}
                                 </p>
 
                                 {ocorr.resolucao && (
-                                  <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-700 flex items-center space-x-1.5">
+                                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-700 flex items-center space-x-1.5">
                                     <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                    <span><strong>Resolução / Termo Adotado:</strong> {ocorr.resolucao}</span>
+                                    <span><strong>Providência / Resolução:</strong> {ocorr.resolucao}</span>
                                   </div>
                                 )}
                               </div>
@@ -4066,18 +5394,213 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </div>
             </div>
 
-            {/* Assinaturas Oficiais para Impressão */}
-            <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-2 gap-8 text-center text-xs">
-              <div className="space-y-8">
-                <p className="font-bold text-gray-700">O(A) Chefe da Secretaria Pedagógica</p>
-                <div className="border-b border-gray-900 w-48 mx-auto" />
-                <p className="text-[10px] text-gray-500 uppercase">Assinatura e Carimbo Oficial</p>
+            {/* Seção 4: Dossiê de Ocorrências e Acontecimentos Escolares Recentes */}
+            <div className="space-y-3">
+              <div className="border-b border-gray-300 pb-1.5 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-700" />
+                  <h4 className="text-xs font-black text-gray-900 uppercase tracking-wide">
+                    4. Dossiê de Ocorrências & Acontecimentos Escolares Recentes
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDossieOcorrenciaForm(!showDossieOcorrenciaForm)}
+                  className="px-2.5 py-1 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg inline-flex items-center space-x-1 cursor-pointer print:hidden"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{showDossieOcorrenciaForm ? 'Cancelar' : 'Registar Ocorrência'}</span>
+                </button>
               </div>
 
-              <div className="space-y-8">
-                <p className="font-bold text-gray-700">O(A) Diretor(a) Geral da Instituição</p>
-                <div className="border-b border-gray-900 w-48 mx-auto" />
-                <p className="text-[10px] text-gray-500 uppercase">Visto Ministerial & Homologação</p>
+              {/* Formulário de Nova Ocorrência dentro do Dossiê */}
+              {showDossieOcorrenciaForm && (
+                <form onSubmit={handleRegistarOcorrenciaNoDossie} className="p-3.5 bg-amber-50/60 border border-amber-300 rounded-xl space-y-3 text-xs print:hidden">
+                  <div className="flex items-center justify-between border-b border-amber-200 pb-1.5">
+                    <span className="font-bold text-amber-950">Averbar Ocorrência / Acontecimento no Dossiê do Estudante</span>
+                    <span className="text-[10px] text-amber-800">Professor • Coordenador • Diretor • Subdiretor • Secretário</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Tipo de Acontecimento *</label>
+                      <select
+                        value={novaOcorrTipo}
+                        onChange={(e) => setNovaOcorrTipo(e.target.value as any)}
+                        className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white"
+                      >
+                        <option value="Disciplinar">Disciplinar</option>
+                        <option value="Pedagógico">Pedagógico</option>
+                        <option value="Advertência">Advertência Formal</option>
+                        <option value="Louvor">Louvor / Mérito</option>
+                        <option value="Elogio">Elogio</option>
+                        <option value="Reunião Encarregado">Reunião com Encarregado</option>
+                        <option value="Outro">Outro Acontecimento</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Gravidade *</label>
+                      <select
+                        value={novaOcorrGravidade}
+                        onChange={(e) => setNovaOcorrGravidade(e.target.value as any)}
+                        className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white"
+                      >
+                        <option value="Leve">Leve</option>
+                        <option value="Média">Média</option>
+                        <option value="Grave">Grave</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Data do Registo *</label>
+                      <input
+                        type="date"
+                        required
+                        value={novaOcorrData}
+                        onChange={(e) => setNovaOcorrData(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg bg-white font-mono"
+                      >
+                      </input>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Registado Por (Cargo) *</label>
+                      <select
+                        value={novaOcorrCargo}
+                        onChange={(e) => setNovaOcorrCargo(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white"
+                      >
+                        <option value="Professor">Professor(a)</option>
+                        <option value="Coordenador">Coordenador(a) Pedagógico(a)</option>
+                        <option value="Diretor Geral">Diretor(a) Geral</option>
+                        <option value="Subdiretor Pedagógico">Subdiretor(a) Pedagógico(a)</option>
+                        <option value="Subdiretor Administrativo">Subdiretor(a) Administrativo(a)</option>
+                        <option value="Secretário">Secretário(a) / Chefe Secretaria</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Descrição Detalhada do Acontecimento *</label>
+                      <textarea
+                        required
+                        rows={2}
+                        value={novaOcorrDescricao}
+                        onChange={(e) => setNovaOcorrDescricao(e.target.value)}
+                        placeholder="Descreva o acontecimento com rigor pedagógico..."
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Resolução / Medida Adotada *</label>
+                      <textarea
+                        required
+                        rows={2}
+                        value={novaOcorrResolucao}
+                        onChange={(e) => setNovaOcorrResolucao(e.target.value)}
+                        placeholder="Ex: Termo de compromisso assinado; encaminhado ao apoio pedagógico..."
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="inline-flex items-center space-x-2 text-[11px] font-semibold text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={novaOcorrNotificarEncarregado}
+                        onChange={(e) => setNovaOcorrNotificarEncarregado(e.target.checked)}
+                        className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>Notificar e convocar encarregado de educação</span>
+                    </label>
+
+                    <div className="flex space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowDossieOcorrenciaForm(false)}
+                        className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg shadow-xs cursor-pointer"
+                      >
+                        Averbar no Dossiê
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
+
+              {/* Lista de Ocorrências no Dossiê */}
+              {alunoDossieModal.ocorrencias && alunoDossieModal.ocorrencias.length > 0 ? (
+                <div className="border border-gray-200 rounded-lg overflow-hidden bg-white text-xs">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-100 text-gray-800 uppercase font-black text-[10px] tracking-wider border-b border-gray-200">
+                      <tr>
+                        <th className="p-2 w-24">Data</th>
+                        <th className="p-2 w-28">Tipo</th>
+                        <th className="p-2 w-20">Gravidade</th>
+                        <th className="p-2">Descrição do Acontecimento</th>
+                        <th className="p-2 w-32">Registado Por</th>
+                        <th className="p-2 w-36">Resolução Adotada</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {alunoDossieModal.ocorrencias.map((o) => (
+                        <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
+                          <td className="p-2 font-mono text-[11px] text-gray-600">{o.data}</td>
+                          <td className="p-2 font-bold text-gray-900">{o.tipo}</td>
+                          <td className="p-2">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              o.gravidade === 'Grave' 
+                                ? 'bg-red-100 text-red-800' 
+                                : o.gravidade === 'Média' 
+                                  ? 'bg-amber-100 text-amber-800' 
+                                  : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {o.gravidade}
+                            </span>
+                          </td>
+                          <td className="p-2 text-gray-800">{o.descricao}</td>
+                          <td className="p-2 text-[11px] text-gray-700">
+                            <strong>{o.registadoPor}</strong>
+                            <span className="block text-[10px] text-gray-500">{o.cargo}</span>
+                          </td>
+                          <td className="p-2 text-gray-700">{o.resolucao || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-3 bg-gray-50 rounded-lg text-center text-xs text-gray-500 italic border border-gray-200">
+                  Nenhuma ocorrência disciplinar ou pedagógica averbada no dossiê deste estudante. Comportamento exemplar.
+                </div>
+              )}
+            </div>
+
+            {/* Assinaturas Oficiais para Impressão com Nome dos Responsáveis e Gênero */}
+            <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-2 gap-8 text-center text-xs">
+              <div className="space-y-4">
+                <p className="font-bold text-gray-800">
+                  {escola.chefeSecretariaNome ? `O(A) Chefe da Secretaria: ${escola.chefeSecretariaNome}` : 'O(A) Chefe da Secretaria Pedagógica'}
+                </p>
+                <div className="border-b border-gray-900 w-56 mx-auto pt-6" />
+                <p className="text-[10px] text-gray-500 uppercase">Assinatura e Carimbo Oficial da Secretaria</p>
+              </div>
+
+              <div className="space-y-4">
+                <p className="font-bold text-gray-800">
+                  {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}: {escola.diretorGeralNome || 'Direcção da Instituição'}
+                </p>
+                <div className="border-b border-gray-900 w-56 mx-auto pt-6" />
+                <p className="text-[10px] text-gray-500 uppercase">Visto Ministerial & Homologação Institucional</p>
               </div>
             </div>
           </div>

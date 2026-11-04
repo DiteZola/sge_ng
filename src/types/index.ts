@@ -62,6 +62,7 @@ export interface Escola {
   decretoCriacao: string; // ex: "Decreto Executivo n.º 250/18 de 06 de Outubro"
   artigoLegal?: string; // ex: "alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto"
   diretorGeralNome: string;
+  diretorGeralGenero?: 'M' | 'F';
   subdiretorPedagogicoNome: string;
   chefeSecretariaNome?: string;
   anoLectivoActivo: string;
@@ -174,6 +175,7 @@ export interface NotaMultiAno {
   nota11?: number | string;
   nota12?: number | string;
   mediaFinal: number;
+  notaFinal?: number;
 }
 
 export interface HistoricoAnoAnterior {
@@ -254,6 +256,7 @@ export interface Aluno {
   turno?: string;
   sala?: string;
   faltas?: number;
+  ocorrencias?: OcorrenciaHistoricoAluno[];
 }
 
 export interface Turma {
@@ -270,6 +273,8 @@ export interface Turma {
   capacidadeMaxima?: number;
   anoLectivo: string;
   coordenadorId?: string; // Professor Coordenador que atua como Presidente da Turma
+  coordenadorNome?: string;
+  directorTurmaNome?: string;
   ordem?: number;
 }
 
@@ -462,6 +467,7 @@ export interface NotaEstudante {
 
 export interface NotaTrimestralConsolidada {
   id: string;
+  escolaId?: string;
   alunoId: string;
   turmaId: string;
   disciplinaId: string;
@@ -856,6 +862,8 @@ export interface TransacaoFinanceira {
   valorTotalKz: number;
   metodoPagamento: MetodoPagamentoEscolar;
   numeroComprovativo?: string;
+  numeroBordero?: string;
+  comprovativo?: string;
   numeroRecibo: string;
   dataHora: string;
   operadorId: string;
@@ -883,6 +891,7 @@ export type CategoriaDespesaEscolar = CategoriaDespesa;
 export interface DespesaEscolar {
   id: string;
   escolaId: string;
+  anoLectivo?: string;
   descricao: string;
   categoria: CategoriaDespesa;
   valorKz: number;
@@ -958,13 +967,16 @@ export interface OcorrenciaHistoricoAluno {
   id: string;
   data: string; // YYYY-MM-DD
   tipo: 'Disciplinar' | 'Pedagógico' | 'Elogio' | 'Reunião Encarregado' | 'Advertência' | 'Louvor' | 'Outro';
+  gravidade?: 'Leve' | 'Média' | 'Grave';
   descricao: string;
   registadoPor: string;
-  cargo: 'Professor' | 'Coordenador' | 'Diretor' | 'Secretário' | string;
+  cargo: 'Professor' | 'Coordenador' | 'Coordenador de Turno' | 'Diretor Geral' | 'Subdiretor Pedagógico' | 'Subdiretor Administrativo' | 'Chefe da Secretaria' | 'Secretário' | 'Secretária' | string;
   anoLectivo: string;
   classe?: string;
   turmaNome?: string;
   resolucao?: string;
+  notificarEncarregado?: boolean;
+  notificadoEncarregado?: boolean;
 }
 
 export interface FaltasAnoHistorico {

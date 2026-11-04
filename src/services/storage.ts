@@ -108,6 +108,7 @@ const STORAGE_KEYS = {
   ALTERACOES_NOTAS_DIRECAO: 'sge_alteracoes_notas_direcao',
   CONFIGURACOES_DOCUMENTOS: 'sge_configuracoes_documentos',
   DELEGACOES_COBRANCA: 'sge_delegacoes_cobranca',
+  EMOLUMENTOS_CONFIG: 'sge_emolumentos_config',
   SESSOES_ATIVAS: 'sge_sessoes_ativas',
 };
 
@@ -217,40 +218,9 @@ export const DEFAULT_ESCOLAS: Escola[] = [];
 
 export const DEFAULT_TURMAS: Turma[] = [];
 
-export const DEFAULT_DISCIPLINAS: Disciplina[] = [
-  // Primário / Iniciação
-  { id: 'disc-com-ling', nome: 'Comunicação e Linguagem', sigla: 'CL', nivelEnsino: 'Iniciacao' },
-  { id: 'disc-mat-ini', nome: 'Matemática e Descoberta', sigla: 'MD', nivelEnsino: 'Iniciacao' },
-  { id: 'disc-lp-prim', nome: 'Língua Portuguesa', sigla: 'LP', nivelEnsino: 'Primario' },
-  { id: 'disc-mat-prim', nome: 'Matemática', sigla: 'MAT', nivelEnsino: 'Primario' },
-  { id: 'disc-est-meio', nome: 'Estudo do Meio', sigla: 'EM', nivelEnsino: 'Primario' },
-  { id: 'disc-ed-man', nome: 'Educação Manual e Plástica', sigla: 'EMP', nivelEnsino: 'Primario' },
-  // Iº e IIº Ciclos / Geral
-  { id: 'disc-lp-ciclo', nome: 'Língua Portuguesa', sigla: 'LP', nivelEnsino: 'ICiclo' },
-  { id: 'disc-mat-ciclo', nome: 'Matemática', sigla: 'MAT', nivelEnsino: 'ICiclo' },
-  { id: 'disc-fisica', nome: 'Física', sigla: 'FIS', nivelEnsino: 'ICiclo' },
-  { id: 'disc-quimica', nome: 'Química', sigla: 'QUI', nivelEnsino: 'ICiclo' },
-  { id: 'disc-biologia', nome: 'Biologia', sigla: 'BIO', nivelEnsino: 'ICiclo' },
-  { id: 'disc-historia', nome: 'História', sigla: 'HIS', nivelEnsino: 'ICiclo' },
-  { id: 'disc-geografia', nome: 'Geografia', sigla: 'GEO', nivelEnsino: 'ICiclo' },
-  { id: 'disc-ingles', nome: 'Língua Inglesa', sigla: 'ING', nivelEnsino: 'ICiclo' },
-  // Disciplinas do II Ciclo / Magistério / Ciências Humanas / Económicas (Documentos Oficiais)
-  { id: 'disc-filosofia', nome: 'Filosofia', sigla: 'FIL', nivelEnsino: 'IICiclo' },
-  { id: 'disc-ed-fisica', nome: 'Educação Física', sigla: 'EF', nivelEnsino: 'IICiclo' },
-  { id: 'disc-empreendedorismo', nome: 'Empreendedorismo', sigla: 'EMP', nivelEnsino: 'IICiclo' },
-  { id: 'disc-higiene-saude', nome: 'Higiene e Saúde Escolar', sigla: 'HSE', nivelEnsino: 'IICiclo' },
-  { id: 'disc-etica', nome: 'Ética', sigla: 'ETI', nivelEnsino: 'IICiclo' },
-  { id: 'disc-form-pessoal', nome: 'Formação Pessoal Social e Deontológica', sigla: 'FPSD', nivelEnsino: 'IICiclo' },
-  { id: 'disc-metodologia-lp', nome: 'Metodologia de Ensino de Língua Portuguesa', sigla: 'MELP', nivelEnsino: 'IICiclo' },
-  { id: 'disc-metodologia-emc', nome: 'Metodologia de Ensino de E.M.C', sigla: 'MEMC', nivelEnsino: 'IICiclo' },
-  { id: 'disc-estagio-pedag', nome: 'Prática, Seminários e Estágios Pedagógicos', sigla: 'PSEP', nivelEnsino: 'IICiclo' },
-  { id: 'disc-frances', nome: 'Língua Estrangeira Geral (Francês)', sigla: 'FRAN', nivelEnsino: 'IICiclo' },
-  { id: 'disc-informatica', nome: 'Informática', sigla: 'INF', nivelEnsino: 'IICiclo' },
-  { id: 'disc-intro-direito', nome: 'Introdução ao Direito', sigla: 'IDIR', nivelEnsino: 'IICiclo' },
-  { id: 'disc-intro-economia', nome: 'Introdução à Economia', sigla: 'IECO', nivelEnsino: 'IICiclo' },
-  { id: 'disc-desenv-soc', nome: 'Desenvolvimento Económico e Social', sigla: 'DES', nivelEnsino: 'IICiclo' },
-  { id: 'disc-psicologia', nome: 'Psicologia', sigla: 'PSI', nivelEnsino: 'IICiclo' }
-];
+// Disciplinas criadas de raiz pela Direção da Escola para cada ano letivo
+export const DEFAULT_DISCIPLINAS: Disciplina[] = [];
+
 
 export const DEFAULT_ADMIN_GERAL_PRODUCAO: Funcionario = {
   id: '',
@@ -1231,6 +1201,11 @@ export const dbService = {
     const escola = dbService.getEscolaAtiva();
     escola.anoLectivoActivo = ano;
     dbService.salvarEscola(escola);
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('sge_ano_lectivo_alterado', { detail: { ano, escolaId: escola.id } }));
+      } catch {}
+    }
     dbService.registarLog('Ano Lectivo Alterado', `Ano letivo ativo da escola alterado para ${ano}.`);
   },
   definirEstadoAnoLectivo: (rotulo: string, estado: EstadoAno) => {
@@ -2010,17 +1985,36 @@ export const dbService = {
   },
 
   // Alunos
-  getAlunos: (): Aluno[] => getLocal(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS),
+  getAlunos: (): Aluno[] => {
+    const raw = getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    if (escolaAtiva && escolaAtiva.id) {
+      let mudou = false;
+      const harmonizados = raw.map(a => {
+        if (!a.escolaId || a.escolaId === 'esc-001') {
+          mudou = true;
+          return { ...a, escolaId: escolaAtiva.id };
+        }
+        return a;
+      });
+      if (mudou) {
+        setLocal(STORAGE_KEYS.ALUNOS, harmonizados);
+        return harmonizados;
+      }
+    }
+    return raw;
+  },
   salvarAluno: (aluno: Aluno) => {
     const escolaAtiva = dbService.getEscolaAtiva();
-    if (!aluno.escolaId) {
-      aluno.escolaId = escolaAtiva?.id || 'esc-001';
-    }
+    aluno.escolaId = escolaAtiva?.id || aluno.escolaId || 'esc-001';
     if (!aluno.anoLectivo) {
       aluno.anoLectivo = aluno.anoMatricula || escolaAtiva?.anoLectivoActivo || '2025/2026';
     }
     if (!aluno.anoMatricula) {
       aluno.anoMatricula = aluno.anoLectivo;
+    }
+    if (!aluno.propinaStatus) {
+      aluno.propinaStatus = 'Pendente';
     }
     const alunos = dbService.getAlunos();
     const idx = alunos.findIndex(a => a.id === aluno.id);
@@ -2037,6 +2031,7 @@ export const dbService = {
     const escolaAtiva = dbService.getEscolaAtiva();
     const alunosComAno = alunos.map(a => ({
       ...a,
+      escolaId: escolaAtiva?.id || a.escolaId || 'esc-001',
       anoLectivo: a.anoLectivo || a.anoMatricula || escolaAtiva?.anoLectivoActivo || '2025/2026',
       anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || '2025/2026'
     }));
@@ -2148,11 +2143,101 @@ export const dbService = {
     dbService.registarLog('Exclusão de Disciplina', `Disciplina "${target.nome}" (${target.codigo}) eliminada da grelha curricular.`);
     return true;
   },
+  limparTodasDisciplinas: () => {
+    setLocal(STORAGE_KEYS.DISCIPLINAS, []);
+    dbService.registarLog('Gestão Curricular', 'Todas as disciplinas padrão foram limpas para permitir criação personalizada pela Direção.');
+  },
+  replicarAtribuicoesAnoAnterior: (escolaId: string, anoActivo: string): { sucesso: boolean; totalReplicadas: number; novasAtribuicoes: AtribuicaoDocente[]; mensagem: string } => {
+    const anosConfigs = dbService.getAnosLectivosConfigs();
+    const anosValidos: string[] = anosConfigs.map(a => a.rotulo || a.ano || '').filter((x): x is string => Boolean(x));
+    const idxAnoAtual = anosValidos.indexOf(anoActivo);
+    let anoAnterior = '';
+    if (idxAnoAtual > 0) {
+      anoAnterior = anosValidos[idxAnoAtual - 1];
+    } else if (anosValidos.length > 1) {
+      anoAnterior = anosValidos.find(a => a !== anoActivo) || '';
+    }
+
+    const todasAtribuicoes = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, []);
+    const atribuicoesPassadas = todasAtribuicoes.filter(a => 
+      (!a.escolaId || a.escolaId === escolaId || escolaId === 'todas') &&
+      (anoAnterior ? a.anoLectivo === anoAnterior : (a.anoLectivo && a.anoLectivo !== anoActivo))
+    );
+
+    if (atribuicoesPassadas.length === 0) {
+      return { sucesso: false, totalReplicadas: 0, novasAtribuicoes: [], mensagem: 'Nenhuma atribuição docente encontrada em anos letivos anteriores para replicar.' };
+    }
+
+    const turmas = dbService.getTurmas();
+    const turmasAnoActivo = turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoActivo);
+    const turmasAnoAnterior = turmas.filter(t => t.anoLectivo === anoAnterior);
+
+    let count = 0;
+    const novasAtribs = [...todasAtribuicoes];
+    const recemCriadas: AtribuicaoDocente[] = [];
+
+    atribuicoesPassadas.forEach(atrib => {
+      const turmaAntiga = turmasAnoAnterior.find(t => t.id === atrib.turmaId) || turmas.find(t => t.id === atrib.turmaId);
+      let turmaDestinoId = atrib.turmaId;
+      if (turmaAntiga) {
+        const turmaEquivalente = turmasAnoActivo.find(t => t.nome === turmaAntiga.nome && t.classe === turmaAntiga.classe);
+        if (turmaEquivalente) {
+          turmaDestinoId = turmaEquivalente.id;
+        }
+      }
+
+      const jaExiste = novasAtribs.some(a => 
+        a.professorId === atrib.professorId &&
+        a.turmaId === turmaDestinoId &&
+        a.disciplinaId === atrib.disciplinaId &&
+        a.anoLectivo === anoActivo
+      );
+
+      if (!jaExiste) {
+        const novaAtrib: AtribuicaoDocente = {
+          ...atrib,
+          id: `atrib-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          escolaId,
+          turmaId: turmaDestinoId,
+          anoLectivo: anoActivo
+        };
+        novasAtribs.push(novaAtrib);
+        recemCriadas.push(novaAtrib);
+        count++;
+      }
+    });
+
+    setLocal(STORAGE_KEYS.ATRIBUICOES, novasAtribs);
+    dbService.registarLog('Gestão Académica', `${count} atribuições docentes e coordenações replicadas para o ano lectivo ${anoActivo}.`);
+    return {
+      sucesso: true,
+      totalReplicadas: count,
+      novasAtribuicoes: recemCriadas,
+      mensagem: `${count} atribuições e coordenações transferidas do ano ${anoAnterior || 'anterior'} para ${anoActivo}`
+    };
+  },
 
   // Atribuicoes
-  getAtribuicoes: (): AtribuicaoDocente[] => getLocal(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES),
+  getAtribuicoes: (escolaId?: string, anoLectivo?: string): AtribuicaoDocente[] => {
+    const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
+    let filtradas = list;
+    if (escolaId && escolaId !== 'todas') {
+      filtradas = filtradas.filter(a => !a.escolaId || a.escolaId === escolaId);
+    }
+    if (anoLectivo && anoLectivo !== 'todos') {
+      filtradas = filtradas.filter(a => a.anoLectivo === anoLectivo);
+    }
+    return filtradas;
+  },
   salvarAtribuicao: (atrib: AtribuicaoDocente) => {
-    const list = dbService.getAtribuicoes();
+    const escolaAtiva = dbService.getEscolaAtiva();
+    if (!atrib.escolaId || atrib.escolaId === 'esc-001') {
+      atrib.escolaId = escolaAtiva?.id || atrib.escolaId;
+    }
+    if (!atrib.anoLectivo) {
+      atrib.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+    }
+    const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
     const idx = list.findIndex(a => a.id === atrib.id);
     if (idx >= 0) list[idx] = atrib;
     else list.push(atrib);
@@ -3000,6 +3085,10 @@ export const dbService = {
       anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
       turnosConfigs: dbService.getTurnosConfigs(),
       classesConfigs: dbService.getClassesConfigs(),
+      cursos: dbService.getCursos(),
+      emolumentosPersonalizados: getLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
+      delegacoesCobranca: getLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
+      presencasAlunos: getLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
       solicitacoesApoio: dbService.getSolicitacoesApoioTecnico(),
       alertasSeguranca: dbService.getAlertasSeguranca()
     };
@@ -3050,6 +3139,10 @@ export const dbService = {
       if (data.anosLectivosConfigs) setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, data.anosLectivosConfigs);
       if (data.turnosConfigs) setLocal(STORAGE_KEYS.TURNOS_CONFIGS, data.turnosConfigs);
       if (data.classesConfigs) setLocal(STORAGE_KEYS.CLASSES_CONFIGS, data.classesConfigs);
+      if (data.cursos) setLocal(STORAGE_KEYS.CURSOS, data.cursos);
+      if (data.emolumentosPersonalizados) setLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, data.emolumentosPersonalizados);
+      if (data.delegacoesCobranca) setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, data.delegacoesCobranca);
+      if (data.presencasAlunos) setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, data.presencasAlunos);
       if (data.solicitacoesApoio) setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, data.solicitacoesApoio);
       if (data.alertasSeguranca) setLocal(STORAGE_KEYS.ALERTAS_SEGURANCA, data.alertasSeguranca);
 
@@ -3296,32 +3389,83 @@ export const dbService = {
     }
   },
 
-  getTransacoesFinanceiras: (escolaId?: string): TransacaoFinanceira[] => {
+  getTransacoesFinanceiras: (escolaId?: string, anoLectivo?: string): TransacaoFinanceira[] => {
     const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
-    if (!escolaId || escolaId === 'todas') return todas;
-    return todas.filter(t => t.escolaId === escolaId);
+    let filtradas = todas;
+    if (escolaId && escolaId !== 'todas') {
+      filtradas = filtradas.filter(t => !t.escolaId || t.escolaId === escolaId);
+    }
+    if (anoLectivo && anoLectivo !== 'todos') {
+      filtradas = filtradas.filter(t => !t.anoLectivo || t.anoLectivo === anoLectivo);
+    }
+    return filtradas;
   },
   salvarTransacaoFinanceira: (transacao: TransacaoFinanceira): void => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    if (!transacao.escolaId || transacao.escolaId === 'esc-001') {
+      transacao.escolaId = escolaAtiva?.id || transacao.escolaId;
+    }
+    if (!transacao.anoLectivo) {
+      transacao.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+    }
     const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
     const idx = todas.findIndex(t => t.id === transacao.id);
     if (idx >= 0) todas[idx] = transacao;
     else todas.unshift(transacao);
     setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, todas);
-    dbService.registarLog('Receita Arrecadada', `Pagamento de ${transacao.tipo} no valor de ${transacao.valorTotalKz.toLocaleString()} Kz para o aluno ${transacao.alunoNome} (Recibo: ${transacao.numeroRecibo}).`);
+    dbService.registarLog('Receita Arrecadada', `Pagamento de ${transacao.tipo} (${transacao.anoLectivo}) no valor de ${transacao.valorTotalKz.toLocaleString()} Kz para o aluno ${transacao.alunoNome} (Recibo: ${transacao.numeroRecibo}).`);
+  },
+  editarTransacaoComAuditoria: (
+    transacaoId: string,
+    dadosAtualizados: Partial<TransacaoFinanceira>,
+    operadorNome: string,
+    motivoAuditoria: string
+  ): boolean => {
+    const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
+    const idx = todas.findIndex(t => t.id === transacaoId);
+    if (idx < 0) return false;
+
+    const anterior = todas[idx];
+    const transacaoAtualizada: TransacaoFinanceira = {
+      ...anterior,
+      ...dadosAtualizados,
+      observacao: `${dadosAtualizados.observacao || anterior.observacao || ''} [Retificado por ${operadorNome} em ${new Date().toLocaleDateString('pt-AO')}: ${motivoAuditoria}]`.trim(),
+      observacoes: `${dadosAtualizados.observacoes || anterior.observacoes || ''} [Retificado por ${operadorNome} em ${new Date().toLocaleDateString('pt-AO')}: ${motivoAuditoria}]`.trim()
+    };
+    todas[idx] = transacaoAtualizada;
+    setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, todas);
+    dbService.registarLog(
+      'Auditoria Financeira - Edição de Pagamento',
+      `Recibo ${anterior.numeroRecibo} (${anterior.alunoNome}) retificado por ${operadorNome}. Valor anterior: ${anterior.valorTotalKz.toLocaleString()} Kz -> Novo: ${transacaoAtualizada.valorTotalKz.toLocaleString()} Kz. Motivo: "${motivoAuditoria}".`
+    );
+    return true;
   },
 
-  getDespesasEscolares: (escolaId?: string): DespesaEscolar[] => {
+  getDespesasEscolares: (escolaId?: string, anoLectivo?: string): DespesaEscolar[] => {
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
-    if (!escolaId || escolaId === 'todas') return todas;
-    return todas.filter(d => d.escolaId === escolaId);
+    let filtradas = todas;
+    if (escolaId && escolaId !== 'todas') {
+      filtradas = filtradas.filter(d => !d.escolaId || d.escolaId === escolaId);
+    }
+    if (anoLectivo && anoLectivo !== 'todos') {
+      filtradas = filtradas.filter(d => !d.anoLectivo || d.anoLectivo === anoLectivo);
+    }
+    return filtradas;
   },
   salvarDespesaEscolar: (despesa: DespesaEscolar): void => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    if (!despesa.escolaId || despesa.escolaId === 'esc-001') {
+      despesa.escolaId = escolaAtiva?.id || despesa.escolaId;
+    }
+    if (!despesa.anoLectivo) {
+      despesa.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+    }
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
     const idx = todas.findIndex(d => d.id === despesa.id);
     if (idx >= 0) todas[idx] = despesa;
     else todas.unshift(despesa);
     setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, todas);
-    dbService.registarLog('Despesa Registada', `Saída de caixa: ${despesa.descricao} no valor de ${despesa.valorKz.toLocaleString()} Kz.`);
+    dbService.registarLog('Despesa Registada', `Saída de caixa (${despesa.anoLectivo}): ${despesa.descricao} no valor de ${despesa.valorKz.toLocaleString()} Kz.`);
   },
 
   // ==========================================

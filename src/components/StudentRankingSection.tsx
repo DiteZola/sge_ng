@@ -10,7 +10,8 @@ import {
   UserCheck,
   TrendingUp,
   TrendingDown,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Award
 } from 'lucide-react';
 import { Aluno, Escola, Turma, CursoEscolar, Disciplina, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -59,15 +60,44 @@ export interface DisciplinaRankeada {
 }
 
 /**
- * Cálculo consistente e auditado da média geral de cada aluno
+ * Cálculo consistente e auditado da média geral de cada aluno (com notas homologadas, consolidadas e avaliações contínuas)
  */
 export function calcularMediaGeralAluno(aluno: Aluno): number {
+  // 1. Notas homologadas oficiais pelo diretor/júri
   const notasHomologadas = dbService.obterNotasHomologadasAluno(aluno.id);
   if (notasHomologadas && notasHomologadas.length > 0) {
-    const soma = notasHomologadas.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 0), 0);
-    return Number((soma / notasHomologadas.length).toFixed(1));
+    const validas = notasHomologadas.map(n => n.notaFinal ?? n.mediaTrimestral ?? 0).filter(v => v > 0);
+    if (validas.length > 0) {
+      const soma = validas.reduce((acc, v) => acc + v, 0);
+      return Number((soma / validas.length).toFixed(1));
+    }
   }
 
+  // 2. Notas consolidadas por disciplina e trimestre
+  try {
+    const todasConsolidadas = dbService.obterNotasConsolidadas();
+    const notasAluno = todasConsolidadas.filter(n => n.alunoId === aluno.id);
+    if (notasAluno && notasAluno.length > 0) {
+      const validas = notasAluno
+        .map(n => n.notaFinal ?? n.mediaTrimestral ?? (n as any).mf ?? (n as any).mt ?? 0)
+        .filter(v => typeof v === 'number' && v > 0);
+      if (validas.length > 0) {
+        const soma = validas.reduce((acc, v) => acc + v, 0);
+        return Number((soma / validas.length).toFixed(1));
+      }
+    }
+  } catch {}
+
+  // 3. Notas individuais de avaliações (MAC, Testes, Provas do Professor)
+  try {
+    const notasIndividuais = dbService.obterNotas().filter(n => n.alunoId === aluno.id && typeof (n.valorNota ?? (n as any).valor) === 'number' && (n.valorNota ?? (n as any).valor) > 0);
+    if (notasIndividuais.length > 0) {
+      const soma = notasIndividuais.reduce((acc, n) => acc + (n.valorNota ?? (n as any).valor ?? 0), 0);
+      return Number((soma / notasIndividuais.length).toFixed(1));
+    }
+  } catch {}
+
+  // 4. Histórico multi-ano (para ensino secundário 10ª, 11ª, 12ª)
   if (aluno.historicoMultiAno && aluno.historicoMultiAno.length > 0) {
     const validas = aluno.historicoMultiAno.filter(h => typeof h.mediaFinal === 'number' && h.mediaFinal > 0);
     if (validas.length > 0) {
@@ -76,10 +106,14 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
     }
   }
 
+  // 5. Histórico de classes anteriores
   if (aluno.historicoAnterior && aluno.historicoAnterior.length > 0) {
-    const ultimo = aluno.historicoAnterior[aluno.historicoAnterior.length - 1];
-    if (ultimo && typeof ultimo.mediaFinal === 'number' && ultimo.mediaFinal > 0) {
-      return Number(ultimo.mediaFinal.toFixed(1));
+    const validos = aluno.historicoAnterior.filter(h => typeof h.mediaFinal === 'number' && h.mediaFinal > 0);
+    if (validos.length > 0) {
+      const ultimo = validos[validos.length - 1];
+      if (ultimo && typeof ultimo.mediaFinal === 'number' && ultimo.mediaFinal > 0) {
+        return Number(ultimo.mediaFinal.toFixed(1));
+      }
     }
   }
 
@@ -96,8 +130,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   currentUser,
   isDiretorPanel = false
 }) => {
-  // Separamos estritamente o Quadro de Excelência (Top 5) e a Atenção Pedagógica (Risco)
-  const [rankingTab, setRankingTab] = useState<'top5' | 'risco' | 'professores' | 'disciplinas'>('top5');
+  // Separamos estritamente o Quadro de Excelência (Top 5), Atenção Pedagógica (Risco) e Classificação Geral
+  const [rankingTab, setRankingTab] = useState<'top5' | 'risco' | 'todos' | 'professores' | 'disciplinas'>('top5');
   const [filtroClasse, setFiltroClasse] = useState<string>('todas');
   const [filtroTurma, setFiltroTurma] = useState<string>('todas');
   const [filtroCurso, setFiltroCurso] = useState<string>('todos');
@@ -164,11 +198,17 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
 
   // Alunos filtrados e com médias
   const alunosComMedia = useMemo(() => {
+    const anoActivo = escola.anoLectivoActivo || '2025/2026';
     let filtrados = todosAlunos.filter(a => {
-      if (a.escolaId && a.escolaId !== escola.id && escola.id !== 'todas') return false;
+      // Filtrar por escola ativa
+      if (a.escolaId && escola.id && escola.id !== 'todas' && a.escolaId !== escola.id) return false;
+
+      // Filtrar por ano letivo ativo: discentes de anos passados não entram no ranking atual
+      const anoDoAluno = a.anoLectivo || a.anoMatricula;
+      if (anoDoAluno && anoDoAluno !== anoActivo) return false;
 
       if (isProfessor && apenasMinhasTurmas) {
-        if (!turmasDoProfessorIds.includes(a.turmaId)) return false;
+        if (turmasDoProfessorIds.length > 0 && !turmasDoProfessorIds.includes(a.turmaId)) return false;
       }
 
       if (filtroClasse !== 'todas') {
@@ -221,7 +261,16 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         status
       };
     });
-  }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, termoPesquisa, turmasMap, escola.id, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds]);
+  }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, termoPesquisa, turmasMap, escola.id, escola.anoLectivoActivo, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds]);
+
+  // Quadro Geral de Todos os Estudantes Matriculados e Confirmados no Ano Activo
+  const todosEstudantesRankeados: AlunoRankeado[] = useMemo(() => {
+    const ordenados = [...alunosComMedia].sort((a, b) => {
+      if (b.mediaGeral !== a.mediaGeral) return b.mediaGeral - a.mediaGeral;
+      return a.aluno.nomeCompleto.localeCompare(b.aluno.nomeCompleto);
+    });
+    return ordenados.map((item, idx) => ({ ...item, posicao: idx + 1 }));
+  }, [alunosComMedia]);
 
   // 1. QUADRO DE EXCELÊNCIA (TOP 5 MELHORES ALUNOS)
   const top5Melhores: AlunoRankeado[] = useMemo(() => {
@@ -317,6 +366,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   const containerIdAtual = useMemo(() => {
     if (rankingTab === 'top5') return 'ranking-documento-top5-excelencia';
     if (rankingTab === 'risco') return 'ranking-documento-atencao-pedagogica';
+    if (rankingTab === 'todos') return 'ranking-documento-todos-estudantes';
     if (rankingTab === 'professores') return 'ranking-documento-professores';
     return 'ranking-documento-disciplinas';
   }, [rankingTab]);
@@ -334,6 +384,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       const prefixo = 
         rankingTab === 'top5' ? 'Quadro_Honra_Excelencia_Top5' :
         rankingTab === 'risco' ? 'Intervencao_Pedagogica_Risco' :
+        rankingTab === 'todos' ? 'Classificacao_Geral_Estudantes' :
         rankingTab === 'professores' ? 'Ranking_Docente' : 'Rendimento_Disciplinas';
       
       const filename = `${prefixo}_${nomeLimpoEscola}_${escola.anoLectivoActivo || '2025_2026'}.pdf`;
@@ -386,6 +437,18 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         'Contacto Encarregado': item.aluno.telefoneEncarregado || item.aluno.telefone || '—'
       }));
       downloadExcelFile('Atencao_Pedagogica', linhas, `Intervencao_Pedagogica_Risco_${escola.sigla || 'MED'}_${anoLimpo}.xlsx`);
+    } else if (rankingTab === 'todos') {
+      const linhas = todosEstudantesRankeados.map(item => ({
+        'Posição': item.posicao,
+        'N.º Processo': item.aluno.numeroProcesso || item.aluno.codigoMatricula,
+        'Nome do Estudante': item.aluno.nomeCompleto,
+        'Classe': item.classeNome,
+        'Turma': item.turmaNome,
+        'Curso': item.cursoNome,
+        'Média Geral': item.mediaGeral > 0 ? item.mediaGeral : 'Pendente (Aguardando Avaliação)',
+        'Estado': item.status
+      }));
+      downloadExcelFile('Classificacao_Geral_Estudantes', linhas, `Classificacao_Geral_${escola.sigla || 'MED'}_${anoLimpo}.xlsx`);
     } else if (rankingTab === 'professores') {
       const linhas = rankingProfessores.map(item => ({
         'Posição': item.posicao,
@@ -450,7 +513,20 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           }`}
         >
           <Trophy className="h-4 w-4" />
-          <span>Quadro de Honra & Excelência (Top 5 Alunos)</span>
+          <span>Quadro de Honra & Excelência (Top 5)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setRankingTab('todos')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            rankingTab === 'todos'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Award className="h-4 w-4" />
+          <span>Classificação Geral ({alunosComMedia.length} Alunos)</span>
         </button>
 
         <button
@@ -471,7 +547,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           onClick={() => setRankingTab('professores')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             rankingTab === 'professores'
-              ? 'bg-blue-600 text-white shadow-sm'
+              ? 'bg-purple-600 text-white shadow-sm'
               : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
           }`}
         >
@@ -499,10 +575,12 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           <div className="flex items-center space-x-2 text-slate-800">
             <div className={`p-2.5 rounded-xl text-white ${
               rankingTab === 'top5' ? 'bg-amber-500' :
+              rankingTab === 'todos' ? 'bg-blue-600' :
               rankingTab === 'risco' ? 'bg-rose-600' :
-              rankingTab === 'professores' ? 'bg-blue-600' : 'bg-indigo-600'
+              rankingTab === 'professores' ? 'bg-purple-600' : 'bg-indigo-600'
             }`}>
               {rankingTab === 'top5' && <Trophy className="h-5 w-5" />}
+              {rankingTab === 'todos' && <Award className="h-5 w-5" />}
               {rankingTab === 'risco' && <AlertTriangle className="h-5 w-5" />}
               {rankingTab === 'professores' && <UserCheck className="h-5 w-5" />}
               {rankingTab === 'disciplinas' && <BookOpen className="h-5 w-5" />}
@@ -510,12 +588,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             <div>
               <h3 className="text-base font-black text-slate-900 tracking-tight">
                 {rankingTab === 'top5' && 'Quadro de Honra & Excelência Discente'}
+                {rankingTab === 'todos' && 'Classificação Geral de Desempenho de Todos os Alunos'}
                 {rankingTab === 'risco' && 'Plano de Intervenção & Atenção Pedagógica'}
                 {rankingTab === 'professores' && 'Ranking Oficial de Desempenho Docente'}
                 {rankingTab === 'disciplinas' && 'Aproveitamento Académico por Disciplina'}
               </h3>
               <p className="text-xs text-slate-500 font-medium">
                 {rankingTab === 'top5' && 'Exclusivo para os 5 estudantes com melhor rendimento académico da instituição'}
+                {rankingTab === 'todos' && `Lista integral de todos os ${alunosComMedia.length} alunos activos no ano lectivo ${escola.anoLectivoActivo || ''}`}
                 {rankingTab === 'risco' && 'Ficheiro independente para acompanhamento de recuperação pedagógica e notas baixas'}
                 {rankingTab === 'professores' && 'Classificação por assiduidade e aproveitamento das turmas lecionadas'}
                 {rankingTab === 'disciplinas' && 'Comparativo de médias e taxas de aprovação curricular'}
@@ -532,7 +612,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </span>
           )}
 
-          {isProfessor && (rankingTab === 'top5' || rankingTab === 'risco') && (
+          {isProfessor && (rankingTab === 'top5' || rankingTab === 'risco' || rankingTab === 'todos') && (
             <label className="flex items-center space-x-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 cursor-pointer">
               <input
                 type="checkbox"
@@ -572,6 +652,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             )}
             <span>
               {rankingTab === 'top5' ? 'Baixar Quadro de Excelência (PDF)' :
+               rankingTab === 'todos' ? 'Baixar Classificação Geral (PDF)' :
                rankingTab === 'risco' ? 'Baixar Ficha de Atenção Pedagógica (PDF)' :
                'Baixar PDF'}
             </span>
@@ -579,8 +660,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         </div>
       </div>
 
-      {/* Seletores de Filtros (para Top 5 e Risco) */}
-      {(rankingTab === 'top5' || rankingTab === 'risco') && (
+      {/* Seletores de Filtros (para Top 5, Todos e Risco) */}
+      {(rankingTab === 'top5' || rankingTab === 'risco' || rankingTab === 'todos') && (
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3 no-print">
           <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
             <Filter className="h-4 w-4 text-blue-600" />
@@ -685,6 +766,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           <div className="inline-block mt-2 px-4 py-1.5 bg-slate-100 border border-slate-300 rounded-lg">
             <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900">
               {rankingTab === 'top5' && 'QUADRO DE HONRA & EXCELÊNCIA ACADÉMICA (TOP 5 ESTUDANTES)'}
+              {rankingTab === 'todos' && 'QUADRO GERAL DE CLASSIFICAÇÃO E RENDIMENTO DOS ESTUDANTES'}
               {rankingTab === 'risco' && 'MAPA DE INTERVENÇÃO PEDAGÓGICA & RECUPERAÇÃO DISCENTE'}
               {rankingTab === 'professores' && 'QUADRO MINISTERIAL DE MÉRITO E ASSIDUIDADE DOCENTE'}
               {rankingTab === 'disciplinas' && 'MAPA COMPARATIVO DE RENDIMENTO POR DISCIPLINA'}
@@ -706,8 +788,13 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </div>
 
             {top5Melhores.length === 0 ? (
-              <div className="p-8 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500 font-medium">
-                Nenhum estudante qualificado para o Quadro de Excelência neste filtro.
+              <div className="p-8 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center space-y-2">
+                <p className="text-xs text-slate-700 font-bold">
+                  Nenhum estudante qualificado para o Quadro de Excelência com notas lançadas neste filtro.
+                </p>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {alunosComMedia.length} aluno(s) matriculado(s) no ano lectivo activo ({escola.anoLectivoActivo}). Verifique a aba <strong className="text-blue-700 font-bold">"Classificação Geral"</strong> para visualizar todos os estudantes.
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto border border-slate-300 rounded-xl">
@@ -762,6 +849,112 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                         <td className="py-2.5 px-4 text-right">
                           <span className="inline-block px-2.5 py-1 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-black text-sm">
                             {item.mediaGeral.toFixed(1)} <span className="text-[10px] font-normal">val</span>
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 1.1 SECÇÃO ISOLADA: CLASSIFICAÇÃO GERAL DE TODOS OS ESTUDANTES */}
+        {rankingTab === 'todos' && (
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 bg-gradient-to-r from-blue-700 to-indigo-800 text-white px-4 py-2.5 rounded-xl shadow-xs">
+              <Award className="h-5 w-5 text-blue-200 shrink-0" />
+              <h4 className="text-xs sm:text-sm font-black uppercase tracking-wider">
+                Classificação Geral • Todos os Estudantes Matriculados ({todosEstudantesRankeados.length})
+              </h4>
+            </div>
+
+            {todosEstudantesRankeados.length === 0 ? (
+              <div className="p-8 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500 font-medium">
+                Nenhum estudante matriculado encontrado para os filtros selecionados no ano lectivo {escola.anoLectivoActivo}.
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-300 rounded-xl">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-blue-100/70 border-b border-blue-300 text-blue-950 font-black text-[11px] uppercase tracking-wider">
+                      <th className="py-2.5 px-3 text-center w-12">N.º</th>
+                      <th className="py-2.5 px-3 w-16 text-center">Fotografia</th>
+                      <th className="py-2.5 px-4">Nome Completo do Estudante</th>
+                      <th className="py-2.5 px-4 text-center">Classe</th>
+                      <th className="py-2.5 px-4 text-center">Turma</th>
+                      <th className="py-2.5 px-4 text-center">Curso</th>
+                      <th className="py-2.5 px-4 text-right">Média Geral</th>
+                      <th className="py-2.5 px-4 text-center">Situação Académica</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {todosEstudantesRankeados.map((item) => (
+                      <tr key={item.aluno.id} className="hover:bg-blue-50/40 transition-colors">
+                        <td className="py-2.5 px-3 text-center font-black">
+                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                            item.posicao <= 3 ? 'bg-amber-500 text-white font-black' :
+                            item.posicao <= 5 ? 'bg-blue-600 text-white font-black' :
+                            'bg-slate-100 text-slate-700 border border-slate-300'
+                          }`}>
+                            {item.posicao}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {item.aluno.fotoUrl && item.aluno.fotoUrl.trim() !== '' ? (
+                            <img 
+                              src={item.aluno.fotoUrl} 
+                              alt={item.aluno.nomeCompleto} 
+                              className="w-10 h-10 rounded-full object-cover mx-auto border-2 border-blue-300 shadow-xs" 
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-800 border-2 border-blue-300 flex items-center justify-center font-black text-xs mx-auto shadow-xs">
+                              {item.aluno.nomeCompleto ? item.aluno.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('') : 'AL'}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 font-bold text-slate-900">
+                          <div className="text-xs font-black text-slate-900">{item.aluno.nomeCompleto}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            Proc. n.º {item.aluno.numeroProcesso || item.aluno.codigoMatricula} • Gênero: {item.aluno.genero || 'N/D'}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-4 text-center font-semibold text-slate-700">
+                          {item.classeNome}
+                        </td>
+                        <td className="py-2.5 px-4 text-center font-semibold text-slate-700">
+                          {item.turmaNome}
+                        </td>
+                        <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
+                          {item.cursoNome}
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
+                          {item.mediaGeral > 0 ? (
+                            <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-xs ${
+                              item.mediaGeral >= 14 ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                              item.mediaGeral >= 10 ? 'bg-blue-100 text-blue-900 border border-blue-300' :
+                              'bg-rose-100 text-rose-900 border border-rose-300'
+                            }`}>
+                              {item.mediaGeral.toFixed(1)} val
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-300 rounded text-[10px] font-bold">
+                              Em Lançamento
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            item.mediaGeral >= 14 ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                            item.mediaGeral >= 10 ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                            item.mediaGeral > 0 ? 'bg-rose-100 text-rose-900 border border-rose-300' :
+                            'bg-slate-100 text-slate-700 border border-slate-300'
+                          }`}>
+                            {item.mediaGeral >= 14 ? 'Quadro de Honra' :
+                             item.mediaGeral >= 10 ? 'Aproveitamento Positivo' :
+                             item.mediaGeral > 0 ? 'Atenção Pedagógica' :
+                             'Matriculado / Activo'}
                           </span>
                         </td>
                       </tr>

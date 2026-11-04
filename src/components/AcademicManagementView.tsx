@@ -24,7 +24,9 @@ import {
   FileSpreadsheet,
   Sliders,
   Calculator,
-  Filter
+  Filter,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   Escola, 
@@ -266,6 +268,17 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
   const professoresDisponiveis = funcionarios.filter(f => f.ehProfessor || f.ehAdministrativoQueLeciona);
 
+  // Turmas e Atribuições Estritamente Isoladas pelo Ano Letivo Ativo
+  const turmasDoAnoActivo = useMemo(() => {
+    const ano = escola.anoLectivoActivo;
+    return turmas.filter(t => !t.anoLectivo || t.anoLectivo === ano);
+  }, [turmas, escola.anoLectivoActivo]);
+
+  const atribuicoesDoAnoActivo = useMemo(() => {
+    const ano = escola.anoLectivoActivo;
+    return atribuicoes.filter(at => !at.anoLectivo || at.anoLectivo === ano);
+  }, [atribuicoes, escola.anoLectivoActivo]);
+
   // 1. GESTÃO DE ANOS LETIVOS
   const handleCriarNovoAno = (e: React.FormEvent) => {
     e.preventDefault();
@@ -347,17 +360,79 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${anoAtualizado.rotulo} atualizado com êxito.` });
   };
 
-  const handleEliminarAno = (idOuRotulo: string) => {
-    if (!confirm(`Tem certeza de que deseja eliminar o ano letivo ${idOuRotulo}? Esta operação não pode ser desfeita.`)) {
+  // Estados para Eliminação Segura de Ano Letivo
+  const [anoParaEliminarSeguro, setAnoParaEliminarSeguro] = useState<AnoLectivoConfig | null>(null);
+  const [confirmacaoTextoEliminarAno, setConfirmacaoTextoEliminarAno] = useState('');
+
+  const handleConfirmarEliminarAnoSeguro = () => {
+    if (!anoParaEliminarSeguro) return;
+    const anoNome = anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo;
+    if (anoNome === escola.anoLectivoActivo) {
+      setFeedbackMsg({
+        tipo: 'erro',
+        texto: `Não é permitido eliminar o ano letivo ativo (${anoNome}). Primeiro defina outro ano letivo como ativo antes de excluir este.`
+      });
+      setAnoParaEliminarSeguro(null);
       return;
     }
 
-    const sucesso = dbService.eliminarAnoLectivoConfig(idOuRotulo);
+    if (confirmacaoTextoEliminarAno.trim() !== anoNome.trim()) {
+      alert(`O texto digitado não coincide com o nome do ano letivo (${anoNome}).`);
+      return;
+    }
+
+    const sucesso = dbService.eliminarAnoLectivoConfig(anoParaEliminarSeguro.id || anoNome);
     if (sucesso) {
       setAnosConfigs(dbService.getAnosLectivosConfigs());
-      setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${idOuRotulo} eliminado com sucesso.` });
+      setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${anoNome} eliminado com segurança!` });
+      setAnoParaEliminarSeguro(null);
+      setConfirmacaoTextoEliminarAno('');
     } else {
       setFeedbackMsg({ tipo: 'erro', texto: 'Não foi possível eliminar o único ano letivo configurado no sistema.' });
+    }
+  };
+
+  const handleReplicarAtribuicoesAnoAnterior = () => {
+    if (!confirm(`Deseja replicar as atribuições docentes, disciplinas e coordenações de turmas do ano lectivo anterior para o ano letivo ativo (${escola.anoLectivoActivo})?\n\nOs professores manterão as mesmas turmas e disciplinas equivalentes neste novo ano.`)) {
+      return;
+    }
+
+    const resultado = dbService.replicarAtribuicoesAnoAnterior(escola.id, escola.anoLectivoActivo);
+    if (resultado.sucesso) {
+      resultado.novasAtribuicoes.forEach(nova => {
+        onSalvarAtribuicao(nova);
+      });
+      setFeedbackMsg({
+        tipo: 'sucesso',
+        texto: `${resultado.mensagem}. Total de ${resultado.novasAtribuicoes.length} atribuição(ões) transferida(s) com sucesso.`
+      });
+    } else {
+      setFeedbackMsg({
+        tipo: 'erro',
+        texto: resultado.mensagem
+      });
+    }
+  };
+
+  const handleLimparTodasDisciplinas = () => {
+    if (!confirm('Tem a certeza de que deseja limpar todas as disciplinas existentes para que a Direção crie as suas próprias disciplinas para cada classe e ano letivo? Esta ação não pode ser revertida.')) {
+      return;
+    }
+    dbService.limparTodasDisciplinas();
+    if (onEliminarDisciplina) {
+      disciplinas.forEach(d => onEliminarDisciplina(d.id));
+    }
+    setFeedbackMsg({
+      tipo: 'sucesso',
+      texto: 'Disciplinas padrão limpas com sucesso. Pode agora cadastrar as novas disciplinas classe a classe.'
+    });
+  };
+
+  const handleEliminarAno = (idOuRotulo: string) => {
+    const anoObj = anosConfigs.find(a => a.id === idOuRotulo || (a.ano || a.rotulo) === idOuRotulo);
+    if (anoObj) {
+      setAnoParaEliminarSeguro(anoObj);
+      setConfirmacaoTextoEliminarAno('');
     }
   };
 
@@ -1253,14 +1328,25 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   Cada disciplina está associada à sua classe e ciclo oficial. Quando seleciona uma classe ou ciclo, visualiza estritamente as disciplinas correspondentes.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowNovaDisciplinaModal(true)}
-                className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs transition-all"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Cadastrar Disciplina</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleLimparTodasDisciplinas}
+                  className="flex items-center space-x-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer transition-all"
+                  title="Remove disciplinas legadas/padrão do sistema para que a direção configure apenas as disciplinas do currículo atual"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Limpar Disciplinas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNovaDisciplinaModal(true)}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Cadastrar Disciplina</span>
+                </button>
+              </div>
             </div>
 
             {/* BARRA DE FILTRO POR CLASSE E CICLO (REQUISITO EXPLÍCITO DO PROMPT) */}
@@ -1402,7 +1488,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-bold text-gray-900">Turmas do Ano Lectivo {escola.anoLectivoActivo} ({turmas.length})</h3>
+              <h3 className="text-sm font-bold text-gray-900">Turmas do Ano Lectivo {escola.anoLectivoActivo} ({turmasDoAnoActivo.length})</h3>
               <p className="text-xs text-gray-500">Criação, gestão de salas, turnos e capacidade máxima</p>
             </div>
             <button
@@ -1416,7 +1502,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {turmas.map((t, idx) => {
+            {turmasDoAnoActivo.map((t, idx) => {
               const coordenador = funcionarios.find(f => f.id === t.coordenadorId);
               const ehIniciacao = t.classe === 'Iniciação';
               const ehFinal = ['6ª', '9ª', '12ª', '13ª'].includes(t.classe);
@@ -1484,7 +1570,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
               );
             })}
 
-            {turmas.length === 0 && (
+            {turmasDoAnoActivo.length === 0 && (
               <div className="col-span-full p-12 bg-white rounded-2xl border border-gray-200 text-center text-gray-500 space-y-2">
                 <Boxes className="w-10 h-10 text-gray-400 mx-auto mb-2" />
                 <p className="font-bold text-sm text-gray-700">Nenhuma turma criada para o ano letivo ativo.</p>
@@ -1553,17 +1639,28 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-sm font-bold text-gray-900">Atribuições Docentes & Coordenações ({atribuicoes.length})</h3>
+              <h3 className="text-sm font-bold text-gray-900">Atribuições Docentes & Coordenações ({atribuicoesDoAnoActivo.length})</h3>
               <p className="text-xs text-gray-500">Vinculação de professores, disciplinas e turmas para o ano {escola.anoLectivoActivo}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAtribuicaoModal(true)}
-              className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Nova Atribuição</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={handleReplicarAtribuicoesAnoAnterior}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs transition-colors"
+                title="Clona as atribuições e coordenações dos professores do ano passado para as turmas homólogas do ano atual"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Reatribuir do Ano Anterior</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAtribuicaoModal(true)}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nova Atribuição</span>
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
@@ -1579,7 +1676,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {atribuicoes.map((atrib, idx) => {
+                  {atribuicoesDoAnoActivo.map((atrib, idx) => {
                     const prof = funcionarios.find(f => f.id === atrib.professorId);
                     const turma = turmas.find(t => t.id === atrib.turmaId);
                     const disc = disciplinas.find(d => d.id === atrib.disciplinaId);
@@ -1612,12 +1709,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     );
                   })}
 
-                  {atribuicoes.length === 0 && (
+                  {atribuicoesDoAnoActivo.length === 0 && (
                     <tr>
                       <td colSpan={5} className="p-8 text-center text-gray-500">
                         <Users className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="font-bold text-sm text-gray-700">Nenhuma atribuição docente registada.</p>
-                        <p className="text-xs text-gray-400 mt-1">Utilize o formulário acima para associar um professor a uma turma e disciplina.</p>
+                        <p className="font-bold text-sm text-gray-700">Nenhuma atribuição docente registada para este ano letivo.</p>
+                        <p className="text-xs text-gray-400 mt-1">Os professores aparecem cadastrados sem atribuições de anos anteriores. Utilize o formulário acima para vincular docentes a turmas deste ano letivo.</p>
                       </td>
                     </tr>
                   )}
@@ -2297,7 +2394,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white font-bold"
                 >
                   <option value="">Selecione a Turma...</option>
-                  {turmas.map((t, idx) => (
+                  {turmasDoAnoActivo.map((t, idx) => (
                     <option key={`opt-turma-${t.id || idx}-${idx}`} value={t.id}>
                       {t.nome} ({t.classe}) - {t.sala || 'Sala 01'}
                     </option>
@@ -3160,6 +3257,87 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ELIMINAÇÃO SEGURA DE ANO LETIVO */}
+      {anoParaEliminarSeguro && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-600 border-b border-gray-100 pb-3">
+              <div className="p-2 bg-rose-100 rounded-xl">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-950">Eliminação Segura de Ano Letivo</h3>
+                <p className="text-xs text-gray-500">Ano: {anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo}</p>
+              </div>
+            </div>
+
+            {(anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo) === escola.anoLectivoActivo ? (
+              <div className="space-y-4">
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs leading-relaxed">
+                  <strong>Ação Bloqueada por Segurança:</strong> O ano letivo <strong>{anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo}</strong> é o ano letivo que está atualmente ATIVO na escola. Para proteger o funcionamento dos alunos e turmas em curso, defina outro ano letivo como ativo antes de tentar eliminar este.
+                </div>
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnoParaEliminarSeguro(null);
+                      setConfirmacaoTextoEliminarAno('');
+                    }}
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl text-xs font-bold"
+                  >
+                    Entendido / Fechar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs leading-relaxed space-y-1.5">
+                  <p className="font-bold">Aviso Crítico de Segurança:</p>
+                  <p>
+                    A eliminação do ano letivo <strong>{anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo}</strong> removerá este período do histórico da instituição. Esta ação não poderá ser desfeita.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                    Digite exatamente <span className="font-mono text-rose-600 font-extrabold select-all">{anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo}</span> para confirmar a eliminação:
+                  </label>
+                  <input
+                    type="text"
+                    value={confirmacaoTextoEliminarAno}
+                    onChange={(e) => setConfirmacaoTextoEliminarAno(e.target.value)}
+                    placeholder={anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo}
+                    className="w-full text-xs px-3 py-2.5 border-2 border-gray-300 focus:border-rose-500 rounded-xl font-bold font-mono text-gray-900 outline-hidden"
+                  />
+                </div>
+
+                <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnoParaEliminarSeguro(null);
+                      setConfirmacaoTextoEliminarAno('');
+                    }}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={confirmacaoTextoEliminarAno.trim() !== (anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo).trim()}
+                    onClick={handleConfirmarEliminarAnoSeguro}
+                    className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black cursor-pointer shadow-md transition-all flex items-center space-x-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Eliminar Definitivamente</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

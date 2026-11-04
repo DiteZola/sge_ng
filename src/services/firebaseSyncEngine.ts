@@ -367,17 +367,21 @@ class FirebaseSyncEngine {
           return userFromFirebase;
         }
 
-        // Escanear todos os documentos para busca case-insensitive e tolerante
+        // Escanear todos os documentos para busca exata (sem colisão de substrings)
         const snapAll = await getDocs(funcsRef);
         for (const docSnap of snapAll.docs) {
           const f = docSnap.data() as Funcionario;
+          const fEmail = (f.email || '').trim().toLowerCase();
+          const fBi = (f.numeroBI || '').toUpperCase().replace(/\s+/g, '');
+          const fNome = (f.nomeCompleto || '').trim().toLowerCase();
+          const fId = (f.id || '').trim().toLowerCase();
+
           if (
-            (f.email && f.email.toLowerCase() === termo) ||
-            (f.numeroBI && f.numeroBI.toUpperCase() === biUpper) ||
-            (f.numeroBI && f.numeroBI.toLowerCase() === termo) ||
-            (f.nomeCompleto && f.nomeCompleto.toLowerCase() === termo) ||
-            (f.nomeCompleto && f.nomeCompleto.toLowerCase().includes(termo)) ||
-            (f.id && f.id.toLowerCase() === termo) ||
+            fEmail === termo ||
+            fBi === biUpper ||
+            fBi === termo.toUpperCase().replace(/\s+/g, '') ||
+            fNome === termo ||
+            fId === termo ||
             (isAdminKeyword && f.role === 'AdminGeral')
           ) {
             this.atualizarUsuarioNoDispositivo(f);
@@ -394,7 +398,7 @@ class FirebaseSyncEngine {
   }
 
   /**
-   * Procura o perfil no dispositivo local (localStorage)
+   * Procura o perfil no dispositivo local (localStorage) com correspondência estrita
    */
   public buscarPerfilNoDispositivo(termo: string): Funcionario | null {
     try {
@@ -404,19 +408,25 @@ class FirebaseSyncEngine {
       const funcs: Funcionario[] = JSON.parse(raw);
       if (!Array.isArray(funcs)) return null;
 
-      // Se termo for termo de admin, prioriza o AdminGeral ativo
+      // Se termo for termo de admin explícito, prioriza o AdminGeral ativo
       if (termo === 'admin' || termo === 'admin.geral' || termo === 'admingeral' || termo === 'superadmin' || termo === 'administrador') {
         const adminFound = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
         if (adminFound) return adminFound;
       }
 
-      const found = funcs.find(f => 
-        (f.email && f.email.toLowerCase() === termo) ||
-        (f.numeroBI && f.numeroBI.toLowerCase() === termo) ||
-        (f.nomeCompleto && f.nomeCompleto.toLowerCase() === termo) ||
-        (f.nomeCompleto && f.nomeCompleto.toLowerCase().includes(termo)) ||
-        (f.id && f.id.toLowerCase() === termo)
-      );
+      const termoBi = termo.toUpperCase().replace(/\s+/g, '');
+
+      const found = funcs.find(f => {
+        const fEmail = (f.email || '').trim().toLowerCase();
+        const fBi = (f.numeroBI || '').toUpperCase().replace(/\s+/g, '');
+        const fNome = (f.nomeCompleto || '').trim().toLowerCase();
+        const fId = (f.id || '').trim().toLowerCase();
+
+        return fEmail === termo ||
+               fBi === termoBi ||
+               fNome === termo ||
+               fId === termo;
+      });
 
       return found || null;
     } catch {

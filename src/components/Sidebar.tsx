@@ -36,7 +36,8 @@ import {
   BarChart3,
   Search,
   Compass,
-  Sparkles
+  Sparkles,
+  History
 } from 'lucide-react';
 import { UserRole, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -56,6 +57,7 @@ export type NavTab =
   | 'presencas'
   // GESTÃO
   | 'alunos'
+  | 'historico_escolar'
   | 'professores'
   | 'coordenacao'
   | 'comissao_juri'
@@ -233,6 +235,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Users,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina'],
           badge: 'Matrículas'
+        },
+        {
+          id: 'historico_escolar',
+          label: 'Histórico Escolar & Dossiê',
+          icon: History,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'CoordenadorDisciplina'],
+          badge: 'Notas & Dossiê'
         },
         {
           id: 'professores',

@@ -115,12 +115,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     }
   }, [initialSubTab, isUsuarioDelegado]);
 
-  // Dados carregados da persistência
+  // Dados carregados da persistência por escola e ano lectivo
   const [transacoes, setTransacoes] = useState<TransacaoFinanceira[]>(() => 
-    dbService.getTransacoesFinanceiras(escola.id)
+    dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo)
   );
   const [despesas, setDespesas] = useState<DespesaEscolar[]>(() => 
-    dbService.getDespesasEscolares(escola.id)
+    dbService.getDespesasEscolares(escola.id, escola.anoLectivoActivo)
   );
   const [patrimonio, setPatrimonio] = useState<ItemPatrimonio[]>(() => 
     dbService.getPatrimonio(escola.id)
@@ -132,6 +132,16 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     dbService.getEmolumentosPersonalizados(escola.id)
   );
   const configSistema = dbService.getConfiguracaoSistema();
+
+  // Recarrega todos os dados financeiros sempre que o Diretor alternar o ano lectivo ou a escola ativa
+  useEffect(() => {
+    setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
+    setDespesas(dbService.getDespesasEscolares(escola.id, escola.anoLectivoActivo));
+    setPatrimonio(dbService.getPatrimonio(escola.id));
+    setConfigFinanceira(dbService.getConfiguracaoFinanceira(escola.id));
+    setEmolumentosCustomizados(dbService.getEmolumentosPersonalizados(escola.id));
+    setDelegacoesLista(dbService.getDelegacoesCobranca(escola.id));
+  }, [escola.id, escola.anoLectivoActivo]);
 
   // Estados de feedback
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -239,6 +249,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [buscaDespesa, setBuscaDespesa] = useState('');
   const [buscaPatrimonio, setBuscaPatrimonio] = useState('');
   const [filtroTurmaDevedor, setFiltroTurmaDevedor] = useState('TODAS');
+  const [pesquisaDevedor, setPesquisaDevedor] = useState('');
+  const [filtroEstadoDivida, setFiltroEstadoDivida] = useState<'TODOS' | 'PARCIAIS' | 'SEM_PAGAMENTO'>('TODOS');
 
   const todasClasses = useMemo(() => [
     'Iniciação',
@@ -249,9 +261,66 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
   const [modalPagFiltroClasse, setModalPagFiltroClasse] = useState('TODAS');
   const [modalPagBuscaAluno, setModalPagBuscaAluno] = useState('');
+  const [mostrarTodosAnosPagamento, setMostrarTodosAnosPagamento] = useState(false);
+  const [mostrarAnosPassadosDevedores, setMostrarAnosPassadosDevedores] = useState(false);
+  const [pagQuitacaoTotal, setPagQuitacaoTotal] = useState(false);
+
+  // Estados para Edição de Pagamentos pela Direção com Auditoria
+  const [transacaoParaEditar, setTransacaoParaEditar] = useState<TransacaoFinanceira | null>(null);
+  const [showEditarPagamentoModal, setShowEditarPagamentoModal] = useState(false);
+  const [editValor, setEditValor] = useState<number>(0);
+  const [editMetodo, setEditMetodo] = useState<MetodoPagamentoEscolar>('Transferência Bancária');
+  const [editComprovativo, setEditComprovativo] = useState('');
+  const [editMesReferencia, setEditMesReferencia] = useState('');
+  const [editMotivoAuditoria, setEditMotivoAuditoria] = useState('');
+
+  const handleAbrirEditarPagamento = (t: TransacaoFinanceira) => {
+    setTransacaoParaEditar(t);
+    setEditValor(t.valorTotalKz || t.valorKz || 0);
+    setEditMetodo(t.metodoPagamento || 'Transferência Bancária');
+    setEditComprovativo(t.numeroBordero || t.comprovativo || '');
+    setEditMesReferencia(t.mesReferencia || '');
+    setEditMotivoAuditoria('');
+    setShowEditarPagamentoModal(true);
+  };
+
+  const handleSalvarEdicaoPagamento = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transacaoParaEditar) return;
+    if (!editMotivoAuditoria.trim()) {
+      notificar('O motivo da auditoria/retificação é obrigatório por normas de prestação de contas.');
+      return;
+    }
+    const sucesso = dbService.editarTransacaoComAuditoria(
+      transacaoParaEditar.id,
+      {
+        valorTotalKz: editValor,
+        valorKz: editValor,
+        metodoPagamento: editMetodo,
+        numeroBordero: editComprovativo,
+        mesReferencia: editMesReferencia
+      },
+      currentUser.nomeCompleto,
+      editMotivoAuditoria.trim()
+    );
+
+    if (sucesso) {
+      setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
+      setShowEditarPagamentoModal(false);
+      setTransacaoParaEditar(null);
+      notificar(`Recibo N.º ${transacaoParaEditar.numeroRecibo} editado e auditado com sucesso.`);
+    } else {
+      notificar('Falha ao atualizar o pagamento.');
+    }
+  };
 
   const alunosParaPagamento = useMemo(() => {
-    let list = alunos.filter(a => !a.escolaId || a.escolaId === escola.id);
+    let list = alunos.filter(a => !a.escolaId || a.escolaId === escola.id || escola.id === 'todas');
+    // Por padrão institucional, apenas alunos do ano letivo ativo aparecem para pagamentos
+    if (!mostrarTodosAnosPagamento) {
+      const anoActivo = escola.anoLectivoActivo || '2025/2026';
+      list = list.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo || a.anoMatricula === anoActivo);
+    }
     if (modalPagFiltroClasse !== 'TODAS') {
       list = list.filter(a => {
         const t = turmas.find(tm => tm.id === a.turmaId);
@@ -268,7 +337,53 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       );
     }
     return list;
-  }, [alunos, escola.id, modalPagFiltroClasse, modalPagBuscaAluno, turmas]);
+  }, [alunos, escola.id, escola.anoLectivoActivo, mostrarTodosAnosPagamento, modalPagFiltroClasse, modalPagBuscaAluno, turmas]);
+
+  // Função para calcular a dívida real e pagamentos de cada aluno
+  const obterDetalhesDividaAluno = (aluno: Aluno) => {
+    const turma = turmas.find(t => t.id === aluno.turmaId);
+    const classeKey = aluno.classeId || turma?.classe || '10ª';
+    const valorMensalidade = configFinanceira.propinasPorClasse[classeKey] || 12000;
+
+    const pagamentosPropina = transacoes.filter(
+      t => t.status === 'Confirmado' && t.alunoId === aluno.id && (
+        t.tipo === 'Propina Mensal' || t.tipo === 'Propina' || (t.tipo as string) === 'Mensalidade'
+      )
+    );
+    const totalPagoPropinas = pagamentosPropina.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
+    const totalMesesLetivos = 10;
+    const valorAnualTotal = valorMensalidade * totalMesesLetivos;
+    
+    // Saldo pendente:
+    let saldoDevedor = 0;
+    if (totalPagoPropinas === 0) {
+      saldoDevedor = valorMensalidade;
+    } else if (totalPagoPropinas < valorAnualTotal) {
+      saldoDevedor = valorAnualTotal - totalPagoPropinas;
+    }
+
+    const temPagamentoParcial = totalPagoPropinas > 0 && totalPagoPropinas < valorAnualTotal;
+    const quitouTotalidade = totalPagoPropinas >= valorAnualTotal && valorAnualTotal > 0;
+    
+    // Regra oficial MED Angola:
+    // O aluno só NÃO aparece na lista de devedores quando pagar todas as dívidas ou for isento.
+    // Se pagar apenas uma parte, CONTINUA visível como devedor com o saldo remanescente.
+    const ehDevedor = aluno.propinaStatus !== 'Isento' && !quitouTotalidade && (
+      temPagamentoParcial ||
+      totalPagoPropinas === 0 ||
+      aluno.propinaStatus === 'Pendente' ||
+      (aluno.propinaStatus as string) === 'Em Atraso' ||
+      totalPagoPropinas < valorAnualTotal
+    );
+
+    return {
+      valorMensalidade,
+      totalPagoPropinas,
+      saldoDevedor: Math.max(saldoDevedor, valorMensalidade),
+      temPagamentoParcial,
+      ehDevedor
+    };
+  };
 
   // Cálculos Financeiros
   const totalReceitas = useMemo(() => {
@@ -287,24 +402,61 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     return patrimonio.reduce((acc, curr) => acc + (curr.valorEstimadoKz || 0), 0);
   }, [patrimonio]);
 
-  // Alunos Devedores / Inadimplência
+  // Alunos Devedores / Inadimplência:
+  // REGRA MED: Aluno que paga apenas uma parte continua obrigatoriamente na lista de devedores!
+  // Só desaparece quando pagar a totalidade das suas dívidas.
   const devedores = useMemo(() => {
-    const alunosDaEscola = alunos.filter(a => a.escolaId === escola.id);
+    const anoActivo = escola.anoLectivoActivo || '2025/2026';
+    const alunosDaEscola = alunos.filter(a => 
+      !a.escolaId || 
+      a.escolaId === 'todas' || 
+      a.escolaId === escola.id || 
+      escola.id === 'todas'
+    );
+
     return alunosDaEscola.filter(aluno => {
-      // Verifica se o aluno tem pagamento no mês atual
-      const pagouMes = transacoes.some(
-        t => t.alunoId === aluno.id && t.mesReferencia?.toLowerCase().includes('fevereiro')
-      );
-      // Se não pagou propina ou está marcado como pendente
-      const ehDevedor = (!pagouMes && aluno.propinaStatus !== 'Isento') || aluno.propinaStatus === 'Pendente';
+      // Se for isento oficial
+      if (aluno.propinaStatus === 'Isento') return false;
+
+      // Filtro de turma
       if (filtroTurmaDevedor !== 'TODAS' && aluno.turmaId !== filtroTurmaDevedor) return false;
-      return ehDevedor;
+
+      // Regra de anos letivos: considera anoLectivo, anoMatricula ou ano da turma
+      const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
+      const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || anoActivo;
+      if (!mostrarAnosPassadosDevedores && anoDoAluno !== anoActivo) {
+        const temAlunosNoAno = alunosDaEscola.some(a => {
+          const t = turmas.find(tm => tm.id === a.turmaId);
+          return (a.anoLectivo || a.anoMatricula || t?.anoLectivo) === anoActivo;
+        });
+        if (temAlunosNoAno) return false;
+      }
+
+      const det = obterDetalhesDividaAluno(aluno);
+
+      // Filtro por tipo de pendência
+      if (filtroEstadoDivida === 'PARCIAIS' && !det.temPagamentoParcial) return false;
+      if (filtroEstadoDivida === 'SEM_PAGAMENTO' && det.totalPagoPropinas > 0) return false;
+
+      // Filtro de pesquisa de texto (Nome, Matrícula, BI)
+      if (pesquisaDevedor.trim()) {
+        const termo = pesquisaDevedor.toLowerCase().trim();
+        const nomeMatch = aluno.nomeCompleto.toLowerCase().includes(termo);
+        const matMatch = aluno.codigoMatricula.toLowerCase().includes(termo);
+        const biMatch = (aluno.numeroBI || aluno.numeroDocumento || '').toLowerCase().includes(termo);
+        if (!nomeMatch && !matMatch && !biMatch) return false;
+      }
+
+      return det.ehDevedor;
     });
-  }, [alunos, escola.id, transacoes, filtroTurmaDevedor]);
+  }, [alunos, escola.id, escola.anoLectivoActivo, mostrarAnosPassadosDevedores, transacoes, filtroTurmaDevedor, configFinanceira, turmas, pesquisaDevedor, filtroEstadoDivida]);
 
   const totalEmDividaEstimado = useMemo(() => {
-    return devedores.length * 12000;
-  }, [devedores]);
+    return devedores.reduce((acc, aluno) => {
+      const det = obterDetalhesDividaAluno(aluno);
+      return acc + (det.saldoDevedor > 0 ? det.saldoDevedor : (configFinanceira.propinasPorClasse[aluno.classeId] || 12000));
+    }, 0);
+  }, [devedores, transacoes, configFinanceira]);
 
   // Submissão de Novo Pagamento
   const handleRegistrarPagamento = (e: React.FormEvent) => {
@@ -365,13 +517,25 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     };
 
     dbService.salvarTransacaoFinanceira(novaTransacao);
-    setTransacoes(dbService.getTransacoesFinanceiras(escola.id));
+    setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
 
-    // Atualização e sincronização imediata dos dados do discente
+    // REGRA DE OURO: Atualização do status da propina do discente
+    // O aluno SÓ é considerado "Regularizada" se pagar a totalidade de todas as dívidas!
+    // Se pagar apenas uma parte, continua obrigatoriamente "Pendente" para constar nos devedores.
     if (aluno) {
+      const det = obterDetalhesDividaAluno(aluno);
+      const quitouTodasDividas = pagQuitacaoTotal || (
+        pagTipo === 'Propina Mensal' && 
+        det.saldoDevedor > 0 && 
+        pagValor >= det.saldoDevedor &&
+        (det.totalPagoPropinas + pagValor >= det.valorMensalidade * 10)
+      );
+
+      const novoStatus: 'Regularizada' | 'Pendente' | 'Isento' = quitouTodasDividas ? 'Regularizada' : 'Pendente';
+
       const alunoAtualizado: Aluno = {
         ...aluno,
-        propinaStatus: 'Regularizada',
+        propinaStatus: novoStatus,
         escolaId: aluno.escolaId || escola.id
       };
       dbService.salvarAluno(alunoAtualizado);
@@ -520,7 +684,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     };
 
     dbService.salvarDespesaEscolar(novaDespesa);
-    setDespesas(dbService.getDespesasEscolares(escola.id));
+    setDespesas(dbService.getDespesasEscolares(escola.id, escola.anoLectivoActivo));
     setShowNovaDespesaModal(false);
     setDespDescricao('');
     notificar(`Despesa de ${despValor.toLocaleString()} Kz debitada com sucesso.`);
@@ -1014,14 +1178,28 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         <div className="text-gray-900 font-medium">{t.dataHora}</div>
                         <div className="text-[10px] text-gray-500">{t.operadorNome}</div>
                       </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <button
-                          onClick={() => setReciboParaImprimir(t)}
-                          className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
-                        >
-                          <Printer className="h-3 w-3" />
-                          <span>Ver Recibo</span>
-                        </button>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setReciboParaImprimir(t)}
+                            className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Printer className="h-3 w-3" />
+                            <span>Ver Recibo</span>
+                          </button>
+                          {isDirecao && (
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirEditarPagamento(t)}
+                              className="px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                              title="Retificar Pagamento com Registo de Auditoria"
+                            >
+                              <Edit className="h-3 w-3" />
+                              <span>Editar</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1136,18 +1314,53 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </p>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <label className="text-xs font-bold text-gray-600">Filtrar por Turma:</label>
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Pesquisa Rápida */}
+              <div className="relative min-w-[200px]">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  value={pesquisaDevedor}
+                  onChange={(e) => setPesquisaDevedor(e.target.value)}
+                  placeholder="Pesquisar por nome, matrícula, BI..."
+                  className="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 w-full"
+                />
+              </div>
+
+              {/* Filtro por Situação de Pagamento */}
               <select
-                value={filtroTurmaDevedor}
-                onChange={(e) => setFiltroTurmaDevedor(e.target.value)}
-                className="p-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-amber-500"
+                value={filtroEstadoDivida}
+                onChange={(e) => setFiltroEstadoDivida(e.target.value as any)}
+                className="p-1.5 border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-amber-500"
               >
-                <option value="TODAS">Todas as Turmas</option>
-                {turmas.map(t => (
-                  <option key={t.id} value={t.id}>{t.nome} ({t.classe})</option>
-                ))}
+                <option value="TODOS">Todos os Devedores ({devedores.length})</option>
+                <option value="PARCIAIS">Apenas com Dívida Parcial</option>
+                <option value="SEM_PAGAMENTO">Sem Nenhum Pagamento</option>
               </select>
+
+              <label className="flex items-center space-x-1.5 text-xs text-gray-700 font-semibold cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={mostrarAnosPassadosDevedores}
+                  onChange={(e) => setMostrarAnosPassadosDevedores(e.target.checked)}
+                  className="rounded text-amber-600 focus:ring-amber-500"
+                />
+                <span>Incluir anos anteriores</span>
+              </label>
+
+              <div className="flex items-center space-x-2">
+                <label className="text-xs font-bold text-gray-600">Turma:</label>
+                <select
+                  value={filtroTurmaDevedor}
+                  onChange={(e) => setFiltroTurmaDevedor(e.target.value)}
+                  className="p-1.5 border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="TODAS">Todas as Turmas</option>
+                  {turmas.map(t => (
+                    <option key={t.id} value={t.id}>{t.nome} ({t.classe})</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1158,55 +1371,104 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   <th className="py-3 px-3">Estudante</th>
                   <th className="py-3 px-3">Nº Matrícula</th>
                   <th className="py-3 px-3">Turma / Classe</th>
-                  <th className="py-3 px-3">Mês Pendente</th>
+                  <th className="py-3 px-3">Situação da Dívida</th>
                   <th className="py-3 px-3">Encarregado / Contacto</th>
-                  <th className="py-3 px-3">Valor Estimado</th>
+                  <th className="py-3 px-3">Saldo Devedor</th>
                   <th className="py-3 px-3 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {devedores.map((aluno) => {
-                  const turma = turmas.find(t => t.id === aluno.turmaId);
-                  return (
-                    <tr key={aluno.id} className="hover:bg-amber-50/30 transition-colors">
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-gray-900">{aluno.nomeCompleto}</div>
-                        <div className="text-[10px] text-gray-500">BI: {aluno.numeroBI || aluno.numeroDocumento}</div>
-                      </td>
-                      <td className="py-2.5 px-3 font-mono font-bold text-gray-700">
-                        {aluno.codigoMatricula}
-                      </td>
-                      <td className="py-2.5 px-3 font-medium text-gray-800">
-                        {turma?.nome || aluno.classeId}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                          Fevereiro 2025 (Pendente)
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <div className="font-bold text-gray-800">{aluno.nomeEncarregado || 'Encarregado de Educação'}</div>
-                        <div className="text-[10px] text-gray-500">{aluno.telefoneEncarregado || '+244 923 000 000'}</div>
-                      </td>
-                      <td className="py-2.5 px-3 font-black text-rose-700">
-                        12.000 Kz <span className="text-[10px] text-gray-400 font-normal">(+10% multa)</span>
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <button
-                          onClick={() => {
-                            setPagAlunoId(aluno.id);
-                            setPagTipo('Propina Mensal');
-                            setPagValor(13200); // 12000 + 10%
-                            setShowNovoPagamentoModal(true);
-                          }}
-                          className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                        >
-                          Liquidar
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {devedores.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-gray-500 bg-amber-50/20">
+                      <div className="flex flex-col items-center justify-center space-y-2 max-w-md mx-auto">
+                        <AlertTriangle className="h-10 w-10 text-amber-500/70" />
+                        <h4 className="font-bold text-gray-800 text-sm">Nenhum Aluno Devedor Encontrado</h4>
+                        <p className="text-xs text-gray-500 text-center">
+                          Não foram localizados alunos com pendências financeiras para os filtros ativos. Verifique se a turma selecionada possui estudantes ou marque a opção "Incluir anos anteriores".
+                        </p>
+                        <div className="pt-2 flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFiltroTurmaDevedor('TODAS');
+                              setPesquisaDevedor('');
+                              setFiltroEstadoDivida('TODOS');
+                              setMostrarAnosPassadosDevedores(true);
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs shadow-xs cursor-pointer"
+                          >
+                            Redefinir Filtros & Ver Todos os Alunos
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  devedores.map((aluno) => {
+                    const turma = turmas.find(t => t.id === aluno.turmaId);
+                    const det = obterDetalhesDividaAluno(aluno);
+                    const valorACobrar = det.saldoDevedor > 0 ? det.saldoDevedor : det.valorMensalidade;
+                    return (
+                      <tr key={aluno.id} className="hover:bg-amber-50/30 transition-colors">
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-gray-900">{aluno.nomeCompleto}</div>
+                          <div className="text-[10px] text-gray-500">BI: {aluno.numeroBI || aluno.numeroDocumento}</div>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-gray-700">
+                          {aluno.codigoMatricula}
+                        </td>
+                        <td className="py-2.5 px-3 font-medium text-gray-800">
+                          {turma?.nome || aluno.classeId}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {det.temPagamentoParcial ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                ⚠️ Dívida Parcial Ativa
+                              </span>
+                              <div className="text-[10px] text-emerald-700 font-semibold">
+                                Já pagou: {det.totalPagoPropinas.toLocaleString()} Kz
+                              </div>
+                            </div>
+                          ) : det.totalPagoPropinas === 0 ? (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                              Sem Nenhum Pagamento
+                            </span>
+                          ) : (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                              Propina Pendente
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-gray-800">{aluno.nomeEncarregado || 'Encarregado de Educação'}</div>
+                          <div className="text-[10px] text-gray-500">{aluno.telefoneEncarregado || '+244 923 000 000'}</div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-black text-rose-700 text-xs">
+                            {valorACobrar.toLocaleString()} Kz
+                          </div>
+                          <div className="text-[10px] text-gray-400">Mensalidade: {det.valorMensalidade.toLocaleString()} Kz</div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            onClick={() => {
+                              setPagAlunoId(aluno.id);
+                              setPagTipo('Propina Mensal');
+                              setPagValor(valorACobrar);
+                              setPagQuitacaoTotal(false);
+                              setShowNovoPagamentoModal(true);
+                            }}
+                            className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            Cobrar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -2030,9 +2292,20 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="block font-bold text-gray-700">Selecionar Estudante *</label>
-                  <span className="text-[10px] text-gray-500 font-semibold">
-                    {alunosParaPagamento.length} encontrados
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <label className="flex items-center space-x-1 text-[11px] text-gray-600 font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mostrarTodosAnosPagamento}
+                        onChange={(e) => setMostrarTodosAnosPagamento(e.target.checked)}
+                        className="rounded text-blue-600"
+                      />
+                      <span>Incluir anos anteriores</span>
+                    </label>
+                    <span className="text-[10px] text-gray-500 font-semibold">
+                      ({alunosParaPagamento.length} disponíveis)
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -2168,6 +2441,24 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   placeholder="Ex: Pagamento regularizado"
                   className="w-full p-2 border border-gray-300 rounded-lg"
                 />
+              </div>
+
+              {/* Checkbox de Quitação Total da Dívida */}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <label className="flex items-start space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pagQuitacaoTotal}
+                    onChange={(e) => setPagQuitacaoTotal(e.target.checked)}
+                    className="mt-0.5 rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                  />
+                  <div>
+                    <span className="font-bold text-gray-800 text-xs block">Quitação Total de Dívida</span>
+                    <span className="text-[11px] text-gray-600 block">
+                      Marque esta opção apenas se este pagamento liquidar totalmente todas as pendências do discente e desejar dar baixa imediata da lista de devedores. Pagamentos parcelares continuam registados na lista de devedores com o saldo remanescente.
+                    </span>
+                  </div>
+                </label>
               </div>
 
               <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200">
@@ -2864,6 +3155,131 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Guardar & Ativar Emolumento</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR PAGAMENTO COM AUDITORIA (DIREÇÃO) */}
+      {showEditarPagamentoModal && transacaoParaEditar && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center space-x-2 text-amber-700">
+                <ShieldCheck className="h-5 w-5" />
+                <h3 className="font-bold text-base text-gray-900">
+                  Retificar Pagamento N.º {transacaoParaEditar.numeroRecibo}
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditarPagamentoModal(false);
+                  setTransacaoParaEditar(null);
+                }}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">⚠️ Procedimento Sujeito a Auditoria Rigorosa</p>
+              <p>
+                Aluno: <strong>{transacaoParaEditar.alunoNome}</strong> ({transacaoParaEditar.codigoMatricula})
+              </p>
+              <p>
+                Operador Original: {transacaoParaEditar.operadorNome} | Data: {transacaoParaEditar.dataHora}
+              </p>
+            </div>
+
+            <form onSubmit={handleSalvarEdicaoPagamento} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Valor Arrecadado (Kz) *</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  required
+                  value={editValor}
+                  onChange={(e) => setEditValor(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl font-bold text-sm text-emerald-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Método de Liquidação *</label>
+                  <select
+                    value={editMetodo}
+                    onChange={(e) => setEditMetodo(e.target.value as MetodoPagamentoEscolar)}
+                    className="w-full p-2 border border-gray-300 rounded-xl"
+                  >
+                    <option value="Transferência Bancária">Transferência Bancária</option>
+                    <option value="Depósito Bancário">Depósito Bancário</option>
+                    <option value="TPA / Multicaixa">TPA / Multicaixa</option>
+                    <option value="Numerário / Cash">Numerário / Cash</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Mês / Período de Referência</label>
+                  <input
+                    type="text"
+                    value={editMesReferencia}
+                    onChange={(e) => setEditMesReferencia(e.target.value)}
+                    placeholder="Ex: Outubro, Taxa de Matrícula"
+                    className="w-full p-2 border border-gray-300 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">N.º do Comprovativo / Borderô / RUPE</label>
+                <input
+                  type="text"
+                  value={editComprovativo}
+                  onChange={(e) => setEditComprovativo(e.target.value)}
+                  placeholder="Ex: REF-9834218"
+                  className="w-full p-2 border border-gray-300 rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-rose-700 mb-1">
+                  Motivo da Retificação / Auditoria (Obrigatório) *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={editMotivoAuditoria}
+                  onChange={(e) => setEditMotivoAuditoria(e.target.value)}
+                  placeholder="Explique detalhadamente por que este pagamento está sendo alterado (ex: digitação incorreta do valor no borderô, acerto bancário, retificação autorizada pelo Diretor Geral)..."
+                  className="w-full p-2.5 border border-rose-300 focus:border-rose-500 rounded-xl text-xs"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Este registo será vinculado permanentemente ao recibo e constará no Livro de Auditoria Geral da Direção com a sua assinatura digital ({currentUser.nomeCompleto}).
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditarPagamentoModal(false);
+                    setTransacaoParaEditar(null);
+                  }}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Gravar Retificação & Auditar</span>
                 </button>
               </div>
             </form>

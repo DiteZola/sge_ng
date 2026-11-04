@@ -38,6 +38,7 @@ import { dbService } from '../services/storage';
 import { securityEngine } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
+import { downloadElementAsPdf } from '../utils/pdfGenerator';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import * as XLSX from 'xlsx';
 
@@ -65,8 +66,12 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   onEliminarFuncionario
 }) => {
   const [subTab, setSubTab] = useState<'colaboradores' | 'ponto'>('colaboradores');
+  const [tipoPeriodoPonto, setTipoPeriodoPonto] = useState<'dia' | 'intervalo'>('dia');
   const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
+  const [dataFimSelecionada, setDataFimSelecionada] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showModalPdfPresencas, setShowModalPdfPresencas] = useState(false);
+  const [gerandoPdfPresencas, setGerandoPdfPresencas] = useState(false);
 
   // Modal Novo / Editar Funcionário
   const [showNovoFuncionarioModal, setShowNovoFuncionarioModal] = useState(false);
@@ -942,17 +947,74 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
             <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center space-x-2">
                 <Clock className="h-5 w-5 text-blue-600" />
-                <h3 className="font-bold text-gray-900 text-sm">Livro de Ponto Diário</h3>
+                <h3 className="font-bold text-gray-900 text-sm">Livro de Ponto & Folha de Presenças</h3>
               </div>
 
-              <div className="flex items-center space-x-3">
-                <label className="text-xs font-bold text-gray-700">Data:</label>
-                <input
-                  type="date"
-                  value={dataSelecionada}
-                  onChange={(e) => setDataSelecionada(e.target.value)}
-                  className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1.5 focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                />
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Alternador Modo Dia Único vs Intervalo */}
+                <div className="flex items-center space-x-1 bg-gray-200/80 p-0.5 rounded-lg border border-gray-300">
+                  <button
+                    type="button"
+                    onClick={() => setTipoPeriodoPonto('dia')}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                      tipoPeriodoPonto === 'dia' ? 'bg-white text-blue-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Dia Único
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoPeriodoPonto('intervalo')}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                      tipoPeriodoPonto === 'intervalo' ? 'bg-white text-blue-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Intervalo de Datas
+                  </button>
+                </div>
+
+                {tipoPeriodoPonto === 'dia' ? (
+                  <div className="flex items-center space-x-2">
+                    <label className="text-xs font-bold text-gray-700">Data:</label>
+                    <input
+                      type="date"
+                      value={dataSelecionada}
+                      onChange={(e) => setDataSelecionada(e.target.value)}
+                      className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1.5 focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2 bg-blue-50/60 p-1 rounded-lg border border-blue-200">
+                    <div className="flex items-center space-x-1">
+                      <label className="text-[11px] font-bold text-blue-950">Início:</label>
+                      <input
+                        type="date"
+                        value={dataSelecionada}
+                        onChange={(e) => setDataSelecionada(e.target.value)}
+                        className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1 focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
+                      />
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <label className="text-[11px] font-bold text-blue-950">Fim:</label>
+                      <input
+                        type="date"
+                        value={dataFimSelecionada}
+                        onChange={(e) => setDataFimSelecionada(e.target.value)}
+                        className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1 focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowModalPdfPresencas(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                  title="Baixar Folha de Assiduidade / Livro de Ponto em formato PDF institucional"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>Baixar Livro de Ponto (PDF)</span>
+                </button>
               </div>
             </div>
 
@@ -1930,6 +1992,267 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
               >
                 Gravar Senha
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: PRÉ-VISUALIZAÇÃO E DOWNLOAD DO PDF DA FOLHA DE PONTO */}
+      {showModalPdfPresencas && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-gray-200 space-y-4 my-8">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2 text-blue-900">
+                <Printer className="h-5 w-5 text-blue-700" />
+                <h3 className="text-base font-black text-gray-950">
+                  Folha Oficial de Presenças — Livro de Ponto Diário
+                </h3>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={gerandoPdfPresencas}
+                  onClick={async () => {
+                    setGerandoPdfPresencas(true);
+                    try {
+                      await downloadElementAsPdf('folha-presencas-funcionarios-print', `Folha_Presencas_${dataSelecionada}`, {
+                        orientation: 'portrait',
+                        marginMm: 8
+                      });
+                    } finally {
+                      setGerandoPdfPresencas(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md cursor-pointer transition-all disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>{gerandoPdfPresencas ? 'A gerar PDF...' : 'Baixar PDF Oficial'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md cursor-pointer"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Imprimir</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowModalPdfPresencas(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content to be rendered & captured */}
+            <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 max-h-[75vh] overflow-y-auto">
+              <div
+                id="folha-presencas-funcionarios-print"
+                className="bg-white p-8 text-black mx-auto max-w-[800px] shadow-sm font-sans"
+              >
+                {/* Cabeçalho Oficial MED */}
+                <div className="text-center space-y-1 mb-6">
+                  <div className="flex justify-center mb-2">
+                    <InsigniaAngola className="h-16 w-16 object-contain" />
+                  </div>
+                  <h1 className="text-xs font-bold uppercase tracking-widest text-gray-800">
+                    República de Angola
+                  </h1>
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-700">
+                    Governo Provincial de {escola.provincia || 'Luanda'}
+                  </h2>
+                  <h3 className="text-xs font-semibold uppercase text-gray-700">
+                    Gabinete Provincial da Educação
+                  </h3>
+                  <h4 className="text-sm font-black uppercase text-blue-950 mt-1 border-b border-gray-300 pb-2">
+                    {escola.nome || 'INSTITUIÇÃO DE ENSINO'}
+                  </h4>
+                  <div className="pt-2 text-xs font-black uppercase text-gray-900 tracking-wide">
+                    {tipoPeriodoPonto === 'intervalo'
+                      ? 'Folha de Presenças Periódica — Livro de Ponto do Corpo Docente e Não Docente'
+                      : 'Folha de Presenças Diária — Livro de Ponto do Corpo Docente e Não Docente'}
+                  </div>
+                  <div className="text-[11px] font-medium text-gray-600 flex justify-center items-center space-x-4 pt-1">
+                    {tipoPeriodoPonto === 'intervalo' ? (
+                      <>
+                        <span><strong>Período:</strong> {dataSelecionada} até {dataFimSelecionada}</span>
+                        <span>•</span>
+                        <span><strong>Ano Letivo:</strong> {escola.anoLectivoActivo}</span>
+                        <span>•</span>
+                        <span><strong>Emissão:</strong> {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span><strong>Data de Registo:</strong> {dataSelecionada}</span>
+                        <span>•</span>
+                        <span><strong>Ano Letivo:</strong> {escola.anoLectivoActivo}</span>
+                        <span>•</span>
+                        <span><strong>Horário:</strong> {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tabela de Presenças */}
+                {tipoPeriodoPonto === 'intervalo' ? (
+                  <table className="w-full text-left text-[11px] border-collapse border border-gray-300 mb-6">
+                    <thead>
+                      <tr className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 uppercase text-[10px]">
+                        <th className="p-2 border border-gray-300 w-8 text-center">N.º</th>
+                        <th className="p-2 border border-gray-300">Nome Completo do Funcionário</th>
+                        <th className="p-2 border border-gray-300">Cargo / Função</th>
+                        <th className="p-2 border border-gray-300 w-24">N.º do B.I.</th>
+                        <th className="p-2 border border-gray-300 w-16 text-center">Presenças</th>
+                        <th className="p-2 border border-gray-300 w-16 text-center">Faltas J.</th>
+                        <th className="p-2 border border-gray-300 w-16 text-center">Faltas I.</th>
+                        <th className="p-2 border border-gray-300 w-16 text-center">% Assid.</th>
+                        <th className="p-2 border border-gray-300 w-28 text-center">Visto / Rubrica</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredFuncionarios.map((func, index) => {
+                        const regs = assiduidade.filter(
+                          a => a.funcionarioId === func.id && a.data >= dataSelecionada && a.data <= dataFimSelecionada
+                        );
+                        const pres = regs.filter(r => r.estado === 'Presente').length;
+                        const fj = regs.filter(r => r.estado === 'Falta_Justificada').length;
+                        const fi = regs.filter(r => r.estado === 'Falta_Injustificada').length;
+                        const totalRegs = pres + fj + fi;
+                        const assidPercent = totalRegs > 0 ? Math.round((pres / totalRegs) * 100) : 100;
+
+                        return (
+                          <tr key={`print-func-int-${func.id}`} className={index % 2 === 1 ? 'bg-gray-50/50' : 'bg-white'}>
+                            <td className="p-2 border border-gray-300 text-center font-bold">{index + 1}</td>
+                            <td className="p-2 border border-gray-300 font-bold text-gray-900">{func.nomeCompleto}</td>
+                            <td className="p-2 border border-gray-300 text-gray-700">
+                              {func.cargo}
+                              {func.ehAdministrativoQueLeciona ? ' (Docente)' : ''}
+                            </td>
+                            <td className="p-2 border border-gray-300 font-mono text-[10px] text-gray-700">{func.numeroBI || '—'}</td>
+                            <td className="p-2 border border-gray-300 text-center font-bold text-emerald-800">{pres}</td>
+                            <td className="p-2 border border-gray-300 text-center font-bold text-amber-800">{fj}</td>
+                            <td className="p-2 border border-gray-300 text-center font-bold text-rose-800">{fi}</td>
+                            <td className="p-2 border border-gray-300 text-center font-black">
+                              <span className={assidPercent >= 85 ? 'text-emerald-700' : assidPercent >= 60 ? 'text-amber-700' : 'text-rose-700'}>
+                                {totalRegs > 0 ? `${assidPercent}%` : '100%'}
+                              </span>
+                            </td>
+                            <td className="p-2 border border-gray-300 text-center">
+                              <span className="text-[10px] text-gray-400 italic">________________</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-left text-[11px] border-collapse border border-gray-300 mb-6">
+                    <thead>
+                      <tr className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 uppercase text-[10px]">
+                        <th className="p-2 border border-gray-300 w-10 text-center">N.º</th>
+                        <th className="p-2 border border-gray-300">Nome Completo do Funcionário</th>
+                        <th className="p-2 border border-gray-300">Cargo / Função</th>
+                        <th className="p-2 border border-gray-300 w-28">N.º do B.I.</th>
+                        <th className="p-2 border border-gray-300 w-28 text-center">Estado</th>
+                        <th className="p-2 border border-gray-300 w-36 text-center">Rubrica / Assinatura</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredFuncionarios.map((func, index) => {
+                        const regHoje = assiduidade.find(a => a.funcionarioId === func.id && a.data === dataSelecionada);
+                        const presente = regHoje ? regHoje.estado === 'Presente' : true;
+                        const justificativa = regHoje?.justificativa;
+
+                        return (
+                          <tr key={`print-func-${func.id}`} className={index % 2 === 1 ? 'bg-gray-50/50' : 'bg-white'}>
+                            <td className="p-2 border border-gray-300 text-center font-bold">{index + 1}</td>
+                            <td className="p-2 border border-gray-300 font-bold text-gray-900">{func.nomeCompleto}</td>
+                            <td className="p-2 border border-gray-300 text-gray-700">
+                              {func.cargo}
+                              {func.ehAdministrativoQueLeciona ? ' (Docente)' : ''}
+                            </td>
+                            <td className="p-2 border border-gray-300 font-mono text-[10px] text-gray-700">{func.numeroBI || '—'}</td>
+                            <td className="p-2 border border-gray-300 text-center font-bold">
+                              {presente ? (
+                                <span className="text-emerald-800">PRESENTE</span>
+                              ) : (
+                                <span className="text-rose-800">
+                                  {justificativa ? 'FALTA JUST.' : 'FALTA'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2 border border-gray-300 text-center">
+                              {presente ? (
+                                <span className="text-[10px] text-gray-400 italic">___________________</span>
+                              ) : (
+                                <span className="text-[9px] text-gray-400 italic">{justificativa ? `Justificado: ${justificativa}` : 'Ausente'}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+
+                {/* Resumo da Folha */}
+                <div className="grid grid-cols-3 gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs mb-8">
+                  <div>
+                    <span className="text-gray-500 block text-[10px] uppercase font-bold">Total do Quadro</span>
+                    <strong className="text-sm text-gray-900">{filteredFuncionarios.length} Colaboradores</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block text-[10px] uppercase font-bold">
+                      {tipoPeriodoPonto === 'intervalo' ? 'Presenças no Período' : 'Presentes Confirmados'}
+                    </span>
+                    <strong className="text-sm text-emerald-700">
+                      {tipoPeriodoPonto === 'intervalo'
+                        ? assiduidade.filter(a => a.data >= dataSelecionada && a.data <= dataFimSelecionada && a.estado === 'Presente').length
+                        : filteredFuncionarios.filter(f => {
+                            const r = assiduidade.find(a => a.funcionarioId === f.id && a.data === dataSelecionada);
+                            return r ? r.estado === 'Presente' : true;
+                          }).length}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block text-[10px] uppercase font-bold">
+                      {tipoPeriodoPonto === 'intervalo' ? 'Ausências / Faltas no Período' : 'Ausências / Faltas'}
+                    </span>
+                    <strong className="text-sm text-rose-700">
+                      {tipoPeriodoPonto === 'intervalo'
+                        ? assiduidade.filter(a => a.data >= dataSelecionada && a.data <= dataFimSelecionada && (a.estado === 'Falta_Injustificada' || a.estado === 'Falta_Justificada')).length
+                        : filteredFuncionarios.filter(f => {
+                            const r = assiduidade.find(a => a.funcionarioId === f.id && a.data === dataSelecionada);
+                            return r ? (r.estado === 'Falta_Injustificada' || r.estado === 'Falta_Justificada') : false;
+                          }).length}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Assinaturas Institucionais com traço centrado e gênero do Diretor */}
+                <div className="grid grid-cols-2 gap-8 pt-8 text-center text-xs">
+                  <div className="space-y-1">
+                    <p className="font-bold text-gray-800">O Responsável dos Recursos Humanos / Secretaria</p>
+                    <div className="pt-10">
+                      <div className="w-56 mx-auto border-b border-gray-800 mb-1"></div>
+                      <p className="text-[11px] text-gray-700 font-semibold">{currentUser.nomeCompleto}</p>
+                      <p className="text-[10px] text-gray-500">{currentUser.cargo || 'Recursos Humanos'}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="font-bold text-gray-800">
+                      {escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição'}
+                    </p>
+                    <div className="pt-10">
+                      <div className="w-56 mx-auto border-b border-gray-800 mb-1"></div>
+                      <p className="text-[11px] text-gray-700 font-semibold">{escola.diretorGeralNome || 'Direcção Geral'}</p>
+                      <p className="text-[10px] text-gray-500">Visto & Homologação</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

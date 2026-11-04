@@ -353,6 +353,7 @@ export default function App() {
     setTurmas(dbService.obterTurmas());
     setAlunos(dbService.obterAlunos());
     setNotasConsolidadas(dbService.obterNotasConsolidadas());
+    setAtribuicoes(dbService.obterAtribuicoes());
   };
 
   // Alternância de Trimestre
@@ -377,6 +378,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'professores',
       'coordenacao',
       'direcao',
@@ -420,6 +422,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'professores',
       'coordenacao',
       'comissao_juri',
@@ -463,6 +466,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'professores',
       'coordenacao',
       'comissao_juri',
@@ -495,6 +499,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'professores',
       'coordenacao',
       'comissao_juri',
@@ -519,6 +524,7 @@ export default function App() {
       'dashboard',
       'calendario_escolar',
       'alunos',
+      'historico_escolar',
       'direcao',
       'declaracoes',
       'boletins',
@@ -540,6 +546,7 @@ export default function App() {
       'dashboard',
       'calendario_escolar',
       'alunos',
+      'historico_escolar',
       'direcao',
       'declaracoes',
       'boletins',
@@ -561,6 +568,7 @@ export default function App() {
       'dashboard',
       'calendario_escolar',
       'alunos',
+      'historico_escolar',
       'horarios',
       'presencas',
       'coordenacao',
@@ -586,6 +594,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'comissao_juri',
       'declaracoes',
       'certificados',
@@ -612,6 +621,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'comissao_juri',
       'declaracoes',
       'certificados',
@@ -641,6 +651,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'comissao_juri',
       'declaracoes',
       'certificados',
@@ -667,6 +678,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'professores',
       'coordenacao',
       'comissao_juri',
@@ -703,6 +715,7 @@ export default function App() {
       'horarios',
       'presencas',
       'alunos',
+      'historico_escolar',
       'declaracoes',
       'certificados',
       'pautas',
@@ -720,6 +733,7 @@ export default function App() {
       'dashboard',
       'calendario_escolar',
       'alunos',
+      'historico_escolar',
       'presencas',
       'horarios',
       'pautas',
@@ -872,7 +886,12 @@ export default function App() {
     setAuthenticatedUser(user);
     dbService.setEscolaAtiva(escolaSelecionada.id);
     dbService.setAnoLectivoActivo(anoSelecionado);
-    setEscola(escolaSelecionada);
+    setEscola({ ...escolaSelecionada, anoLectivoActivo: anoSelecionado });
+    setAnosLectivos(dbService.getAnosLectivos());
+    setTurmas(dbService.obterTurmas());
+    setAlunos(dbService.obterAlunos());
+    setAtribuicoes(dbService.obterAtribuicoes());
+    setNotasConsolidadas(dbService.obterNotasConsolidadas());
     setIsAuthenticated(true);
     localStorage.setItem('sge_authenticated', 'true');
     setActiveTab('dashboard');
@@ -1145,6 +1164,52 @@ export default function App() {
           || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
           || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
+  // Isolamento Rigoroso de Dados por Escola e Ano Letivo Ativo
+  const anoActivo = escola.anoLectivoActivo || '2025/2026';
+
+  // 1. Alunos da escola atual
+  const alunosDaEscola = useMemo(() => {
+    return alunos.filter(a => !a.escolaId || a.escolaId === escola.id || escola.id === 'todas');
+  }, [alunos, escola.id]);
+
+  // 1.1 Alunos confirmados/matriculados no ano letivo ativo
+  const alunosDoAnoActivo = useMemo(() => {
+    return alunosDaEscola.filter(a => {
+      const ano = a.anoLectivo || a.anoMatricula;
+      return !ano || ano === anoActivo;
+    });
+  }, [alunosDaEscola, anoActivo]);
+
+  // 2. Turmas da escola atual
+  const turmasDaEscola = useMemo(() => {
+    return turmas.filter(t => !t.escolaId || t.escolaId === escola.id || escola.id === 'todas');
+  }, [turmas, escola.id]);
+
+  // 2.1 Turmas do ano letivo ativo
+  const turmasDoAnoActivo = useMemo(() => {
+    return turmasDaEscola.filter(t => !t.anoLectivo || t.anoLectivo === anoActivo);
+  }, [turmasDaEscola, anoActivo]);
+
+  // 3. Atribuições docentes da escola atual
+  const atribuicoesDaEscola = useMemo(() => {
+    return atribuicoes.filter(at => !at.escolaId || at.escolaId === escola.id || escola.id === 'todas');
+  }, [atribuicoes, escola.id]);
+
+  // 3.1 Atribuições docentes do ano letivo ativo
+  const atribuicoesDoAnoActivo = useMemo(() => {
+    return atribuicoesDaEscola.filter(at => !at.anoLectivo || at.anoLectivo === anoActivo);
+  }, [atribuicoesDaEscola, anoActivo]);
+
+  // 4. Notas consolidadas do ano letivo ativo
+  const notasConsolidadasDoAnoActivo = useMemo(() => {
+    const alunosIdsMap = new Set(alunosDaEscola.map(a => a.id));
+    return notasConsolidadas.filter(n => {
+      const escOk = !n.escolaId || n.escolaId === escola.id || escola.id === 'todas' || alunosIdsMap.has(n.alunoId);
+      const anoOk = !n.anoLectivo || n.anoLectivo === anoActivo;
+      return escOk && anoOk;
+    });
+  }, [notasConsolidadas, escola.id, anoActivo, alunosDaEscola]);
+
   // Ecrã de Verificação Soberana Inicial contra o Firebase (Apenas se utilizador NÃO estiver autenticado)
   if (verificandoAdminOnline && !isAuthenticated) {
     return (
@@ -1342,11 +1407,11 @@ export default function App() {
                 <DashboardView
                   escola={escola}
                   escolas={escolas}
-                  currentUser={currentUser}
-                  alunos={alunos}
+                  currentUser={effectiveUser}
+                  alunos={alunosDoAnoActivo}
                   funcionarios={funcionarios}
-                  turmas={turmas}
-                  notasConsolidadas={notasConsolidadas}
+                  turmas={turmasDoAnoActivo}
+                  notasConsolidadas={notasConsolidadasDoAnoActivo}
                   onNavigate={(tab) => setActiveTab(tab)}
                   onOpenSecurityModal={() => setShowSecurityModal(true)}
                   onOpenTour={() => setShowTourModal(true)}
@@ -1357,9 +1422,9 @@ export default function App() {
               {(activeTab === 'ano_lectivo' || activeTab === 'classes' || activeTab === 'cursos' || activeTab === 'disciplinas' || activeTab === 'turmas' || activeTab === 'turnos' || activeTab === 'academico') && (
                 <AcademicManagementView
                   escola={escola}
-                  turmas={turmas}
+                  turmas={turmasDaEscola}
                   disciplinas={disciplinas}
-                  atribuicoes={atribuicoes}
+                  atribuicoes={atribuicoesDaEscola}
                   funcionarios={funcionarios}
                   juris={juris}
                   onSalvarEscola={handleSalvarEscola}
@@ -1386,7 +1451,7 @@ export default function App() {
               {activeTab === 'calendario_escolar' && (
                 <SchoolCalendarView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                 />
               )}
 
@@ -1394,8 +1459,8 @@ export default function App() {
               {activeTab === 'horarios' && (
                 <ScheduleTimetableView
                   escola={escola}
-                  currentUser={currentUser}
-                  turmas={turmas}
+                  currentUser={effectiveUser}
+                  turmas={turmasDoAnoActivo}
                   disciplinas={disciplinas}
                   funcionarios={funcionarios}
                 />
@@ -1405,9 +1470,9 @@ export default function App() {
               {activeTab === 'presencas' && (
                 <StudentAttendanceReportView
                   escola={escola}
-                  currentUser={currentUser}
-                  turmas={turmas}
-                  alunos={alunos}
+                  currentUser={effectiveUser}
+                  turmas={turmasDoAnoActivo}
+                  alunos={alunosDoAnoActivo}
                   disciplinas={disciplinas}
                   funcionarios={funcionarios}
                 />
@@ -1417,19 +1482,20 @@ export default function App() {
               {activeTab === 'passes_escolares' && (
                 <StudentPassesView
                   escola={escola}
-                  alunos={alunos}
-                  turmas={turmas}
-                  currentUser={currentUser}
+                  alunos={alunosDoAnoActivo}
+                  turmas={turmasDoAnoActivo}
+                  currentUser={effectiveUser}
                   onSalvarEscola={handleSalvarEscola}
                 />
               )}
 
-              {/* 3. GESTÃO: Alunos */}
-              {(activeTab === 'alunos' || activeTab === 'estudantes') && (
+              {/* 3. GESTÃO: Alunos & Histórico Escolar */}
+              {(activeTab === 'alunos' || activeTab === 'estudantes' || activeTab === 'historico_escolar') && (
                 <StudentsView
                   escola={escola}
-                  alunos={alunos}
-                  turmas={turmas}
+                  alunos={alunosDaEscola}
+                  turmas={turmasDaEscola}
+                  initialSubTab={activeTab === 'historico_escolar' ? 'historico' : undefined}
                   onSalvarAluno={handleSalvarAluno}
                   onExcluirAluno={handleExcluirAluno}
                 />
@@ -1439,7 +1505,7 @@ export default function App() {
               {(activeTab === 'professores' || activeTab === 'rh') && (
                 <HumanResourcesView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                   funcionarios={funcionarios}
                   assiduidade={assiduidade}
                   onSalvarFuncionario={handleSalvarFuncionario}
@@ -1454,10 +1520,10 @@ export default function App() {
               {activeTab === 'direcao' && (
                 <ExecutiveDirectionView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                   funcionarios={funcionarios}
-                  turmas={turmas}
-                  alunos={alunos}
+                  turmas={turmasDoAnoActivo}
+                  alunos={alunosDoAnoActivo}
                   onSalvarEscola={handleSalvarEscola}
                   onNavigate={(tab) => setActiveTab(tab)}
                 />
@@ -1467,15 +1533,15 @@ export default function App() {
               {(activeTab === 'coordenacao' || activeTab === 'avaliacoes') && (
                 <EvaluationMacView
                   escola={escola}
-                  currentUser={currentUser}
-                  turmas={turmas}
+                  currentUser={effectiveUser}
+                  turmas={turmasDoAnoActivo}
                   disciplinas={disciplinas}
-                  alunos={alunos}
+                  alunos={alunosDoAnoActivo}
                   tiposAvaliacao={tiposAvaliacao}
                   regrasMAC={regrasMAC}
                   avaliacoes={avaliacoes}
                   notas={notas}
-                  notasConsolidadas={notasConsolidadas}
+                  notasConsolidadas={notasConsolidadasDoAnoActivo}
                   solicitacoes={solicitacoes}
                   onSalvarTipoAvaliacao={handleSalvarTipoAvaliacao}
                   onSalvarRegraMAC={handleSalvarRegraMAC}
@@ -1491,13 +1557,13 @@ export default function App() {
               {activeTab === 'comissao_juri' && (
                 <JuryCommissionView
                   escola={escola}
-                  currentUser={currentUser}
+                  currentUser={effectiveUser}
                   comissoes={juris}
-                  turmas={turmas}
+                  turmas={turmasDoAnoActivo}
                   disciplinas={disciplinas}
-                  alunos={alunos}
-                  notasConsolidadas={notasConsolidadas}
-                  atribuicoes={atribuicoes}
+                  alunos={alunosDoAnoActivo}
+                  notasConsolidadas={notasConsolidadasDoAnoActivo}
+                  atribuicoes={atribuicoesDoAnoActivo}
                   funcionarios={funcionarios}
                   onSalvarComissao={handleSalvarJuri}
                   onEliminarComissao={handleEliminarJuri}
@@ -1509,10 +1575,10 @@ export default function App() {
               {(activeTab === 'declaracoes' || activeTab === 'certificados' || activeTab === 'pautas' || activeTab === 'boletins' || activeTab === 'termos_exame' || activeTab === 'documentos') && (
                 <PrintingDocumentsView
                   escola={escola}
-                  alunos={alunos}
-                  turmas={turmas}
+                  alunos={alunosDaEscola}
+                  turmas={turmasDaEscola}
                   disciplinas={disciplinas}
-                  notasConsolidadas={notasConsolidadas}
+                  notasConsolidadas={notasConsolidadasDoAnoActivo}
                   initialDocType={
                     activeTab === 'pautas' ? 'pautas' :
                     activeTab === 'certificados' ? 'certificado_ciclo' :
@@ -1527,9 +1593,9 @@ export default function App() {
               {(activeTab === 'pagamentos' || activeTab === 'relatorios_financeiros' || activeTab === 'financeiro') && (
                 <AdministrativeFinanceView
                   escola={escola}
-                  currentUser={currentUser}
-                  alunos={alunos}
-                  turmas={turmas}
+                  currentUser={effectiveUser}
+                  alunos={alunosDaEscola}
+                  turmas={turmasDaEscola}
                   onSalvarAluno={handleSalvarAluno}
                   initialSubTab={
                     activeTab === 'pagamentos' ? 'pagamentos' :
