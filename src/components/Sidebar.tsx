@@ -280,7 +280,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'declaracoes',
           label: 'Declarações',
           icon: FileText,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario']
         },
         {
           id: 'certificados',

@@ -579,9 +579,7 @@ export default function App() {
       'meu_perfil',
       'estudantes',
       'avaliacoes',
-      'comunicacao',
-      'documentos',
-      'arquitetura'
+      'comunicacao'
     ],
     Secretaria: [
       'dashboard',
@@ -696,12 +694,10 @@ export default function App() {
       'dashboard',
       'calendario_escolar',
       'alunos',
-      'declaracoes',
       'boletins',
       'pagamentos',
       'meu_perfil',
       'estudantes',
-      'documentos',
       'comunicacao'
     ],
     SecretarioEscolar: [
@@ -823,6 +819,12 @@ export default function App() {
     dbService.eliminarEscola(escolaId);
     setEscolas(dbService.getEscolas());
     setEscola(dbService.getEscolaAtiva());
+    setAlunos(dbService.getAlunos());
+    setTurmas(dbService.getTurmas());
+    setDisciplinas(dbService.getDisciplinas());
+    setFuncionarios(dbService.obterFuncionarios());
+    setAtribuicoes(dbService.getAtribuicoes());
+    setNotasConsolidadas(dbService.getNotasConsolidadas());
     setLogs(dbService.obterLogs());
   };
 
@@ -951,6 +953,11 @@ export default function App() {
   const handleEliminarDisciplina = (discId: string) => {
     dbService.eliminarDisciplina(discId);
     setDisciplinas(dbService.obterDisciplinas());
+  };
+
+  const handleLimparTodasDisciplinas = () => {
+    dbService.limparTodasDisciplinas();
+    setDisciplinas([]);
   };
 
   const handleSalvarAtribuicao = (atrib: any) => {
@@ -1185,9 +1192,9 @@ export default function App() {
     return turmas.filter(t => !t.escolaId || t.escolaId === escola.id || escola.id === 'todas');
   }, [turmas, escola.id]);
 
-  // 2.1 Turmas do ano letivo ativo
+  // 2.1 Turmas do ano letivo ativo (estritamente isoladas pelo ano lectivo ativo)
   const turmasDoAnoActivo = useMemo(() => {
-    return turmasDaEscola.filter(t => !t.anoLectivo || t.anoLectivo === anoActivo);
+    return turmasDaEscola.filter(t => t.anoLectivo === anoActivo || (!t.anoLectivo && anoActivo === '2025/2026'));
   }, [turmasDaEscola, anoActivo]);
 
   // 3. Atribuições docentes da escola atual
@@ -1195,9 +1202,9 @@ export default function App() {
     return atribuicoes.filter(at => !at.escolaId || at.escolaId === escola.id || escola.id === 'todas');
   }, [atribuicoes, escola.id]);
 
-  // 3.1 Atribuições docentes do ano letivo ativo
+  // 3.1 Atribuições docentes do ano letivo ativo (estritamente isoladas pelo ano lectivo ativo)
   const atribuicoesDoAnoActivo = useMemo(() => {
-    return atribuicoesDaEscola.filter(at => !at.anoLectivo || at.anoLectivo === anoActivo);
+    return atribuicoesDaEscola.filter(at => at.anoLectivo === anoActivo || (!at.anoLectivo && anoActivo === '2025/2026'));
   }, [atribuicoesDaEscola, anoActivo]);
 
   // 4. Notas consolidadas do ano letivo ativo
@@ -1432,6 +1439,7 @@ export default function App() {
                   onEliminarTurma={handleEliminarTurma}
                   onSalvarDisciplina={handleSalvarDisciplina}
                   onEliminarDisciplina={handleEliminarDisciplina}
+                  onLimparDisciplinas={handleLimparTodasDisciplinas}
                   onSalvarAtribuicao={handleSalvarAtribuicao}
                   onRemoverAtribuicao={handleRemoverAtribuicao}
                   onSalvarJuri={handleSalvarJuri}
@@ -1493,6 +1501,8 @@ export default function App() {
               {(activeTab === 'alunos' || activeTab === 'estudantes' || activeTab === 'historico_escolar') && (
                 <StudentsView
                   escola={escola}
+                  currentUser={effectiveUser}
+                  atribuicoes={atribuicoesDoAnoActivo}
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
                   initialSubTab={activeTab === 'historico_escolar' ? 'historico' : undefined}
@@ -1535,6 +1545,7 @@ export default function App() {
                   escola={escola}
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
+                  atribuicoes={atribuicoesDoAnoActivo}
                   disciplinas={disciplinas}
                   alunos={alunosDoAnoActivo}
                   tiposAvaliacao={tiposAvaliacao}
@@ -1575,6 +1586,8 @@ export default function App() {
               {(activeTab === 'declaracoes' || activeTab === 'certificados' || activeTab === 'pautas' || activeTab === 'boletins' || activeTab === 'termos_exame' || activeTab === 'documentos') && (
                 <PrintingDocumentsView
                   escola={escola}
+                  currentUser={effectiveUser}
+                  atribuicoes={atribuicoesDoAnoActivo}
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
                   disciplinas={disciplinas}

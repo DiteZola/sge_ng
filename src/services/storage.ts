@@ -737,11 +737,84 @@ if (typeof window !== 'undefined') {
 // Data Access API
 export const dbService = {
   // Escolas
-  getEscolas: (): Escola[] => getLocal(STORAGE_KEYS.ESCOLAS, []),
+  getEscolas: (): Escola[] => {
+    const escolas = getLocal<Escola[]>(STORAGE_KEYS.ESCOLAS, []);
+    const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', 'subdireção pedagógica', 'subdirecao pedagogica', 'chefe da secretaria', 'secretaria', ''];
+
+    return escolas.map(e => {
+      const mod = { ...e };
+      // 1. Diretor Geral
+      if (!mod.diretorGeralNome || placeholders.includes(mod.diretorGeralNome.trim().toLowerCase())) {
+        const dir = funcs.find(f => 
+          (!f.escolaId || f.escolaId === e.id || e.id === 'todas') && 
+          (f.role === 'DiretorGeral' || f.cargo?.toLowerCase().includes('diretor geral') || f.cargo?.toLowerCase().includes('director geral'))
+        );
+        if (dir && dir.nomeCompleto) {
+          mod.diretorGeralNome = dir.nomeCompleto;
+          mod.diretorGeralGenero = dir.genero || mod.diretorGeralGenero || 'M';
+        }
+      }
+      // 2. Subdiretor Pedagógico
+      if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
+        const sub = funcs.find(f =>
+          (!f.escolaId || f.escolaId === e.id || e.id === 'todas') &&
+          (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
+        );
+        if (sub && sub.nomeCompleto) {
+          mod.subdiretorPedagogicoNome = sub.nomeCompleto;
+        }
+      }
+      // 3. Chefe da Secretaria
+      if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
+        const sec = funcs.find(f =>
+          (!f.escolaId || f.escolaId === e.id || e.id === 'todas') &&
+          (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
+        );
+        if (sec && sec.nomeCompleto) {
+          mod.chefeSecretariaNome = sec.nomeCompleto;
+        }
+      }
+      return mod;
+    });
+  },
   getEscolaAtiva: (): Escola => {
     const escolas = dbService.getEscolas();
     const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
-    return escolas.find(e => e.id === idAtivo) || escolas[0] || DEFAULT_ESCOLA_VAZIA;
+    const esc = escolas.find(e => e.id === idAtivo) || escolas[0] || DEFAULT_ESCOLA_VAZIA;
+    const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', 'subdireção pedagógica', 'subdirecao pedagogica', 'chefe da secretaria', 'secretaria', ''];
+    const mod = { ...esc };
+
+    if (!mod.diretorGeralNome || placeholders.includes(mod.diretorGeralNome.trim().toLowerCase())) {
+      const dir = funcs.find(f => 
+        (!f.escolaId || f.escolaId === esc.id || esc.id === 'todas') && 
+        (f.role === 'DiretorGeral' || f.cargo?.toLowerCase().includes('diretor geral') || f.cargo?.toLowerCase().includes('director geral'))
+      );
+      if (dir && dir.nomeCompleto) {
+        mod.diretorGeralNome = dir.nomeCompleto;
+        mod.diretorGeralGenero = dir.genero || esc.diretorGeralGenero || 'M';
+      }
+    }
+    if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
+      const sub = funcs.find(f =>
+        (!f.escolaId || f.escolaId === esc.id || esc.id === 'todas') &&
+        (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
+      );
+      if (sub && sub.nomeCompleto) {
+        mod.subdiretorPedagogicoNome = sub.nomeCompleto;
+      }
+    }
+    if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
+      const sec = funcs.find(f =>
+        (!f.escolaId || f.escolaId === esc.id || esc.id === 'todas') &&
+        (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
+      );
+      if (sec && sec.nomeCompleto) {
+        mod.chefeSecretariaNome = sec.nomeCompleto;
+      }
+    }
+    return mod;
   },
   getEscolaPorId: (escolaId: string): Escola | undefined => {
     return dbService.getEscolas().find(e => e.id === escolaId);
@@ -788,9 +861,9 @@ export const dbService = {
       email: dados.email || '',
       decretoCriacao: dados.decretoCriacao || '',
       artigoLegal: dados.artigoLegal || '',
-      diretorGeralNome: dados.diretorGeralNome || 'Não Atribuído',
-      subdiretorPedagogicoNome: dados.subdiretorPedagogicoNome || 'A designar',
-      chefeSecretariaNome: dados.chefeSecretariaNome || 'A designar',
+      diretorGeralNome: dados.diretorGeralNome || '',
+      subdiretorPedagogicoNome: dados.subdiretorPedagogicoNome || '',
+      chefeSecretariaNome: dados.chefeSecretariaNome || '',
       anoLectivoActivo: dados.anoLectivoActivo || '2025/2026',
       trimestreActivo: dados.trimestreActivo || '1',
       estadoAno: 'Aberto',
@@ -860,15 +933,70 @@ export const dbService = {
     let escolas = dbService.getEscolas();
     const esc = escolas.find(e => e.id === escolaId);
     if (!esc) return false;
+
+    // 1. Remover a escola da lista de escolas
     escolas = escolas.filter(e => e.id !== escolaId);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+
+    // 2. Apagar em cascata todas as coleções de dados concernentes a esta escola
+    const filterOutSchool = (key: string) => {
+      try {
+        const items = getLocal<any[]>(key, []);
+        if (Array.isArray(items)) {
+          const filtrados = items.filter(item => item && item.escolaId !== escolaId);
+          setLocal(key, filtrados);
+        }
+      } catch (e) {
+        // Ignorar
+      }
+    };
+
+    filterOutSchool(STORAGE_KEYS.ALUNOS);
+    filterOutSchool(STORAGE_KEYS.TURMAS);
+    filterOutSchool(STORAGE_KEYS.DISCIPLINAS);
+    filterOutSchool(STORAGE_KEYS.ATRIBUICOES);
+    filterOutSchool(STORAGE_KEYS.TERMOS_EXAME);
+    filterOutSchool(STORAGE_KEYS.TRANSACOES_FINANCEIRAS);
+    filterOutSchool(STORAGE_KEYS.DESPESAS_ESCOLARES);
+    filterOutSchool(STORAGE_KEYS.PATRIMONIO);
+    filterOutSchool(STORAGE_KEYS.NOTAS_CONSOLIDADAS);
+    filterOutSchool(STORAGE_KEYS.AVALIACOES);
+    filterOutSchool(STORAGE_KEYS.NOTAS);
+    filterOutSchool(STORAGE_KEYS.SOLICITACOES_NOTA);
+    filterOutSchool(STORAGE_KEYS.JURIS);
+    filterOutSchool(STORAGE_KEYS.PRESENCAS);
+    filterOutSchool(STORAGE_KEYS.PRESENCAS_ALUNOS);
+    filterOutSchool(STORAGE_KEYS.HORARIOS);
+    filterOutSchool(STORAGE_KEYS.MENSAGENS);
+    filterOutSchool(STORAGE_KEYS.BIBLIOTECA);
+    filterOutSchool(STORAGE_KEYS.RECIBOS);
+    filterOutSchool(STORAGE_KEYS.DELEGACOES_PODERES);
+    filterOutSchool(STORAGE_KEYS.ACOES_DELEGADAS_LOGS);
+    filterOutSchool(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO);
+
+    // Funcionários: remover apenas funcionários exclusivos desta escola (preservando o AdminGeral)
+    try {
+      const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+      const filtrados = funcs.filter(f => f.role === 'AdminGeral' || f.escolaId !== escolaId);
+      setLocal(STORAGE_KEYS.FUNCIONARIOS, filtrados);
+    } catch (e) {
+      // Ignorar
+    }
+
+    // 3. Sincronizar eliminação no Firestore Cloud
     firebaseSyncEngine.eliminarEscola(escolaId);
 
+    // 4. Se a escola ativa era a eliminada, selecionar a próxima escola disponível
     const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
-    if (idAtivo === escolaId && escolas.length > 0) {
-      setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, escolas[0].id);
+    if (idAtivo === escolaId) {
+      if (escolas.length > 0) {
+        setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, escolas[0].id);
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_ESCOLA_ID);
+      }
     }
-    dbService.registarLog('Eliminação de Escola', `Escola "${esc.nomeOficial}" eliminada do sistema pelo Administrador Geral.`);
+
+    dbService.registarLog('Eliminação Total de Escola', `Escola "${esc.nomeOficial}" e todas as suas coleções de dados (alunos, turmas, notas, finanças, presenças, património e colaboradores) foram eliminadas do sistema.`);
     return true;
   },
 
@@ -2027,6 +2155,19 @@ export const dbService = {
     firebaseSyncEngine.salvarAluno(aluno);
     dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${aluno.nomeCompleto} (${aluno.codigoMatricula}) gravado para o Ano Lectivo ${aluno.anoLectivo}.`);
   },
+  adicionarOcorrenciaHistoricoAluno: (alunoId: string, ocorrencia: any) => {
+    const alunos = dbService.getAlunos();
+    const aluno = alunos.find(a => a.id === alunoId);
+    if (!aluno) return false;
+    const novaOcorr = {
+      id: `ocorr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      data: new Date().toISOString().split('T')[0],
+      ...ocorrencia
+    };
+    aluno.ocorrencias = [novaOcorr, ...(aluno.ocorrencias || [])];
+    dbService.salvarAluno(aluno);
+    return true;
+  },
   salvarAlunos: (alunos: Aluno[]) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const alunosComAno = alunos.map(a => ({
@@ -2147,7 +2288,7 @@ export const dbService = {
     setLocal(STORAGE_KEYS.DISCIPLINAS, []);
     dbService.registarLog('Gestão Curricular', 'Todas as disciplinas padrão foram limpas para permitir criação personalizada pela Direção.');
   },
-  replicarAtribuicoesAnoAnterior: (escolaId: string, anoActivo: string): { sucesso: boolean; totalReplicadas: number; novasAtribuicoes: AtribuicaoDocente[]; mensagem: string } => {
+  replicarAtribuicoesAnoAnterior: (escolaId: string, anoActivo: string): { sucesso: boolean; totalReplicadas: number; novasAtribuicoes: AtribuicaoDocente[]; novasTurmas: Turma[]; mensagem: string } => {
     const anosConfigs = dbService.getAnosLectivosConfigs();
     const anosValidos: string[] = anosConfigs.map(a => a.rotulo || a.ano || '').filter((x): x is string => Boolean(x));
     const idxAnoAtual = anosValidos.indexOf(anoActivo);
@@ -2164,27 +2305,46 @@ export const dbService = {
       (anoAnterior ? a.anoLectivo === anoAnterior : (a.anoLectivo && a.anoLectivo !== anoActivo))
     );
 
-    if (atribuicoesPassadas.length === 0) {
-      return { sucesso: false, totalReplicadas: 0, novasAtribuicoes: [], mensagem: 'Nenhuma atribuição docente encontrada em anos letivos anteriores para replicar.' };
-    }
-
     const turmas = dbService.getTurmas();
-    const turmasAnoActivo = turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoActivo);
-    const turmasAnoAnterior = turmas.filter(t => t.anoLectivo === anoAnterior);
+    const turmasAnoActivo = turmas.filter(t => t.anoLectivo === anoActivo);
+    const turmasAnoAnterior = turmas.filter(t => t.anoLectivo === anoAnterior || (!t.anoLectivo && anoAnterior === '2025/2026'));
+
+    if (atribuicoesPassadas.length === 0 && turmasAnoAnterior.length === 0) {
+      return { sucesso: false, totalReplicadas: 0, novasAtribuicoes: [], novasTurmas: [], mensagem: 'Nenhuma turma ou atribuição docente encontrada em anos letivos anteriores para replicar.' };
+    }
 
     let count = 0;
     const novasAtribs = [...todasAtribuicoes];
     const recemCriadas: AtribuicaoDocente[] = [];
+    const recemCriadasTurmas: Turma[] = [];
+    const todasTurmasAtualizadas = [...turmas];
+    const mapaTurmaIdAntigoParaNovo = new Map<string, string>();
 
-    atribuicoesPassadas.forEach(atrib => {
-      const turmaAntiga = turmasAnoAnterior.find(t => t.id === atrib.turmaId) || turmas.find(t => t.id === atrib.turmaId);
-      let turmaDestinoId = atrib.turmaId;
-      if (turmaAntiga) {
-        const turmaEquivalente = turmasAnoActivo.find(t => t.nome === turmaAntiga.nome && t.classe === turmaAntiga.classe);
-        if (turmaEquivalente) {
-          turmaDestinoId = turmaEquivalente.id;
-        }
+    // 1. Replicar Turmas e Coordenadores de Turma do Ano Anterior para o Novo Ano se ainda não existirem
+    turmasAnoAnterior.forEach(tAntiga => {
+      let turmaEquivalente = turmasAnoActivo.find(t => t.nome === tAntiga.nome && t.classe === tAntiga.classe);
+      if (!turmaEquivalente) {
+        turmaEquivalente = {
+          ...tAntiga,
+          id: `turma-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          anoLectivo: anoActivo,
+          escolaId: (!tAntiga.escolaId || tAntiga.escolaId === 'todas') ? escolaId : tAntiga.escolaId
+        };
+        todasTurmasAtualizadas.push(turmaEquivalente);
+        recemCriadasTurmas.push(turmaEquivalente);
+        turmasAnoActivo.push(turmaEquivalente);
       }
+      mapaTurmaIdAntigoParaNovo.set(tAntiga.id, turmaEquivalente.id);
+    });
+
+    if (recemCriadasTurmas.length > 0) {
+      setLocal(STORAGE_KEYS.TURMAS, todasTurmasAtualizadas);
+      recemCriadasTurmas.forEach(t => firebaseSyncEngine.salvarTurma(t));
+    }
+
+    // 2. Replicar Atribuições Docentes e Coordenações para as turmas do novo ano
+    atribuicoesPassadas.forEach(atrib => {
+      const turmaDestinoId = mapaTurmaIdAntigoParaNovo.get(atrib.turmaId) || atrib.turmaId;
 
       const jaExiste = novasAtribs.some(a => 
         a.professorId === atrib.professorId &&
@@ -2208,12 +2368,14 @@ export const dbService = {
     });
 
     setLocal(STORAGE_KEYS.ATRIBUICOES, novasAtribs);
-    dbService.registarLog('Gestão Académica', `${count} atribuições docentes e coordenações replicadas para o ano lectivo ${anoActivo}.`);
+
+    dbService.registarLog('Gestão Académica', `${recemCriadasTurmas.length} turmas e ${count} atribuições docentes replicadas para o ano lectivo ${anoActivo}.`);
     return {
       sucesso: true,
       totalReplicadas: count,
       novasAtribuicoes: recemCriadas,
-      mensagem: `${count} atribuições e coordenações transferidas do ano ${anoAnterior || 'anterior'} para ${anoActivo}`
+      novasTurmas: recemCriadasTurmas,
+      mensagem: `${recemCriadasTurmas.length} turmas e ${count} atribuições e coordenações transferidas do ano ${anoAnterior || 'anterior'} para ${anoActivo}`
     };
   },
 
@@ -2248,9 +2410,10 @@ export const dbService = {
     setLocal(STORAGE_KEYS.ATRIBUICOES, list);
   },
 
-  // Funcionarios
-  getFuncionarios: (): Funcionario[] => {
-    return getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+  getFuncionarios: (escolaId?: string): Funcionario[] => {
+    const list = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    if (!escolaId || escolaId === 'todas') return list;
+    return list.filter(f => !f.escolaId || f.escolaId === escolaId);
   },
   salvarFuncionario: (func: Funcionario) => {
     const funcs = dbService.getFuncionarios();
@@ -2527,6 +2690,12 @@ export const dbService = {
     if (idx >= 0) pres[idx] = p;
     else pres.push(p);
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
+  },
+  removerPresenca: (funcionarioId: string, data: string) => {
+    let pres = dbService.getPresencas();
+    pres = pres.filter(item => !(item.funcionarioId === funcionarioId && item.data === data));
+    setLocal(STORAGE_KEYS.PRESENCAS, pres);
+    dbService.registarLog('Assiduidade', `Registo de ponto do funcionário ${funcionarioId} na data ${data} removido por retificação.`);
   },
 
   // Auditoria
@@ -2831,7 +3000,7 @@ export const dbService = {
         'MÉDIA FINAL DEFINITIVA (MF)': mediaGlobal,
         'Resultado Pedagógico Final': resultadoPedagogico,
         'Total de Faltas': a.faltas || 0,
-        'Comportamento': a.comportamentoConceito || 'Muito Bom',
+        'Comportamento': a.comportamentoConceito || '— (A Avaliar)',
 
         // --- 8. MÉDIAS FINAIS POR DISCIPLINA CURRICULAR ---
         'Língua Portuguesa (MF)': notaDisc('Língua Portuguesa'),
@@ -3441,6 +3610,43 @@ export const dbService = {
     return true;
   },
 
+  eliminarTransacaoFinanceira: (
+    transacaoId: string,
+    operadorNome: string,
+    motivo: string
+  ): boolean => {
+    const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
+    const anterior = todas.find(t => t.id === transacaoId);
+    if (!anterior) return false;
+
+    const filtradas = todas.filter(t => t.id !== transacaoId);
+    setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, filtradas);
+
+    // Se a transação estiver associada a um aluno, reavaliar o estado de propina
+    if (anterior.alunoId) {
+      const alunos = dbService.getAlunos();
+      const alunoIdx = alunos.findIndex(a => a.id === anterior.alunoId);
+      if (alunoIdx >= 0) {
+        const aluno = alunos[alunoIdx];
+        const pagamentosRestantes = filtradas.filter(
+          t => t.status === 'Confirmado' && t.alunoId === aluno.id && (
+            t.tipo === 'Propina Mensal' || t.tipo === 'Propina' || (t.tipo as string) === 'Mensalidade'
+          )
+        );
+        if (pagamentosRestantes.length === 0 && aluno.propinaStatus !== 'Isento') {
+          alunos[alunoIdx] = { ...aluno, propinaStatus: 'Pendente' };
+          setLocal(STORAGE_KEYS.ALUNOS, alunos);
+        }
+      }
+    }
+
+    dbService.registarLog(
+      'Auditoria Financeira - Pagamento Anulado / Apagado',
+      `Recibo ${anterior.numeroRecibo} (${anterior.alunoNome}) no valor de ${anterior.valorTotalKz.toLocaleString()} Kz APAGADO/ANULADO por ${operadorNome}. Motivo: "${motivo}".`
+    );
+    return true;
+  },
+
   getDespesasEscolares: (escolaId?: string, anoLectivo?: string): DespesaEscolar[] => {
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
     let filtradas = todas;
@@ -3466,6 +3672,20 @@ export const dbService = {
     else todas.unshift(despesa);
     setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, todas);
     dbService.registarLog('Despesa Registada', `Saída de caixa (${despesa.anoLectivo}): ${despesa.descricao} no valor de ${despesa.valorKz.toLocaleString()} Kz.`);
+  },
+  eliminarDespesaEscolar: (despesaId: string, operadorNome: string, motivo: string): boolean => {
+    const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
+    const anterior = todas.find(d => d.id === despesaId);
+    if (!anterior) return false;
+
+    const filtradas = todas.filter(d => d.id !== despesaId);
+    setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, filtradas);
+
+    dbService.registarLog(
+      'Auditoria Financeira - Despesa Anulada / Apagada',
+      `Despesa "${anterior.descricao}" no valor de ${anterior.valorKz.toLocaleString()} Kz APAGADA por ${operadorNome}. Motivo: "${motivo}".`
+    );
+    return true;
   },
 
   // ==========================================
@@ -3995,7 +4215,7 @@ export const dbService = {
         textoCabecalho: 'REPÚBLICA DE ANGOLA\nGOVERNO PROVINCIAL\nGABINETE PROVINCIAL DA EDUCAÇÃO',
         textoCorpoAbertura: 'Nos termos da legislação do Ministério da Educação em vigor, publicam-se as notas e classificações obtidas pelos estudantes.',
         textoFechamento: 'A presente pauta foi lavrada em Conselho de Notas e homologada pela Direção da Escola.',
-        textoRodape: 'Documento oficial gerado informaticamente pelo SGE-NG Angola com certificação digital.',
+        textoRodape: '',
         artigoLegalDecreto: 'Decreto Executivo n.º 250/18 de 06 de Outubro | Avaliação do Sistema de Ensino Secundário',
         disposicao: {
           orientacao: 'paisagem',
@@ -4125,7 +4345,7 @@ export const dbService = {
         textoCabecalho: 'REPÚBLICA DE ANGOLA\nMINISTÉRIO DA EDUCAÇÃO',
         textoCorpoAbertura: 'Válido exclusivamente para o ano letivo ativo em todo o território nacional.',
         textoFechamento: 'Uso pessoal e intransmissível. Em caso de extravio, devolver à secretaria da escola.',
-        textoRodape: 'SGE-NG - Sistema Integrado de Gestão Escolar',
+        textoRodape: '',
         artigoLegalDecreto: 'Norma de Identificação Escolar MED',
         disposicao: {
           orientacao: 'retrato',
@@ -4203,7 +4423,7 @@ export const dbService = {
         textoCabecalho: 'REPÚBLICA DE ANGOLA\nMINISTÉRIO DA EDUCAÇÃO',
         textoCorpoAbertura: 'Confirmamos a receção do montante indicado em pagamento das taxas ou propinas escolares discriminadas.',
         textoFechamento: 'Guarde este comprovativo para efeitos de conferência e matrícula.',
-        textoRodape: 'Processado por computador - Caixa Oficial SGE-NG',
+        textoRodape: 'Comprovativo Oficial de Arrecadação de Receita Escolar',
         artigoLegalDecreto: 'Regulamento de Emolumentos e Gestão Financeira Escolar',
         disposicao: {
           orientacao: 'retrato',

@@ -75,6 +75,34 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
     };
   }, [onSyncComplete]);
 
+  // Verifica se o dispositivo já foi inicializado ou se o utilizador já usa o sistema
+  const isDispositivoInicializado = () => {
+    try {
+      if (typeof localStorage === 'undefined') return true;
+      const jaInicializado = localStorage.getItem('sge_dispositivo_inicializado') === 'true';
+      const jaSincronizou = localStorage.getItem('sge_primeira_sincronizacao_concluida') === 'true';
+      const temFuncionarios = !!localStorage.getItem('sge_funcionarios');
+      const temEscolas = !!localStorage.getItem('sge_escolas');
+      const isAuth = localStorage.getItem('sge_authenticated') === 'true';
+      return jaInicializado || jaSincronizou || isAuth || (temFuncionarios && temEscolas);
+    } catch {
+      return true;
+    }
+  };
+
+  const [dispositivoJaConfigurado, setDispositivoJaConfigurado] = useState<boolean>(() => isDispositivoInicializado());
+  const [overlayMinimizado, setOverlayMinimizado] = useState(false);
+
+  useEffect(() => {
+    if (status.progressoPercentual === 100 || (!status.emSincronizacao && status.ultimaSincronizacao)) {
+      try {
+        localStorage.setItem('sge_dispositivo_inicializado', 'true');
+        localStorage.setItem('sge_primeira_sincronizacao_concluida', 'true');
+      } catch {}
+      setDispositivoJaConfigurado(true);
+    }
+  }, [status.progressoPercentual, status.emSincronizacao, status.ultimaSincronizacao]);
+
   const handleForcarSincronizacao = async () => {
     try {
       await firebaseSyncEngine.sincronizarTudoImediato();
@@ -83,12 +111,15 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
     }
   };
 
-  const emSincronizacaoAtiva = status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100;
+  // REGRA DO MED / EXIGÊNCIA DO UTILIZADOR:
+  // A janela de sincronizar NÃO PODE ficar por cima se o usuário já usa o sistema!
+  // Somente fica por cima na primeira configuração num novo dispositivo virgem.
+  const deveExibirOverlay = !dispositivoJaConfigurado && !overlayMinimizado && status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100;
 
   return (
     <>
-      {/* 1. OVERLAY DE BARRA DE PROGRESSO AO BAIXAR DADOS NO DISPOSITIVO */}
-      {emSincronizacaoAtiva && (
+      {/* 1. OVERLAY DE BARRA DE PROGRESSO — APENAS NA PRIMEIRA CONFIGURAÇÃO NUM NOVO DISPOSITIVO */}
+      {deveExibirOverlay && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-slate-900 border border-blue-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl text-white relative overflow-hidden">
             {/* Efeito luminoso de fundo */}
@@ -108,15 +139,31 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
                   <Smartphone className="w-6 h-6" />
                 </div>
               </div>
-              <span className="px-3 py-1 text-[11px] font-mono font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                {status.progressoPercentual}%
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="px-3 py-1 text-[11px] font-mono font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                  {status.progressoPercentual}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOverlayMinimizado(true);
+                    setDispositivoJaConfigurado(true);
+                    try {
+                      localStorage.setItem('sge_dispositivo_inicializado', 'true');
+                    } catch {}
+                  }}
+                  className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                  title="Minimizar e continuar a trabalhar"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Títulos e Descrição */}
             <div className="space-y-1.5 mb-6">
               <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
-                <span>Sincronizando Sistema com o Dispositivo</span>
+                <span>Configuração Inicial do Dispositivo</span>
                 <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
@@ -142,16 +189,31 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
               </div>
             </div>
 
-            {/* Badges de Garantia e Segurança */}
-            <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400 pt-2 border-t border-slate-800">
-              <div className="flex items-center space-x-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Cifragem AES-256 Ativa</span>
+            {/* Badges de Garantia e Botão de Prosseguir em Segundo Plano */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800">
+              <div className="flex items-center space-x-3 text-[11px] text-slate-400">
+                <span className="flex items-center space-x-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Cifragem AES-256</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <Database className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Dispositivo Conectado</span>
+                </span>
               </div>
-              <div className="flex items-center space-x-1.5 justify-end">
-                <Database className="w-3.5 h-3.5 text-blue-400" />
-                <span>Dispositivo Conectado</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOverlayMinimizado(true);
+                  setDispositivoJaConfigurado(true);
+                  try {
+                    localStorage.setItem('sge_dispositivo_inicializado', 'true');
+                  } catch {}
+                }}
+                className="w-full sm:w-auto px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                Prosseguir a Trabalhar
+              </button>
             </div>
           </div>
         </div>
@@ -197,31 +259,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
         </aside>
       )}
 
-      {/* 3. BOTÃO FIXO / BADGE DISCRETO NO TOPO/RODAPÉ DE STATUS DE SINCRONIZAÇÃO */}
-      <div className="fixed top-3 right-20 z-30 hidden sm:flex items-center">
-        <button
-          type="button"
-          onClick={() => setModalDetalhesAberto(true)}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border transition-all cursor-pointer shadow-xs ${
-            status.isOnline && status.firestoreDisponivel
-              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-700'
-              : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-700'
-          }`}
-          title="Clique para ver detalhes de sincronização entre o Firebase e o dispositivo"
-        >
-          {status.isOnline ? (
-            <Wifi className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-          ) : (
-            <WifiOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-          )}
-          <span>
-            {status.emSincronizacao 
-              ? `Sincronizando (${status.progressoPercentual}%)` 
-              : 'Sincronizado'}
-          </span>
-          <RefreshCw className={`w-3 h-3 text-gray-400 ${status.emSincronizacao ? 'animate-spin text-blue-600' : ''}`} />
-        </button>
-      </div>
+
 
       {/* 4. MODAL DE DETALHES DE SINCRONIZAÇÃO */}
       {modalDetalhesAberto && (

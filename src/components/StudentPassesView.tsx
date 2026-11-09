@@ -661,8 +661,8 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                           </div>
                         )}
 
-                        <div className="font-mono text-[6.5px] text-gray-400">
-                          SGE-NG • AO
+                        <div className="font-mono text-[6.5px] text-gray-500 font-bold uppercase">
+                          MED ANGOLA
                         </div>
                       </div>
                     </div>
@@ -981,7 +981,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                           )}
                         </div>
                       )}
-                      <span className="font-mono text-[6px]">SGE-NG • AO</span>
+                      <span className="font-mono text-[6px] text-gray-500 font-bold uppercase">MED ANGOLA</span>
                     </div>
                   </div>
                 </div>

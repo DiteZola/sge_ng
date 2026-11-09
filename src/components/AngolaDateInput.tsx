@@ -122,15 +122,30 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
     }
   }, [value, minYear, maxYear]);
 
-  // Manipulador de digitação com máscara amigável
+  // Manipulador de digitação manual fluida com suporte a backspace e colar
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let raw = e.target.value.replace(/[^\d/]/g, '');
+    let raw = e.target.value;
+    
+    // Se o utilizador estiver colando ou digitando formato ISO (AAAA-MM-DD)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
+      const ao = formatarParaDataAngola(raw.trim());
+      setTextoManual(ao);
+      const val = validarDataAngolana(ao, minYear, maxYear);
+      if (val.valida) {
+        setErroValidacao(null);
+        onChange(raw.trim());
+      }
+      return;
+    }
 
-    // Formatação progressiva com barras (DD/MM/AAAA)
-    if (raw.length === 2 && !raw.includes('/') && !textoManual.endsWith('/')) {
-      raw = raw + '/';
-    } else if (raw.length === 5 && raw.split('/').length === 2 && !textoManual.endsWith('/')) {
-      raw = raw + '/';
+    // Apenas dígitos e barras
+    raw = raw.replace(/[^\d/]/g, '');
+
+    // Formatação automática amigável ao digitar (apenas quando o tamanho aumenta)
+    if (raw.length > textoManual.length) {
+      if ((raw.length === 2 || raw.length === 5) && !raw.endsWith('/')) {
+        raw = raw + '/';
+      }
     }
 
     if (raw.length > 10) {
@@ -152,7 +167,6 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
       setErroValidacao(required ? 'Campo obrigatório' : null);
       onChange('');
     } else {
-      // Incompleto
       setErroValidacao(null);
     }
   };
@@ -161,7 +175,7 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
     if (textoManual.trim().length > 0) {
       const val = validarDataAngolana(textoManual, minYear, maxYear);
       if (!val.valida) {
-        setErroValidacao(val.erro || 'Data inválida no formato de Angola');
+        setErroValidacao(val.erro || 'Data inválida no formato de Angola (DD/MM/AAAA)');
       } else {
         setErroValidacao(null);
         onChange(formatarAngolaParaIso(textoManual));
@@ -171,7 +185,7 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
     }
   };
 
-  // Seletor nativo rápido como suporte alternativo
+  // Seletor nativo rápido como suporte alternativo através do ícone
   const handleNativePickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const isoVal = e.target.value;
     if (isoVal) {
@@ -201,27 +215,31 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
           onBlur={handleBlur}
           placeholder={placeholder}
           maxLength={10}
-          className={`w-full p-2 pr-10 text-xs font-mono font-bold rounded-lg border transition-colors focus:outline-none ${
+          inputMode="numeric"
+          autoComplete="off"
+          className={`w-full p-2 pr-9 text-xs font-mono font-bold rounded-lg border transition-colors focus:outline-none cursor-text ${
             erroValidacao
               ? 'border-2 border-red-700 bg-red-100/70 text-red-950 ring-2 ring-red-500 focus:border-red-800'
               : 'border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600'
           }`}
         />
 
-        {/* Botão de abrir datepicker nativo integrado */}
-        <label 
-          className="absolute right-2 cursor-pointer text-gray-400 hover:text-blue-600 transition-colors p-1"
+        {/* Botão de abrir datepicker nativo integrado estritamente restrito ao ícone do calendário */}
+        <div 
+          className="absolute right-1 top-1 bottom-1 w-7 flex items-center justify-center cursor-pointer text-gray-400 hover:text-blue-600 transition-colors"
           title="Escolher data no calendário"
         >
-          <Calendar className="w-4 h-4" />
+          <Calendar className="w-4 h-4 pointer-events-none" />
           <input
             type="date"
             disabled={disabled}
+            tabIndex={-1}
             value={formatarAngolaParaIso(textoManual)}
             onChange={handleNativePickerChange}
-            className="absolute inset-0 opacity-0 cursor-pointer pointer-events-auto w-full h-full"
+            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+            style={{ fontSize: '10px' }}
           />
-        </label>
+        </div>
       </div>
 
       {erroValidacao && (

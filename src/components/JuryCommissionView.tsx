@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Gavel, 
   Scale, 
@@ -114,10 +114,21 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
     return Array.from(setCls);
   }, [turmas]);
 
-  // Filtro Estrito MED: Direção Geral e Subdireção visualizam todas as comissões da escola.
-  // Professores visualizam apenas e exclusivamente as comissões onde estão nomeados (membro, presidente ou secretário).
+  const [filtroAnoJuri, setFiltroAnoJuri] = useState<string>(escola.anoLectivoActivo || '2025/2026');
+
+  useEffect(() => {
+    if (escola.anoLectivoActivo) {
+      setFiltroAnoJuri(escola.anoLectivoActivo);
+    }
+  }, [escola.anoLectivoActivo]);
+
+  // Filtro Estrito MED: Direção Geral e Subdireção visualizam as comissões do ano letivo selecionado.
+  // As comissões de anos letivos anteriores permanecem isoladas no seu ano original.
   const comissoesVisiveis = useMemo(() => {
-    const daEscola = comissoes.filter(c => c.escolaId === escola.id);
+    const daEscola = comissoes.filter(c => 
+      (!c.escolaId || c.escolaId === escola.id || escola.id === 'todas') &&
+      ((c.anoLectivo || '2025/2026') === filtroAnoJuri)
+    );
     const ehDirecao = ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo'].includes(currentUser.role);
     if (ehDirecao) return daEscola;
     return daEscola.filter(c => 
@@ -125,7 +136,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
       c.secretarioId === currentUser.id ||
       c.membros?.some(m => m.usuarioId === currentUser.id || (currentUser.nomeCompleto && m.nome?.toLowerCase().trim() === currentUser.nomeCompleto.toLowerCase().trim()))
     );
-  }, [comissoes, escola.id, currentUser]);
+  }, [comissoes, escola.id, filtroAnoJuri, currentUser]);
 
   // Comissão ativa selecionada
   const [comissaoIdAtiva, setComissaoIdAtiva] = useState<string>(() => {
@@ -877,9 +888,20 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 <span>{escola.nomeOficial}</span>
               </span>
               <span>•</span>
-              <span className="flex items-center space-x-1.5">
-                <Calendar className="w-4 h-4 text-blue-400" />
-                <span>Ano Letivo: {comissaoAtiva?.anoLectivo || escola.anoLectivoActivo}</span>
+              <span className="flex items-center space-x-1.5 bg-white/10 px-2.5 py-1 rounded-lg border border-white/20">
+                <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                <span className="font-bold">Ano Letivo:</span>
+                <select
+                  value={filtroAnoJuri}
+                  onChange={(e) => setFiltroAnoJuri(e.target.value)}
+                  className="bg-transparent text-white font-black text-xs focus:outline-none cursor-pointer"
+                >
+                  {dbService.getAnosLectivos().map(ano => (
+                    <option key={ano} value={ano} className="text-slate-900 bg-white">
+                      {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                    </option>
+                  ))}
+                </select>
               </span>
               <span>•</span>
               <span className="flex items-center space-x-1.5">

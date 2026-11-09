@@ -72,6 +72,7 @@ import {
   CLASSES_SEGUNDO_CICLO
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
+import { obterNomeDiretorGeral, obterTituloDiretorGeral } from '../utils/directorHelper';
 
 interface AdministrativeFinanceViewProps {
   escola: Escola;
@@ -171,24 +172,18 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   // Estados de Delegação de Cobrança
   const [showNovaDelegacaoModal, setShowNovaDelegacaoModal] = useState(false);
   const [delFuncionarioId, setDelFuncionarioId] = useState('');
-  const [delEmolumentos, setDelEmolumentos] = useState<TipoEmolumento[]>(['Propina Mensal', 'Confirmação']);
+  const [delEmolumentos, setDelEmolumentos] = useState<TipoEmolumento[]>(() => {
+    return emolumentosCustomizados.slice(0, 2).map(e => e.nome as TipoEmolumento);
+  });
   const [delLimiteKz, setDelLimiteKz] = useState<number | undefined>(undefined);
   const [delPermitirAnulacao, setDelPermitirAnulacao] = useState(false);
   const [delObservacoes, setDelObservacoes] = useState('');
 
   const todosEmolumentosDisponiveis: TipoEmolumento[] = useMemo(() => {
-    const padrao: TipoEmolumento[] = [
-      'Propina Mensal',
-      'Confirmação',
-      'Declaração com Notas',
-      'Declaração sem Notas',
-      'Certificado de Conclusão',
-      'Cartão de Estudante',
-      'Exame de Recurso',
-      'Matrícula'
-    ];
+    // REGRA DO MED: Não existem emolumentos por padrão no sistema.
+    // Todos os emolumentos devem ser configurados pelo Diretor da Escola e podem ser editados ou eliminados.
     const customs = emolumentosCustomizados.filter(e => e.ativo !== false).map(e => e.nome as TipoEmolumento);
-    return Array.from(new Set([...padrao, ...customs]));
+    return Array.from(new Set(customs));
   }, [emolumentosCustomizados]);
 
   const emolumentosPermitidosFormulario = isUsuarioDelegado && minhaDelegacao
@@ -197,7 +192,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
   // Estados Formulário Pagamento
   const [pagAlunoId, setPagAlunoId] = useState('');
-  const [pagTipo, setPagTipo] = useState<TipoPagamentoEscolar>('Propina Mensal');
+  const [pagTipo, setPagTipo] = useState<TipoPagamentoEscolar>(() => {
+    return (emolumentosCustomizados.find(e => e.ativo !== false)?.nome as TipoPagamentoEscolar) || ('' as any);
+  });
   const [pagMes, setPagMes] = useState('Fevereiro 2025');
   const [pagValor, setPagValor] = useState<number>(12000);
   const [pagMetodo, setPagMetodo] = useState<MetodoPagamentoEscolar>('Multicaixa / TPA');
@@ -314,6 +311,71 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     }
   };
 
+  // Estados para Eliminar / Anular Pagamentos e Despesas com Auditoria (Direção)
+  const [transacaoParaEliminar, setTransacaoParaEliminar] = useState<TransacaoFinanceira | null>(null);
+  const [showEliminarPagamentoModal, setShowEliminarPagamentoModal] = useState(false);
+  const [motivoEliminarPagamento, setMotivoEliminarPagamento] = useState('');
+
+  const [despesaParaEliminar, setDespesaParaEliminar] = useState<DespesaEscolar | null>(null);
+  const [showEliminarDespesaModal, setShowEliminarDespesaModal] = useState(false);
+  const [motivoEliminarDespesa, setMotivoEliminarDespesa] = useState('');
+
+  const handleAbrirEliminarPagamento = (t: TransacaoFinanceira) => {
+    setTransacaoParaEliminar(t);
+    setMotivoEliminarPagamento('');
+    setShowEliminarPagamentoModal(true);
+  };
+
+  const handleConfirmarEliminarPagamento = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transacaoParaEliminar) return;
+    if (!motivoEliminarPagamento.trim()) {
+      notificar('O motivo da anulação/eliminação do pagamento é obrigatório.');
+      return;
+    }
+    const sucesso = dbService.eliminarTransacaoFinanceira(
+      transacaoParaEliminar.id,
+      currentUser.nomeCompleto,
+      motivoEliminarPagamento.trim()
+    );
+    if (sucesso) {
+      setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
+      setShowEliminarPagamentoModal(false);
+      setTransacaoParaEliminar(null);
+      notificar(`Recibo N.º ${transacaoParaEliminar.numeroRecibo} eliminado/anulado com sucesso.`);
+    } else {
+      notificar('Erro ao eliminar a transação financeira.');
+    }
+  };
+
+  const handleAbrirEliminarDespesa = (d: DespesaEscolar) => {
+    setDespesaParaEliminar(d);
+    setMotivoEliminarDespesa('');
+    setShowEliminarDespesaModal(true);
+  };
+
+  const handleConfirmarEliminarDespesa = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!despesaParaEliminar) return;
+    if (!motivoEliminarDespesa.trim()) {
+      notificar('O motivo da anulação/eliminação da despesa é obrigatório.');
+      return;
+    }
+    const sucesso = dbService.eliminarDespesaEscolar(
+      despesaParaEliminar.id,
+      currentUser.nomeCompleto,
+      motivoEliminarDespesa.trim()
+    );
+    if (sucesso) {
+      setDespesas(dbService.getDespesasEscolares(escola.id, escola.anoLectivoActivo));
+      setShowEliminarDespesaModal(false);
+      setDespesaParaEliminar(null);
+      notificar(`Despesa "${despesaParaEliminar.descricao}" eliminada com sucesso.`);
+    } else {
+      notificar('Erro ao eliminar a despesa.');
+    }
+  };
+
   const alunosParaPagamento = useMemo(() => {
     let list = alunos.filter(a => !a.escolaId || a.escolaId === escola.id || escola.id === 'todas');
     // Por padrão institucional, apenas alunos do ano letivo ativo aparecem para pagamentos
@@ -339,7 +401,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     return list;
   }, [alunos, escola.id, escola.anoLectivoActivo, mostrarTodosAnosPagamento, modalPagFiltroClasse, modalPagBuscaAluno, turmas]);
 
-  // Função para calcular a dívida real e pagamentos de cada aluno
+  // Função para calcular a dívida real e pagamentos de cada aluno com cálculo exato de parcelas restantes
   const obterDetalhesDividaAluno = (aluno: Aluno) => {
     const turma = turmas.find(t => t.id === aluno.turmaId);
     const classeKey = aluno.classeId || turma?.classe || '10ª';
@@ -353,21 +415,30 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     const totalPagoPropinas = pagamentosPropina.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
     const totalMesesLetivos = 10;
     const valorAnualTotal = valorMensalidade * totalMesesLetivos;
-    
-    // Saldo pendente:
-    let saldoDevedor = 0;
-    if (totalPagoPropinas === 0) {
-      saldoDevedor = valorMensalidade;
-    } else if (totalPagoPropinas < valorAnualTotal) {
-      saldoDevedor = valorAnualTotal - totalPagoPropinas;
+    const saldoAnualRestante = Math.max(0, valorAnualTotal - totalPagoPropinas);
+
+    // Cálculo exato de parcelas e pagamento parcial
+    const valorPagoNaParcelaAtual = valorMensalidade > 0 ? (totalPagoPropinas % valorMensalidade) : 0;
+    const temPagamentoParcial = valorPagoNaParcelaAtual > 0;
+    const mesesCompletosPagos = valorMensalidade > 0 ? Math.floor(totalPagoPropinas / valorMensalidade) : 0;
+
+    // Saldo restante exato da parcela atual em curso
+    let faltaPagarParcelaAtual = 0;
+    if (temPagamentoParcial) {
+      faltaPagarParcelaAtual = valorMensalidade - valorPagoNaParcelaAtual;
+    } else if (totalPagoPropinas === 0) {
+      faltaPagarParcelaAtual = valorMensalidade;
+    } else if (saldoAnualRestante > 0) {
+      faltaPagarParcelaAtual = Math.min(valorMensalidade, saldoAnualRestante);
+    } else {
+      faltaPagarParcelaAtual = 0;
     }
 
-    const temPagamentoParcial = totalPagoPropinas > 0 && totalPagoPropinas < valorAnualTotal;
     const quitouTotalidade = totalPagoPropinas >= valorAnualTotal && valorAnualTotal > 0;
     
     // Regra oficial MED Angola:
     // O aluno só NÃO aparece na lista de devedores quando pagar todas as dívidas ou for isento.
-    // Se pagar apenas uma parte, CONTINUA visível como devedor com o saldo remanescente.
+    // Se pagar apenas uma parte, CONTINUA visível como devedor com o saldo remanescente exato.
     const ehDevedor = aluno.propinaStatus !== 'Isento' && !quitouTotalidade && (
       temPagamentoParcial ||
       totalPagoPropinas === 0 ||
@@ -379,7 +450,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     return {
       valorMensalidade,
       totalPagoPropinas,
-      saldoDevedor: Math.max(saldoDevedor, valorMensalidade),
+      valorAnualTotal,
+      saldoAnualRestante,
+      valorPagoNaParcelaAtual,
+      faltaPagarParcelaAtual,
+      saldoDevedor: faltaPagarParcelaAtual > 0 ? faltaPagarParcelaAtual : saldoAnualRestante,
+      mesesCompletosPagos,
       temPagamentoParcial,
       ehDevedor
     };
@@ -1189,15 +1265,26 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                             <span>Ver Recibo</span>
                           </button>
                           {isDirecao && (
-                            <button
-                              type="button"
-                              onClick={() => handleAbrirEditarPagamento(t)}
-                              className="px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
-                              title="Retificar Pagamento com Registo de Auditoria"
-                            >
-                              <Edit className="h-3 w-3" />
-                              <span>Editar</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirEditarPagamento(t)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                                title="Retificar Pagamento com Registo de Auditoria"
+                              >
+                                <Edit className="h-3 w-3" />
+                                <span>Editar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirEliminarPagamento(t)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                                title="Apagar ou anular registo de pagamento feito por descuido"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                <span>Apagar</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -1253,6 +1340,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   <th className="py-3 px-3">Valor (Kz)</th>
                   <th className="py-3 px-3">Método / Comprovativo</th>
                   <th className="py-3 px-3">Data / Autorização</th>
+                  <th className="py-3 px-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -1287,6 +1375,19 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                       <td className="py-2.5 px-3">
                         <div className="font-medium text-gray-900">{d.dataHora}</div>
                         <div className="text-[10px] text-gray-500">Aprovado: {d.aprovadoPorNome}</div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        {isDirecao && (
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirEliminarDespesa(d)}
+                            className="px-2.5 py-1 text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                            title="Apagar despesa registada por descuido"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Apagar</span>
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1449,7 +1550,14 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                           <div className="font-black text-rose-700 text-xs">
                             {valorACobrar.toLocaleString()} Kz
                           </div>
-                          <div className="text-[10px] text-gray-400">Mensalidade: {det.valorMensalidade.toLocaleString()} Kz</div>
+                          {det.temPagamentoParcial && det.faltaPagarParcelaAtual > 0 && (
+                            <div className="text-[10px] text-amber-800 font-bold">
+                              Resta na parcela: {det.faltaPagarParcelaAtual.toLocaleString()} Kz
+                            </div>
+                          )}
+                          <div className="text-[10px] text-gray-500">
+                            Total ano por liquidar: {det.saldoAnualRestante.toLocaleString()} Kz
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <button
@@ -1912,54 +2020,45 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {/* Itens Padrão do Sistema */}
-                  {[
-                    { nome: 'Propina Mensal', desc: 'Mensalidade de frequência lectiva', valor: configFinanceira.propinasPorClasse['10ª'] || 12000, per: 'Mensal', classes: ['Todas'], obr: true, docBloq: true },
-                    { nome: 'Matrícula', desc: 'Taxa de nova inscrição escolar', valor: configFinanceira.taxaMatricula || 5000, per: 'Unico', classes: ['Todas'], obr: true, docBloq: true },
-                    { nome: 'Confirmação', desc: 'Confirmação de matrícula para o ano seguinte', valor: configFinanceira.taxaConfirmacao || 4000, per: 'Anual', classes: ['Todas'], obr: true, docBloq: true },
-                    { nome: 'Declaração com Notas', desc: 'Emissão de certificado de notas', valor: configFinanceira.taxaDeclaracaoComNotas || 3500, per: 'Por_Solicitacao', classes: ['Todas'], obr: false, docBloq: false },
-                    { nome: 'Declaração sem Notas', desc: 'Declaração de frequência simples', valor: configFinanceira.taxaDeclaracaoSemNotas || 2500, per: 'Por_Solicitacao', classes: ['Todas'], obr: false, docBloq: false },
-                    { nome: 'Certificado de Conclusão', desc: 'Certificado de habilitações do ciclo', valor: configFinanceira.taxaCertificado || 6000, per: 'Por_Solicitacao', classes: ['6ª', '9ª', '12ª', '13ª'], obr: false, docBloq: false },
-                    { nome: 'Cartão de Estudante', desc: 'Passe / identificador de estudante', valor: configFinanceira.taxaCartaoEstudante || 2000, per: 'Anual', classes: ['Todas'], obr: true, docBloq: false },
-                    { nome: 'Exame de Recurso', desc: 'Taxa de exame de 2ª época', valor: configFinanceira.taxaExameRecurso || 3000, per: 'Por_Solicitacao', classes: ['Todas'], obr: false, docBloq: false }
-                  ].map((padrao, idx) => (
-                    <tr key={`emol-padrao-${idx}`} className="bg-gray-50/50 hover:bg-gray-100/60">
-                      <td className="p-3">
-                        <div className="font-bold text-gray-900">{padrao.nome}</div>
-                        <div className="text-[10px] text-gray-500">{padrao.desc}</div>
-                      </td>
-                      <td className="p-3 font-mono font-bold text-blue-900">
-                        {padrao.valor.toLocaleString('pt-AO')} Kz
-                      </td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                          {padrao.per}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-800">
-                          {padrao.classes.join(', ')}
-                        </span>
-                      </td>
-                      <td className="p-3 text-[11px] text-gray-600">
-                        Dia {configFinanceira.diaLimitePagamento || 10} • Multa: {configFinanceira.multaAtrasoPercentual || 10}%
-                      </td>
-                      <td className="p-3">
-                        <span className="text-[10px] text-gray-600">
-                          {padrao.obr ? '• Obrigatório ' : '• Opcional '}
-                          {padrao.docBloq ? '• Bloqueia docs' : ''}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                          Padrão Sistema
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <span className="text-[10px] text-gray-400 italic">Oficial MED</span>
+                  {/* Emolumentos Exclusivos Configurados pelo Diretor da Escola */}
+                  {emolumentosCustomizados.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center bg-gray-50/50">
+                        <div className="max-w-md mx-auto space-y-3">
+                          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
+                            <Coins className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-900">Nenhum Emolumento Configurado por Padrão</h4>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Conforme as diretrizes oficiais, o sistema inicia sem emolumentos pré-definidos. O Diretor da Escola deve cadastrar as propinas, taxas e serviços específicos da instituição e pode editá-los ou eliminá-los livremente.
+                            </p>
+                          </div>
+                          {isDirecao && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmolIdEdit(null);
+                                setEmolNome('');
+                                setEmolValorKz(5000);
+                                setEmolPeriodicidade('Por_Solicitacao');
+                                setEmolClasses(['Todas']);
+                                setEmolObrigatorio(false);
+                                setEmolDiaVencimento(10);
+                                setEmolMultaPct(10);
+                                setEmolDescricao('');
+                                setShowNovoEmolumentoModal(true);
+                              }}
+                              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-xs cursor-pointer"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span>Configurar Primeiro Emolumento</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  )}
 
                   {/* Emolumentos Customizados criados pela Direção */}
                   {emolumentosCustomizados.map((emol) => (
@@ -2364,9 +2463,13 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                     onChange={(e) => setPagTipo(e.target.value as TipoPagamentoEscolar)}
                     className="w-full p-2 border border-gray-300 rounded-lg font-bold"
                   >
-                    {emolumentosPermitidosFormulario.map(em => (
-                      <option key={em} value={em}>{em}</option>
-                    ))}
+                    {emolumentosPermitidosFormulario.length === 0 ? (
+                      <option value="">Nenhum emolumento configurado (Diretor deve cadastrar na aba Emolumentos)</option>
+                    ) : (
+                      emolumentosPermitidosFormulario.map(em => (
+                        <option key={em} value={em}>{em}</option>
+                      ))
+                    )}
                   </select>
                   {isUsuarioDelegado && minhaDelegacao?.valorMaximoPorCobrancaKz && (
                     <span className="text-[10px] text-amber-700 font-semibold block mt-1">
@@ -3280,6 +3383,149 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 >
                   <ShieldCheck className="w-4 h-4" />
                   <span>Gravar Retificação & Auditar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Eliminar / Anular Pagamento por Erro / Descuido com Auditoria */}
+      {showEliminarPagamentoModal && transacaoParaEliminar && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-300 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-3 mb-4 text-rose-700">
+              <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900">Anular / Eliminar Pagamento</h3>
+                <p className="text-xs text-rose-700 font-semibold">Exclusão de registo financeiro efetuado por descuido</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 mb-4 text-xs text-rose-950 space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Recibo N.º:</span>
+                <span className="font-mono font-bold text-gray-900">{transacaoParaEliminar.numeroRecibo}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Aluno:</span>
+                <span className="font-bold text-gray-900">{transacaoParaEliminar.alunoNome}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Tipo:</span>
+                <span className="font-semibold text-gray-900">{transacaoParaEliminar.tipo} ({transacaoParaEliminar.mesReferencia || 'Geral'})</span>
+              </div>
+              <div className="flex justify-between border-t border-rose-200/60 pt-1 font-bold">
+                <span className="text-gray-700">Valor a Anular:</span>
+                <span className="text-rose-700 font-black">{(transacaoParaEliminar.valorTotalKz || transacaoParaEliminar.valorKz || 0).toLocaleString()} Kz</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmarEliminarPagamento} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-gray-800 mb-1">
+                  Motivo da Anulação / Eliminação (Obrigatório) *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={motivoEliminarPagamento}
+                  onChange={(e) => setMotivoEliminarPagamento(e.target.value)}
+                  placeholder="Ex: Pagamento registado no aluno errado por descuido, duplicado, talão sem confirmação bancária..."
+                  className="w-full p-2.5 border border-rose-300 focus:border-rose-600 rounded-xl text-xs focus:ring-1 focus:ring-rose-500"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">
+                  A anulação reverterá automaticamente o status do aluno para Devedor/Pendente se não tiver outras quitações, e criará um registo irrevogável no Livro de Auditoria com a identificação de {currentUser.nomeCompleto}.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEliminarPagamentoModal(false);
+                    setTransacaoParaEliminar(null);
+                  }}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Confirmar Anulação do Pagamento</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Eliminar Despesa por Erro / Descuido */}
+      {showEliminarDespesaModal && despesaParaEliminar && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border-2 border-rose-300 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-3 mb-4 text-rose-700">
+              <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-700" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-gray-900">Eliminar Registo de Despesa</h3>
+                <p className="text-xs text-rose-700 font-semibold">Exclusão de lançamento de saída feito por descuido</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 mb-4 text-xs text-rose-950 space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Descrição:</span>
+                <span className="font-bold text-gray-900">{despesaParaEliminar.descricao}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600 font-medium">Categoria / Beneficiário:</span>
+                <span className="font-semibold text-gray-900">{despesaParaEliminar.categoria} • {despesaParaEliminar.beneficiario || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between border-t border-rose-200/60 pt-1 font-bold">
+                <span className="text-gray-700">Valor da Despesa:</span>
+                <span className="text-rose-700 font-black">{despesaParaEliminar.valorKz.toLocaleString()} Kz</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmarEliminarDespesa} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-gray-800 mb-1">
+                  Motivo da Exclusão (Obrigatório) *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={motivoEliminarDespesa}
+                  onChange={(e) => setMotivoEliminarDespesa(e.target.value)}
+                  placeholder="Ex: Despesa duplicada por engano, valor digitado incorretamente, fatura cancelada pelo fornecedor..."
+                  className="w-full p-2.5 border border-rose-300 focus:border-rose-600 rounded-xl text-xs focus:ring-1 focus:ring-rose-500"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEliminarDespesaModal(false);
+                    setDespesaParaEliminar(null);
+                  }}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Eliminar Registo de Despesa</span>
                 </button>
               </div>
             </form>

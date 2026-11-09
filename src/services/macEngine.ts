@@ -24,13 +24,26 @@ export interface ResultadoCalculoMAC {
 }
 
 /**
- * Converte valor numérico de comportamento (0-20) em conceito qualitativo oficial (de Medíocre a Excelente)
+ * Converte valor numérico de comportamento em conceito qualitativo oficial (de Medíocre a Excelente)
+ * - Ensino Primário: Avaliado de 0 a 10 valores
+ * - I e II Ciclos do Secundário: Avaliado de 0 a 20 valores
  */
-export function converterComportamentoParaConceito(nota: number): string {
-  if (nota >= 17) return 'Excelente';
+export function converterComportamentoParaConceito(nota: number, escalaMaxima: 10 | 20 = 20): string {
+  if (escalaMaxima === 10) {
+    if (nota >= 9.5) return 'Excelente';
+    if (nota >= 8.5) return 'Muito Bom';
+    if (nota >= 7) return 'Bom';
+    if (nota >= 5) return 'Suficiente';
+    if (nota >= 3.5) return 'Mau';
+    return 'Medíocre';
+  }
+
+  // Escala de 0 a 20 valores (Ensino Secundário)
+  if (nota >= 18.5) return 'Excelente';
+  if (nota >= 16) return 'Muito Bom';
   if (nota >= 14) return 'Bom';
   if (nota >= 10) return 'Suficiente';
-  if (nota >= 7) return 'Insuficiente';
+  if (nota >= 7) return 'Mau';
   return 'Medíocre';
 }
 

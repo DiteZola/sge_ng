@@ -41,6 +41,7 @@ import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngol
 import { downloadElementAsPdf } from '../utils/pdfGenerator';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import * as XLSX from 'xlsx';
+import { ModalJustificarFaltaFuncionario } from './ModalJustificarFaltaFuncionario';
 
 interface HumanResourcesViewProps {
   escola: Escola;
@@ -72,6 +73,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [showModalPdfPresencas, setShowModalPdfPresencas] = useState(false);
   const [gerandoPdfPresencas, setGerandoPdfPresencas] = useState(false);
+  const [funcionarioParaJustificar, setFuncionarioParaJustificar] = useState<Funcionario | null>(null);
 
   // Modal Novo / Editar Funcionário
   const [showNovoFuncionarioModal, setShowNovoFuncionarioModal] = useState(false);
@@ -545,9 +547,12 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   };
 
   const handleEliminar = (func: Funcionario) => {
-    if (!onEliminarFuncionario) return;
-    if (confirm(`Tem certeza que deseja remover ${func.nomeCompleto} da escola? O acesso deste funcionário será revogado.`)) {
-      onEliminarFuncionario(func.id);
+    if (confirm(`Tem certeza que deseja remover ${func.nomeCompleto} da escola? O registo deste colaborador cadastrado por engano ou descuido e as respetivas credenciais serão eliminados permanentemente.`)) {
+      if (onEliminarFuncionario) {
+        onEliminarFuncionario(func.id);
+      } else {
+        dbService.eliminarFuncionario(func.id);
+      }
       emitirFeedback(`Funcionário ${func.nomeCompleto} removido com sucesso.`);
     }
   };
@@ -1068,7 +1073,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="p-3 text-right space-x-1.5">
+                        <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
                           {temPermissaoAssiduidade ? (
                             <>
                               <button
@@ -1085,6 +1090,29 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                               >
                                 Marcar Falta
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => setFuncionarioParaJustificar(func)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-600 rounded hover:bg-blue-100 cursor-pointer"
+                                title="Averbar justificação oficial de falta com atestado médico ou comprovativo legal"
+                              >
+                                Justificar Falta
+                              </button>
+                              {regHoje && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Anular/limpar o registo de ponto de ${func.nomeCompleto} na data ${dataSelecionada}?`)) {
+                                      dbService.removerPresenca(func.id, dataSelecionada);
+                                      emitirFeedback(`Registo de ponto de ${func.nomeCompleto} em ${dataSelecionada} foi removido com sucesso.`);
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-[11px] font-semibold text-gray-600 bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 cursor-pointer"
+                                  title="Anular registo de ponto lançado por descuido"
+                                >
+                                  Limpar Ponto
+                                </button>
+                              )}
                             </>
                           ) : (
                             <span className="text-gray-400 text-[11px]">Leitura</span>
@@ -1751,21 +1779,41 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setShowNovoFuncionarioModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm cursor-pointer flex items-center space-x-1.5"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Salvar Dados Cadastrais Completos</span>
-                </button>
+              <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                {editingFuncionarioId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const f = funcionarios.find(item => item.id === editingFuncionarioId);
+                      if (f) {
+                        setShowNovoFuncionarioModal(false);
+                        handleEliminar(f);
+                      }
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-300 rounded-lg cursor-pointer flex items-center space-x-1.5"
+                    title="Eliminar este colaborador cadastrado por descuido ou erro"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Eliminar Registo</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowNovoFuncionarioModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2 text-xs font-black text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Salvar Dados Cadastrais Completos</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -2256,6 +2304,19 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {funcionarioParaJustificar && (
+        <ModalJustificarFaltaFuncionario
+          isOpen={!!funcionarioParaJustificar}
+          onClose={() => setFuncionarioParaJustificar(null)}
+          funcionario={funcionarioParaJustificar}
+          dataFaltaInicial={dataSelecionada}
+          currentUser={currentUser}
+          escolaId={escola.id}
+          onSalvar={(registo) => {
+            onSalvarRegistoAssiduidade(registo);
+          }}
+        />
       )}
     </div>
   );

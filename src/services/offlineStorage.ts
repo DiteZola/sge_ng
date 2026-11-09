@@ -353,6 +353,73 @@ class OfflineStorageEngine {
     this.registarMutacao('Sync', 'ATUALIZAR', 'Sincronização de integridade offline e persistência local realizada.');
     return true;
   }
+
+  /**
+   * Gestão de Fila de Informações Pendentes para Sincronizar com o Firebase
+   */
+  public obterPendencias(): PendingSyncItem[] {
+    try {
+      const raw = localStorage.getItem('sge_pending_sync_queue');
+      if (!raw) return [];
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public obterTotalPendentes(): number {
+    return this.obterPendencias().length;
+  }
+
+  public adicionarPendencia(entidade: string, acao: string, descricao: string, dados?: any): void {
+    try {
+      const list = this.obterPendencias();
+      const item: PendingSyncItem = {
+        id: `pend-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        entidade,
+        acao,
+        timestamp: new Date().toISOString(),
+        descricao,
+        dados
+      };
+      list.push(item);
+      localStorage.setItem('sge_pending_sync_queue', JSON.stringify(list));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: list.length, item } }));
+      }
+    } catch (e) {
+      console.warn('[SGE Offline] Erro ao adicionar pendência de sincronização:', e);
+    }
+  }
+
+  public removerPendencia(id: string): void {
+    try {
+      const list = this.obterPendencias().filter(p => p.id !== id);
+      localStorage.setItem('sge_pending_sync_queue', JSON.stringify(list));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: list.length } }));
+      }
+    } catch {}
+  }
+
+  public limparPendencias(): void {
+    try {
+      localStorage.removeItem('sge_pending_sync_queue');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: 0 } }));
+      }
+    } catch {}
+  }
+}
+
+export interface PendingSyncItem {
+  id: string;
+  entidade: string;
+  acao: string;
+  timestamp: string;
+  descricao: string;
+  dados?: any;
 }
 
 export const offlineStorage = new OfflineStorageEngine();

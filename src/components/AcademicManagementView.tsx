@@ -90,6 +90,7 @@ interface AcademicManagementViewProps {
   onEliminarTurma?: (id: string) => void;
   onSalvarDisciplina?: (disc: Disciplina) => void;
   onEliminarDisciplina?: (id: string) => void;
+  onLimparDisciplinas?: () => void;
   onSalvarAtribuicao: (atrib: AtribuicaoDocente) => void;
   onRemoverAtribuicao: (id: string) => void;
   onSalvarJuri: (juri: ComissaoJuri) => void;
@@ -110,6 +111,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   onEliminarTurma,
   onSalvarDisciplina,
   onEliminarDisciplina,
+  onLimparDisciplinas,
   onSalvarAtribuicao,
   onRemoverAtribuicao,
   onSalvarJuri,
@@ -232,6 +234,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const [editDiscCarga, setEditDiscCarga] = useState(4);
   const [editDiscComponente, setEditDiscComponente] = useState<'Geral' | 'Específica' | 'Opção'>('Geral');
   const [editDiscNivel, setEditDiscNivel] = useState<NivelEnsino>('ICiclo');
+  const [editDiscClasses, setEditDiscClasses] = useState<string[]>([]);
+  const [editDiscCiclo, setEditDiscCiclo] = useState<string>('Ensino Primário');
 
   // Modal Novo Curso & Editar Curso
   const [showNovoCursoModal, setShowNovoCursoModal] = useState(false);
@@ -242,14 +246,9 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const [editCursoNome, setEditCursoNome] = useState('');
   const [editCursoArea, setEditCursoArea] = useState('');
   const [editCursoDuracao, setEditCursoDuracao] = useState('3 Anos');
-  const [cursosList, setCursosList] = useState<{ id: string; nome: string; area: string; duracao: string }[]>([
-    { id: 'c-1', nome: 'Ensino Primário Geral', area: 'Educação Básica', duracao: '6 Anos' },
-    { id: 'c-2', nome: 'Iº Ciclo do Ensino Secundário Geral', area: 'Educação Básica', duracao: '3 Anos' },
-    { id: 'c-3', nome: 'Ciências Físicas e Biológicas (PUNIV)', area: 'Ciências Exatas', duracao: '3 Anos' },
-    { id: 'c-4', nome: 'Ciências Económicas e Jurídicas (PUNIV)', area: 'Ciências Sociais', duracao: '3 Anos' },
-    { id: 'c-5', nome: 'Informática e Gestão de Redes', area: 'Técnico-Profissional', duracao: '4 Anos' },
-    { id: 'c-6', nome: 'Técnico de Enfermagem Geral', area: 'Saúde', duracao: '4 Anos' }
-  ]);
+  const [cursosList, setCursosList] = useState<{ id: string; nome: string; area: string; duracao: string }[]>(() => {
+    return dbService.getCursos();
+  });
 
   // Modal Atribuição Docente
   const [showAtribuicaoModal, setShowAtribuicaoModal] = useState(false);
@@ -269,14 +268,15 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const professoresDisponiveis = funcionarios.filter(f => f.ehProfessor || f.ehAdministrativoQueLeciona);
 
   // Turmas e Atribuições Estritamente Isoladas pelo Ano Letivo Ativo
+  // Novos anos letivos iniciam em estado virgem sem vazar turmas de anos anteriores
   const turmasDoAnoActivo = useMemo(() => {
     const ano = escola.anoLectivoActivo;
-    return turmas.filter(t => !t.anoLectivo || t.anoLectivo === ano);
+    return turmas.filter(t => t.anoLectivo === ano || (!t.anoLectivo && ano === '2025/2026'));
   }, [turmas, escola.anoLectivoActivo]);
 
   const atribuicoesDoAnoActivo = useMemo(() => {
     const ano = escola.anoLectivoActivo;
-    return atribuicoes.filter(at => !at.anoLectivo || at.anoLectivo === ano);
+    return atribuicoes.filter(at => at.anoLectivo === ano || (!at.anoLectivo && ano === '2025/2026'));
   }, [atribuicoes, escola.anoLectivoActivo]);
 
   // 1. GESTÃO DE ANOS LETIVOS
@@ -393,18 +393,21 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   };
 
   const handleReplicarAtribuicoesAnoAnterior = () => {
-    if (!confirm(`Deseja replicar as atribuições docentes, disciplinas e coordenações de turmas do ano lectivo anterior para o ano letivo ativo (${escola.anoLectivoActivo})?\n\nOs professores manterão as mesmas turmas e disciplinas equivalentes neste novo ano.`)) {
+    if (!confirm(`Deseja replicar as classes, turmas, disciplinas, atribuições docentes e coordenações do ano lectivo anterior para o ano letivo ativo (${escola.anoLectivoActivo})?\n\nAs turmas e os professores manterão a mesma estrutura organizada do ano anterior.`)) {
       return;
     }
 
     const resultado = dbService.replicarAtribuicoesAnoAnterior(escola.id, escola.anoLectivoActivo);
     if (resultado.sucesso) {
+      if (resultado.novasTurmas && resultado.novasTurmas.length > 0) {
+        resultado.novasTurmas.forEach(t => onSalvarTurma(t));
+      }
       resultado.novasAtribuicoes.forEach(nova => {
         onSalvarAtribuicao(nova);
       });
       setFeedbackMsg({
         tipo: 'sucesso',
-        texto: `${resultado.mensagem}. Total de ${resultado.novasAtribuicoes.length} atribuição(ões) transferida(s) com sucesso.`
+        texto: `${resultado.mensagem}. Estrutura retribuída com sucesso para o ano letivo ativo!`
       });
     } else {
       setFeedbackMsg({
@@ -419,12 +422,14 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       return;
     }
     dbService.limparTodasDisciplinas();
-    if (onEliminarDisciplina) {
+    if (onLimparDisciplinas) {
+      onLimparDisciplinas();
+    } else if (onEliminarDisciplina) {
       disciplinas.forEach(d => onEliminarDisciplina(d.id));
     }
     setFeedbackMsg({
       tipo: 'sucesso',
-      texto: 'Disciplinas padrão limpas com sucesso. Pode agora cadastrar as novas disciplinas classe a classe.'
+      texto: 'Todas as disciplinas foram limpas com sucesso. A Direção tem agora a grelha livre para cadastrar e parametrizar as disciplinas classe a classe.'
     });
   };
 
@@ -561,7 +566,6 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setFeedbackMsg({ tipo: 'sucesso', texto: `Turma "${nome}" eliminada do sistema.` });
   };
 
-  // HANDLERS DE DISCIPLINAS
   const handleAbrirEditarDisciplina = (disc: Disciplina) => {
     setDisciplinaSendoEditada(disc);
     setEditDiscNome(disc.nome);
@@ -569,6 +573,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setEditDiscCarga(disc.cargaHorariaSemanal || 4);
     setEditDiscComponente((disc.componente as any) || 'Geral');
     setEditDiscNivel(disc.nivelEnsino || 'ICiclo');
+    setEditDiscClasses(disc.classes || (disc.classe ? [disc.classe] : ['7ª']));
+    setEditDiscCiclo(disc.ciclo || 'Ensino Primário');
     setShowEditarDisciplinaModal(true);
   };
 
@@ -576,14 +582,25 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     e.preventDefault();
     if (!disciplinaSendoEditada || !editDiscNome.trim()) return;
 
+    const classesAssoc = editDiscClasses.length > 0 ? editDiscClasses : (disciplinaSendoEditada.classes || ['7ª']);
+    const primeiraCls = classesAssoc[0];
+    const nivel = isEnsinoPrimario(primeiraCls) 
+      ? 'Primario' 
+      : isPrimeiroCiclo(primeiraCls) 
+        ? 'ICiclo' 
+        : 'IICiclo';
+
     const atualizada: Disciplina = {
       ...disciplinaSendoEditada,
       nome: editDiscNome.trim(),
-      sigla: editDiscCodigo.trim().substring(0, 4).toUpperCase(),
-      codigo: editDiscCodigo.trim(),
+      sigla: editDiscCodigo.trim().substring(0, 4).toUpperCase() || editDiscNome.trim().substring(0, 3).toUpperCase(),
+      codigo: editDiscCodigo.trim() || `DISC-${Math.floor(100 + Math.random() * 900)}`,
       cargaHorariaSemanal: editDiscCarga,
       componente: editDiscComponente,
-      nivelEnsino: editDiscNivel
+      nivelEnsino: nivel as any,
+      classes: classesAssoc,
+      classe: primeiraCls,
+      ciclo: editDiscCiclo || formatarCicloPorClasse(primeiraCls)
     };
 
     if (onSalvarDisciplina) {
@@ -705,7 +722,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       area: novoCursoArea,
       duracao: '3 Anos'
     };
-    setCursosList(prev => [...prev, novo]);
+    dbService.salvarCurso(novo);
+    setCursosList(dbService.getCursos());
     setShowNovoCursoModal(false);
     setNovoCursoNome('');
     setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${novo.nome}" cadastrado com sucesso.` });
@@ -722,19 +740,22 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const handleSalvarEditarCurso = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cursoSendoEditado || !editCursoNome.trim()) return;
-    setCursosList(prev => prev.map(c => c.id === cursoSendoEditado.id ? {
-      ...c,
+    const atualizado = {
+      ...cursoSendoEditado,
       nome: editCursoNome.trim(),
       area: editCursoArea,
       duracao: editCursoDuracao
-    } : c));
+    };
+    dbService.salvarCurso(atualizado);
+    setCursosList(dbService.getCursos());
     setShowEditarCursoModal(false);
     setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${editCursoNome}" atualizado com sucesso.` });
   };
 
   const handleEliminarCurso = (id: string, nome: string) => {
     if (confirm(`Tem certeza que deseja remover o curso "${nome}"?`)) {
-      setCursosList(prev => prev.filter(c => c.id !== id));
+      dbService.eliminarCurso(id);
+      setCursosList(dbService.getCursos());
       setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${nome}" eliminado.` });
     }
   };
@@ -3228,17 +3249,66 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Ciclo Curricular</label>
+                  <select
+                    value={editDiscCiclo}
+                    onChange={(e) => setEditDiscCiclo(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white font-bold"
+                  >
+                    <option value="Ensino Primário">Ensino Primário (Iniciação à 6ª)</option>
+                    <option value="Iº Ciclo">Iº Ciclo do Ensino Secundário (7ª à 9ª)</option>
+                    <option value="IIº Ciclo">IIº Ciclo do Ensino Secundário (10ª à 13ª)</option>
+                    <option value="Ensino Geral">Ensino Geral / Multiciclo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Componente Curricular</label>
+                  <select
+                    value={editDiscComponente}
+                    onChange={(e) => setEditDiscComponente(e.target.value as any)}
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value="Geral">Formação Geral</option>
+                    <option value="Específica">Formação Específica</option>
+                    <option value="Opção">Opção</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Componente Curricular</label>
-                <select
-                  value={editDiscComponente}
-                  onChange={(e) => setEditDiscComponente(e.target.value as any)}
-                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
-                >
-                  <option value="Geral">Formação Geral</option>
-                  <option value="Específica">Formação Específica</option>
-                  <option value="Opção">Opção</option>
-                </select>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  Classes Associadas ({editDiscClasses.length} selecionadas)
+                </label>
+                <div className="grid grid-cols-4 gap-1.5 p-2.5 bg-gray-50 border border-gray-200 rounded-lg max-h-36 overflow-y-auto">
+                  {todasClasses.map(classe => {
+                    const checked = editDiscClasses.includes(classe);
+                    return (
+                      <label 
+                        key={classe}
+                        className={`flex items-center space-x-1.5 text-xs p-1.5 rounded cursor-pointer transition-colors ${
+                          checked ? 'bg-blue-100 text-blue-900 font-bold' : 'hover:bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEditDiscClasses(prev => [...prev, classe]);
+                            } else {
+                              setEditDiscClasses(prev => prev.filter(c => c !== classe));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                        />
+                        <span>{classe}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">

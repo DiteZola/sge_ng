@@ -20,7 +20,11 @@ import {
   ShieldCheck,
   UserCheck,
   FileText,
-  Trophy
+  Trophy,
+  ShieldAlert,
+  Award,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { StudentRankingSection } from './StudentRankingSection';
 import {
@@ -63,6 +67,20 @@ import {
   formatarTextoPorGenero,
   avaliarExpressaoNota
 } from '../services/macEngine';
+import { handleStrictNumericKeyDown, handleStrictNumericPaste } from './StrictNumericInput';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import { InsigniaAngola } from '../constants/insignia';
+import { 
+  obterNomeDiretorGeral, 
+  obterTituloDiretorGeral, 
+  obterPresidenteJuri, 
+  obterSecretarioJuri, 
+  obterVogaisJuri, 
+  obterNomeSubdiretorPedagogico, 
+  obterTituloSubdiretorPedagogico, 
+  obterNomeCoordenadorTurma, 
+  obterTituloCoordenadorTurma 
+} from '../utils/directorHelper';
 
 interface EvaluationMacViewProps {
   escola: Escola;
@@ -76,6 +94,7 @@ interface EvaluationMacViewProps {
   notas: NotaEstudante[];
   notasConsolidadas: NotaTrimestralConsolidada[];
   solicitacoes: SolicitacaoAlteracaoNota[];
+  atribuicoes?: any[];
   onSalvarTipoAvaliacao: (tipo: TipoAvaliacaoConfig) => void;
   onSalvarRegraMAC: (regra: RegraCalculoMAC) => void;
   onSalvarAvaliacao: (av: AvaliacaoCriada) => void;
@@ -98,6 +117,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   notas,
   notasConsolidadas,
   solicitacoes,
+  atribuicoes,
   initialSubTab,
   onSalvarTipoAvaliacao,
   onSalvarRegraMAC,
@@ -115,19 +135,46 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     }
   }, [initialSubTab]);
 
+  const isProfessor = currentUser.role === 'Professor';
+
+  // Atribuições docentes oficiais da escola
+  const atribuicoesTodas = useMemo(() => {
+    return atribuicoes || (dbService.getAtribuicoes ? dbService.getAtribuicoes() : []);
+  }, [atribuicoes]);
+
+  // Se for Professor, isola estritamente turmas que lhe foram atribuídas
+  const atribuicoesDoProfessor = useMemo(() => {
+    if (!isProfessor) return [];
+    return atribuicoesTodas.filter((a: any) => a.professorId === currentUser.id);
+  }, [isProfessor, currentUser.id, atribuicoesTodas]);
+
+  const turmasPermitidas = useMemo(() => {
+    if (!isProfessor) return turmas;
+    const idsPermitidos = new Set(atribuicoesDoProfessor.map((a: any) => a.turmaId));
+    return turmas.filter(t => idsPermitidos.has(t.id));
+  }, [turmas, isProfessor, atribuicoesDoProfessor]);
+
   // Seleções para lançamento de notas com coerência acadêmica oficial
-  const todasClasses = useMemo(() => [
-    'Iniciação',
-    ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
-    ...CLASSES_PRIMEIRO_CICLO,
-    ...CLASSES_SEGUNDO_CICLO
-  ], []);
+  const todasClasses = useMemo(() => {
+    const listaGeral = [
+      'Iniciação',
+      ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
+      ...CLASSES_PRIMEIRO_CICLO,
+      ...CLASSES_SEGUNDO_CICLO
+    ];
+    if (isProfessor) {
+      const classesSet = new Set(turmasPermitidas.map(t => normalizarClasse(t.classe)));
+      const filtradas = listaGeral.filter(c => classesSet.has(normalizarClasse(c)));
+      return filtradas.length > 0 ? filtradas : Array.from(classesSet);
+    }
+    return listaGeral;
+  }, [isProfessor, turmasPermitidas]);
 
   const [selectedClasse, setSelectedClasse] = useState<string>(() => {
-    return turmas[0]?.classe ? normalizarClasse(turmas[0].classe) : '10ª';
+    return turmasPermitidas[0]?.classe ? normalizarClasse(turmasPermitidas[0].classe) : '10ª';
   });
 
-  const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmas[0]?.id || '');
+  const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmasPermitidas[0]?.id || '');
   const [selectedDisciplinaId, setSelectedDisciplinaId] = useState<string>(disciplinas[0]?.id || '');
   const [selectedTrimestre, setSelectedTrimestre] = useState<'1' | '2' | '3'>(() => {
     const t = String(escola.trimestreActivo || '1');
@@ -139,9 +186,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Turmas estritamente filtradas pela classe selecionada
   const turmasDaClasse = useMemo(() => {
-    const filtradas = getTurmasPorClasse(turmas, selectedClasse);
-    return filtradas.length > 0 ? filtradas : turmas;
-  }, [turmas, selectedClasse]);
+    const filtradas = getTurmasPorClasse(turmasPermitidas, selectedClasse);
+    return filtradas.length > 0 ? filtradas : turmasPermitidas;
+  }, [turmasPermitidas, selectedClasse]);
 
   // Sincronizar turma selecionada quando mudar a classe
   useEffect(() => {
@@ -166,6 +213,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Rastreio de notas digitadas e validação por nível (0-10 Primário, 0-20 I/II Ciclo)
   const [valoresDigitados, setValoresDigitados] = useState<Record<string, string>>({});
+  const [ptDigitadas, setPtDigitadas] = useState<Record<string, string>>({});
+  const [exameDigitados, setExameDigitados] = useState<Record<string, string>>({});
   const [notasInvalidas, setNotasInvalidas] = useState<Record<string, string>>({});
 
   // Modal de Configuração de Regra de Cálculo MAC (Direção)
@@ -267,13 +316,24 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     return Math.min(simEscalaMaxima, Math.max(0, Math.round(val * 10) / 10));
   }, [regraFormulaClassesFinais, simMt1, simMt2, simMt3, simNE, regraPesoMDF, regraPesoNE, simEscalaMaxima]);
 
-  const turmaAtiva = turmas.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmas[0];
+  const turmaAtiva = turmasPermitidas.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmasPermitidas[0];
 
-  // Filtrar disciplinas estritamente pela classe e curso da turma selecionada (MED Angola)
+  // Filtrar disciplinas estritamente pela classe e curso da turma selecionada e por atribuições docentes
   const disciplinasDaClasseECurso = useMemo(() => {
     if (!turmaAtiva) return disciplinas;
-    return filtrarDisciplinasDaClasse(disciplinas, turmaAtiva.classe, turmaAtiva.curso);
-  }, [disciplinas, turmaAtiva]);
+    const base = filtrarDisciplinasDaClasse(disciplinas, turmaAtiva.classe, turmaAtiva.curso);
+    if (isProfessor) {
+      const discsProf = new Set(
+        atribuicoesDoProfessor
+          .filter((a: any) => a.turmaId === turmaAtiva.id)
+          .map((a: any) => a.disciplinaId)
+      );
+      if (discsProf.size > 0) {
+        return base.filter(d => discsProf.has(d.id));
+      }
+    }
+    return base;
+  }, [disciplinas, turmaAtiva, isProfessor, atribuicoesDoProfessor]);
 
   // Modal de Retificação Executiva de Nota pela Direção (com averbamento no perfil do Professor)
   const [modalRetificacaoDirecaoOpen, setModalRetificacaoDirecaoOpen] = useState(false);
@@ -331,6 +391,25 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   const isDirecao = ['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral', 'SubdirectorAdministrativo', 'ChefeSecretaria'].includes(currentUser.role);
 
+  // Verificação oficial de autorização para lançar notas de Exame (Comissão de Júri ou Direção)
+  const isMembroJuriOuDirecao = useMemo(() => {
+    if (isDirecao) return true;
+    try {
+      const juris = dbService.getJuris ? dbService.getJuris() : [];
+      return juris.some(j => {
+        const ehTurma = j.turmaId === selectedTurmaId || (j.turmasIds && j.turmasIds.includes(selectedTurmaId)) || j.classe === selectedClasse;
+        if (!ehTurma) return false;
+        const ehPres = j.presidenteId === currentUser.id || j.presidenteJuriId === currentUser.id;
+        const ehSec = j.secretarioId === currentUser.id;
+        const ehVogal = j.vogal1Id === currentUser.id || j.vogal2Id === currentUser.id;
+        const ehMembro = j.membros?.some((m: any) => m.funcionarioId === currentUser.id);
+        return ehPres || ehSec || ehVogal || ehMembro;
+      });
+    } catch {
+      return false;
+    }
+  }, [isDirecao, currentUser.id, selectedTurmaId, selectedClasse]);
+
   // Exportar pauta/notas da turma atual para Excel (.xlsx)
   const handleExportarNotasExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -370,12 +449,76 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     XLSX.writeFile(wb, nomeFicheiro);
   };
 
+  // Estados e Funções de Exportação de Pautas em PDF Oficial (MED Angola)
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [pdfSuccessToast, setPdfSuccessToast] = useState<string | null>(null);
+
+  const juriTurmaAtiva = useMemo(() => {
+    if (!turmaAtiva) return null;
+    try {
+      const juris = dbService.getJuris ? dbService.getJuris() : [];
+      return juris.find(j => 
+        (j.escolaId === escola.id || escola.id === 'todas') &&
+        (j.turmaId === turmaAtiva.id || (j.turmasIds && j.turmasIds.includes(turmaAtiva.id)) || j.classe === turmaAtiva.classe)
+      ) || null;
+    } catch {
+      return null;
+    }
+  }, [turmaAtiva, escola.id]);
+
+  const funcionariosEscola = useMemo(() => {
+    return dbService.getFuncionarios(escola.id);
+  }, [escola.id]);
+
+  const handleExportarPautaPdf = async () => {
+    const el = document.getElementById('pauta-oficial-para-exportacao');
+    if (!el) {
+      window.print();
+      return;
+    }
+    setIsExportingPdf(true);
+    try {
+      const turmaNomeLimpo = (turmaAtiva?.nome || 'Turma').replace(/[^a-zA-Z0-9]/g, '_');
+      const discNomeLimpo = (disciplinaAtiva?.nome || 'Geral').replace(/[^a-zA-Z0-9]/g, '_');
+      const anoLimpo = (escola.anoLectivoActivo || '2025_2026').replace(/[\/\\]/g, '_');
+      const nomeFicheiro = `Pauta_Oficial_MED_${turmaNomeLimpo}_${discNomeLimpo}_${selectedTrimestre}T_${anoLimpo}`;
+      
+      const ok = await downloadElementAsPdf(el, nomeFicheiro, {
+        orientation: 'landscape',
+        scale: 2.4,
+        marginMm: 6
+      });
+      if (ok) {
+        setPdfSuccessToast(`Pauta oficial "${nomeFicheiro}.pdf" exportada com sucesso em formato oficial do MED Angola!`);
+        setTimeout(() => setPdfSuccessToast(null), 5000);
+      }
+    } catch (err) {
+      console.error('Erro ao descarregar PDF da pauta:', err);
+      window.print();
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   // Criar avaliação pelo professor
   const handleCriarAvaliacao = (e: React.FormEvent) => {
     e.preventDefault();
     if (!novoAvTitulo || !novoAvTipoId) return;
 
     const tipo = tiposAvaliacao.find(t => t.id === novoAvTipoId);
+    let tipoNome = tipo?.nome || 'Avaliação Contínua';
+    let peso = tipo?.pesoPadrao || 1;
+    if (novoAvTipoId === 'tipo-pt') {
+      tipoNome = 'Prova Trimestral (PT)';
+      peso = 2;
+    } else if (novoAvTipoId === 'tipo-comp') {
+      tipoNome = 'Avaliação de Comportamento (COMP)';
+      peso = 1;
+    } else if (novoAvTipoId === 'tipo-nee') {
+      tipoNome = 'Exame de Júri (NEE)';
+      peso = 3;
+    }
+
     const nova: AvaliacaoCriada = {
       id: `av-${Date.now()}`,
       escolaId: escola.id,
@@ -385,11 +528,11 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       trimestre: selectedTrimestre,
       anoLectivo: escola.anoLectivoActivo,
       tipoId: novoAvTipoId,
-      tipoNome: tipo?.nome || 'Avaliação Contínua',
+      tipoNome,
       titulo: novoAvTitulo,
       dataAplicacao: novoAvData,
       pontuacaoMaxima: escalaMaxima,
-      peso: tipo?.pesoPadrao || 1,
+      peso,
       bloqueada: false
     };
 
@@ -584,8 +727,14 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     setTimeout(() => setRetificacaoSucessoMsg(null), 5000);
   };
 
-  // Atualização em tempo real do Comportamento do Aluno (0 a 20 valores por cada professor)
-  const handleComportamentoChange = (alunoId: string, valor: number) => {
+  // Função centralizada para calcular e gravar notas consolidadas (MAC, Prova Trimestral, Média Trimestral, Exame e Comportamento)
+  const salvarNotaConsolidadaCompleta = (alunoId: string, dados: {
+    mac?: number;
+    provaTrimestral?: number;
+    notaExame?: number;
+    comportamentoNota?: number;
+    comportamentoConceito?: string;
+  }) => {
     const notasConsolid = [...notasConsolidadas];
     const idx = notasConsolid.findIndex(c => 
       c.alunoId === alunoId && 
@@ -593,41 +742,164 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       c.trimestre === selectedTrimestre
     );
 
-    const conceito = converterComportamentoParaConceito(valor);
-    if (idx >= 0) {
-      notasConsolid[idx] = {
-        ...notasConsolid[idx],
-        comportamentoNota: valor,
-        comportamentoConceito: conceito
+    const existente = idx >= 0 ? notasConsolid[idx] : null;
+    const macVal = dados.mac !== undefined ? dados.mac : (existente?.mac || 0);
+    const ptVal = dados.provaTrimestral !== undefined ? dados.provaTrimestral : existente?.provaTrimestral;
+    const exameVal = dados.notaExame !== undefined ? dados.notaExame : existente?.notaExame;
+    const compNota = dados.comportamentoNota !== undefined ? dados.comportamentoNota : existente?.comportamentoNota;
+    const compConceito = dados.comportamentoConceito !== undefined 
+      ? dados.comportamentoConceito 
+      : (compNota !== undefined && compNota !== null ? converterComportamentoParaConceito(compNota, escalaMaxima) : existente?.comportamentoConceito);
+
+    // Média Trimestral (MT) oficial MED:
+    // Se o professor inseriu a Prova Trimestral (PT / NPP): MT = round((MAC + PT) / 2)
+    // Se ainda não foi lançada a PT: MT = MAC
+    let mediaTri = macVal;
+    if (ptVal !== undefined && ptVal !== null && !isNaN(ptVal)) {
+      mediaTri = Math.round(((macVal + ptVal) / 2) * 10) / 10;
+    }
+
+    // Média Final (MF) se houver Exame da Comissão de Júri:
+    // MF = round((MT * 0.4) + (Exame * 0.6))
+    let notaFinal = mediaTri;
+    if (exameVal !== undefined && exameVal !== null && !isNaN(exameVal)) {
+      notaFinal = Math.round(((mediaTri * 0.4) + (exameVal * 0.6)) * 10) / 10;
+    }
+
+    let atualizada: NotaTrimestralConsolidada;
+    if (existente) {
+      atualizada = {
+        ...existente,
+        mac: macVal,
+        npp: ptVal,
+        provaTrimestral: ptVal ?? 0,
+        mediaTrimestral: mediaTri,
+        notaExame: exameVal,
+        notaFinal,
+        comportamentoNota: compNota,
+        comportamentoConceito: compConceito
       };
+      notasConsolid[idx] = atualizada;
       dbService.salvarNotasConsolidadas(notasConsolid);
     } else {
-      const resMac = calcularMACEstudante(
-        alunoId,
-        avaliacoesDaTurma,
-        notas,
-        regraVigente,
-        turmaAtiva?.nivelEnsino || 'Primario',
-        turmaAtiva?.classe || '1ª'
-      );
-      const macCalculado = resMac?.macCalculada || 0;
-      const nova: NotaTrimestralConsolidada = {
+      atualizada = {
         id: `nota-consol-${Date.now()}-${alunoId.slice(-4)}`,
         alunoId,
         turmaId: selectedTurmaId,
         disciplinaId: selectedDisciplinaId,
         trimestre: selectedTrimestre,
         anoLectivo: escola.anoLectivoActivo,
-        mac: macCalculado,
-        provaTrimestral: 0,
-        mediaTrimestral: 0,
-        comportamentoNota: valor,
-        comportamentoConceito: conceito,
+        mac: macVal,
+        npp: ptVal,
+        provaTrimestral: ptVal ?? 0,
+        mediaTrimestral: mediaTri,
+        notaExame: exameVal,
+        notaFinal,
+        comportamentoNota: compNota,
+        comportamentoConceito: compConceito,
         faltas: 0,
         validadaPelaDirecao: false
       };
-      dbService.salvarNotaConsolidada(nova);
+      dbService.salvarNotaConsolidada(atualizada);
     }
+
+    onSalvarNotaConsolidada(atualizada);
+
+    // Sincroniza conceito de comportamento com o dossiê do estudante se houver alteração
+    if (compConceito !== undefined) {
+      const alunoAlvo = alunos.find(a => a.id === alunoId);
+      if (alunoAlvo) {
+        dbService.salvarAluno({
+          ...alunoAlvo,
+          comportamentoConceito: compConceito as any
+        });
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+  };
+
+  // Inserção da Prova Trimestral pelo Professor
+  const handleProvaTrimestralChange = (alunoId: string, valorStr: string, resMAC: any) => {
+    setPtDigitadas(prev => ({ ...prev, [alunoId]: valorStr }));
+    const chaveErro = `pt-${alunoId}`;
+    if (valorStr.trim() === '') {
+      setNotasInvalidas(prev => {
+        const copy = { ...prev };
+        delete copy[chaveErro];
+        return copy;
+      });
+      salvarNotaConsolidadaCompleta(alunoId, { provaTrimestral: undefined, mac: resMAC.macCalculada });
+      return;
+    }
+
+    const num = parseFloat(valorStr.replace(/,/g, '.'));
+    if (isNaN(num) || num < 0 || num > escalaMaxima) {
+      setNotasInvalidas(prev => ({
+        ...prev,
+        [chaveErro]: `A Prova Trimestral deve estar entre 0 e ${escalaMaxima}`
+      }));
+      return;
+    }
+
+    setNotasInvalidas(prev => {
+      const copy = { ...prev };
+      delete copy[chaveErro];
+      return copy;
+    });
+
+    salvarNotaConsolidadaCompleta(alunoId, { provaTrimestral: num, mac: resMAC.macCalculada });
+  };
+
+  // Inserção do Exame pela Comissão de Júri ou Direção
+  const handleExameJuriChange = (alunoId: string, valorStr: string, resMAC: any) => {
+    if (!isMembroJuriOuDirecao) return;
+    setExameDigitados(prev => ({ ...prev, [alunoId]: valorStr }));
+    const chaveErro = `exame-${alunoId}`;
+    if (valorStr.trim() === '') {
+      setNotasInvalidas(prev => {
+        const copy = { ...prev };
+        delete copy[chaveErro];
+        return copy;
+      });
+      salvarNotaConsolidadaCompleta(alunoId, { notaExame: undefined, mac: resMAC.macCalculada });
+      return;
+    }
+
+    const num = parseFloat(valorStr.replace(/,/g, '.'));
+    if (isNaN(num) || num < 0 || num > escalaMaxima) {
+      setNotasInvalidas(prev => ({
+        ...prev,
+        [chaveErro]: `A Nota de Exame do Júri deve estar entre 0 e ${escalaMaxima}`
+      }));
+      return;
+    }
+
+    setNotasInvalidas(prev => {
+      const copy = { ...prev };
+      delete copy[chaveErro];
+      return copy;
+    });
+
+    salvarNotaConsolidadaCompleta(alunoId, { notaExame: num, mac: resMAC.macCalculada });
+  };
+
+  // Atualização em tempo real do Comportamento do Aluno inserido como avaliação normal
+  const handleComportamentoChange = (alunoId: string, valor?: number, conceitoDireto?: string) => {
+    const resMac = calcularMACEstudante(
+      alunoId,
+      avaliacoesDaTurma,
+      notas,
+      regraVigente,
+      turmaAtiva?.nivelEnsino || 'Primario',
+      turmaAtiva?.classe || '1ª'
+    );
+    const conceito = conceitoDireto || (valor !== undefined && valor !== null ? converterComportamentoParaConceito(valor, escalaMaxima) : undefined);
+    salvarNotaConsolidadaCompleta(alunoId, {
+      comportamentoNota: valor,
+      comportamentoConceito: conceito,
+      mac: resMac.macCalculada
+    });
   };
 
   // Salvar Regra de Cálculo MAC (Direção)
@@ -749,6 +1021,17 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
       {/* 1. LANÇAMENTO DE NOTAS & AUTONOMIA DO PROFESSOR */}
       {activeSubTab === 'lancamento' && (
+        isProfessor && turmasPermitidas.length === 0 ? (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-8 text-center space-y-3 max-w-lg mx-auto my-8">
+            <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <h3 className="text-base font-bold text-amber-900">Sem Turmas Atribuídas</h3>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              Prezado(a) Professor(a) <strong>{currentUser.nomeCompleto}</strong>, ainda não possui turmas ou disciplinas atribuídas ao seu perfil docente para o ano letivo ativo ({escola.anoLectivoActivo || '2025/2026'}). Contacte a Coordenação Pedagógica ou a Direção da Escola para cadastrar as suas atribuições curriculares.
+            </p>
+          </div>
+        ) : (
         <div className="space-y-6">
           {/* Seletor Hierárquico Coerente: Classe -> Turma -> Sala -> Curso e Disciplina */}
           <div className="bg-white border-2 border-blue-600 rounded-xl p-4 shadow-xs space-y-3">
@@ -939,6 +1222,29 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                     <th className="p-3 bg-blue-50 text-blue-900 font-extrabold border-l-2 border-blue-600 min-w-[110px]">
                       MAC Calculada
                     </th>
+                    <th className="p-3 bg-purple-50 text-purple-900 font-extrabold border-l-2 border-purple-500 min-w-[125px]">
+                      <div className="flex items-center space-x-1">
+                        <span>Prova Trimestral (PT)</span>
+                      </div>
+                      <div className="text-[10px] text-purple-700 font-normal">Prova do Professor (0-{escalaMaxima})</div>
+                    </th>
+                    <th className="p-3 bg-emerald-50 text-emerald-950 font-extrabold border-l border-emerald-400 min-w-[105px]">
+                      <div>Média Trimestral (MT)</div>
+                      <div className="text-[10px] text-emerald-700 font-normal">(MAC + PT) / 2</div>
+                    </th>
+                    <th className="p-3 bg-amber-50 text-amber-950 font-extrabold border-l-2 border-amber-500 min-w-[130px]">
+                      <div className="flex items-center space-x-1">
+                        <Award className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Exame (Júri / NEE)</span>
+                      </div>
+                      <div className="text-[10px] text-amber-700 font-normal">
+                        {isMembroJuriOuDirecao ? 'Comissão de Júri (Editável)' : 'Júri / Homologado'}
+                      </div>
+                    </th>
+                    <th className="p-3 bg-indigo-50 text-indigo-950 font-extrabold border-l border-indigo-300 min-w-[105px]">
+                      <div>Média Final (MF)</div>
+                      <div className="text-[10px] text-indigo-700 font-normal">Com Exame (0.4/0.6)</div>
+                    </th>
                     <th className="p-3 bg-green-50 text-green-900 font-extrabold border-l border-green-300 min-w-[100px]">
                       Comportamento
                     </th>
@@ -948,7 +1254,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 <tbody className="divide-y divide-gray-200">
                   {alunosDaTurma.length === 0 ? (
                     <tr>
-                      <td colSpan={avaliacoesDaTurma.length + 4} className="p-6 text-center text-gray-500">
+                      <td colSpan={avaliacoesDaTurma.length + 8} className="p-6 text-center text-gray-500">
                         Nenhum aluno matriculado nesta turma.
                       </td>
                     </tr>
@@ -969,8 +1275,43 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                         c.trimestre === selectedTrimestre
                       );
 
-                      const compNota = notaConsol?.comportamentoNota || 17;
-                      const compConceito = converterComportamentoParaConceito(compNota);
+                      const compNota = notaConsol?.comportamentoNota;
+                      const compConceito = compNota !== undefined && compNota !== null 
+                        ? converterComportamentoParaConceito(compNota, escalaMaxima) 
+                        : (aluno.comportamentoConceito || '—');
+
+                      // Prova Trimestral (PT / NPP) pelo Professor
+                      const chavePt = `pt-${aluno.id}`;
+                      const ptVal = ptDigitadas[aluno.id] !== undefined 
+                        ? ptDigitadas[aluno.id] 
+                        : (notaConsol?.provaTrimestral !== undefined && notaConsol?.provaTrimestral !== null ? String(notaConsol.provaTrimestral) : '');
+                      const isPtInvalid = !!notasInvalidas[chavePt];
+                      const ptErroMsg = notasInvalidas[chavePt];
+                      const ptNum = ptVal !== '' ? parseFloat(ptVal.replace(/,/g, '.')) : undefined;
+
+                      // Média Trimestral (MT) oficial MED
+                      const macNum = resMAC.macCalculada || 0;
+                      const temPt = ptNum !== undefined && !isNaN(ptNum);
+                      const mediaTrimestralCalculada = temPt 
+                        ? Math.round(((macNum + ptNum) / 2) * 10) / 10 
+                        : (notaConsol?.mediaTrimestral || macNum);
+                      const aprovadoTrimestre = mediaTrimestralCalculada >= (escalaMaxima === 10 ? 5 : 10);
+
+                      // Exame de Júri (NEE)
+                      const chaveExame = `exame-${aluno.id}`;
+                      const exameVal = exameDigitados[aluno.id] !== undefined 
+                        ? exameDigitados[aluno.id] 
+                        : (notaConsol?.notaExame !== undefined && notaConsol?.notaExame !== null ? String(notaConsol.notaExame) : '');
+                      const isExameInvalid = !!notasInvalidas[chaveExame];
+                      const exameErroMsg = notasInvalidas[chaveExame];
+                      const exameNum = exameVal !== '' ? parseFloat(exameVal.replace(/,/g, '.')) : undefined;
+                      const temExame = exameNum !== undefined && !isNaN(exameNum);
+
+                      // Média Final (MF) com Exame
+                      const mediaFinalCalculada = temExame 
+                        ? Math.round(((mediaTrimestralCalculada * 0.4) + (exameNum * 0.6)) * 10) / 10 
+                        : (notaConsol?.notaFinal || mediaTrimestralCalculada);
+                      const aprovadoFinal = mediaFinalCalculada >= (escalaMaxima === 10 ? 5 : 10);
 
                       return (
                         <tr key={aluno.id} className="hover:bg-gray-50/70">
@@ -991,11 +1332,14 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                             return (
                               <td key={av.id} className="p-2 border-l border-gray-200 relative">
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="decimal"
                                   step="0.5"
                                   min="0"
                                   max={escalaMaxima}
                                   value={val}
+                                  onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                  onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleNotaChange(av.id, aluno.id, novo), true)}
                                   onChange={(e) => handleNotaChange(av.id, aluno.id, e.target.value)}
                                   placeholder="0.0"
                                   title={isInvalid ? erroMsg : `Escala oficial: 0 a ${escalaMaxima}`}
@@ -1029,26 +1373,170 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                             </div>
                           </td>
 
-                          {/* Comportamento 0-20 e Conversão Qualitativa */}
-                          <td className="p-2.5 bg-green-50/50 border-l border-green-300 text-center">
+                          {/* Prova Trimestral (PT / NPP) pelo Professor */}
+                          <td className="p-2 bg-purple-50/40 border-l-2 border-purple-400 relative text-center">
                             <div className="flex items-center justify-center space-x-1">
                               <input
-                                type="number"
-                                min="0"
-                                max="20"
-                                step="1"
-                                value={compNota}
-                                onChange={(e) => {
-                                  const val = Math.max(0, Math.min(20, Math.round(Number(e.target.value) || 0)));
-                                  handleComportamentoChange(aluno.id, val);
-                                }}
-                                className="w-12 text-center text-xs font-black p-1 bg-white border border-green-400 rounded focus:ring-2 focus:ring-green-600 focus:outline-none text-green-950 shadow-2xs"
-                                title="Atribuir nota comportamental de 0 a 20 valores"
+                                type="text"
+                                inputMode="decimal"
+                                value={ptVal}
+                                placeholder="0.0"
+                                onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleProvaTrimestralChange(aluno.id, novo, resMAC), true)}
+                                onChange={(e) => handleProvaTrimestralChange(aluno.id, e.target.value, resMAC)}
+                                className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
+                                  isPtInvalid
+                                    ? 'border-2 border-red-700 bg-red-900/20 text-red-950 ring-2 ring-red-600'
+                                    : 'text-purple-950 bg-white border border-purple-400 focus:ring-2 focus:ring-purple-600'
+                                }`}
+                                title={isPtInvalid ? ptErroMsg : `Lançamento da Prova Trimestral (PT). Escala: 0 a ${escalaMaxima}`}
                               />
-                              <span className="text-[10px] text-green-800 font-bold">/20</span>
+                              <span className="text-[10px] text-purple-700 font-bold">/{escalaMaxima}</span>
                             </div>
-                            <div className="text-[10px] font-bold text-green-800 mt-1 uppercase tracking-wide">
-                              {compConceito}
+                            {isPtInvalid && (
+                              <div className="text-[9px] font-black text-red-900 bg-red-100 border border-red-400 rounded px-1 py-0.5 mt-0.5 text-center shadow-2xs">
+                                ⚠️ 0 a {escalaMaxima}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Média Trimestral (MT) Oficial Calculada */}
+                          <td className="p-2.5 bg-emerald-50/40 border-l border-emerald-400 text-center">
+                            <div className="flex flex-col items-center">
+                              <span className={`px-2 py-0.5 rounded text-xs font-black ${
+                                aprovadoTrimestre 
+                                  ? 'bg-emerald-100 text-emerald-950 border border-emerald-300' 
+                                  : 'bg-red-100 text-red-950 border border-red-300'
+                              }`}>
+                                {mediaTrimestralCalculada}
+                                <span className="text-[9px] font-normal text-gray-500">/{escalaMaxima}</span>
+                              </span>
+                              <span className="text-[9px] text-gray-500 mt-0.5">
+                                {temPt ? '(MAC+PT)/2' : 'Pendente PT'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Nota de Exame pela Comissão de Júri ou Direção */}
+                          <td className="p-2 bg-amber-50/40 border-l-2 border-amber-400 relative text-center">
+                            <div className="flex items-center justify-center space-x-1">
+                              {isMembroJuriOuDirecao ? (
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={exameVal}
+                                  placeholder="0.0"
+                                  onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                  onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleExameJuriChange(aluno.id, novo, resMAC), true)}
+                                  onChange={(e) => handleExameJuriChange(aluno.id, e.target.value, resMAC)}
+                                  className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
+                                    isExameInvalid
+                                      ? 'border-2 border-red-700 bg-red-900/20 text-red-950 ring-2 ring-red-600'
+                                      : 'text-amber-950 bg-white border border-amber-400 focus:ring-2 focus:ring-amber-600'
+                                  }`}
+                                  title={isExameInvalid ? exameErroMsg : `Lançamento do Exame de Júri. Escala: 0 a ${escalaMaxima}`}
+                                />
+                              ) : (
+                                <div 
+                                  className="w-16 py-1.5 px-1 bg-gray-100 border border-gray-300 rounded text-center text-xs font-bold text-gray-600 flex items-center justify-center space-x-1 cursor-not-allowed"
+                                  title="Apenas a Comissão de Júri ou Direção podem lançar a nota de Exame."
+                                >
+                                  <Lock className="w-3 h-3 text-gray-400 shrink-0" />
+                                  <span>{exameVal !== '' ? exameVal : '—'}</span>
+                                </div>
+                              )}
+                              <span className="text-[10px] text-amber-700 font-bold">/{escalaMaxima}</span>
+                            </div>
+                            {isExameInvalid && (
+                              <div className="text-[9px] font-black text-red-900 bg-red-100 border border-red-400 rounded px-1 py-0.5 mt-0.5 text-center shadow-2xs">
+                                ⚠️ 0 a {escalaMaxima}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Média Final (MF) Com Exame */}
+                          <td className="p-2.5 bg-indigo-50/40 border-l border-indigo-300 text-center">
+                            {temExame ? (
+                              <div className="flex flex-col items-center">
+                                <span className={`px-2 py-0.5 rounded text-xs font-black ${
+                                  aprovadoFinal 
+                                    ? 'bg-indigo-100 text-indigo-950 border border-indigo-300' 
+                                    : 'bg-red-100 text-red-950 border border-red-300'
+                                }`}>
+                                  {mediaFinalCalculada}
+                                  <span className="text-[9px] font-normal text-gray-500">/{escalaMaxima}</span>
+                                </span>
+                                <span className="text-[9px] text-indigo-700 font-semibold mt-0.5">
+                                  {aprovadoFinal ? 'Aprovado' : 'Não Aprovado'}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400 font-semibold">—</span>
+                            )}
+                          </td>
+
+                          {/* Comportamento 0-10 no Primário ou 0-20 no Secundário e Conversão Qualitativa */}
+                          <td className="p-2.5 bg-green-50/50 border-l border-green-300 text-center">
+                            <div className="flex flex-col items-center space-y-1">
+                              <div className="flex items-center justify-center space-x-1">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={compNota !== undefined && compNota !== null ? compNota : ''}
+                                  placeholder="—"
+                                  onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                  onPaste={(e) => handleStrictNumericPaste(e, (novo) => {
+                                    const num = parseFloat(novo.replace(/,/g, '.'));
+                                    if (!isNaN(num)) {
+                                      handleComportamentoChange(aluno.id, Math.max(0, Math.min(escalaMaxima, num)));
+                                    }
+                                  }, true)}
+                                  onChange={(e) => {
+                                    const textVal = e.target.value.trim().replace(/,/g, '.');
+                                    if (textVal === '') {
+                                      handleComportamentoChange(aluno.id, undefined, undefined);
+                                    } else {
+                                      const num = parseFloat(textVal);
+                                      if (!isNaN(num)) {
+                                        const val = Math.max(0, Math.min(escalaMaxima, num));
+                                        handleComportamentoChange(aluno.id, val);
+                                      }
+                                    }
+                                  }}
+                                  className="w-12 text-center text-xs font-black p-1 bg-white border border-green-400 rounded focus:ring-2 focus:ring-green-600 focus:outline-none text-green-950 shadow-2xs"
+                                  title={`Atribuir nota comportamental de 0 a ${escalaMaxima} valores (vazio se não registado)`}
+                                />
+                                <span className="text-[10px] text-green-800 font-bold">/{escalaMaxima}</span>
+                              </div>
+
+                              <select
+                                value={compConceito && compConceito !== '—' && compConceito !== '— (A Avaliar)' ? compConceito : ''}
+                                onChange={(e) => {
+                                  const c = e.target.value;
+                                  if (!c) {
+                                    handleComportamentoChange(aluno.id, undefined, undefined);
+                                  } else if (c === 'Excelente') {
+                                    handleComportamentoChange(aluno.id, escalaMaxima === 10 ? 10 : 19, 'Excelente');
+                                  } else if (c === 'Muito Bom') {
+                                    handleComportamentoChange(aluno.id, escalaMaxima === 10 ? 9 : 16, 'Muito Bom');
+                                  } else if (c === 'Bom') {
+                                    handleComportamentoChange(aluno.id, escalaMaxima === 10 ? 7.5 : 14, 'Bom');
+                                  } else if (c === 'Suficiente') {
+                                    handleComportamentoChange(aluno.id, escalaMaxima === 10 ? 5 : 10, 'Suficiente');
+                                  } else if (c === 'Mau') {
+                                    handleComportamentoChange(aluno.id, escalaMaxima === 10 ? 3.5 : 7, 'Mau');
+                                  }
+                                }}
+                                className="text-[10px] font-bold p-0.5 bg-white border border-green-300 rounded text-green-950 max-w-[100px] cursor-pointer"
+                                title="Selecione o conceito de comportamento oficial"
+                              >
+                                <option value="">— A Avaliar —</option>
+                                <option value="Excelente">Excelente ({escalaMaxima === 10 ? '10v' : '19v'})</option>
+                                <option value="Muito Bom">Muito Bom ({escalaMaxima === 10 ? '9v' : '16v'})</option>
+                                <option value="Bom">Bom ({escalaMaxima === 10 ? '7.5v' : '14v'})</option>
+                                <option value="Suficiente">Suficiente ({escalaMaxima === 10 ? '5v' : '10v'})</option>
+                                <option value="Mau">Mau ({escalaMaxima === 10 ? '3.5v' : '7v'})</option>
+                              </select>
                             </div>
                           </td>
 
@@ -1095,6 +1583,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* 2. GOVERNANÇA DA MAC (FÓRMULAS & PESOS) */}
@@ -1621,63 +2110,123 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         </div>
       )}
 
-      {/* 4. PAUTA OFICIAL COM 5 ASSINATURAS DO MED ANGOLA */}
+      {/* 4. PAUTA OFICIAL COM FORMATAÇÃO OFICIAL DO MINISTÉRIO DA EDUCAÇÃO */}
       {activeSubTab === 'pauta' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center no-print">
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Pauta Oficial de Aproveitamento Escolar</h3>
-              <p className="text-xs text-gray-500">Conforme formato legal do Ministério da Educação da República de Angola</p>
+          {/* Toast de Sucesso da Geração de PDF */}
+          {pdfSuccessToast && (
+            <div className="p-3 bg-emerald-50 border-2 border-emerald-500 rounded-xl text-xs font-bold text-emerald-950 flex items-center justify-between shadow-md animate-fadeIn">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span>{pdfSuccessToast}</span>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setPdfSuccessToast(null)} 
+                className="text-emerald-800 hover:text-emerald-950 p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              onClick={() => window.print()}
-              className="px-4 py-2 text-xs sm:text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 inline-flex items-center space-x-1.5 shadow-xs"
-            >
-              <Printer className="h-4 w-4" />
-              <span>Imprimir Pauta Oficial (A4)</span>
-            </button>
+          )}
+
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 no-print">
+            <div>
+              <h3 className="text-base font-extrabold text-gray-900 flex items-center space-x-2">
+                <span>Pauta Oficial de Aproveitamento Escolar</span>
+                <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-full">MED Angola</span>
+              </h3>
+              <p className="text-xs text-gray-500">Conforme a regulamentação oficial do Ministério da Educação da República de Angola</p>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={handleExportarPautaPdf}
+                disabled={isExportingPdf}
+                className="px-4 py-2 text-xs sm:text-sm font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl inline-flex items-center space-x-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                title="Descarregar pauta oficial formatada em PDF Paisagem (A4)"
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                <span>{isExportingPdf ? 'A Gerar PDF...' : 'Baixar Pauta em PDF Oficial (MED)'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById('pauta-oficial-para-exportacao');
+                  if (el) {
+                    imprimirElementoDiretamente(el, `Pauta Oficial - ${escola.nomeOficial}`);
+                  } else {
+                    window.print();
+                  }
+                }}
+                className="px-3.5 py-2 text-xs sm:text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 inline-flex items-center space-x-1.5 shadow-2xs transition-colors cursor-pointer"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Imprimir (A4)</span>
+              </button>
+            </div>
           </div>
 
-          {/* Pauta Sheet Document Container */}
-          <div className="bg-white p-6 sm:p-8 border border-gray-300 rounded-xl shadow-xs space-y-6 print:border-none print:p-0">
-            {/* Header da República de Angola */}
-            <div className="text-center space-y-1 border-b pb-4 border-gray-200">
-              <p className="text-xs font-bold tracking-widest text-gray-700 uppercase">
+          {/* Pauta Sheet Document Container — Formato Oficial A4 Paisagem */}
+          <div 
+            id="pauta-oficial-para-exportacao"
+            className="bg-white p-6 sm:p-8 border border-gray-300 rounded-xl shadow-xs space-y-6 print:border-none print:p-0"
+          >
+            {/* Insígnia da República de Angola e Cabeçalho Governamental */}
+            <div className="text-center space-y-1 border-b pb-4 border-gray-300">
+              <div className="flex justify-center mb-1">
+                <InsigniaAngola 
+                  size={52} 
+                  customUrl={dbService.getConfiguracaoSistema().insigniaNacionalUrl} 
+                  className="object-contain" 
+                />
+              </div>
+              <p className="text-xs font-bold tracking-widest text-gray-800 uppercase">
                 República de Angola
               </p>
-              <p className="text-xs font-semibold text-gray-600 uppercase">
+              <p className="text-xs font-semibold text-gray-700 uppercase">
                 Governo Provincial de {escola.provincia} • Município da {escola.municipio}
               </p>
               <p className="text-xs font-bold text-gray-800 uppercase">
-                Ministério da Educação
+                {escola.gabineteEducacao || 'Gabinete Provincial da Educação'}
               </p>
               <h2 className="text-base sm:text-lg font-black text-gray-950 uppercase mt-1">
                 {escola.nomeOficial}
               </h2>
-              <div className="text-xs font-bold text-blue-800 bg-blue-50 py-1 px-4 rounded-full inline-block mt-1">
-                Pauta de Aproveitamento - {selectedTrimestre}º Trimestre • Ano Lectivo {escola.anoLectivoActivo}
+              <div className="text-xs font-black text-blue-950 bg-blue-50 py-1 px-5 rounded-full inline-block mt-1 border border-blue-200 uppercase tracking-wider">
+                Pauta Oficial de Aproveitamento — {selectedTrimestre}º Trimestre • Ano Lectivo {escola.anoLectivoActivo}
               </div>
-              <p className="text-xs text-gray-600 mt-1">
-                Turma: <strong>{turmaAtiva?.nome}</strong> • Disciplina: <strong>{disciplinaAtiva?.nome}</strong> • Turno: <strong>{turmaAtiva?.turno}</strong>
-              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-gray-700 pt-2 font-medium">
+                <div>Turma: <strong>{turmaAtiva?.nome}</strong></div>
+                <div>Classe: <strong>{turmaAtiva?.classe}</strong></div>
+                <div>Disciplina: <strong>{disciplinaAtiva?.nome}</strong></div>
+                <div>Turno: <strong>{turmaAtiva?.turno}</strong></div>
+                <div>Sala: <strong>{turmaAtiva?.sala}</strong></div>
+              </div>
             </div>
 
-            {/* Pauta Table */}
+            {/* Tabela Oficial da Pauta */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border border-gray-300">
-                <thead className="bg-gray-100 text-gray-800 font-bold border-b border-gray-300 text-center">
+                <thead className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 text-center">
                   <tr>
                     <th className="p-2 border-r border-gray-300 w-10">Nº</th>
-                    <th className="p-2 border-r border-gray-300 text-left">Nome Completo do Aluno</th>
-                    <th className="p-2 border-r border-gray-300 w-16">Gênero</th>
+                    <th className="p-2 border-r border-gray-300 text-left">Nome Completo do Estudante</th>
+                    <th className="p-2 border-r border-gray-300 w-14">Gênero</th>
                     <th className="p-2 border-r border-gray-300 w-24">Nº Matrícula</th>
-                    <th className="p-2 border-r border-gray-300 w-20">MAC</th>
-                    <th className="p-2 border-r border-gray-300 w-20">NPP / Prova</th>
-                    <th className="p-2 border-r border-gray-300 w-24">
+                    <th className="p-2 border-r border-gray-300 w-16" title="Média de Avaliação Contínua">MAC</th>
+                    <th className="p-2 border-r border-gray-300 w-20" title="Prova do Professor">NPP / Prova</th>
+                    <th className="p-2 border-r border-gray-300 w-20">
                       {Number(selectedTrimestre) === 3 ? 'MT 3' : 'Média Trim.'}
                     </th>
                     {Number(selectedTrimestre) === 3 && (
-                      <th className="p-2 border-r border-gray-300 w-28 bg-amber-100/70 text-amber-950 font-black">
+                      <th className="p-2 border-r border-gray-300 w-24 bg-amber-100/70 text-amber-950 font-black">
                         Média Final (MF)
                       </th>
                     )}
@@ -1686,125 +2235,196 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-300">
-                  {alunosDaTurma.map((aluno, idx) => {
-                    const resMAC = calcularMACEstudante(
-                      aluno.id,
-                      avaliacoesDaTurma,
-                      notas,
-                      regraVigente,
-                      turmaAtiva.nivelEnsino,
-                      turmaAtiva.classe
-                    );
+                  {alunosDaTurma.length === 0 ? (
+                    <tr>
+                      <td colSpan={Number(selectedTrimestre) === 3 ? 10 : 9} className="p-6 text-center text-gray-500 italic">
+                        Nenhum estudante matriculado nesta turma para o ano lectivo atual.
+                      </td>
+                    </tr>
+                  ) : (
+                    alunosDaTurma.map((aluno, idx) => {
+                      const resMAC = calcularMACEstudante(
+                        aluno.id,
+                        avaliacoesDaTurma,
+                        notas,
+                        regraVigente,
+                        turmaAtiva.nivelEnsino,
+                        turmaAtiva.classe
+                      );
 
-                    const macVal = resMAC.macCalculada;
-                    const nppVal = macVal; // Prova do professor / NPP
-                    const calcTrim = calcularNotaTrimestralDinamica(
-                      macVal,
-                      nppVal,
-                      undefined,
-                      regraVigente,
-                      Number(selectedTrimestre),
-                      turmaAtiva.classe
-                    );
-                    const mediaTrim = calcTrim.mediaTrimestral;
+                      const macVal = resMAC.macCalculada;
+                      const nppVal = macVal; // Prova do professor / NPP
+                      const calcTrim = calcularNotaTrimestralDinamica(
+                        macVal,
+                        nppVal,
+                        undefined,
+                        regraVigente,
+                        Number(selectedTrimestre),
+                        turmaAtiva.classe
+                      );
+                      const mediaTrim = calcTrim.mediaTrimestral;
 
-                    // Média Final (especialmente no 3º Trimestre conforme regra configurada pelo Diretor)
-                    const calcMF = calcularMediaFinal3Trimestre(
-                      mediaTrim,
-                      mediaTrim,
-                      mediaTrim,
-                      regraVigente.tipoCalculo3Trimestre === 'PONDERADO_EXAME' ? mediaTrim : undefined,
-                      regraVigente,
-                      turmaAtiva.classe
-                    );
+                      // Média Final (especialmente no 3º Trimestre conforme regra configurada pelo Diretor)
+                      const calcMF = calcularMediaFinal3Trimestre(
+                        mediaTrim,
+                        mediaTrim,
+                        mediaTrim,
+                        regraVigente.tipoCalculo3Trimestre === 'PONDERADO_EXAME' ? mediaTrim : undefined,
+                        regraVigente,
+                        turmaAtiva.classe
+                      );
 
-                    const valorNotaFinal = Number(selectedTrimestre) === 3 ? calcMF.mediaFinal : mediaTrim;
-                    const aprov = turmaAtiva.classe === 'Iniciação' ? true : (escalaMaxima === 10 ? valorNotaFinal >= 5 : valorNotaFinal >= 10);
-                    const generoText = formatarTextoPorGenero(aluno.genero);
+                      const valorNotaFinal = Number(selectedTrimestre) === 3 ? calcMF.mediaFinal : mediaTrim;
+                      const aprov = turmaAtiva.classe === 'Iniciação' ? true : (escalaMaxima === 10 ? valorNotaFinal >= 5 : valorNotaFinal >= 10);
+                      const generoText = formatarTextoPorGenero(aluno.genero);
 
-                    return (
-                      <tr key={aluno.id} className="text-center font-medium">
-                        <td className="p-2 border-r border-gray-300">{idx + 1}</td>
-                        <td className="p-2 border-r border-gray-300 text-left font-bold text-gray-900">
-                          {aluno.nomeCompleto}
-                        </td>
-                        <td className="p-2 border-r border-gray-300">{aluno.genero}</td>
-                        <td className="p-2 border-r border-gray-300 text-gray-600 font-mono text-[10px]">
-                          {aluno.codigoMatricula}
-                        </td>
-                        <td className="p-2 border-r border-gray-300 font-bold">
-                          {turmaAtiva.classe === 'Iniciação' ? resMAC.conceitoIniciacao : macVal}
-                        </td>
-                        <td className="p-2 border-r border-gray-300 font-bold">{nppVal}</td>
-                        <td className="p-2 border-r border-gray-300 font-black text-gray-950">{mediaTrim}</td>
-                        {Number(selectedTrimestre) === 3 && (
-                          <td className="p-2 border-r border-gray-300 font-black text-blue-900 bg-amber-50/50">
-                            {calcMF.mediaFinal}
+                      return (
+                        <tr key={aluno.id} className="text-center font-medium hover:bg-gray-50">
+                          <td className="p-2 border-r border-gray-300">{idx + 1}</td>
+                          <td className="p-2 border-r border-gray-300 text-left font-bold text-gray-900">
+                            {aluno.nomeCompleto}
                           </td>
-                        )}
-                        <td className="p-2 border-r border-gray-300 text-[11px] font-bold text-gray-700">
-                          {(() => {
-                            const notaCons = notasConsolidadas.find(
-                              c => c.alunoId === aluno.id && c.disciplinaId === selectedDisciplinaId && String(c.trimestre) === String(selectedTrimestre)
-                            );
-                            return notaCons?.comportamentoConceito || (notaCons?.comportamentoNota ? `${notaCons.comportamentoNota}v` : '—');
-                          })()}
-                        </td>
-                        <td className="p-2">
-                          <span className={`font-bold ${aprov ? 'text-green-700' : 'text-red-700'}`}>
-                            {turmaAtiva.classe === 'Iniciação' 
-                              ? resMAC.conceitoIniciacao 
-                              : (aprov ? generoText.aprovadoOuAprovada : generoText.reprovadoOuReprovada)}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <td className="p-2 border-r border-gray-300">{aluno.genero}</td>
+                          <td className="p-2 border-r border-gray-300 text-gray-600 font-mono text-[10px]">
+                            {aluno.codigoMatricula}
+                          </td>
+                          <td className="p-2 border-r border-gray-300 font-bold">
+                            {turmaAtiva.classe === 'Iniciação' ? resMAC.conceitoIniciacao : macVal}
+                          </td>
+                          <td className="p-2 border-r border-gray-300 font-bold">{nppVal}</td>
+                          <td className="p-2 border-r border-gray-300 font-black text-gray-950">{mediaTrim}</td>
+                          {Number(selectedTrimestre) === 3 && (
+                            <td className="p-2 border-r border-gray-300 font-black text-blue-900 bg-amber-50/50">
+                              {calcMF.mediaFinal}
+                            </td>
+                          )}
+                          <td className="p-2 border-r border-gray-300 text-[11px] font-bold text-gray-700">
+                            {(() => {
+                              const notaCons = notasConsolidadas.find(
+                                c => c.alunoId === aluno.id && c.disciplinaId === selectedDisciplinaId && String(c.trimestre) === String(selectedTrimestre)
+                              );
+                              return notaCons?.comportamentoConceito || (notaCons?.comportamentoNota ? `${notaCons.comportamentoNota}v` : '—');
+                            })()}
+                          </td>
+                          <td className="p-2">
+                            <span className={`font-bold ${aprov ? 'text-green-700' : 'text-red-700'}`}>
+                              {turmaAtiva.classe === 'Iniciação' 
+                                ? resMAC.conceitoIniciacao 
+                                : (aprov ? generoText.aprovadoOuAprovada : generoText.reprovadoOuReprovada)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
 
-            {/* Rodapé Oficial com 5 Assinaturas Formais */}
-            <div className="pt-8 border-t border-gray-300">
-              <p className="text-center text-xs text-gray-600 mb-6">
-                Termo de Homologação: Aos ____ dias do mês de ______________ de {new Date().getFullYear()}, reuniu-se a comissão pedagógica para encerramento e validação da presente pauta.
+            {/* Resumo Estatístico Oficial de Aproveitamento */}
+            {(() => {
+              const totalMat = alunosDaTurma.length;
+              const mascMat = alunosDaTurma.filter(a => a.genero === 'M').length;
+              const femMat = alunosDaTurma.filter(a => a.genero === 'F').length;
+              const aprovados = alunosDaTurma.filter(aluno => {
+                const resMAC = calcularMACEstudante(aluno.id, avaliacoesDaTurma, notas, regraVigente, turmaAtiva.nivelEnsino, turmaAtiva.classe);
+                const calcTrim = calcularNotaTrimestralDinamica(resMAC.macCalculada, resMAC.macCalculada, undefined, regraVigente, Number(selectedTrimestre), turmaAtiva.classe);
+                return turmaAtiva.classe === 'Iniciação' ? true : (escalaMaxima === 10 ? calcTrim.mediaTrimestral >= 5 : calcTrim.mediaTrimestral >= 10);
+              });
+              const percAprov = totalMat > 0 ? Math.round((aprovados.length / totalMat) * 100) : 0;
+              const percReprov = 100 - percAprov;
+
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-gray-50 border border-gray-300 rounded text-xs text-center">
+                  <div>
+                    <span className="text-gray-600 block text-[10px] uppercase font-bold">Total Matriculados</span>
+                    <strong className="text-sm font-mono text-gray-900">{totalMat} <span className="text-[10px] font-normal text-gray-600">(M:{mascMat} F:{femMat})</span></strong>
+                  </div>
+                  <div>
+                    <span className="text-emerald-700 block text-[10px] uppercase font-bold">Aprovados ({percAprov}%)</span>
+                    <strong className="text-sm font-mono text-emerald-800">{aprovados.length}</strong>
+                  </div>
+                  <div>
+                    <span className="text-red-700 block text-[10px] uppercase font-bold">Não Transitados ({percReprov}%)</span>
+                    <strong className="text-sm font-mono text-red-800">{totalMat - aprovados.length}</strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-700 block text-[10px] uppercase font-bold">Ano Lectivo / Regime</span>
+                    <strong className="text-sm font-mono text-blue-900">{escola.anoLectivoActivo}</strong>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Rodapé Oficial com Assinaturas da Comissão de Júri e Homologação do Diretor Geral */}
+            <div className="pt-8 border-t-2 border-black">
+              <p className="text-center text-xs text-gray-700 font-bold uppercase mb-6 tracking-wider">
+                {juriTurmaAtiva 
+                  ? 'Termos Oficiais de Homologação da Comissão de Júri de Exame' 
+                  : `Termo de Homologação e Validação Pedagógica — Ano Lectivo ${escola.anoLectivoActivo}`}
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs">
-                {/* Esquerda: 2 Vogais */}
-                <div className="space-y-8">
-                  <div className="space-y-1">
-                    <div className="w-44 border-b border-gray-800 mx-auto" />
-                    <p className="font-bold text-gray-900">1º Vogal</p>
-                    <p className="text-[11px] text-gray-500">Docente Designado</p>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="w-44 border-b border-gray-800 mx-auto" />
-                    <p className="font-bold text-gray-900">2º Vogal</p>
-                    <p className="text-[11px] text-gray-500">Docente Designado</p>
-                  </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-xs">
+                {/* 1. Presidente da Comissão de Júri */}
+                <div className="space-y-1">
+                  <p className="font-black text-gray-950 uppercase text-[11px]">
+                    {juriTurmaAtiva ? 'O Presidente da Comissão de Júri' : obterTituloCoordenadorTurma(turmaAtiva, funcionariosEscola, atribuicoesTodas)}
+                  </p>
+                  <div className="h-6" />
+                  <div className="w-40 border-b border-black mx-auto my-1.5" />
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {juriTurmaAtiva ? obterPresidenteJuri(juriTurmaAtiva, funcionariosEscola) : obterNomeCoordenadorTurma(turmaAtiva, funcionariosEscola, atribuicoesTodas)}
+                  </p>
                 </div>
 
-                {/* Centro: Coordenador de Turma e Subdiretor Pedagógico */}
-                <div className="space-y-8">
-                  <div className="space-y-1">
-                    <div className="w-44 border-b border-gray-800 mx-auto" />
-                    <p className="font-bold text-gray-900">O Coordenador de Turma</p>
-                    <p className="text-[11px] text-blue-800 font-semibold">(Presidente da Turma)</p>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="w-44 border-b border-gray-800 mx-auto" />
-                    <p className="font-bold text-gray-900">A Subdiretora Pedagógica</p>
-                    <p className="text-[11px] text-gray-700 font-semibold">{escola.subdiretorPedagogicoNome}</p>
-                  </div>
+                {/* 2. Secretário da Comissão de Júri */}
+                <div className="space-y-1">
+                  <p className="font-black text-gray-950 uppercase text-[11px]">
+                    {juriTurmaAtiva ? 'O Secretário da Comissão de Júri' : obterTituloSubdiretorPedagogico(escola, funcionariosEscola)}
+                  </p>
+                  <div className="h-6" />
+                  <div className="w-40 border-b border-black mx-auto my-1.5" />
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {juriTurmaAtiva ? obterSecretarioJuri(juriTurmaAtiva, funcionariosEscola) : obterNomeSubdiretorPedagogico(escola, funcionariosEscola)}
+                  </p>
                 </div>
 
-                {/* Direita: Diretor da Escola */}
-                <div className="space-y-1 flex flex-col justify-center">
-                  <div className="w-48 border-b border-gray-800 mx-auto" />
-                  <p className="font-bold text-gray-900">O Diretor da Escola</p>
-                  <p className="text-[11px] text-gray-800 font-bold">{escola.diretorGeralNome}</p>
-                  <span className="text-[10px] text-gray-400 mt-2 block">[Carimbo Oficial / Selo Branco]</span>
+                {/* 3. Vogais do Júri */}
+                <div className="space-y-1">
+                  <p className="font-black text-gray-950 uppercase text-[11px]">
+                    {juriTurmaAtiva ? 'Os Vogais da Comissão de Júri' : 'Vogais / Docentes'}
+                  </p>
+                  <div className="h-6" />
+                  <div className="w-40 border-b border-black mx-auto my-1.5" />
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {(() => {
+                      const v = obterVogaisJuri(juriTurmaAtiva, funcionariosEscola);
+                      return `${v.primeiroVogal} / ${v.segundoVogal}`;
+                    })()}
+                  </p>
+                </div>
+
+                {/* 4. Director Geral com Homologação */}
+                <div className="space-y-1 flex flex-col items-center justify-end">
+                  <p className="font-black text-gray-950 uppercase text-[11px]">
+                    {obterTituloDiretorGeral(escola, funcionariosEscola)} (Homologação)
+                  </p>
+                  {Boolean((escola.assinaturaDiretorUrl || (escola as any).configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                    <div className="h-10 flex items-center justify-center -mb-1">
+                      <img 
+                        src={escola.assinaturaDiretorUrl || (escola as any).configuracaoPasses?.assinaturaDiretorUrl} 
+                        alt="Assinatura do Director" 
+                        className="max-h-9 max-w-[140px] object-contain mix-blend-multiply" 
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-6" />
+                  )}
+                  <div className="w-40 border-b border-black mx-auto my-1.5" />
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {obterNomeDiretorGeral(escola, funcionariosEscola)}
+                  </p>
+                  <span className="text-[9px] text-gray-400 block uppercase">[Carimbo Oficial / Selo Branco]</span>
                 </div>
               </div>
             </div>
@@ -1837,10 +2457,21 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 <label className="font-semibold text-gray-700 block mb-1">Tipo de Avaliação Autorizado</label>
                 <select
                   value={novoAvTipoId}
-                  onChange={(e) => setNovoAvTipoId(e.target.value)}
+                  onChange={(e) => {
+                    const tid = e.target.value;
+                    setNovoAvTipoId(tid);
+                    if (!novoAvTitulo || novoAvTitulo.startsWith('Prova') || novoAvTitulo.startsWith('Avaliação') || novoAvTitulo.startsWith('Exame') || novoAvTitulo.startsWith('2ª Prova')) {
+                      if (tid === 'tipo-pt') setNovoAvTitulo(`Prova Trimestral de ${disciplinaAtiva?.nome || 'Disciplina'}`);
+                      else if (tid === 'tipo-comp') setNovoAvTitulo(`Avaliação de Comportamento - ${selectedTrimestre}º Trimestre`);
+                      else if (tid === 'tipo-nee') setNovoAvTitulo(`Exame de Júri de ${disciplinaAtiva?.nome || 'Disciplina'}`);
+                    }
+                  }}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  {tiposAvaliacao.map(t => (
+                  <option value="tipo-pt">Prova Trimestral (PT / Prova do Professor) (Peso: 2)</option>
+                  <option value="tipo-comp">Avaliação de Comportamento (COMP) (Peso: 1)</option>
+                  <option value="tipo-nee">Exame de Júri / Prova de Exame (NEE) (Peso: 3)</option>
+                  {tiposAvaliacao.filter(t => !['tipo-pt', 'tipo-comp', 'tipo-nee'].includes(t.id)).map(t => (
                     <option key={t.id} value={t.id}>{t.nome} (Peso: {t.pesoPadrao})</option>
                   ))}
                 </select>

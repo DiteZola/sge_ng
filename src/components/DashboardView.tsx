@@ -593,21 +593,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const alunosDestaClasse = alunos.filter(a => a.classeId === cls || turmasDestaClasse.some(t => t.id === a.turmaId));
       const matriculados = alunosDestaClasse.length;
       const desistentes = alunosDestaClasse.filter(a => a.estado === 'Desistente').length;
-      const avaliados = matriculados - desistentes;
       
       const notasDestaClasse = notasConsolidadas.filter(n => alunosDestaClasse.some(a => a.id === n.alunoId));
-      const alunosAvaliados = alunosDestaClasse.filter(a => a.estado !== 'Desistente');
+      const alunosAtivos = alunosDestaClasse.filter(a => a.estado !== 'Desistente');
+      const alunosComNotas = alunosAtivos.filter(a => notasDestaClasse.some(n => n.alunoId === a.id));
+      const avaliados = alunosComNotas.length;
       
-      const aprovados = alunosAvaliados.filter(a => {
+      const aprovados = alunosComNotas.filter(a => {
         const notas = notasDestaClasse.filter(n => n.alunoId === a.id);
-        if (notas.length === 0) return true;
+        if (notas.length === 0) return false;
         const med = notas.reduce((acc, curr) => acc + (curr.mediaTrimestral || 0), 0) / notas.length;
         return med >= 9.5;
       }).length;
       
       const reprovados = avaliados - aprovados;
-      const percAvaliados = matriculados > 0 ? Math.round((avaliados / matriculados) * 100) : 100;
-      const percAprovados = avaliados > 0 ? Math.round((aprovados / avaliados) * 100) : 100;
+      const percAvaliados = matriculados > 0 ? Math.round((avaliados / matriculados) * 100) : 0;
+      const percAprovados = avaliados > 0 ? Math.round((aprovados / avaliados) * 100) : 0;
       const percReprovados = avaliados > 0 ? Math.round((reprovados / avaliados) * 100) : 0;
       const percDesistentes = matriculados > 0 ? Math.round((desistentes / matriculados) * 100) : 0;
 
@@ -679,19 +680,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const estatisticasEscolaGlobal = useMemo(() => {
     const matriculados = alunos.length;
     const desistentes = alunos.filter(a => a.estado === 'Desistente').length;
-    const avaliados = matriculados - desistentes;
+    const alunosAtivos = alunos.filter(a => a.estado !== 'Desistente');
+    const alunosComNotas = alunosAtivos.filter(a => notasConsolidadas.some(n => n.alunoId === a.id));
+    const avaliados = alunosComNotas.length;
     
-    const alunosAvaliados = alunos.filter(a => a.estado !== 'Desistente');
-    const aprovados = alunosAvaliados.filter(a => {
+    const aprovados = alunosComNotas.filter(a => {
       const notas = notasConsolidadas.filter(n => n.alunoId === a.id);
-      if (notas.length === 0) return true;
+      if (notas.length === 0) return false;
       const med = notas.reduce((acc, curr) => acc + (curr.mediaTrimestral || 0), 0) / notas.length;
       return med >= 9.5;
     }).length;
     
     const reprovados = avaliados - aprovados;
-    const percAvaliados = matriculados > 0 ? Math.round((avaliados / matriculados) * 100) : 100;
-    const percAprovados = avaliados > 0 ? Math.round((aprovados / avaliados) * 100) : 100;
+    const percAvaliados = matriculados > 0 ? Math.round((avaliados / matriculados) * 100) : 0;
+    const percAprovados = avaliados > 0 ? Math.round((aprovados / avaliados) * 100) : 0;
     const percReprovados = avaliados > 0 ? Math.round((reprovados / avaliados) * 100) : 0;
     const percDesistentes = matriculados > 0 ? Math.round((desistentes / matriculados) * 100) : 0;
 
@@ -715,13 +717,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const masc = alunosDaTurma.filter(a => a.genero === 'M').length;
       const fem = alunosDaTurma.filter(a => a.genero === 'F').length;
       const notasDaTurma = notasConsolidadas.filter(n => alunosDaTurma.some(a => a.id === n.alunoId));
-      const aprovados = alunosDaTurma.filter(a => {
+      const alunosAtivos = alunosDaTurma.filter(a => a.estado !== 'Desistente');
+      const alunosComNotas = alunosAtivos.filter(a => notasDaTurma.some(n => n.alunoId === a.id));
+      const avaliados = alunosComNotas.length;
+      const aprovados = alunosComNotas.filter(a => {
         const notas = notasDaTurma.filter(n => n.alunoId === a.id);
-        if (notas.length === 0) return true;
+        if (notas.length === 0) return false;
         const med = notas.reduce((acc, curr) => acc + (curr.mediaTrimestral || 0), 0) / notas.length;
         return med >= 9.5;
       }).length;
-      const taxa = alunosDaTurma.length > 0 ? Math.round((aprovados / alunosDaTurma.length) * 100) : 100;
+      const reprovados = avaliados - aprovados;
+      const taxa = avaliados > 0 ? Math.round((aprovados / avaliados) * 100) : 0;
 
       return {
         id: t.id,

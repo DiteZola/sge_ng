@@ -83,44 +83,29 @@ class FirebaseSyncEngine {
   }
 
   constructor() {
-    // Auto-reparação imediata para imagens que excedam limites antes de qualquer sincronização
-    this.repararConfiguracaoMuitoGrande().then(() => {
-      this.iniciarObservadoresDeRede();
-    });
+    this.iniciarObservadoresDeRede();
   }
 
   /**
-   * Corrige automaticamente qualquer insígnia gigante que possa estar no localStorage do dispositivo
-   * prevenindo o erro de limite de 1MB (1,048,576 bytes) do Firestore.
+   * Processa a fila de alterações pendentes acumuladas localmente
    */
-  public async repararConfiguracaoMuitoGrande(): Promise<void> {
-    try {
-      if (typeof window === 'undefined') return;
-      const raw = localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA);
-      if (!raw || raw === 'undefined' || raw === 'null') return;
-      const config: any = JSON.parse(raw);
-      let alterado = false;
+  public async processarPendenciasOffline(): Promise<void> {
+    if (!this.canUseFirestore() || !firestoreDb) return;
+    const pendentes = offlineStorage.obterPendencias();
+    if (pendentes.length === 0) return;
 
-      for (const [key, val] of Object.entries(config)) {
-        if (typeof val === 'string' && val.length > 90000) {
-          console.log(`[SGE Firebase Sync] Otimizando campo "${key}" (${(val.length / 1024).toFixed(1)}KB)...`);
-          if (val.startsWith('data:image/') || val.startsWith('data:application/')) {
-            const otimizada = await comprimirImagemBase64(val, 380, 0.80);
-            if (otimizada && otimizada.length < val.length) {
-              config[key] = otimizada;
-              alterado = true;
-            }
-          }
+    console.log(`[SGE Firebase Sync] Processando ${pendentes.length} pendências para sincronizar com o Firebase...`);
+    for (const p of pendentes) {
+      try {
+        if (p.dados && p.entidade) {
+          const docId = p.dados.id || p.id;
+          const colRef = doc(firestoreDb, p.entidade.toLowerCase(), docId);
+          await setDoc(colRef, { ...p.dados, sincronizadoEm: new Date().toISOString() }, { merge: true });
         }
+        offlineStorage.removerPendencia(p.id);
+      } catch (err) {
+        console.warn(`[SGE Firebase Sync] Falha ao processar pendência ${p.id}:`, err);
       }
-
-      if (alterado) {
-        config.insigniaOtimizada = true;
-        localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(config));
-        console.log('[SGE Firebase Sync] Auto-reparação de imagens concluída com sucesso no dispositivo.');
-      }
-    } catch (e) {
-      console.warn('[SGE Firebase Sync] Falha na auto-reparação inicial de insígnia:', e);
     }
   }
 
@@ -128,8 +113,10 @@ class FirebaseSyncEngine {
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
         console.log('[SGE Firebase Sync] Rede online restabelecida. Sincronizando de imediato...');
-        this.sincronizarTudoImediato();
-        this.iniciarEscutasEmTempoReal();
+        this.processarPendenciasOffline().then(() => {
+          this.sincronizarTudoImediato();
+          this.iniciarEscutasEmTempoReal();
+        });
       });
 
       window.addEventListener('offline', () => {
@@ -137,14 +124,16 @@ class FirebaseSyncEngine {
         this.notificarStatus();
       });
 
-      // Auto-sincronização inicial ao carregar e ativação de escutas em tempo real
+      // Inicialização super leve: carregar UI instantaneamente com dados locais e sincronizar em background após 2.5s
       setTimeout(() => {
         if (this.isOnline()) {
-          this.puxarTudoDoFirebase().then(() => {
-            this.iniciarEscutasEmTempoReal();
+          this.processarPendenciasOffline().then(() => {
+            this.puxarTudoDoFirebase().then(() => {
+              this.iniciarEscutasEmTempoReal();
+            });
           });
         }
-      }, 500);
+      }, 2500);
     }
   }
 
@@ -1389,10 +1378,44 @@ class FirebaseSyncEngine {
   public async eliminarEscola(id: string): Promise<boolean> {
     if (this.canUseFirestore() && firestoreDb) {
       try {
+        const colecoesParaApagar = [
+          "escolas",
+          "schools",
+          "alunos",
+          "turmas",
+          "disciplinas",
+          "atribuicoes",
+          "funcionarios",
+          "transacoes",
+          "despesas",
+          "patrimonio",
+          "notasConsolidadas",
+          "avaliacoes",
+          "comissoesJuri",
+          "presencas",
+          "mensagens",
+          "livros",
+          "termosExame",
+          "delegacoes"
+        ];
+
+        // 1. Eliminar o registo principal da escola
         await Promise.allSettled([
           deleteDoc(doc(firestoreDb, "escolas", id)),
           deleteDoc(doc(firestoreDb, "schools", id))
         ]);
+
+        // 2. Eliminar em cascata todos os documentos associados a esta escola
+        for (const colNome of colecoesParaApagar) {
+          try {
+            const q = query(collection(firestoreDb, colNome), where("escolaId", "==", id));
+            const snap = await getDocs(q);
+            const deletePromises = snap.docs.map(d => deleteDoc(d.ref));
+            await Promise.allSettled(deletePromises);
+          } catch (colErr) {
+            // Continuar mesmo se alguma coleção específica falhar
+          }
+        }
       } catch (e) {
         console.warn('[SGE Firebase Sync] Erro ao eliminar escola no Firestore:', e);
       }

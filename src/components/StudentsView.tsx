@@ -48,7 +48,8 @@ import {
   FaltasAnoHistorico,
   DividasAnoHistorico,
   Escola,
-  NotaMultiAno
+  NotaMultiAno,
+  Funcionario
 } from '../types';
 import * as XLSX from 'xlsx';
 import { dbService } from '../services/storage';
@@ -59,6 +60,7 @@ import { processarFotoUpload } from '../utils/imageCompressor';
 import { AngolaDateInput } from './AngolaDateInput';
 import { LocationPicker } from './LocationPicker';
 import { InsigniaAngola } from '../constants/insignia';
+import { StudentClassListPdfDocument } from './StudentClassListPdfDocument';
 import { 
   sanitizeSearchInput, 
   safeSearchMatch, 
@@ -82,6 +84,8 @@ interface StudentsViewProps {
   alunos: Aluno[];
   turmas: Turma[];
   initialSubTab?: 'lista' | 'ranking' | 'historico';
+  currentUser?: Funcionario;
+  atribuicoes?: any[];
   onSalvarAluno: (aluno: Aluno) => void;
   onExcluirAluno: (id: string) => void;
 }
@@ -124,36 +128,87 @@ const DISCIPLINAS_ANGOLA_PADRAO = [
   'Desenho Técnico'
 ];
 
-// Determina as classes obrigatórias do ciclo para o histórico do estudante
+// Determina as classes obrigatórias do ciclo para o histórico do estudante conforme MED Angola
 export const obterClassesDoCiclo = (classeReferencia?: string, curso?: string): string[] => {
   const norm = (classeReferencia || '').trim();
-  // Ensino Primário: 1ª à 6ª Classe
+  
+  // Ensino Primário: da 1ª até à 6ª Classe
   if (['1ª', '2ª', '3ª', '4ª', '5ª', '6ª', 'Iniciação'].some(c => norm.includes(c)) || norm.toLowerCase().includes('primário')) {
-    return ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
+    const primarias = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
+    const idx = primarias.findIndex(c => norm.includes(c));
+    // Para a 6ª classe (conclusão do nível) aparecem todas as classes da 1ª à 6ª.
+    // Para classes em curso, aparecem as classes cursadas até à atual.
+    if (idx >= 0 && !norm.includes('6ª')) {
+      return primarias.slice(0, idx + 1);
+    }
+    return primarias;
   }
-  // Iº Ciclo do Ensino Secundário Geral: 7ª à 9ª Classe
+
+  // Iº Ciclo do Ensino Secundário Geral: 7ª, 8ª e 9ª Classe
   if (['7ª', '8ª', '9ª'].some(c => norm.includes(c)) || norm.toLowerCase().includes('i ciclo') || norm.toLowerCase().includes('1º ciclo')) {
-    return ['7ª', '8ª', '9ª'];
+    const primeiroCiclo = ['7ª', '8ª', '9ª'];
+    const idx = primeiroCiclo.findIndex(c => norm.includes(c));
+    if (idx >= 0 && !norm.includes('9ª')) {
+      return primeiroCiclo.slice(0, idx + 1);
+    }
+    return primeiroCiclo;
   }
+
   // Ensino Técnico Profissional: 10ª à 13ª Classe
-  if (norm.includes('13ª') || (curso && (curso.toLowerCase().includes('técnico') || curso.toLowerCase().includes('informática') || curso.toLowerCase().includes('construção') || curso.toLowerCase().includes('eletricidade')))) {
-    return ['10ª', '11ª', '12ª', '13ª'];
+  const isTecnico = norm.includes('13ª') || (curso && (curso.toLowerCase().includes('técnico') || curso.toLowerCase().includes('informática') || curso.toLowerCase().includes('construção') || curso.toLowerCase().includes('eletricidade') || curso.toLowerCase().includes('enfermagem') || curso.toLowerCase().includes('contabilidade')));
+  if (isTecnico) {
+    const tecnico = ['10ª', '11ª', '12ª', '13ª'];
+    const idx = tecnico.findIndex(c => norm.includes(c));
+    if (idx >= 0 && !norm.includes('13ª') && !norm.includes('12ª')) {
+      return tecnico.slice(0, idx + 1);
+    }
+    return tecnico;
   }
-  // IIº Ciclo do Ensino Secundário Geral: 10ª à 12ª Classe
-  return ['10ª', '11ª', '12ª'];
+
+  // IIº Ciclo do Ensino Secundário Geral (PUNIV / Geral): 10ª à 12ª Classe
+  const segundoCiclo = ['10ª', '11ª', '12ª'];
+  const idx = segundoCiclo.findIndex(c => norm.includes(c));
+  if (idx >= 0 && !norm.includes('12ª')) {
+    return segundoCiclo.slice(0, idx + 1);
+  }
+  return segundoCiclo;
 };
 
 export const StudentsView: React.FC<StudentsViewProps> = ({
   escola: escolaProp,
-  alunos,
-  turmas,
+  alunos: alunosOriginais,
+  turmas: turmasOriginais,
   initialSubTab,
+  currentUser,
+  atribuicoes,
   onSalvarAluno,
   onExcluirAluno
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const configSistema = dbService.getConfiguracaoSistema();
   const escola = escolaProp || dbService.getEscolaAtiva();
+
+  const isProfessor = currentUser?.role === 'Professor';
+  const atribuicoesTodas = useMemo(() => {
+    return atribuicoes || (dbService.getAtribuicoes ? dbService.getAtribuicoes() : []);
+  }, [atribuicoes]);
+
+  const atribuicoesDoProfessor = useMemo(() => {
+    if (!isProfessor) return [];
+    return atribuicoesTodas.filter((a: any) => a.professorId === currentUser?.id);
+  }, [isProfessor, currentUser?.id, atribuicoesTodas]);
+
+  const turmas = useMemo(() => {
+    if (!isProfessor) return turmasOriginais;
+    const ids = new Set(atribuicoesDoProfessor.map((a: any) => a.turmaId));
+    return turmasOriginais.filter(t => ids.has(t.id));
+  }, [turmasOriginais, isProfessor, atribuicoesDoProfessor]);
+
+  const alunos = useMemo(() => {
+    if (!isProfessor) return alunosOriginais;
+    const ids = new Set(turmas.map(t => t.id));
+    return alunosOriginais.filter(a => ids.has(a.turmaId));
+  }, [alunosOriginais, isProfessor, turmas]);
 
   const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(), []);
   const anosLectivosDisponiveis = useMemo(() => {
@@ -170,6 +225,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [selectedCursoFilter, setSelectedCursoFilter] = useState('TODOS');
   const [selectedEstadoFilter, setSelectedEstadoFilter] = useState('TODOS');
   const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking' | 'historico'>(initialSubTab || 'lista');
+  const [showListaNominalModal, setShowListaNominalModal] = useState(false);
   
   useEffect(() => {
     if (initialSubTab) {
@@ -216,11 +272,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         let hist = dbService.getHistoricoEscolarCompleto(target.id);
         const anoBase = parseInt(escola.anoLectivoActivo?.split('/')[0] || '2025', 10);
 
-        // Se não tiver histórico ou faltar classes do ciclo, compor todas as classes
+        // REGRA DO MINISTÉRIO DA EDUCAÇÃO:
+        // No histórico escolar só devem aparecer as notas verdadeiras do aluno dos anos lectivos passado e presente!
+        // Não inventar notas fictícias. Apenas notas reais consolidadas ou gravadas no histórico.
         const classesExistentes = hist?.classes || [];
+        const notasConsolidadasAluno = dbService.getNotasConsolidadas().filter(nc => nc.alunoId === target.id);
+        const todasDisciplinas = dbService.getDisciplinas();
+
         const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
           const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
           if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
+            // Verificar se as notas existentes têm valores reais ou se vieram de preenchimentos automáticos
             return encontrada;
           }
 
@@ -229,21 +291,58 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           const discPadrao = CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8);
           const escalaInfo = obterInformacaoEscala(cls);
 
-          // Verificar se no historicoAnterior antigo tem nota
+          // Verificar se no historicoAnterior legítimo tem nota averbada
           const histAnt = target.historicoAnterior?.find(h => h.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
-          const notaBase = histAnt?.mediaFinal || escalaInfo.notaAprovacao || 10;
 
-          const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => ({
-            disciplinaNome: nome,
-            notaFinal: notaBase,
-            resultado: (notaBase >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
-          }));
+          // Compor disciplinas com notas VERDADEIRAS apenas:
+          const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => {
+            // Se for o ano presente (classe atual do aluno), buscar as notas reais consolidadas:
+            const isClassePresente = cls.replace(/\s/g, '').toLowerCase() === classeRef.replace(/\s/g, '').toLowerCase();
+            if (isClassePresente) {
+              const discObj = todasDisciplinas.find(d => d.nome.toLowerCase() === nome.toLowerCase());
+              const notaCons = discObj 
+                ? notasConsolidadasAluno.find(nc => nc.disciplinaId === discObj.id) 
+                : notasConsolidadasAluno.find(nc => todasDisciplinas.find(d => d.id === nc.disciplinaId)?.nome.toLowerCase() === nome.toLowerCase());
+              
+              if (notaCons) {
+                const notaReal = notaCons.notaFinal ?? notaCons.mediaTrimestral ?? (notaCons.mac > 0 ? (notaCons.mac + (notaCons.provaTrimestral || notaCons.mac)) / 2 : 0);
+                if (notaReal > 0) {
+                  return {
+                    disciplinaNome: nome,
+                    notaFinal: parseFloat(notaReal.toFixed(1)),
+                    resultado: (notaReal >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+                  };
+                }
+              }
+            }
+
+            // Para anos passados, só incluir se houver registo prévio verdadeiro:
+            if (histAnt && typeof histAnt.mediaFinal === 'number' && histAnt.mediaFinal > 0) {
+              return {
+                disciplinaNome: nome,
+                notaFinal: histAnt.mediaFinal,
+                resultado: (histAnt.mediaFinal >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+              };
+            }
+
+            // Se não há nota verdadeira lançada ainda: NÃO inventar 10 valores! Manter pendente
+            return {
+              disciplinaNome: nome,
+              notaFinal: 0,
+              resultado: 'Pendente' as any
+            };
+          });
+
+          const notasValidas = notasDisciplinas.filter(d => d.notaFinal > 0);
+          const mediaGeralClasse = notasValidas.length > 0 
+            ? parseFloat((notasValidas.reduce((acc, d) => acc + d.notaFinal, 0) / notasValidas.length).toFixed(1)) 
+            : 0;
 
           return {
             classe: cls,
             anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
             escolaOrigem: encontrada?.escolaOrigem || histAnt?.escolaOrigem || escola.nomeOficial || 'Escola de Origem',
-            mediaGeralClasse: notaBase,
+            mediaGeralClasse,
             notasDisciplinas,
             ocorrencias: target.ocorrencias || [],
             faltas: {
@@ -312,6 +411,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [endereco, setEndereco] = useState('');
   const [fotoUrl, setFotoUrl] = useState('');
   const [estado, setEstado] = useState<EstadoAluno>('Ativo');
+  const [comportamentoConceito, setComportamentoConceito] = useState<string>('');
 
   // Dados Médicos e de Saúde do Aluno (MED Angola)
   const [grupoSanguineo, setGrupoSanguineo] = useState('O+');
@@ -662,6 +762,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setRestricaoEducacaoFisica(false);
     setContactoEmergenciaNome('');
     setContactoEmergenciaTelefone('');
+    setComportamentoConceito('');
     setShowAlunoModal(true);
   };
 
@@ -703,6 +804,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setRestricaoEducacaoFisica(aluno.restricaoEducacaoFisica ?? false);
     setContactoEmergenciaNome(aluno.contactoEmergenciaNome || '');
     setContactoEmergenciaTelefone(aluno.contactoEmergenciaTelefone || '');
+    setComportamentoConceito(aluno.comportamentoConceito || '');
     setShowAlunoModal(true);
   };
 
@@ -761,6 +863,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       cadastradoEm: editingAluno?.cadastradoEm || new Date().toISOString().split('T')[0],
       anoLectivo: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
       anoMatricula: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
+      comportamentoConceito: comportamentoConceito ? (comportamentoConceito as any) : undefined,
       // Ficha Médica e de Saúde
       grupoSanguineo,
       alergias: alergias.trim(),
@@ -1026,7 +1129,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         'Média Final Geral (MF)': mediaFinalGeral,
         'Classificação Final': resultadoFinal,
         'Total de Faltas': totalFaltas,
-        'Comportamento': a.comportamentoConceito || (notasAluno[0]?.comportamentoConceito) || 'Muito Bom',
+        'Comportamento': a.comportamentoConceito || (notasAluno[0]?.comportamentoConceito) || '— (Não Registado)',
         // Notas Médias por Disciplina
         'Língua Portuguesa (MF)': notaDisc('Língua Portuguesa'),
         'Matemática (MF)': notaDisc('Matemática'),
@@ -1424,6 +1527,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const anoBase = parseInt(escola.anoLectivoActivo?.split('/')[0] || '2025', 10);
     const classesExistentes = historicoCompleto?.classes || [];
 
+    // REGRA DO MINISTÉRIO DA EDUCAÇÃO:
+    // No histórico escolar só devem aparecer as notas verdadeiras do aluno dos anos lectivos passado e presente!
+    const notasConsolidadasAluno = dbService.getNotasConsolidadas().filter(nc => nc.alunoId === historicoAluno.id);
+    const todasDisciplinas = dbService.getDisciplinas();
+
     const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
       const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
       if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
@@ -1436,19 +1544,52 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       const escalaInfo = obterInformacaoEscala(cls);
 
       const histAnt = historicoAluno.historicoAnterior?.find(h => h.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
-      const notaBase = histAnt?.mediaFinal || escalaInfo.notaAprovacao || 10;
 
-      const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => ({
-        disciplinaNome: nome,
-        notaFinal: notaBase,
-        resultado: (notaBase >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
-      }));
+      const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => {
+        const isClassePresente = cls.replace(/\s/g, '').toLowerCase() === classeRef.replace(/\s/g, '').toLowerCase();
+        if (isClassePresente) {
+          const discObj = todasDisciplinas.find(d => d.nome.toLowerCase() === nome.toLowerCase());
+          const notaCons = discObj 
+            ? notasConsolidadasAluno.find(nc => nc.disciplinaId === discObj.id) 
+            : notasConsolidadasAluno.find(nc => todasDisciplinas.find(d => d.id === nc.disciplinaId)?.nome.toLowerCase() === nome.toLowerCase());
+          
+          if (notaCons) {
+            const notaReal = notaCons.notaFinal ?? notaCons.mediaTrimestral ?? (notaCons.mac > 0 ? (notaCons.mac + (notaCons.provaTrimestral || notaCons.mac)) / 2 : 0);
+            if (notaReal > 0) {
+              return {
+                disciplinaNome: nome,
+                notaFinal: parseFloat(notaReal.toFixed(1)),
+                resultado: (notaReal >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+              };
+            }
+          }
+        }
+
+        if (histAnt && typeof histAnt.mediaFinal === 'number' && histAnt.mediaFinal > 0) {
+          return {
+            disciplinaNome: nome,
+            notaFinal: histAnt.mediaFinal,
+            resultado: (histAnt.mediaFinal >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita') as any
+          };
+        }
+
+        return {
+          disciplinaNome: nome,
+          notaFinal: 0,
+          resultado: 'Pendente' as any
+        };
+      });
+
+      const notasValidas = notasDisciplinas.filter(d => d.notaFinal > 0);
+      const mediaGeralClasse = notasValidas.length > 0 
+        ? parseFloat((notasValidas.reduce((acc, d) => acc + d.notaFinal, 0) / notasValidas.length).toFixed(1)) 
+        : 0;
 
       return {
         classe: cls,
         anoLectivo: encontrada?.anoLectivo || histAnt?.anoLectivo || anoLetivoEst,
         escolaOrigem: encontrada?.escolaOrigem || histAnt?.escolaOrigem || escola.nomeOficial || 'Escola de Origem',
-        mediaGeralClasse: notaBase,
+        mediaGeralClasse,
         notasDisciplinas,
         ocorrencias: historicoAluno.ocorrencias || [],
         faltas: {
@@ -1840,32 +1981,56 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setShowPublicPortal(true)}
-            className="px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 border-2 border-blue-600 rounded-lg hover:bg-blue-100 transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+            onClick={() => setShowListaNominalModal(true)}
+            className="px-3 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-300 rounded-lg hover:bg-blue-100 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+            title="Baixar lista nominal oficial de estudantes com fotografia, sexo, idade e numeração em PDF"
           >
-            <Search className="h-4 w-4 text-blue-600" />
-            <span>Portal dos Pais</span>
+            <Users className="h-4 w-4 text-blue-600" />
+            <span>Lista Nominal Oficial (PDF)</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleOpenConfirmacao}
-            className="px-3.5 py-2 text-xs font-bold text-emerald-950 bg-emerald-100 border-2 border-emerald-600 rounded-lg hover:bg-emerald-200 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
-          >
-            <FileCheck2 className="h-4 w-4 text-emerald-700" />
-            <span>Confirmar Matrícula (Alunos Existentes)</span>
-          </button>
+          {!isProfessor && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowPublicPortal(true)}
+                className="px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 border-2 border-blue-600 rounded-lg hover:bg-blue-100 transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Search className="h-4 w-4 text-blue-600" />
+                <span>Portal dos Pais</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={handleOpenCreate}
-            className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-xs"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Matricular Novo Aluno</span>
-          </button>
+              <button
+                type="button"
+                onClick={handleOpenConfirmacao}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-950 bg-emerald-100 border-2 border-emerald-600 rounded-lg hover:bg-emerald-200 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              >
+                <FileCheck2 className="h-4 w-4 text-emerald-700" />
+                <span>Confirmar Matrícula (Alunos Existentes)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenCreate}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-xs"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Matricular Novo Aluno</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {isProfessor && turmas.length === 0 && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-center space-x-3 mb-4">
+          <BookOpen className="w-5 h-5 text-amber-600 shrink-0" />
+          <div>
+            <p className="font-bold">Aviso aos Docentes:</p>
+            <p>Ainda não constam turmas ou disciplinas atribuídas ao seu perfil docente para o ano letivo ativo. Contacte a Direção Pedagógica ou Secretaria para efetuar as devidas atribuições curriculares.</p>
+          </div>
+        </div>
+      )}
 
       {/* Abas Principais: Quadro Geral vs Ranking vs Histórico Escolar & Dossiê */}
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3 no-print">
@@ -2405,13 +2570,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                         </div>
                                       </td>
                                       <td className="p-3 font-semibold text-gray-600">
-                                        {converterNotaParaCertificadoExtenso(Number(notaAtual))}
+                                        {Number(notaAtual) <= 0 ? '—' : converterNotaParaCertificadoExtenso(Number(notaAtual))}
                                       </td>
                                       <td className="p-3 text-center">
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                          aprovado ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                          Number(notaAtual) <= 0
+                                            ? 'bg-gray-100 text-gray-500'
+                                            : aprovado 
+                                            ? 'bg-emerald-100 text-emerald-800' 
+                                            : 'bg-red-100 text-red-800'
                                         }`}>
-                                          {aprovado ? 'Aprovado' : 'Não Transita'}
+                                          {Number(notaAtual) <= 0 ? 'Pendente' : (aprovado ? 'Aprovado' : 'Não Transita')}
                                         </span>
                                       </td>
                                       <td className="p-3 text-center">
@@ -3377,7 +3546,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   <div>
                     <label className="font-semibold text-gray-700 block mb-1">Nº de Processo Individual</label>
                     <input
@@ -3400,6 +3569,22 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       <option value="Desistente">Desistente</option>
                       <option value="Transferido">Transferido</option>
                       <option value="Inativo">Inativo</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-gray-700 block mb-1">Comportamento / Conduta</label>
+                    <select
+                      value={comportamentoConceito}
+                      onChange={(e) => setComportamentoConceito(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none font-semibold bg-white text-gray-900"
+                    >
+                      <option value="">— Não Registado / A Avaliar —</option>
+                      <option value="Excelente">Excelente</option>
+                      <option value="Muito Bom">Muito Bom</option>
+                      <option value="Bom">Bom</option>
+                      <option value="Suficiente">Suficiente</option>
+                      <option value="Mau">Mau</option>
                     </select>
                   </div>
                 </div>
@@ -5603,6 +5788,27 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 <p className="text-[10px] text-gray-500 uppercase">Visto Ministerial & Homologação Institucional</p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showListaNominalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto no-print">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-200 max-h-[95vh] overflow-y-auto">
+            <StudentClassListPdfDocument
+              escola={escola}
+              turma={turmas.find(t => t.id === selectedTurmaFilter) || turmas[0] || {
+                id: 'turma-padrao',
+                escolaId: escola.id,
+                nome: 'A',
+                classe: selectedClasseFilter !== 'TODAS' ? selectedClasseFilter : '10ª',
+                anoLectivo: escola.anoLectivoActivo || '2025/2026',
+                turno: 'Manhã',
+                sala: 'Sala 01'
+              }}
+              alunos={filteredAlunos}
+              onClose={() => setShowListaNominalModal(false)}
+            />
           </div>
         </div>
       )}

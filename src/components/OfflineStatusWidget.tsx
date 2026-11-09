@@ -8,24 +8,37 @@ import {
   Download, 
   CheckCircle, 
   Clock, 
-  AlertCircle,
+  AlertTriangle,
   X,
-  Database
+  Database,
+  Cloud,
+  CloudOff,
+  UploadCloud,
+  ArrowUpRight
 } from 'lucide-react';
-import { offlineStorage, StorageHealthInfo, OfflineJournalEntry } from '../services/offlineStorage';
+import { offlineStorage, StorageHealthInfo, OfflineJournalEntry, PendingSyncItem } from '../services/offlineStorage';
+import { firebaseSyncEngine, SyncStatus } from '../services/firebaseSyncEngine';
 
 export const OfflineStatusWidget: React.FC = () => {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [showModal, setShowModal] = useState(false);
   const [health, setHealth] = useState<StorageHealthInfo | null>(null);
   const [journal, setJournal] = useState<OfflineJournalEntry[]>([]);
+  const [pendencias, setPendencias] = useState<PendingSyncItem[]>([]);
+  const [totalPendentes, setTotalPendentes] = useState<number>(0);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [msgSucesso, setMsgSucesso] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncingNow, setIsSyncingNow] = useState(false);
 
   const carregarDados = async () => {
     const diag = await offlineStorage.obterDiagnostico();
     setHealth(diag);
     setJournal(offlineStorage.obterDiario().slice(0, 15));
+    const pends = offlineStorage.obterPendencias();
+    setPendencias(pends);
+    setTotalPendentes(pends.length);
+    setSyncStatus(firebaseSyncEngine.getStatus());
   };
 
   useEffect(() => {
@@ -38,14 +51,27 @@ export const OfflineStatusWidget: React.FC = () => {
       carregarDados();
     };
 
+    const handlePendingChanged = () => {
+      const pends = offlineStorage.obterPendencias();
+      setPendencias(pends);
+      setTotalPendentes(pends.length);
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('sge_pending_sync_changed', handlePendingChanged);
+    window.addEventListener('sge_dados_atualizados_remoto', handlePendingChanged);
 
     // Carregar na inicialização
     carregarDados();
 
+    // Subscrição ao status do motor Firebase
+    const unsubSync = firebaseSyncEngine.subscreverStatus((status) => {
+      setSyncStatus(status);
+    });
+
     // Subscrição ao diário de mutações
-    const unsubscribe = offlineStorage.subscreverDiario((newJournal) => {
+    const unsubscribeJournal = offlineStorage.subscreverDiario((newJournal) => {
       setJournal(newJournal.slice(0, 15));
     });
 
@@ -54,8 +80,11 @@ export const OfflineStatusWidget: React.FC = () => {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('sge_pending_sync_changed', handlePendingChanged);
+      window.removeEventListener('sge_dados_atualizados_remoto', handlePendingChanged);
       clearInterval(interval);
-      unsubscribe();
+      unsubscribeJournal();
+      unsubSync();
     };
   }, []);
 
@@ -78,6 +107,30 @@ export const OfflineStatusWidget: React.FC = () => {
     setTimeout(() => setMsgSucesso(null), 4000);
   };
 
+  const handleSincronizarPendenciasAgora = async () => {
+    setIsSyncingNow(true);
+    try {
+      await firebaseSyncEngine.processarPendenciasOffline();
+      await firebaseSyncEngine.sincronizarTudoImediato();
+      const pendsRestantes = offlineStorage.obterPendencias();
+      setPendencias(pendsRestantes);
+      setTotalPendentes(pendsRestantes.length);
+      setMsgSucesso(
+        pendsRestantes.length === 0 
+          ? 'Todas as alterações foram sincronizadas com sucesso com o servidor central!' 
+          : `Sincronização executada. ${pendsRestantes.length} item(ns) aguardando nova tentativa.`
+      );
+      carregarDados();
+    } catch (err) {
+      console.warn('Erro ao sincronizar manualmente:', err);
+    } finally {
+      setIsSyncingNow(false);
+      setTimeout(() => setMsgSucesso(null), 5000);
+    }
+  };
+
+  const emSincronizacao = isSyncingNow || (syncStatus?.emSincronizacao ?? false);
+
   return (
     <>
       {/* Botão Indicador no Cabeçalho */}
@@ -86,49 +139,92 @@ export const OfflineStatusWidget: React.FC = () => {
           carregarDados();
           setShowModal(true);
         }}
-        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-          isOnline
+        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+          emSincronizacao
+            ? 'bg-blue-50 text-blue-900 border-blue-400 hover:bg-blue-100 shadow-xs'
+            : totalPendentes > 0
+            ? 'bg-amber-50 text-amber-950 border-amber-400 hover:bg-amber-100 animate-pulse shadow-xs'
+            : isOnline
             ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-            : 'bg-amber-50 text-amber-900 border-amber-400 hover:bg-amber-100 animate-pulse'
+            : 'bg-gray-100 text-gray-800 border-gray-400 hover:bg-gray-200'
         }`}
-        title="Clique para ver o Estado de Persistência Offline e Diagnóstico do Sistema"
+        title="Clique para ver o Estado de Sincronização, Fila de Pendências e Diagnóstico do Sistema"
       >
-        {isOnline ? (
-          <Wifi className="h-3.5 w-3.5 text-emerald-600" />
+        {emSincronizacao ? (
+          <RefreshCw className="h-3.5 w-3.5 text-blue-600 animate-spin" />
+        ) : totalPendentes > 0 ? (
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+        ) : isOnline ? (
+          <Cloud className="h-3.5 w-3.5 text-emerald-600" />
         ) : (
-          <WifiOff className="h-3.5 w-3.5 text-amber-600" />
+          <CloudOff className="h-3.5 w-3.5 text-gray-600" />
         )}
+
         <span className="hidden sm:inline">
-          {isOnline ? 'Online · Offline Ready' : 'Modo Offline Ativo'}
+          {emSincronizacao
+            ? `A sincronizar (${syncStatus?.progressoPercentual || 0}%)`
+            : totalPendentes > 0
+            ? `${totalPendentes} pendente${totalPendentes > 1 ? 's' : ''}`
+            : isOnline
+            ? 'Sincronizado'
+            : 'Modo Offline'}
         </span>
-        <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+
+        {totalPendentes > 0 ? (
+          <span className="flex h-2 w-2 relative shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+          </span>
+        ) : (
+          <span className={`h-2 w-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+        )}
       </button>
 
-      {/* Modal Diagnóstico & Proteção Anti-Perda de Dados */}
+      {/* Modal Diagnóstico & Proteção Anti-Perda de Dados & Sincronização */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
             {/* Cabeçalho do Modal */}
             <div className="flex items-center justify-between pb-4 border-b border-gray-200">
               <div className="flex items-center space-x-3">
-                <div className={`p-2 rounded-xl ${isOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {isOnline ? <Wifi className="h-6 w-6" /> : <WifiOff className="h-6 w-6" />}
+                <div className={`p-2.5 rounded-xl ${
+                  emSincronizacao
+                    ? 'bg-blue-50 text-blue-700'
+                    : totalPendentes > 0
+                    ? 'bg-amber-50 text-amber-700'
+                    : isOnline 
+                    ? 'bg-emerald-50 text-emerald-700' 
+                    : 'bg-gray-100 text-gray-700'
+                }`}>
+                  {emSincronizacao ? (
+                    <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+                  ) : isOnline ? (
+                    <Cloud className="h-6 w-6 text-emerald-600" />
+                  ) : (
+                    <CloudOff className="h-6 w-6 text-gray-600" />
+                  )}
                 </div>
                 <div>
                   <h3 className="text-base font-black text-gray-900 flex items-center space-x-2">
-                    <span>Centro de Operação Offline & Integridade de Dados</span>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${isOnline ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                      {isOnline ? 'Rede Detectada' : 'Totalmente Desconectado'}
+                    <span>Sincronização & Proteção de Dados</span>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
+                      emSincronizacao
+                        ? 'bg-blue-100 text-blue-800'
+                        : isOnline 
+                        ? 'bg-emerald-100 text-emerald-800' 
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {emSincronizacao ? 'Sincronização Ativa' : isOnline ? 'Rede Online' : 'Desconectado'}
                     </span>
                   </h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Garantia técnica de funcionamento contínuo sem internet e salvaguarda permanente de todos os registos.
+                    Garante funcionamento local ultrarrápido sem travar a inicialização e sincroniza automaticamente com o Firebase.
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100"
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -141,6 +237,63 @@ export const OfflineStatusWidget: React.FC = () => {
                 <span>{msgSucesso}</span>
               </div>
             )}
+
+            {/* Painel de Estado da Fila de Sincronização */}
+            <div className={`mt-5 p-4 rounded-xl border ${
+              totalPendentes > 0 
+                ? 'bg-amber-50/80 border-amber-300' 
+                : 'bg-emerald-50/70 border-emerald-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    {totalPendentes > 0 ? (
+                      <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                    ) : (
+                      <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0" />
+                    )}
+                    <h4 className="text-sm font-extrabold text-gray-900">
+                      {totalPendentes > 0 
+                        ? `${totalPendentes} alteração(ões) pendente(s) para sincronizar` 
+                        : 'Todos os dados locais estão sincronizados com a nuvem'}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {totalPendentes > 0
+                      ? 'Os registos estão salvos com 100% de segurança no dispositivo e serão enviados à nuvem assim que houver ligação.'
+                      : `Última sincronização registada: ${syncStatus?.ultimaSincronizacao || 'Hoje'}.`}
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleSincronizarPendenciasAgora}
+                  disabled={emSincronizacao || !isOnline}
+                  className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-gray-400 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-xs cursor-pointer shrink-0"
+                >
+                  <UploadCloud className={`h-4 w-4 ${emSincronizacao ? 'animate-bounce' : ''}`} />
+                  <span>{emSincronizacao ? 'A Enviar Dados...' : 'Sincronizar Agora'}</span>
+                </button>
+              </div>
+
+              {/* Lista compacta de pendências se existirem */}
+              {pendencias.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-amber-200/80">
+                  <span className="text-[11px] font-bold text-amber-900 block mb-1.5 uppercase tracking-wider">
+                    Fila de Pendências Locais:
+                  </span>
+                  <div className="max-h-28 overflow-y-auto space-y-1 pr-1 text-xs">
+                    {pendencias.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between bg-white/80 px-2.5 py-1 rounded border border-amber-200 text-gray-700">
+                        <span className="font-semibold text-gray-900 capitalize">{item.entidade}</span>
+                        <span className="text-[10px] text-gray-500">
+                          {new Date(item.timestamp).toLocaleTimeString('pt-AO')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Painel de Saúde do Armazenamento */}
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -180,7 +333,7 @@ export const OfflineStatusWidget: React.FC = () => {
                   {journal.length} registos
                 </div>
                 <div className="mt-1 text-[11px] text-purple-700 font-semibold">
-                  Histórico imutável de ações
+                  Histórico de operações locais
                 </div>
               </div>
             </div>
@@ -197,14 +350,14 @@ export const OfflineStatusWidget: React.FC = () => {
                 <button
                   onClick={handleCriarSnapshot}
                   disabled={isRefreshing}
-                  className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
+                  className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
                   <span>Criar Snapshot</span>
                 </button>
                 <button
                   onClick={handleDescarregarBackup}
-                  className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
+                  className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Backup JSON</span>
@@ -221,7 +374,7 @@ export const OfflineStatusWidget: React.FC = () => {
                 <span className="text-[11px] text-gray-500 font-medium">Últimas 15 operações</span>
               </div>
 
-              <div className="border border-gray-200 rounded-xl overflow-hidden bg-white max-h-56 overflow-y-auto">
+              <div className="border border-gray-200 rounded-xl overflow-hidden bg-white max-h-52 overflow-y-auto">
                 {journal.length === 0 ? (
                   <div className="p-6 text-center text-xs text-gray-500">
                     Nenhuma mutação recente registada no diário de bordo.
@@ -265,11 +418,11 @@ export const OfflineStatusWidget: React.FC = () => {
             <div className="mt-5 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
               <span className="flex items-center space-x-1">
                 <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                <span>Compatível com Service Worker PWA (Cache Completa)</span>
+                <span>Inicialização rápida ativa · Cache PWA instantânea</span>
               </span>
               <button
                 onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-3 py-1.5 font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
               >
                 Fechar
               </button>

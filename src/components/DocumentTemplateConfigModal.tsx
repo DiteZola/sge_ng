@@ -70,7 +70,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
     textoCabecalho: 'REPÚBLICA DE ANGOLA\nGOVERNO PROVINCIAL\nGABINETE PROVINCIAL DA EDUCAÇÃO',
     textoCorpoAbertura: 'Certifica-se para os devidos efeitos legais e escolares que...',
     textoFechamento: 'Por ser verdade, mandou-se passar o presente documento.',
-    textoRodape: 'Processado informaticamente pelo SGE-NG Angola.',
+    textoRodape: '',
     artigoLegalDecreto: escola.decretoCriacao || 'Decreto Executivo n.º 250/18',
     disposicao: {
       orientacao: 'retrato',

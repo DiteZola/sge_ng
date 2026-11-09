@@ -40,6 +40,7 @@ import {
   getDisciplinasDaTurma
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
+import { ModalJustificarFaltaAluno } from './ModalJustificarFaltaAluno';
 
 interface StudentAttendanceReportViewProps {
   escola: Escola;
@@ -58,6 +59,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
   disciplinas,
   funcionarios
 }) => {
+  const [alunoParaJustificar, setAlunoParaJustificar] = useState<Aluno | null>(null);
   const todasClasses = useMemo(() => [
     'Iniciação',
     ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
@@ -359,6 +361,18 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
               <Download className="h-4 w-4" />
               <span>{gerandoPdf ? 'A Gerar PDF Oficial...' : 'Baixar em PDF (.pdf)'}</span>
             </button>
+
+            {alunosFiltrados.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setAlunoParaJustificar(alunosFiltrados[0])}
+                className="px-4 py-2 text-xs font-bold text-amber-950 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+                title="Averbar justificação formal de falta com atestado médico ou declaração do encarregado"
+              >
+                <ShieldCheck className="h-4 w-4 text-amber-700" />
+                <span>Justificar Falta</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -596,7 +610,20 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                     <td className="p-1 border-r border-black font-mono font-bold">{idx + 1}</td>
                     <td className="p-1 border-r border-black font-mono font-medium">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
                     <td className="p-1 border-r border-black text-left font-bold truncate max-w-[200px] uppercase">
-                      {aluno.nomeCompleto}
+                      <div className="flex items-center justify-between space-x-1">
+                        <span className="truncate">{aluno.nomeCompleto}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAlunoParaJustificar(aluno);
+                          }}
+                          className="p-0.5 rounded text-amber-700 hover:text-amber-900 hover:bg-amber-100 no-print cursor-pointer shrink-0"
+                          title={`Justificar falta formal de ${aluno.nomeCompleto}`}
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
 
                     {/* Células de cada dia útil */}
@@ -675,6 +702,20 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
           </div>
         </div>
       </div>
+
+      {alunoParaJustificar && (
+        <ModalJustificarFaltaAluno
+          isOpen={!!alunoParaJustificar}
+          onClose={() => setAlunoParaJustificar(null)}
+          aluno={alunoParaJustificar}
+          turma={turmaSelecionada}
+          currentUser={currentUser}
+          escolaId={escola.id}
+          onSalvo={() => {
+            setPresencas(dbService.obterPresencasAlunos(selectedTurmaId));
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -99,8 +99,33 @@ export async function downloadElementAsPdf(
       windowWidth: isLandscape ? 1280 : 1024,
       onclone: (clonedDoc) => {
         try {
-          // 1. INJETAR TODAS AS FOLHAS DE ESTILO DO DOCUMENTO PAI NO CLONE
-          // Isso garante que classes Tailwind, fontes e regras de impressão sejam aplicadas
+          // 1. INJETAR TODAS AS REGRAS CSS REAIS (CSSOM + ESTILOS VITE/TAILWIND) NO CLONE
+          try {
+            let compiledCss = '';
+            Array.from(document.styleSheets).forEach(sheet => {
+              try {
+                const rules = sheet.cssRules || sheet.rules;
+                if (rules) {
+                  for (let i = 0; i < rules.length; i++) {
+                    compiledCss += rules[i].cssText + '\n';
+                  }
+                }
+              } catch (crossErr) {
+                // Se for stylesheet cross-origin protegida
+              }
+            });
+
+            if (compiledCss.trim().length > 0) {
+              const fullStyle = clonedDoc.createElement('style');
+              fullStyle.setAttribute('data-sge-compiled-styles', 'true');
+              fullStyle.textContent = compiledCss;
+              clonedDoc.head.appendChild(fullStyle);
+            }
+          } catch (e) {
+            console.warn('[PDF Generator] Erro ao extrair cssRules:', e);
+          }
+
+          // Injetar também as tags de estilo e links existentes
           const parentStyles = document.querySelectorAll('style, link[rel="stylesheet"]');
           parentStyles.forEach(styleNode => {
             try {
@@ -108,7 +133,7 @@ export async function downloadElementAsPdf(
             } catch {}
           });
 
-          // 2. INJETAR ESTILOS CRÍTICOS DE IMPRESSÃO MED ANGOLA
+          // 2. INJETAR ESTILOS CRÍTICOS DE IMPRESSÃO MED ANGOLA SEM DESTRUIR AS BORDAS ORIGINAIS
           const overrideStyle = clonedDoc.createElement('style');
           overrideStyle.innerHTML = `
             * {
@@ -133,12 +158,11 @@ export async function downloadElementAsPdf(
             .print\\:flex {
               display: flex !important;
             }
-            table {
-              border-collapse: collapse !important;
-              width: 100% !important;
-            }
-            th, td {
-              border: 1px solid #111827 !important;
+            .documento-oficial-print {
+              background-color: #ffffff !important;
+              color: #000000 !important;
+              display: block !important;
+              visibility: visible !important;
             }
             img {
               max-width: 100% !important;
@@ -148,16 +172,16 @@ export async function downloadElementAsPdf(
           clonedDoc.head.appendChild(overrideStyle);
 
           // 3. NORMALIZAR LARGURA DO DOCUMENTO CLONADO PARA O FORMATO A4 EXATO
-          clonedDoc.documentElement.style.width = `${targetA4WidthPx + 20}px`;
-          clonedDoc.documentElement.style.minWidth = `${targetA4WidthPx + 20}px`;
-          clonedDoc.body.style.width = `${targetA4WidthPx + 20}px`;
-          clonedDoc.body.style.minWidth = `${targetA4WidthPx + 20}px`;
+          clonedDoc.documentElement.style.width = `${targetA4WidthPx}px`;
+          clonedDoc.documentElement.style.minWidth = `${targetA4WidthPx}px`;
+          clonedDoc.body.style.width = `${targetA4WidthPx}px`;
+          clonedDoc.body.style.minWidth = `${targetA4WidthPx}px`;
           clonedDoc.body.style.margin = '0 auto';
           clonedDoc.body.style.padding = '0';
           clonedDoc.body.style.overflow = 'visible';
           clonedDoc.body.style.backgroundColor = '#ffffff';
 
-          // 4. RESETAR QUALQUER ZOOM OU TRANSFORM HERDADO DA INTERFACE
+          // 4. PRESERVAR AS BORDAS E FORMATOS VISÍVEIS DO DOCUMENTO OFICIAL
           const targetEl = clonedDoc.getElementById(typeof elementOrId === 'string' ? elementOrId : (element.id || 'documento-para-impressao')) ||
                            clonedDoc.getElementById('documento-para-impressao') ||
                            clonedDoc.querySelector('[data-doc-root="true"]') ||
@@ -173,8 +197,6 @@ export async function downloadElementAsPdf(
             hEl.style.margin = '0 auto';
             hEl.style.boxSizing = 'border-box';
             hEl.style.overflow = 'visible';
-            hEl.style.borderRadius = '0';
-            hEl.style.boxShadow = 'none';
             hEl.style.backgroundColor = '#ffffff';
           }
 
@@ -213,7 +235,7 @@ export async function downloadElementAsPdf(
             el.style.maxWidth = 'none';
           });
 
-          // Normalizar cores modernas (oklch, color-mix) para compatibilidade com canvas
+          // Normalizar cores modernas para compatibilidade total com o canvas
           const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
           const allCloned = clonedDoc.querySelectorAll('*');
           allCloned.forEach(node => {
@@ -328,10 +350,22 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
       return;
     }
 
-    // Coletar estilos da página atual
+    // Coletar estilos da página atual (tags e regras CSSOM compiladas do Tailwind)
     let stylesHtml = '';
     document.querySelectorAll('style, link[rel="stylesheet"]').forEach(el => {
       stylesHtml += el.outerHTML;
+    });
+
+    let compiledCss = '';
+    Array.from(document.styleSheets).forEach(sheet => {
+      try {
+        const rules = sheet.cssRules || sheet.rules;
+        if (rules) {
+          for (let i = 0; i < rules.length; i++) {
+            compiledCss += rules[i].cssText + '\n';
+          }
+        }
+      } catch {}
     });
 
     doc.open();
@@ -342,6 +376,7 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
           <meta charset="utf-8">
           <title>${title}</title>
           ${stylesHtml}
+          <style>${compiledCss}</style>
           <style>
             @page { size: auto; margin: 8mm; }
             body { 
