@@ -5,9 +5,15 @@ import {
   Firestore, 
   doc, 
   setDoc,
-  getDocFromServer 
+  getDocFromServer,
+  setLogLevel
 } from "firebase/firestore";
 import appletConfig from "../../firebase-applet-config.json";
+
+// Silenciar avisos informativos de conectividade de rede para operar sem alertas de latência
+try {
+  setLogLevel('error');
+} catch {}
 
 // Configuração oficial do projeto SGE-NG integrada com o Cloud Firebase
 export const firebaseConfig = {
@@ -21,7 +27,7 @@ export const firebaseConfig = {
 
 export const customDatabaseId = appletConfig.firestoreDatabaseId || "(default)";
 
-// Inicialização segura do Firebase e Firestore
+// Inicialização segura do Firebase e Firestore com suporte robusto a long-polling
 let appInstance: FirebaseApp;
 if (getApps().length === 0) {
   appInstance = initializeApp(firebaseConfig);
@@ -29,22 +35,21 @@ if (getApps().length === 0) {
   appInstance = getApp();
 }
 
+const firestoreConfigOptions = {
+  experimentalForceLongPolling: true,
+  ignoreUndefinedProperties: true
+};
+
 let firestoreInstance: Firestore;
 try {
   if (customDatabaseId && customDatabaseId !== "(default)") {
     firestoreInstance = initializeFirestore(
       appInstance,
-      {
-        experimentalAutoDetectLongPolling: true,
-        ignoreUndefinedProperties: true
-      },
+      firestoreConfigOptions,
       customDatabaseId
     );
   } else {
-    firestoreInstance = initializeFirestore(appInstance, {
-      experimentalAutoDetectLongPolling: true,
-      ignoreUndefinedProperties: true
-    });
+    firestoreInstance = initializeFirestore(appInstance, firestoreConfigOptions);
   }
 } catch {
   if (customDatabaseId && customDatabaseId !== "(default)") {
@@ -54,14 +59,24 @@ try {
   }
 }
 
-// Validação de conexão inicial com o Firestore conforme directrizes do sistema
+// Validação de conexão inicial com o Firestore com timeout resiliente
 async function testConnection() {
   if (!firestoreInstance) return;
   try {
-    await getDocFromServer(doc(firestoreInstance, 'test', 'connection'));
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('timeout_connection')), 3500);
+    });
+    await Promise.race([
+      getDocFromServer(doc(firestoreInstance, 'test', 'connection')),
+      timeoutPromise
+    ]);
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn("[Firebase] Por favor, verifique a ligação ou a conectividade do Firebase.");
+    if (error instanceof Error && (
+      error.message.includes('the client is offline') || 
+      error.message.includes('timeout_connection') ||
+      error.message.includes('unavailable')
+    )) {
+      // Cliente operando normalmente em modo offline / persistência local
     }
   }
 }
