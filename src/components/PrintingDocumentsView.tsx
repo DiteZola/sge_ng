@@ -51,7 +51,7 @@ import {
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Escola, Aluno, Turma, Disciplina, NotaTrimestralConsolidada, ComissaoJuri, Funcionario } from '../types';
-import { formatarTextoPorGenero, validarElegibilidadeCertificado, converterComportamentoParaConceito } from '../services/macEngine';
+import { formatarTextoPorGenero, validarElegibilidadeCertificado, converterComportamentoParaConceito, isClasseFinal } from '../services/macEngine';
 import { converterNotaParaExtensoMED, numeroParaExtenso, converterNotaParaCertificadoExtenso } from '../utils/numberToWords';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
@@ -283,6 +283,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   const [pautaTrimestre, setPautaTrimestre] = useState<'1' | '2' | '3'>('1');
   const [pautaDisciplinaId, setPautaDisciplinaId] = useState<string>('');
   const [pautaModoExibicao, setPautaModoExibicao] = useState<'sintetica' | 'analitica'>('sintetica');
+  const provaProfessorAtiva = Boolean(escola.nppAtivo);
 
   // Resolução Unificada dos Responsáveis e Assinaturas Oficiais com Diferenciação Rigorosa de Género
   const funcionariosEscola = useMemo(() => dbService.getFuncionarios(escola.id), [escola.id]);
@@ -364,6 +365,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       anoLectivo: selectedAnoLectivo || escola.anoLectivoActivo
     } as Turma);
   }, [turmasDaClasseSelecionada, selectedTurmaId, selectedClasse, escola.id, escola.anoLectivoActivo, selectedAnoLectivo]);
+
+  // Identificação oficial de classe final de ciclo (6ª, 9ª, 12ª, 13ª) para a turma selecionada
+  const ehClasseFinalTurma = useMemo(() => {
+    return isClasseFinal(turmaSelecionada?.classe);
+  }, [turmaSelecionada?.classe]);
 
   // Alunos exclusivos e estritos da turma e classe selecionada
   const alunosDaTurma = useMemo(() => {
@@ -1719,10 +1725,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       <th className="p-1.5 border-r border-black w-24">Proc. n.º</th>
                       <th className="p-1.5 border-r border-black text-left min-w-[200px]">Nome Completo do Estudante</th>
                       <th className="p-1.5 border-r border-black w-14" title="Avaliação Contínua">MAC</th>
-                      <th className="p-1.5 border-r border-black w-14" title="Prova do Professor / Trimestral">PPT/NPP</th>
+                      {provaProfessorAtiva && (
+                        <th className="p-1.5 border-r border-black w-14" title="Prova do Professor">NPP</th>
+                      )}
                       <th className="p-1.5 border-r border-black w-14" title="1º Trimestre">MT1</th>
                       <th className="p-1.5 border-r border-black w-14" title="2º Trimestre">MT2</th>
                       <th className="p-1.5 border-r border-black w-14" title="3º Trimestre">MT3</th>
+                      {ehClasseFinalTurma && (
+                        <th className="p-1.5 border-r border-black w-14 bg-amber-50" title="Exame Terminal do Ciclo">Exame</th>
+                      )}
                       <th className="p-1.5 border-r border-black w-16 bg-gray-200" title="Média Final da Disciplina">MFD</th>
                       <th className="p-1.5 border-r border-black w-24 bg-green-50">Comportamento</th>
                       <th className="p-1.5 min-w-[120px]">Observação / Resultado</th>
@@ -1731,7 +1742,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <tbody className="divide-y divide-black">
                     {alunosDaTurma.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="p-6 text-center text-gray-500 italic">
+                        <td colSpan={9 + (provaProfessorAtiva ? 1 : 0) + (ehClasseFinalTurma ? 1 : 0)} className="p-6 text-center text-gray-500 italic">
                           Nenhum estudante matriculado nesta turma para o ano lectivo selecionado.
                         </td>
                       </tr>
@@ -1747,6 +1758,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                         const mt1 = n1?.mediaTrimestral ?? n1?.notaFinal ?? '—';
                         const mt2 = n2?.mediaTrimestral ?? n2?.notaFinal ?? '—';
                         const mt3 = n3?.mediaTrimestral ?? n3?.notaFinal ?? '—';
+                        const exame = ehClasseFinalTurma ? (n3?.notaExame ?? n2?.notaExame ?? n1?.notaExame ?? '—') : undefined;
 
                         const mfdRaw = n3?.notaFinal ?? n3?.mediaTrimestral ?? n2?.notaFinal ?? n1?.notaFinal;
                         const mfd = mfdRaw !== undefined && mfdRaw !== null ? Math.round(Number(mfdRaw)) : null;
@@ -1762,10 +1774,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                             <td className="p-1.5 border-r border-black font-mono text-[10px]">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
                             <td className="p-1.5 border-r border-black text-left font-bold text-gray-900 truncate max-w-[220px]">{aluno.nomeCompleto}</td>
                             <td className="p-1.5 border-r border-black font-mono">{mac}</td>
-                            <td className="p-1.5 border-r border-black font-mono">{npp}</td>
+                            {provaProfessorAtiva && (
+                              <td className="p-1.5 border-r border-black font-mono">{npp}</td>
+                            )}
                             <td className="p-1.5 border-r border-black font-mono">{mt1}</td>
                             <td className="p-1.5 border-r border-black font-mono">{mt2}</td>
                             <td className="p-1.5 border-r border-black font-mono">{mt3}</td>
+                            {ehClasseFinalTurma && (
+                              <td className="p-1.5 border-r border-black font-mono font-bold bg-amber-50/50">{exame}</td>
+                            )}
                             <td className="p-1.5 border-r border-black font-mono font-bold bg-gray-50">
                               {mfd !== null ? (
                                 <span className={mfd >= escalaAprovacao ? 'text-emerald-800' : 'text-rose-700'}>
@@ -1811,7 +1828,6 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                         {d.sigla || d.nome.substring(0, 4)}
                       </th>
                     ))}
-                    <th className="p-1 border-r border-black w-10 text-emerald-800" title="Disciplinas Positivas">Pos.</th>
                     <th className="p-1 border-r border-black w-10 text-red-800" title="Disciplinas Negativas">Neg.</th>
                     <th className="p-1 border-r border-black w-12 bg-gray-200">Média</th>
                     <th className="p-1 border-r border-black w-24 bg-green-50" title="Comportamento Geral">Comportamento</th>
@@ -1821,7 +1837,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <tbody className="divide-y divide-black">
                   {alunosDaTurma.length === 0 ? (
                     <tr>
-                      <td colSpan={disciplinasDaClasseDocumento.length + 7} className="p-6 text-center text-gray-500 italic">
+                      <td colSpan={disciplinasDaClasseDocumento.length + 6} className="p-6 text-center text-gray-500 italic">
                         Nenhum estudante matriculado nesta turma para o ano letivo selecionado.
                       </td>
                     </tr>
@@ -1874,7 +1890,6 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                             );
                           })}
 
-                          <td className="p-1 border-r border-black font-bold text-emerald-800">{totalPositivas}</td>
                           <td className="p-1 border-r border-black font-bold text-red-700">{totalNegativas}</td>
                           <td className="p-1 border-r border-black font-bold bg-gray-50">
                             {disciplinasComNota > 0 ? (somaNotas / disciplinasComNota).toFixed(1) : '-'}
@@ -1985,6 +2000,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             );
           })()}
 
+          {/* Data Oficial da Pauta Conforme Normas do Ministério da Educação */}
+          <div className="flex justify-end my-4 pr-3">
+            <p className="text-right text-xs font-serif italic text-gray-800">
+              {escola.municipio ? `${escola.municipio}` : (escola.provincia || 'Luanda')}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+            </p>
+          </div>
+
           {/* Assinaturas Oficiais com Traço Rigoroso Entre Título e Nome & Gênero */}
           <div className="pt-6 border-t-2 border-black">
             <div className="text-center font-bold text-[10px] uppercase tracking-wider mb-6 text-gray-800">
@@ -2005,25 +2027,28 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   </p>
                 </div>
 
-                {/* 2. Secretário do Júri */}
+                {/* 2. 1º Vogal do Júri */}
                 <div className="space-y-1">
-                  <p className="font-black text-gray-950 uppercase text-[11px]">O Secretário da Comissão de Júri</p>
-                  <div className="h-6" />
-                  <div className="w-40 border-b border-black mx-auto my-1.5" />
-                  <p className="font-bold text-gray-800 text-[11px]">
-                    {obterSecretarioJuri(juriTurmaSelecionada, funcionariosEscola)}
-                  </p>
-                </div>
-
-                {/* 3. Vogais do Júri */}
-                <div className="space-y-1">
-                  <p className="font-black text-gray-950 uppercase text-[11px]">Os Vogais da Comissão de Júri</p>
+                  <p className="font-black text-gray-950 uppercase text-[11px]">O 1º Vogal do Júri</p>
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
                     {(() => {
                       const v = obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola);
-                      return `${v.primeiroVogal} / ${v.segundoVogal}`;
+                      return v.primeiroVogal;
+                    })()}
+                  </p>
+                </div>
+
+                {/* 3. 2º Vogal do Júri */}
+                <div className="space-y-1">
+                  <p className="font-black text-gray-950 uppercase text-[11px]">O 2º Vogal do Júri</p>
+                  <div className="h-6" />
+                  <div className="w-40 border-b border-black mx-auto my-1.5" />
+                  <p className="font-bold text-gray-800 text-[11px]">
+                    {(() => {
+                      const v = obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola);
+                      return v.segundoVogal;
                     })()}
                   </p>
                 </div>
@@ -3345,21 +3370,26 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 Aos {new Date().getDate()} dias do mês de {new Date().toLocaleDateString('pt-AO', { month: 'long' })} de {new Date().getFullYear()}, reuniu-se a Comissão de Júri devidamente credenciada para deliberação final das provas de exame e recurso dos discentes acima identificados. Nada mais havendo a constar, lavrou-se o presente Termo oficial que vai assinado pela comissão e homologado pela Direcção da Escola.
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center pt-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center pt-4">
                 <div className="space-y-3">
                   <p className="font-bold text-gray-900 font-sans">{obterPresidenteJuri(juriTurmaSelecionada, funcionariosEscola)}</p>
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans">Presidente do Júri</p>
+                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">O Presidente do Júri</p>
                 </div>
                 <div className="space-y-3">
-                  <p className="font-bold text-gray-900 font-sans">{obterSecretarioJuri(juriTurmaSelecionada, funcionariosEscola)}</p>
+                  <p className="font-bold text-gray-900 font-sans">{obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola).primeiroVogal}</p>
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans">Secretário(a) do Júri</p>
+                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">O 1º Vogal do Júri</p>
+                </div>
+                <div className="space-y-3">
+                  <p className="font-bold text-gray-900 font-sans">{obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola).segundoVogal}</p>
+                  <div className="border-b border-black w-40 mx-auto" />
+                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">O 2º Vogal do Júri</p>
                 </div>
                 <div className="space-y-3">
                   <p className="font-bold text-gray-900 font-sans">{nomeDiretorGeral}</p>
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans">{tituloDiretorGeral} (Homologação)</p>
+                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">{tituloDiretorGeral} (Homologação)</p>
                 </div>
               </div>
             </div>

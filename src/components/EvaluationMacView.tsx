@@ -65,7 +65,8 @@ import {
   obterEscalaMaximaPorNivel,
   obterInformacaoEscala,
   formatarTextoPorGenero,
-  avaliarExpressaoNota
+  avaliarExpressaoNota,
+  isClasseFinal
 } from '../services/macEngine';
 import { handleStrictNumericKeyDown, handleStrictNumericPaste } from './StrictNumericInput';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
@@ -213,6 +214,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Rastreio de notas digitadas e validação por nível (0-10 Primário, 0-20 I/II Ciclo)
   const [valoresDigitados, setValoresDigitados] = useState<Record<string, string>>({});
+  const [nppDigitadas, setNppDigitadas] = useState<Record<string, string>>({});
   const [ptDigitadas, setPtDigitadas] = useState<Record<string, string>>({});
   const [exameDigitados, setExameDigitados] = useState<Record<string, string>>({});
   const [notasInvalidas, setNotasInvalidas] = useState<Record<string, string>>({});
@@ -376,6 +378,14 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       regrasMAC[0]
     );
   }, [regrasMAC, turmaAtiva, selectedTrimestre]);
+
+  // Verificação oficial se a turma atual pertence a uma classe final de ciclo (6ª, 9ª, 12ª, 13ª)
+  const ehClasseFinal = useMemo(() => {
+    return isClasseFinal(turmaAtiva?.classe, regraVigente);
+  }, [turmaAtiva?.classe, regraVigente]);
+
+  // Se a Prova do Professor (NPP) está ativa nas configurações da escola
+  const provaProfessorAtiva = Boolean(escola.nppAtivo);
 
   // Alunos desta turma com suporte a pesquisa rápida e segura
   const alunosDaTurma = useMemo(() => {
@@ -727,9 +737,10 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     setTimeout(() => setRetificacaoSucessoMsg(null), 5000);
   };
 
-  // Função centralizada para calcular e gravar notas consolidadas (MAC, Prova Trimestral, Média Trimestral, Exame e Comportamento)
+  // Função centralizada para calcular e gravar notas consolidadas (MAC, Prova do Professor, Prova Trimestral, Média Trimestral, Exame e Comportamento)
   const salvarNotaConsolidadaCompleta = (alunoId: string, dados: {
     mac?: number;
+    npp?: number;
     provaTrimestral?: number;
     notaExame?: number;
     comportamentoNota?: number;
@@ -744,25 +755,41 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
     const existente = idx >= 0 ? notasConsolid[idx] : null;
     const macVal = dados.mac !== undefined ? dados.mac : (existente?.mac || 0);
-    const ptVal = dados.provaTrimestral !== undefined ? dados.provaTrimestral : existente?.provaTrimestral;
-    const exameVal = dados.notaExame !== undefined ? dados.notaExame : existente?.notaExame;
+    const nppVal = dados.npp !== undefined ? dados.npp : existente?.npp;
+    const ptVal = dados.provaTrimestral !== undefined ? dados.provaTrimestral : (existente?.provaTrimestral ?? existente?.npt);
+    // A nota de exame é ESTRITAMENTE reservada para classes finais (6ª, 9ª, 12ª, 13ª)
+    const exameVal = ehClasseFinal ? (dados.notaExame !== undefined ? dados.notaExame : existente?.notaExame) : undefined;
     const compNota = dados.comportamentoNota !== undefined ? dados.comportamentoNota : existente?.comportamentoNota;
     const compConceito = dados.comportamentoConceito !== undefined 
       ? dados.comportamentoConceito 
       : (compNota !== undefined && compNota !== null ? converterComportamentoParaConceito(compNota, escalaMaxima) : existente?.comportamentoConceito);
 
     // Média Trimestral (MT) oficial MED:
-    // Se o professor inseriu a Prova Trimestral (PT / NPP): MT = round((MAC + PT) / 2)
-    // Se ainda não foi lançada a PT: MT = MAC
+    // Se a Prova do Professor (NPP) estiver ativa nas configurações: MT = (MAC + NPP + PT) / 3
+    // Se a Prova do Professor (NPP) estiver desativada: MT = (MAC + PT) / 2
     let mediaTri = macVal;
-    if (ptVal !== undefined && ptVal !== null && !isNaN(ptVal)) {
-      mediaTri = Math.round(((macVal + ptVal) / 2) * 10) / 10;
+    const temNpp = nppVal !== undefined && nppVal !== null && !isNaN(nppVal);
+    const temPt = ptVal !== undefined && ptVal !== null && !isNaN(ptVal);
+
+    if (provaProfessorAtiva) {
+      if (temNpp && temPt) {
+        mediaTri = Math.round(((macVal + nppVal + ptVal) / 3) * 10) / 10;
+      } else if (temPt) {
+        mediaTri = Math.round(((macVal + ptVal) / 2) * 10) / 10;
+      } else if (temNpp) {
+        mediaTri = Math.round(((macVal + nppVal) / 2) * 10) / 10;
+      }
+    } else {
+      if (temPt) {
+        mediaTri = Math.round(((macVal + ptVal) / 2) * 10) / 10;
+      }
     }
 
-    // Média Final (MF) se houver Exame da Comissão de Júri:
-    // MF = round((MT * 0.4) + (Exame * 0.6))
+    // Média Final (MF):
+    // Apenas para classes finais com exame: MF = (MT * 0.4) + (Exame * 0.6)
+    // Para classes normais não finais: MF é a média anual sem exame
     let notaFinal = mediaTri;
-    if (exameVal !== undefined && exameVal !== null && !isNaN(exameVal)) {
+    if (ehClasseFinal && exameVal !== undefined && exameVal !== null && !isNaN(exameVal)) {
       notaFinal = Math.round(((mediaTri * 0.4) + (exameVal * 0.6)) * 10) / 10;
     }
 
@@ -771,8 +798,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       atualizada = {
         ...existente,
         mac: macVal,
-        npp: ptVal,
+        npp: nppVal,
         provaTrimestral: ptVal ?? 0,
+        npt: ptVal,
         mediaTrimestral: mediaTri,
         notaExame: exameVal,
         notaFinal,
@@ -790,8 +818,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         trimestre: selectedTrimestre,
         anoLectivo: escola.anoLectivoActivo,
         mac: macVal,
-        npp: ptVal,
+        npp: nppVal,
         provaTrimestral: ptVal ?? 0,
+        npt: ptVal,
         mediaTrimestral: mediaTri,
         notaExame: exameVal,
         notaFinal,
@@ -819,7 +848,39 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
   };
 
-  // Inserção da Prova Trimestral pelo Professor
+  // Inserção da Prova do Professor (NPP) quando ativada nas configurações escolares
+  const handleNppChange = (alunoId: string, valorStr: string, resMAC: any) => {
+    setNppDigitadas(prev => ({ ...prev, [alunoId]: valorStr }));
+    const chaveErro = `npp-${alunoId}`;
+    if (valorStr.trim() === '') {
+      setNotasInvalidas(prev => {
+        const copy = { ...prev };
+        delete copy[chaveErro];
+        return copy;
+      });
+      salvarNotaConsolidadaCompleta(alunoId, { npp: undefined, mac: resMAC.macCalculada });
+      return;
+    }
+
+    const num = parseFloat(valorStr.replace(/,/g, '.'));
+    if (isNaN(num) || num < 0 || num > escalaMaxima) {
+      setNotasInvalidas(prev => ({
+        ...prev,
+        [chaveErro]: `A Prova do Professor deve estar entre 0 e ${escalaMaxima}`
+      }));
+      return;
+    }
+
+    setNotasInvalidas(prev => {
+      const copy = { ...prev };
+      delete copy[chaveErro];
+      return copy;
+    });
+
+    salvarNotaConsolidadaCompleta(alunoId, { npp: num, mac: resMAC.macCalculada });
+  };
+
+  // Inserção da Prova Trimestral (PT / NPT) pelo Professor
   const handleProvaTrimestralChange = (alunoId: string, valorStr: string, resMAC: any) => {
     setPtDigitadas(prev => ({ ...prev, [alunoId]: valorStr }));
     const chaveErro = `pt-${alunoId}`;
@@ -851,9 +912,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     salvarNotaConsolidadaCompleta(alunoId, { provaTrimestral: num, mac: resMAC.macCalculada });
   };
 
-  // Inserção do Exame pela Comissão de Júri ou Direção
+  // Inserção do Exame pela Comissão de Júri ou Direção (apenas para classes finais)
   const handleExameJuriChange = (alunoId: string, valorStr: string, resMAC: any) => {
-    if (!isMembroJuriOuDirecao) return;
+    if (!isMembroJuriOuDirecao || !ehClasseFinal) return;
     setExameDigitados(prev => ({ ...prev, [alunoId]: valorStr }));
     const chaveErro = `exame-${alunoId}`;
     if (valorStr.trim() === '') {
@@ -1222,29 +1283,48 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                     <th className="p-3 bg-blue-50 text-blue-900 font-extrabold border-l-2 border-blue-600 min-w-[110px]">
                       MAC Calculada
                     </th>
+
+                    {/* Prova do Professor (NPP) — Apenas visível quando ativada nas configurações escolares */}
+                    {provaProfessorAtiva && (
+                      <th className="p-3 bg-indigo-50 text-indigo-950 font-extrabold border-l-2 border-indigo-500 min-w-[125px]">
+                        <div>Prova do Professor (NPP)</div>
+                        <div className="text-[10px] text-indigo-700 font-normal">Escala (0-{escalaMaxima})</div>
+                      </th>
+                    )}
+
+                    {/* Prova Trimestral (PT) — Prova Oficial do Trimestre */}
                     <th className="p-3 bg-purple-50 text-purple-900 font-extrabold border-l-2 border-purple-500 min-w-[125px]">
-                      <div className="flex items-center space-x-1">
-                        <span>Prova Trimestral (PT)</span>
-                      </div>
-                      <div className="text-[10px] text-purple-700 font-normal">Prova do Professor (0-{escalaMaxima})</div>
+                      <div>Prova Trimestral (PT)</div>
+                      <div className="text-[10px] text-purple-700 font-normal">Escala (0-{escalaMaxima})</div>
                     </th>
+
+                    {/* Média Trimestral (MT) */}
                     <th className="p-3 bg-emerald-50 text-emerald-950 font-extrabold border-l border-emerald-400 min-w-[105px]">
                       <div>Média Trimestral (MT)</div>
-                      <div className="text-[10px] text-emerald-700 font-normal">(MAC + PT) / 2</div>
-                    </th>
-                    <th className="p-3 bg-amber-50 text-amber-950 font-extrabold border-l-2 border-amber-500 min-w-[130px]">
-                      <div className="flex items-center space-x-1">
-                        <Award className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>Exame (Júri / NEE)</span>
-                      </div>
-                      <div className="text-[10px] text-amber-700 font-normal">
-                        {isMembroJuriOuDirecao ? 'Comissão de Júri (Editável)' : 'Júri / Homologado'}
+                      <div className="text-[10px] text-emerald-700 font-normal">
+                        {provaProfessorAtiva ? '(MAC + NPP + PT) / 3' : '(MAC + PT) / 2'}
                       </div>
                     </th>
-                    <th className="p-3 bg-indigo-50 text-indigo-950 font-extrabold border-l border-indigo-300 min-w-[105px]">
-                      <div>Média Final (MF)</div>
-                      <div className="text-[10px] text-indigo-700 font-normal">Com Exame (0.4/0.6)</div>
-                    </th>
+
+                    {/* Exame e MF — Visíveis ESTRITAMENTE para classes finais (6ª, 9ª, 12ª, 13ª) */}
+                    {ehClasseFinal && (
+                      <>
+                        <th className="p-3 bg-amber-50 text-amber-950 font-extrabold border-l-2 border-amber-500 min-w-[130px]">
+                          <div className="flex items-center space-x-1">
+                            <Award className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>Exame (Júri / NEE)</span>
+                          </div>
+                          <div className="text-[10px] text-amber-700 font-normal">
+                            {isMembroJuriOuDirecao ? 'Comissão de Júri (Editável)' : 'Júri / Homologado'}
+                          </div>
+                        </th>
+                        <th className="p-3 bg-indigo-50 text-indigo-950 font-extrabold border-l border-indigo-300 min-w-[105px]">
+                          <div>Média Final (MF)</div>
+                          <div className="text-[10px] text-indigo-700 font-normal">Com Exame (0.4/0.6)</div>
+                        </th>
+                      </>
+                    )}
+
                     <th className="p-3 bg-green-50 text-green-900 font-extrabold border-l border-green-300 min-w-[100px]">
                       Comportamento
                     </th>
@@ -1254,7 +1334,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 <tbody className="divide-y divide-gray-200">
                   {alunosDaTurma.length === 0 ? (
                     <tr>
-                      <td colSpan={avaliacoesDaTurma.length + 8} className="p-6 text-center text-gray-500">
+                      <td colSpan={avaliacoesDaTurma.length + 4 + (provaProfessorAtiva ? 1 : 0) + (ehClasseFinal ? 2 : 0)} className="p-6 text-center text-gray-500">
                         Nenhum aluno matriculado nesta turma.
                       </td>
                     </tr>
@@ -1280,32 +1360,57 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                         ? converterComportamentoParaConceito(compNota, escalaMaxima) 
                         : (aluno.comportamentoConceito || '—');
 
-                      // Prova Trimestral (PT / NPP) pelo Professor
+                      // Prova do Professor (NPP) quando ativa nas configurações
+                      const chaveNpp = `npp-${aluno.id}`;
+                      const nppVal = nppDigitadas[aluno.id] !== undefined 
+                        ? nppDigitadas[aluno.id] 
+                        : (notaConsol?.npp !== undefined && notaConsol?.npp !== null ? String(notaConsol.npp) : '');
+                      const isNppInvalid = !!notasInvalidas[chaveNpp];
+                      const nppErroMsg = notasInvalidas[chaveNpp];
+                      const nppNum = nppVal !== '' ? parseFloat(nppVal.replace(/,/g, '.')) : undefined;
+                      const temNpp = nppNum !== undefined && !isNaN(nppNum);
+
+                      // Prova Trimestral (PT / NPT) pelo Professor
                       const chavePt = `pt-${aluno.id}`;
                       const ptVal = ptDigitadas[aluno.id] !== undefined 
                         ? ptDigitadas[aluno.id] 
-                        : (notaConsol?.provaTrimestral !== undefined && notaConsol?.provaTrimestral !== null ? String(notaConsol.provaTrimestral) : '');
+                        : (notaConsol?.provaTrimestral !== undefined && notaConsol?.provaTrimestral !== null ? String(notaConsol.provaTrimestral) : (notaConsol?.npt !== undefined ? String(notaConsol.npt) : ''));
                       const isPtInvalid = !!notasInvalidas[chavePt];
                       const ptErroMsg = notasInvalidas[chavePt];
                       const ptNum = ptVal !== '' ? parseFloat(ptVal.replace(/,/g, '.')) : undefined;
+                      const temPt = ptNum !== undefined && !isNaN(ptNum);
 
                       // Média Trimestral (MT) oficial MED
                       const macNum = resMAC.macCalculada || 0;
-                      const temPt = ptNum !== undefined && !isNaN(ptNum);
-                      const mediaTrimestralCalculada = temPt 
-                        ? Math.round(((macNum + ptNum) / 2) * 10) / 10 
-                        : (notaConsol?.mediaTrimestral || macNum);
+                      let mediaTrimestralCalculada = macNum;
+                      if (provaProfessorAtiva) {
+                        if (temNpp && temPt) {
+                          mediaTrimestralCalculada = Math.round(((macNum + nppNum + ptNum) / 3) * 10) / 10;
+                        } else if (temPt) {
+                          mediaTrimestralCalculada = Math.round(((macNum + ptNum) / 2) * 10) / 10;
+                        } else if (temNpp) {
+                          mediaTrimestralCalculada = Math.round(((macNum + nppNum) / 2) * 10) / 10;
+                        } else {
+                          mediaTrimestralCalculada = notaConsol?.mediaTrimestral || macNum;
+                        }
+                      } else {
+                        if (temPt) {
+                          mediaTrimestralCalculada = Math.round(((macNum + ptNum) / 2) * 10) / 10;
+                        } else {
+                          mediaTrimestralCalculada = notaConsol?.mediaTrimestral || macNum;
+                        }
+                      }
                       const aprovadoTrimestre = mediaTrimestralCalculada >= (escalaMaxima === 10 ? 5 : 10);
 
-                      // Exame de Júri (NEE)
+                      // Exame de Júri (NEE) — Apenas para classes finais!
                       const chaveExame = `exame-${aluno.id}`;
                       const exameVal = exameDigitados[aluno.id] !== undefined 
                         ? exameDigitados[aluno.id] 
                         : (notaConsol?.notaExame !== undefined && notaConsol?.notaExame !== null ? String(notaConsol.notaExame) : '');
                       const isExameInvalid = !!notasInvalidas[chaveExame];
                       const exameErroMsg = notasInvalidas[chaveExame];
-                      const exameNum = exameVal !== '' ? parseFloat(exameVal.replace(/,/g, '.')) : undefined;
-                      const temExame = exameNum !== undefined && !isNaN(exameNum);
+                      const exameNum = (ehClasseFinal && exameVal !== '') ? parseFloat(exameVal.replace(/,/g, '.')) : undefined;
+                      const temExame = ehClasseFinal && exameNum !== undefined && !isNaN(exameNum);
 
                       // Média Final (MF) com Exame
                       const mediaFinalCalculada = temExame 
@@ -1373,7 +1478,36 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                             </div>
                           </td>
 
-                          {/* Prova Trimestral (PT / NPP) pelo Professor */}
+                          {/* Prova do Professor (NPP) — Se ativa */}
+                          {provaProfessorAtiva && (
+                            <td className="p-2 bg-indigo-50/40 border-l-2 border-indigo-400 relative text-center">
+                              <div className="flex items-center justify-center space-x-1">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={nppVal}
+                                  placeholder="0.0"
+                                  onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                  onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleNppChange(aluno.id, novo, resMAC), true)}
+                                  onChange={(e) => handleNppChange(aluno.id, e.target.value, resMAC)}
+                                  className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
+                                    isNppInvalid
+                                      ? 'border-2 border-red-700 bg-red-900/20 text-red-950 ring-2 ring-red-600'
+                                      : 'text-indigo-950 bg-white border border-indigo-400 focus:ring-2 focus:ring-indigo-600'
+                                  }`}
+                                  title={isNppInvalid ? nppErroMsg : `Prova do Professor (NPP). Escala: 0 a ${escalaMaxima}`}
+                                />
+                                <span className="text-[10px] text-indigo-700 font-bold">/{escalaMaxima}</span>
+                              </div>
+                              {isNppInvalid && (
+                                <div className="text-[9px] font-black text-red-900 bg-red-100 border border-red-400 rounded px-1 py-0.5 mt-0.5 text-center shadow-2xs">
+                                  ⚠️ 0 a {escalaMaxima}
+                                </div>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Prova Trimestral (PT / NPT) pelo Professor */}
                           <td className="p-2 bg-purple-50/40 border-l-2 border-purple-400 relative text-center">
                             <div className="flex items-center justify-center space-x-1">
                               <input
@@ -1412,68 +1546,71 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                                 <span className="text-[9px] font-normal text-gray-500">/{escalaMaxima}</span>
                               </span>
                               <span className="text-[9px] text-gray-500 mt-0.5">
-                                {temPt ? '(MAC+PT)/2' : 'Pendente PT'}
+                                {provaProfessorAtiva ? (temNpp && temPt ? '(MAC+NPP+PT)/3' : 'MT') : (temPt ? '(MAC+PT)/2' : 'MAC')}
                               </span>
                             </div>
                           </td>
 
-                          {/* Nota de Exame pela Comissão de Júri ou Direção */}
-                          <td className="p-2 bg-amber-50/40 border-l-2 border-amber-400 relative text-center">
-                            <div className="flex items-center justify-center space-x-1">
-                              {isMembroJuriOuDirecao ? (
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={exameVal}
-                                  placeholder="0.0"
-                                  onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
-                                  onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleExameJuriChange(aluno.id, novo, resMAC), true)}
-                                  onChange={(e) => handleExameJuriChange(aluno.id, e.target.value, resMAC)}
-                                  className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
-                                    isExameInvalid
-                                      ? 'border-2 border-red-700 bg-red-900/20 text-red-950 ring-2 ring-red-600'
-                                      : 'text-amber-950 bg-white border border-amber-400 focus:ring-2 focus:ring-amber-600'
-                                  }`}
-                                  title={isExameInvalid ? exameErroMsg : `Lançamento do Exame de Júri. Escala: 0 a ${escalaMaxima}`}
-                                />
-                              ) : (
-                                <div 
-                                  className="w-16 py-1.5 px-1 bg-gray-100 border border-gray-300 rounded text-center text-xs font-bold text-gray-600 flex items-center justify-center space-x-1 cursor-not-allowed"
-                                  title="Apenas a Comissão de Júri ou Direção podem lançar a nota de Exame."
-                                >
-                                  <Lock className="w-3 h-3 text-gray-400 shrink-0" />
-                                  <span>{exameVal !== '' ? exameVal : '—'}</span>
+                          {/* Nota de Exame e MF — Apenas para Classes Finais (6ª, 9ª, 12ª, 13ª) */}
+                          {ehClasseFinal && (
+                            <>
+                              <td className="p-2 bg-amber-50/40 border-l-2 border-amber-400 relative text-center">
+                                <div className="flex items-center justify-center space-x-1">
+                                  {isMembroJuriOuDirecao ? (
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={exameVal}
+                                      placeholder="0.0"
+                                      onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                      onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleExameJuriChange(aluno.id, novo, resMAC), true)}
+                                      onChange={(e) => handleExameJuriChange(aluno.id, e.target.value, resMAC)}
+                                      className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
+                                        isExameInvalid
+                                          ? 'border-2 border-red-700 bg-red-900/20 text-red-950 ring-2 ring-red-600'
+                                          : 'text-amber-950 bg-white border border-amber-400 focus:ring-2 focus:ring-amber-600'
+                                      }`}
+                                      title={isExameInvalid ? exameErroMsg : `Lançamento do Exame de Júri. Escala: 0 a ${escalaMaxima}`}
+                                    />
+                                  ) : (
+                                    <div 
+                                      className="w-16 py-1.5 px-1 bg-gray-100 border border-gray-300 rounded text-center text-xs font-bold text-gray-600 flex items-center justify-center space-x-1 cursor-not-allowed"
+                                      title="Apenas a Comissão de Júri ou Direção podem lançar a nota de Exame."
+                                    >
+                                      <Lock className="w-3 h-3 text-gray-400 shrink-0" />
+                                      <span>{exameVal !== '' ? exameVal : '—'}</span>
+                                    </div>
+                                  )}
+                                  <span className="text-[10px] text-amber-700 font-bold">/{escalaMaxima}</span>
                                 </div>
-                              )}
-                              <span className="text-[10px] text-amber-700 font-bold">/{escalaMaxima}</span>
-                            </div>
-                            {isExameInvalid && (
-                              <div className="text-[9px] font-black text-red-900 bg-red-100 border border-red-400 rounded px-1 py-0.5 mt-0.5 text-center shadow-2xs">
-                                ⚠️ 0 a {escalaMaxima}
-                              </div>
-                            )}
-                          </td>
+                                {isExameInvalid && (
+                                  <div className="text-[9px] font-black text-red-900 bg-red-100 border border-red-400 rounded px-1 py-0.5 mt-0.5 text-center shadow-2xs">
+                                    ⚠️ 0 a {escalaMaxima}
+                                  </div>
+                                )}
+                              </td>
 
-                          {/* Média Final (MF) Com Exame */}
-                          <td className="p-2.5 bg-indigo-50/40 border-l border-indigo-300 text-center">
-                            {temExame ? (
-                              <div className="flex flex-col items-center">
-                                <span className={`px-2 py-0.5 rounded text-xs font-black ${
-                                  aprovadoFinal 
-                                    ? 'bg-indigo-100 text-indigo-950 border border-indigo-300' 
-                                    : 'bg-red-100 text-red-950 border border-red-300'
-                                }`}>
-                                  {mediaFinalCalculada}
-                                  <span className="text-[9px] font-normal text-gray-500">/{escalaMaxima}</span>
-                                </span>
-                                <span className="text-[9px] text-indigo-700 font-semibold mt-0.5">
-                                  {aprovadoFinal ? 'Aprovado' : 'Não Aprovado'}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-gray-400 font-semibold">—</span>
-                            )}
-                          </td>
+                              <td className="p-2.5 bg-indigo-50/40 border-l border-indigo-300 text-center">
+                                {temExame ? (
+                                  <div className="flex flex-col items-center">
+                                    <span className={`px-2 py-0.5 rounded text-xs font-black ${
+                                      aprovadoFinal 
+                                        ? 'bg-indigo-100 text-indigo-950 border border-indigo-300' 
+                                        : 'bg-red-100 text-red-950 border border-red-300'
+                                    }`}>
+                                      {mediaFinalCalculada}
+                                      <span className="text-[9px] font-normal text-gray-500">/{escalaMaxima}</span>
+                                    </span>
+                                    <span className="text-[9px] text-indigo-700 font-semibold mt-0.5">
+                                      {aprovadoFinal ? 'Aprovado' : 'Não Aprovado'}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400 font-semibold">—</span>
+                                )}
+                              </td>
+                            </>
+                          )}
 
                           {/* Comportamento 0-10 no Primário ou 0-20 no Secundário e Conversão Qualitativa */}
                           <td className="p-2.5 bg-green-50/50 border-l border-green-300 text-center">
@@ -2221,10 +2358,18 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                     <th className="p-2 border-r border-gray-300 w-14">Gênero</th>
                     <th className="p-2 border-r border-gray-300 w-24">Nº Matrícula</th>
                     <th className="p-2 border-r border-gray-300 w-16" title="Média de Avaliação Contínua">MAC</th>
-                    <th className="p-2 border-r border-gray-300 w-20" title="Prova do Professor">NPP / Prova</th>
+                    {provaProfessorAtiva && (
+                      <th className="p-2 border-r border-gray-300 w-16" title="Prova do Professor">NPP</th>
+                    )}
+                    <th className="p-2 border-r border-gray-300 w-16" title="Prova Trimestral">PT</th>
                     <th className="p-2 border-r border-gray-300 w-20">
                       {Number(selectedTrimestre) === 3 ? 'MT 3' : 'Média Trim.'}
                     </th>
+                    {Number(selectedTrimestre) === 3 && ehClasseFinal && (
+                      <th className="p-2 border-r border-gray-300 w-20 bg-amber-50" title="Exame Terminal do Ciclo">
+                        Exame
+                      </th>
+                    )}
                     {Number(selectedTrimestre) === 3 && (
                       <th className="p-2 border-r border-gray-300 w-24 bg-amber-100/70 text-amber-950 font-black">
                         Média Final (MF)
@@ -2237,7 +2382,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 <tbody className="divide-y divide-gray-300">
                   {alunosDaTurma.length === 0 ? (
                     <tr>
-                      <td colSpan={Number(selectedTrimestre) === 3 ? 10 : 9} className="p-6 text-center text-gray-500 italic">
+                      <td colSpan={7 + (provaProfessorAtiva ? 1 : 0) + (Number(selectedTrimestre) === 3 ? (ehClasseFinal ? 2 : 1) : 0)} className="p-6 text-center text-gray-500 italic">
                         Nenhum estudante matriculado nesta turma para o ano lectivo atual.
                       </td>
                     </tr>
@@ -2252,24 +2397,32 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                         turmaAtiva.classe
                       );
 
+                      const notaCons = notasConsolidadas.find(
+                        c => c.alunoId === aluno.id && c.disciplinaId === selectedDisciplinaId && String(c.trimestre) === String(selectedTrimestre)
+                      );
+
                       const macVal = resMAC.macCalculada;
-                      const nppVal = macVal; // Prova do professor / NPP
+                      const nppVal = notaCons?.npp;
+                      const ptVal = notaCons?.provaTrimestral ?? notaCons?.npt;
+                      const exameVal = ehClasseFinal ? notaCons?.notaExame : undefined;
+
                       const calcTrim = calcularNotaTrimestralDinamica(
                         macVal,
                         nppVal,
-                        undefined,
+                        ptVal,
                         regraVigente,
                         Number(selectedTrimestre),
-                        turmaAtiva.classe
+                        turmaAtiva.classe,
+                        provaProfessorAtiva
                       );
-                      const mediaTrim = calcTrim.mediaTrimestral;
+                      const mediaTrim = notaCons?.mediaTrimestral ?? calcTrim.mediaTrimestral;
 
                       // Média Final (especialmente no 3º Trimestre conforme regra configurada pelo Diretor)
                       const calcMF = calcularMediaFinal3Trimestre(
                         mediaTrim,
                         mediaTrim,
                         mediaTrim,
-                        regraVigente.tipoCalculo3Trimestre === 'PONDERADO_EXAME' ? mediaTrim : undefined,
+                        ehClasseFinal ? (exameVal ?? (regraVigente.tipoCalculo3Trimestre === 'PONDERADO_EXAME' ? mediaTrim : undefined)) : undefined,
                         regraVigente,
                         turmaAtiva.classe
                       );
@@ -2291,8 +2444,20 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                           <td className="p-2 border-r border-gray-300 font-bold">
                             {turmaAtiva.classe === 'Iniciação' ? resMAC.conceitoIniciacao : macVal}
                           </td>
-                          <td className="p-2 border-r border-gray-300 font-bold">{nppVal}</td>
+                          {provaProfessorAtiva && (
+                            <td className="p-2 border-r border-gray-300 font-bold">
+                              {nppVal !== undefined ? nppVal : '—'}
+                            </td>
+                          )}
+                          <td className="p-2 border-r border-gray-300 font-bold">
+                            {ptVal !== undefined ? ptVal : '—'}
+                          </td>
                           <td className="p-2 border-r border-gray-300 font-black text-gray-950">{mediaTrim}</td>
+                          {Number(selectedTrimestre) === 3 && ehClasseFinal && (
+                            <td className="p-2 border-r border-gray-300 font-bold bg-amber-50/70">
+                              {exameVal !== undefined ? exameVal : '—'}
+                            </td>
+                          )}
                           {Number(selectedTrimestre) === 3 && (
                             <td className="p-2 border-r border-gray-300 font-black text-blue-900 bg-amber-50/50">
                               {calcMF.mediaFinal}
@@ -2356,6 +2521,13 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               );
             })()}
 
+            {/* Data Oficial da Pauta Conforme Normas do Ministério da Educação */}
+            <div className="flex justify-end my-4 pr-3">
+              <p className="text-right text-xs font-serif italic text-gray-800">
+                {escola.municipio ? `${escola.municipio}` : (escola.provincia || 'Luanda')}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+              </p>
+            </div>
+
             {/* Rodapé Oficial com Assinaturas da Comissão de Júri e Homologação do Diretor Geral */}
             <div className="pt-8 border-t-2 border-black">
               <p className="text-center text-xs text-gray-700 font-bold uppercase mb-6 tracking-wider">
@@ -2377,30 +2549,29 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   </p>
                 </div>
 
-                {/* 2. Secretário da Comissão de Júri */}
+                {/* 2. 1º Vogal da Comissão de Júri */}
                 <div className="space-y-1">
                   <p className="font-black text-gray-950 uppercase text-[11px]">
-                    {juriTurmaAtiva ? 'O Secretário da Comissão de Júri' : obterTituloSubdiretorPedagogico(escola, funcionariosEscola)}
+                    {juriTurmaAtiva ? 'O 1º Vogal do Júri' : obterTituloSubdiretorPedagogico(escola, funcionariosEscola)}
                   </p>
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {juriTurmaAtiva ? obterSecretarioJuri(juriTurmaAtiva, funcionariosEscola) : obterNomeSubdiretorPedagogico(escola, funcionariosEscola)}
+                    {juriTurmaAtiva ? obterVogaisJuri(juriTurmaAtiva, funcionariosEscola).primeiroVogal : obterNomeSubdiretorPedagogico(escola, funcionariosEscola)}
                   </p>
                 </div>
 
-                {/* 3. Vogais do Júri */}
+                {/* 3. 2º Vogal da Comissão de Júri */}
                 <div className="space-y-1">
                   <p className="font-black text-gray-950 uppercase text-[11px]">
-                    {juriTurmaAtiva ? 'Os Vogais da Comissão de Júri' : 'Vogais / Docentes'}
+                    {juriTurmaAtiva ? 'O 2º Vogal do Júri' : 'Vogal / Docente Avaliador'}
                   </p>
                   <div className="h-6" />
                   <div className="w-40 border-b border-black mx-auto my-1.5" />
                   <p className="font-bold text-gray-800 text-[11px]">
-                    {(() => {
-                      const v = obterVogaisJuri(juriTurmaAtiva, funcionariosEscola);
-                      return `${v.primeiroVogal} / ${v.segundoVogal}`;
-                    })()}
+                    {juriTurmaAtiva 
+                      ? obterVogaisJuri(juriTurmaAtiva, funcionariosEscola).segundoVogal 
+                      : (atribuicoesTodas.find((a: any) => a.turmaId === selectedTurmaId && a.disciplinaId === selectedDisciplinaId)?.professorNome || (currentUser?.ehProfessor ? currentUser.nomeCompleto : 'Docente da Disciplina'))}
                   </p>
                 </div>
 

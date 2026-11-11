@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { Funcionario, Escola } from '../types';
 import { dbService } from '../services/storage';
+import { processarFotoUpload } from '../utils/imageCompressor';
+import { firebaseSyncEngine } from '../services/firebaseSyncEngine';
 
 interface UserProfileViewProps {
   currentUser: Funcionario;
@@ -50,9 +52,9 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
   const [mensagemErro, setMensagemErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [comprimindoFoto, setComprimindoFoto] = useState(false);
 
-
-  const handleSalvarPerfil = (e: React.FormEvent) => {
+  const handleSalvarPerfil = async (e: React.FormEvent) => {
     e.preventDefault();
     setMensagemSucesso(null);
     setMensagemErro(null);
@@ -97,8 +99,12 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
       const resultado = dbService.atualizarPerfilUtilizador(currentUser.id, atualizacoes);
       
       if (resultado.sucesso && resultado.usuarioAtualizado) {
+        // Persistência imediata e sincronização na nuvem (Firestore) e dispositivo
+        await firebaseSyncEngine.salvarPerfilUsuario(resultado.usuarioAtualizado);
+        window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+
         (onProfileUpdated || onSalvarPerfil)?.(resultado.usuarioAtualizado);
-        setMensagemSucesso('Perfil atualizado com sucesso! As alterações já estão ativas.');
+        setMensagemSucesso('Perfil e fotografia atualizados com sucesso e sincronizados em todos os dispositivos!');
         setSenhaAtual('');
         setNovaSenha('');
         setConfirmarSenha('');
@@ -112,19 +118,27 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        setMensagemErro('A imagem selecionada excede o limite recomendado de 2MB.');
-        return;
+      setComprimindoFoto(true);
+      setMensagemErro(null);
+      setMensagemSucesso(null);
+      try {
+        // Compressão inteligente para foto de perfil de avatar (máx 400px, 85% qualidade JPEG/PNG, ~25-40KB)
+        const res = await processarFotoUpload(file, 400, 0.85);
+        if (res.sucesso && res.dataUrl) {
+          setFotoUrl(res.dataUrl);
+          setMensagemSucesso('Fotografia otimizada e pronta para guardar. Clique em "Guardar Alterações" para sincronizar com todos os dispositivos.');
+        } else {
+          setMensagemErro(res.erro || 'Não foi possível processar a fotografia selecionada.');
+        }
+      } catch (err: any) {
+        setMensagemErro('Erro ao processar imagem: ' + (err.message || 'Erro desconhecido'));
+      } finally {
+        setComprimindoFoto(false);
+        e.target.value = '';
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFotoUrl(reader.result as string);
-        setMensagemSucesso('Foto carregada. Clique em "Guardar Alterações" para confirmar.');
-      };
-      reader.readAsDataURL(file);
     }
   };
 

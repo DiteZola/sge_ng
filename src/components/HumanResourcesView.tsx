@@ -146,6 +146,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
   // Permissão da Direção
   const ehDiretor = currentUser.role === 'DiretorGeral' || currentUser.role === 'AdminGeral';
+  const podeCadastrarFuncionarios = ehDiretor || (currentUser.role === 'SubdiretorPedagogico' && Boolean(escola.permitirSubdiretorCadastrarFuncionarios));
   const temPermissaoAssiduidade = ['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral'].includes(currentUser.role);
 
   // Apenas funcionários desta escola (ou todos se AdminGeral)
@@ -588,7 +589,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
           </p>
         </div>
 
-        {ehDiretor && (
+        {podeCadastrarFuncionarios && (
           <button
             type="button"
             onClick={abrirModalNovoFuncionario}
@@ -794,7 +795,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                                 <Edit2 className="h-4 w-4" />
                               </button>
 
-                              {ehDiretor && (
+                              {podeCadastrarFuncionarios && (
                                 <>
                                   <button
                                     type="button"

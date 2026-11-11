@@ -285,19 +285,45 @@ export function avaliarExpressaoNota(formula: string, variaveis: Record<string, 
 }
 
 /**
+ * Verifica se uma classe é classe final de ciclo com exame terminal (6ª, 9ª, 12ª, 13ª)
+ * Classes de transição (Iniciação, 1ª à 5ª, 7ª, 8ª, 10ª e 11ª) não realizam exame
+ */
+export function isClasseFinal(classe?: string, regra?: RegraCalculoMAC): boolean {
+  if (!classe) return false;
+  const classesFinaisPadrao = ['6ª', '9ª', '12ª', '13ª'];
+  const classesFinais = regra?.classesFinaisConfiguradas || classesFinaisPadrao;
+  const cl = classe.trim().toLowerCase();
+  return classesFinais.some(cf => cl.includes(cf.toLowerCase()));
+}
+
+/**
  * Calcula a Média Trimestral (MT) aplicando a fórmula configurada para a classe e trimestre
  * Normas MED Angola ou Fórmulas Criadas pelo Director Geral / Administrador
  */
 export function calcularNotaTrimestralDinamica(
   mac: number,
-  npp: number,
+  npp: number | undefined,
   npt: number | undefined,
   regra?: RegraCalculoMAC,
   trimestre: number = 1,
-  classe: string = '7ª'
+  classe: string = '7ª',
+  nppAtivo: boolean = true
 ): { mediaTrimestral: number; formulaAplicada: string } {
   const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
-  const nptVal = npt !== undefined && npt > 0 ? npt : npp;
+
+  // Se a Prova do Professor (NPP) estiver desativada nas configurações escolares:
+  // Apenas a Prova Trimestral (PT / NPT) é considerada: MT = (MAC + PT) / 2
+  if (!nppAtivo) {
+    const ptVal = npt !== undefined ? npt : (npp !== undefined ? npp : mac);
+    const mt = (mac + ptVal) / 2;
+    return {
+      mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
+      formulaAplicada: 'Padrão MED (NPP Desativado): (MAC + PT) / 2'
+    };
+  }
+
+  const nppVal = npp !== undefined ? npp : mac;
+  const nptVal = npt !== undefined && npt > 0 ? npt : nppVal;
 
   // 1. Verificar se há fórmula personalizada expressa para o trimestre em questão
   const formulaTrimestreEspecifica = 
@@ -312,7 +338,7 @@ export function calcularNotaTrimestralDinamica(
   if (formulaTexto) {
     const res = avaliarExpressaoNota(formulaTexto, {
       MAC: mac,
-      NPP: npp,
+      NPP: nppVal,
       NPT: nptVal,
       PA: mac
     });
@@ -337,7 +363,7 @@ export function calcularNotaTrimestralDinamica(
     const wNpt = npt !== undefined ? (Number(pesosAplicaveis.npt) || 1) : 0;
     const totalPesos = wMac + wNpp + wNpt;
     if (totalPesos > 0) {
-      const mtPond = ((mac * wMac) + (npp * wNpp) + ((npt || 0) * wNpt)) / totalPesos;
+      const mtPond = ((mac * wMac) + (nppVal * wNpp) + ((npt || 0) * wNpt)) / totalPesos;
       const finalVal = Math.min(escala, Math.max(0, Math.round(mtPond * 10) / 10));
       return {
         mediaTrimestral: finalVal,
@@ -346,17 +372,17 @@ export function calcularNotaTrimestralDinamica(
     }
   }
 
-  // 3. Se possui Prova Trimestral (NPT) - Padrão Oficial do Ministério da Educação (MED)
+  // 3. Se possui Prova Trimestral (NPT) lançada - Padrão Oficial do Ministério da Educação (MED)
   if (npt !== undefined && npt > 0) {
-    const mt = (mac + npp + npt) / 3;
+    const mt = (mac + nppVal + npt) / 3;
     return {
       mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
-      formulaAplicada: 'Padrão MED: (MAC + NPP + NPT) / 3'
+      formulaAplicada: 'Padrão MED: (MAC + NPP + PT) / 3'
     };
   }
 
-  // 4. Padrão contínuo com MAC e Avaliação de Período
-  const mt = (mac + npp) / 2;
+  // 4. Se ainda só tem MAC e NPP
+  const mt = (mac + nppVal) / 2;
   return {
     mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
     formulaAplicada: 'Padrão MED: (MAC + NPP) / 2'

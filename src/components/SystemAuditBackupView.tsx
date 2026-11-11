@@ -582,8 +582,49 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
 
   // Exportar Backup JSON Completo
   const handleExportBackup = () => {
-    dbService.gerarBackupJSON();
+    dbService.gerarBackupJSON(escola.id);
     notificar('Ficheiro de backup JSON gerado e transferido para o seu dispositivo.');
+  };
+
+  // Exportações Específicas em Excel e JSON
+  const handleExportAlunosNotasExcel = () => {
+    dbService.exportarAlunosComNotasExcel(escola.id);
+    notificar('Livro Excel de Alunos com todas as notas transferido com sucesso.');
+  };
+
+  const handleExportAlunosNotasJSON = () => {
+    dbService.exportarAlunosComNotasJSON(escola.id);
+    notificar('Ficheiro JSON de Alunos com todas as notas transferido com sucesso.');
+  };
+
+  const handleExportFuncionariosExcel = () => {
+    dbService.exportarFuncionariosCompletosExcel(escola.id);
+    notificar('Quadro completo de Funcionários em Excel transferido com sucesso.');
+  };
+
+  const handleExportFuncionariosJSON = () => {
+    dbService.exportarFuncionariosCompletosJSON(escola.id);
+    notificar('Quadro completo de Funcionários em JSON transferido com sucesso.');
+  };
+
+  const handleExportEscolaExcel = () => {
+    dbService.exportarEscolaCompletaExcel(escola.id);
+    notificar(`Livro Excel completo da instituição (${escola.nomeOficial}) transferido com sucesso.`);
+  };
+
+  const handleExportEscolaJSON = () => {
+    dbService.exportarEscolaCompletaJSON(escola.id);
+    notificar(`Ficheiro JSON da instituição (${escola.nomeOficial}) transferido com sucesso.`);
+  };
+
+  const handleExportSistemaExcel = () => {
+    dbService.exportarSistemaCompletoExcel();
+    notificar('Livro Excel consolidado de todo o Sistema Nacional transferido com sucesso.');
+  };
+
+  const handleExportSistemaJSON = () => {
+    dbService.exportarSistemaCompletoJSON();
+    notificar('Cópia de segurança JSON de todo o Sistema Nacional transferida com sucesso.');
   };
 
   // Importar / Restaurar Backup JSON
@@ -636,7 +677,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
 
   // Exportar Excel
   const handleExportExcel = () => {
-    dbService.exportarParaExcel();
+    handleExportEscolaExcel();
   };
 
   // Importar Excel
@@ -921,6 +962,97 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                   className="hidden"
                 />
               </label>
+            </div>
+          </div>
+
+          {/* Módulos de Backup Específico JSON */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 flex items-center space-x-2">
+                <Database className="h-4 w-4 text-indigo-600" />
+                <span>Snapshots & Ficheiros de Backup em JSON (.json)</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Descarregue arquivos estruturados em JSON para cópia offline, migração departamental ou auditoria oficial.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* 1. Alunos e Notas */}
+              <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/40 hover:bg-blue-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Alunos & Notas</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Alunos com Todas as Notas</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Dados biográficos e todas as notas trimestrais (MAC, NPP, PT, MT), exame e médias finais.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportAlunosNotasJSON}
+                  className="mt-3 w-full py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar JSON</span>
+                </button>
+              </div>
+
+              {/* 2. Funcionários Completos */}
+              <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/40 hover:bg-indigo-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">Recursos Humanos</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Quadro Completo de RH</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Todos os funcionários com dados civis, profissionais, bancários, acadêmicos e de saúde.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportFuncionariosJSON}
+                  className="mt-3 w-full py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar JSON</span>
+                </button>
+              </div>
+
+              {/* 3. Escola Completa */}
+              <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Instituição Ativa</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Escola Completa Selecionada</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Snapshot integral de {escola.sigla || escola.nomeOficial}: turmas, pautas, alunos, finanças e património.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportEscolaJSON}
+                  className="mt-3 w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar JSON</span>
+                </button>
+              </div>
+
+              {/* 4. Sistema Completo */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">Rede Nacional</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Todo o Sistema Completo</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Cópia mestra integral de todas as escolas, utilizadores, parametrizações e auditoria central.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportSistemaJSON}
+                  className="mt-3 w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar JSON</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1398,6 +1530,36 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                     <span
                       className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
                         escolaData.layoutBoletinsPadrao !== '1_por_folha' ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* 9. Permissão de Cadastro de RH para Subdiretor Pedagógico */}
+                <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/60 flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-black text-gray-900">Subdiretor Pedagógico Cadastrar Funcionários</span>
+                      <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold ${
+                        escolaData.permitirSubdiretorCadastrarFuncionarios ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-700'
+                      }`}>
+                        {escolaData.permitirSubdiretorCadastrarFuncionarios ? 'Autorizado' : 'Apenas Diretor Geral'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-600">
+                      Quando ativado pelo Diretor Geral, permite ao Subdiretor Pedagógico cadastrar, homologar e editar o quadro de professores e funcionários da instituição.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleEscolaConfig('permitirSubdiretorCadastrarFuncionarios')}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      escolaData.permitirSubdiretorCadastrarFuncionarios ? 'bg-emerald-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                        escolaData.permitirSubdiretorCadastrarFuncionarios ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
                   </button>
@@ -2323,6 +2485,97 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                   className="hidden"
                 />
               </label>
+            </div>
+          </div>
+
+          {/* Livros de Cálculo e Relatórios Específicos em Excel */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
+            <div>
+              <h3 className="text-sm font-black text-gray-900 flex items-center space-x-2">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                <span>Livros e Folhas de Cálculo Específicas em Excel (.xlsx)</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Descarregue livros formatados por setor pedagógico e administrativo, em plena conformidade com as exigências dos Serviços Provinciais de Educação.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* 1. Alunos com Todas as Notas */}
+              <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Alunos & Pautas</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Alunos com Todas as Notas</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Livro detalhado por disciplina com 1T, 2T, 3T (MAC, NPP quando ativa, PT, MT), Exame (NE nas classes finais) e Média Final (MF).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportAlunosNotasExcel}
+                  className="mt-3 w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar Excel</span>
+                </button>
+              </div>
+
+              {/* 2. Quadro Completo de Funcionários */}
+              <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/40 hover:bg-indigo-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">Recursos Humanos</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Quadro Completo de RH</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Todos os funcionários com dados civis, BI, NIF, categoria, carreira docente, dados bancários (IBAN) e saúde.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportFuncionariosExcel}
+                  className="mt-3 w-full py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar Excel</span>
+                </button>
+              </div>
+
+              {/* 3. Escola Completa */}
+              <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/40 hover:bg-blue-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Instituição Ativa</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Escola Completa Selecionada</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    7 folhas homologadas: Identificação, Alunos, Pauta Geral, Quadro Docente, Turmas, Livro de Caixa e Património.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportEscolaExcel}
+                  className="mt-3 w-full py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar Excel</span>
+                </button>
+              </div>
+
+              {/* 4. Todo o Sistema Completo */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">Rede Nacional</span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Todo o Sistema Completo</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Consolidação executiva de toda a rede nacional: balanço geral, todas as escolas, turmas, alunos e funcionários.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportSistemaExcel}
+                  className="mt-3 w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar Excel</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

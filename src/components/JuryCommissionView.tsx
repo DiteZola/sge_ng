@@ -208,6 +208,8 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
   const [novaComDataInicio, setNovaComDataInicio] = useState(new Date().toISOString().split('T')[0]);
   const [novaComDataFim, setNovaComDataFim] = useState('');
   const [novaComPresidenteId, setNovaComPresidenteId] = useState('');
+  const [novaComVogal1Id, setNovaComVogal1Id] = useState('');
+  const [novaComVogal2Id, setNovaComVogal2Id] = useState('');
   const [novaComSecretarioId, setNovaComSecretarioId] = useState('');
   const [novaComMembrosIds, setNovaComMembrosIds] = useState<string[]>([]);
   const [novaComTurmasIds, setNovaComTurmasIds] = useState<string[]>([]);
@@ -224,6 +226,8 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
   const [editComDataInicio, setEditComDataInicio] = useState('');
   const [editComDataFim, setEditComDataFim] = useState('');
   const [editComPresidenteId, setEditComPresidenteId] = useState('');
+  const [editComVogal1Id, setEditComVogal1Id] = useState('');
+  const [editComVogal2Id, setEditComVogal2Id] = useState('');
   const [editComSecretarioId, setEditComSecretarioId] = useState('');
   const [editComMembrosIds, setEditComMembrosIds] = useState<string[]>([]);
   const [editComTurmasIds, setEditComTurmasIds] = useState<string[]>([]);
@@ -566,6 +570,8 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
     setEditComDataInicio(c.dataInicio || new Date().toISOString().split('T')[0]);
     setEditComDataFim(c.dataEncerramento || c.dataFim || '');
     setEditComPresidenteId(c.presidenteId || c.membros?.find(m => m.funcao === 'Presidente')?.usuarioId || '');
+    setEditComVogal1Id(c.vogal1Id || c.membros?.find(m => (m.funcao as string) === '1º Vogal' || (m.funcao as string) === '1° Vogal')?.usuarioId || c.membros?.filter(m => (m.funcao as string) === 'Membro' || (m.funcao as string) === 'Vogal')[0]?.usuarioId || '');
+    setEditComVogal2Id(c.vogal2Id || c.membros?.find(m => (m.funcao as string) === '2º Vogal' || (m.funcao as string) === '2° Vogal')?.usuarioId || c.membros?.filter(m => (m.funcao as string) === 'Membro' || (m.funcao as string) === 'Vogal')[1]?.usuarioId || '');
     setEditComSecretarioId(c.secretarioId || c.membros?.find(m => m.funcao === 'Secretario')?.usuarioId || '');
     setEditComMembrosIds(c.membros?.filter(m => m.funcao === 'Membro').map(m => m.usuarioId) || []);
     setEditComTurmasIds(c.turmasIds || []);
@@ -589,6 +595,31 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
         cargoOriginal: pres.cargo
       });
     }
+
+    const vog1 = funcionarios.find(f => f.id === editComVogal1Id);
+    if (vog1) {
+      membros.push({
+        usuarioId: vog1.id,
+        nome: vog1.nomeCompleto,
+        email: vog1.email,
+        funcao: '1º Vogal',
+        cargoOriginal: vog1.cargo,
+        ehProfessor: vog1.ehProfessor
+      });
+    }
+
+    const vog2 = funcionarios.find(f => f.id === editComVogal2Id);
+    if (vog2) {
+      membros.push({
+        usuarioId: vog2.id,
+        nome: vog2.nomeCompleto,
+        email: vog2.email,
+        funcao: '2º Vogal',
+        cargoOriginal: vog2.cargo,
+        ehProfessor: vog2.ehProfessor
+      });
+    }
+
     const sec = funcionarios.find(f => f.id === editComSecretarioId);
     if (sec) {
       membros.push({
@@ -599,9 +630,10 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
         cargoOriginal: sec.cargo
       });
     }
+
     editComMembrosIds.forEach(mId => {
       const f = funcionarios.find(func => func.id === mId);
-      if (f && f.id !== editComPresidenteId && f.id !== editComSecretarioId) {
+      if (f && f.id !== editComPresidenteId && f.id !== editComVogal1Id && f.id !== editComVogal2Id && f.id !== editComSecretarioId) {
         membros.push({
           usuarioId: f.id,
           nome: f.nomeCompleto,
@@ -625,6 +657,8 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
       dataEncerramento: editComDataFim,
       finalidade: editComFinalidade,
       presidenteId: editComPresidenteId,
+      vogal1Id: editComVogal1Id,
+      vogal2Id: editComVogal2Id,
       secretarioId: editComSecretarioId,
       membros
     };
@@ -776,7 +810,33 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
       });
     }
 
-    // Secretário
+    // 1º Vogal
+    const vog1 = funcionarios.find(f => f.id === novaComVogal1Id);
+    if (vog1) {
+      membros.push({
+        usuarioId: vog1.id,
+        nome: vog1.nomeCompleto,
+        email: vog1.email,
+        funcao: '1º Vogal',
+        cargoOriginal: vog1.cargo,
+        ehProfessor: vog1.ehProfessor
+      });
+    }
+
+    // 2º Vogal
+    const vog2 = funcionarios.find(f => f.id === novaComVogal2Id);
+    if (vog2) {
+      membros.push({
+        usuarioId: vog2.id,
+        nome: vog2.nomeCompleto,
+        email: vog2.email,
+        funcao: '2º Vogal',
+        cargoOriginal: vog2.cargo,
+        ehProfessor: vog2.ehProfessor
+      });
+    }
+
+    // Secretário (opcional)
     const sec = funcionarios.find(f => f.id === novaComSecretarioId);
     if (sec) {
       membros.push({
@@ -791,7 +851,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
     // Outros Membros
     novaComMembrosIds.forEach(mId => {
       const f = funcionarios.find(func => func.id === mId);
-      if (f && f.id !== novaComPresidenteId && f.id !== novaComSecretarioId) {
+      if (f && f.id !== novaComPresidenteId && f.id !== novaComVogal1Id && f.id !== novaComVogal2Id && f.id !== novaComSecretarioId) {
         membros.push({
           usuarioId: f.id,
           nome: f.nomeCompleto,
@@ -818,6 +878,8 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
       finalidade: novaComFinalidade,
       estado: 'Aberta',
       presidenteId: novaComPresidenteId,
+      vogal1Id: novaComVogal1Id,
+      vogal2Id: novaComVogal2Id,
       secretarioId: novaComSecretarioId,
       membros,
       criterios: [
@@ -2240,42 +2302,44 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   Termos de Homologação e Assinaturas da Comissão
                 </div>
 
-                <div className="grid grid-cols-2 gap-8 text-center text-xs">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-xs">
                   {/* Presidente: Título -> Traço -> Nome */}
                   <div className="space-y-1">
                     <p className="font-black text-slate-900 uppercase">O Presidente da Comissão de Júri</p>
-                    <div className="w-56 border-b-2 border-black mx-auto my-2" />
+                    <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Não Atribuído'}
+                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Presidente do Júri'}
                     </p>
                   </div>
 
-                  {/* Secretário: Título -> Traço -> Nome */}
+                  {/* 1º Vogal: Título -> Traço -> Nome */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O Secretário da Comissão de Júri</p>
-                    <div className="w-56 border-b-2 border-black mx-auto my-2" />
+                    <p className="font-black text-slate-900 uppercase">O 1º Vogal do Júri</p>
+                    <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {comissaoAtiva?.membros?.find(m => m.funcao === 'Secretario')?.nome || 'Não Atribuído'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Vogais / Membros */}
-                <div className="grid grid-cols-2 gap-8 text-center text-xs pt-4">
-                  <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O 1º Vogal / Membro</p>
-                    <div className="w-56 border-b-2 border-black mx-auto my-2" />
-                    <p className="font-bold text-slate-800">
-                      {comissaoAtiva?.membros?.filter(m => m.funcao === 'Membro')[0]?.nome || 'Não Atribuído'}
+                      {comissaoAtiva?.membros?.find(m => (m.funcao as string) === '1º Vogal' || (m.funcao as string) === '1° Vogal')?.nome || 
+                       comissaoAtiva?.membros?.filter(m => (m.funcao as string) === 'Membro' || (m.funcao as string) === 'Vogal')[0]?.nome || '1º Vogal do Júri'}
                     </p>
                   </div>
 
+                  {/* 2º Vogal: Título -> Traço -> Nome */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O Director Geral da Instituição</p>
-                    <div className="w-56 border-b-2 border-black mx-auto my-2" />
+                    <p className="font-black text-slate-900 uppercase">O 2º Vogal do Júri</p>
+                    <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {escola.diretorGeralNome || 'Não Atribuído'}
+                      {comissaoAtiva?.membros?.find(m => (m.funcao as string) === '2º Vogal' || (m.funcao as string) === '2° Vogal')?.nome || 
+                       comissaoAtiva?.membros?.filter(m => (m.funcao as string) === 'Membro' || (m.funcao as string) === 'Vogal')[1]?.nome || '2º Vogal do Júri'}
                     </p>
+                  </div>
+
+                  {/* Director Geral da Instituição (Homologação) */}
+                  <div className="space-y-1">
+                    <p className="font-black text-slate-900 uppercase">O Director Geral (Homologação)</p>
+                    <div className="w-40 border-b-2 border-black mx-auto my-2" />
+                    <p className="font-bold text-slate-800">
+                      {escola.diretorGeralNome || 'Direcção da Escola'}
+                    </p>
+                    <span className="text-[9px] text-gray-400 block">[Selo Branco / Carimbo]</span>
                   </div>
                 </div>
               </div>
@@ -2625,14 +2689,14 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Presidente do Júri *</label>
                   <select
                     required
                     value={novaComPresidenteId}
                     onChange={(e) => setNovaComPresidenteId(e.target.value)}
-                    className="w-full p-2 border rounded-lg font-bold bg-white"
+                    className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
                   >
                     <option value="">Selecione o Presidente...</option>
                     {funcionarios.map(f => (
@@ -2642,19 +2706,48 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Secretário do Júri *</label>
+                  <label className="block font-bold text-gray-700 mb-1">1º Vogal do Júri *</label>
                   <select
                     required
-                    value={novaComSecretarioId}
-                    onChange={(e) => setNovaComSecretarioId(e.target.value)}
-                    className="w-full p-2 border rounded-lg font-bold bg-white"
+                    value={novaComVogal1Id}
+                    onChange={(e) => setNovaComVogal1Id(e.target.value)}
+                    className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
                   >
-                    <option value="">Selecione o Secretário...</option>
+                    <option value="">Selecione o 1º Vogal...</option>
                     {funcionarios.map(f => (
-                      <option key={f.id} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
+                      <option key={`v1-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
                     ))}
                   </select>
                 </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">2º Vogal do Júri *</label>
+                  <select
+                    required
+                    value={novaComVogal2Id}
+                    onChange={(e) => setNovaComVogal2Id(e.target.value)}
+                    className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
+                  >
+                    <option value="">Selecione o 2º Vogal...</option>
+                    {funcionarios.map(f => (
+                      <option key={`v2-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Secretário do Júri (Opcional)</label>
+                <select
+                  value={novaComSecretarioId}
+                  onChange={(e) => setNovaComSecretarioId(e.target.value)}
+                  className="w-full p-2 border rounded-lg bg-white text-gray-900"
+                >
+                  <option value="">Nenhum / Não Atribuído</option>
+                  {funcionarios.map(f => (
+                    <option key={`sec-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t">
@@ -2729,14 +2822,14 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Presidente do Júri *</label>
                   <select
                     required
                     value={editComPresidenteId}
                     onChange={(e) => setEditComPresidenteId(e.target.value)}
-                    className="w-full p-2 border rounded-lg font-bold bg-white"
+                    className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
                   >
                     <option value="">Selecione o Presidente...</option>
                     {funcionarios.map(f => (
@@ -2746,19 +2839,48 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Secretário do Júri *</label>
+                  <label className="block font-bold text-gray-700 mb-1">1º Vogal do Júri *</label>
                   <select
                     required
-                    value={editComSecretarioId}
-                    onChange={(e) => setEditComSecretarioId(e.target.value)}
-                    className="w-full p-2 border rounded-lg font-bold bg-white"
+                    value={editComVogal1Id}
+                    onChange={(e) => setEditComVogal1Id(e.target.value)}
+                    className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
                   >
-                    <option value="">Selecione o Secretário...</option>
+                    <option value="">Selecione o 1º Vogal...</option>
                     {funcionarios.map(f => (
-                      <option key={`edit-sec-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
+                      <option key={`edit-v1-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
                     ))}
                   </select>
                 </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">2º Vogal do Júri *</label>
+                  <select
+                    required
+                    value={editComVogal2Id}
+                    onChange={(e) => setEditComVogal2Id(e.target.value)}
+                    className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
+                  >
+                    <option value="">Selecione o 2º Vogal...</option>
+                    {funcionarios.map(f => (
+                      <option key={`edit-v2-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Secretário do Júri (Opcional)</label>
+                <select
+                  value={editComSecretarioId}
+                  onChange={(e) => setEditComSecretarioId(e.target.value)}
+                  className="w-full p-2 border rounded-lg bg-white text-gray-900"
+                >
+                  <option value="">Nenhum / Não Atribuído</option>
+                  {funcionarios.map(f => (
+                    <option key={`edit-sec-${f.id}`} value={f.id}>{f.nomeCompleto} ({f.cargo})</option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

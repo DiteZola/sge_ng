@@ -64,10 +64,10 @@ export const obterNomeDiretorGeral = (escola?: Escola | null, funcionariosLista?
     return (escola as any).diretorNome.trim();
   }
 
-  // 3. Buscar nos funcionários da escola
+  // 3. Buscar nos funcionários registados nesta escola
   const funcs = funcionariosLista || dbService.getFuncionarios(escola.id) || [];
   const diretorFunc = funcs.find(f => 
-    (!f.escolaId || f.escolaId === escola.id || escola.id === 'todas') &&
+    (f.escolaId === escola.id || escola.id === 'todas') &&
     (f.role === 'DiretorGeral' || 
      (f.cargo && (
        f.cargo.toLowerCase().includes('diretor geral') || 
@@ -81,25 +81,16 @@ export const obterNomeDiretorGeral = (escola?: Escola | null, funcionariosLista?
     return diretorFunc.nomeCompleto.trim();
   }
 
-  // 4. Verificar se o utilizador autenticado atual é Diretor Geral
+  // 4. Se o utilizador autenticado atual pertence a esta escola e é Diretor Geral
   try {
     const user = dbService.getCurrentUser();
-    if (user && (user.role === 'DiretorGeral' || user.cargo?.toLowerCase().includes('diretor')) && user.nomeCompleto && !isPlaceholderInvalido(user.nomeCompleto)) {
+    if (user && (user.escolaId === escola.id || user.role === 'AdminGeral') && 
+        (user.role === 'DiretorGeral' || user.cargo?.toLowerCase().includes('diretor')) && 
+        user.nomeCompleto && !isPlaceholderInvalido(user.nomeCompleto)) {
       return user.nomeCompleto.trim();
     }
   } catch (e) {
     // Ignorar se storage não disponível
-  }
-
-  // 5. Buscar qualquer funcionário no sistema com papel DiretorGeral
-  try {
-    const todosFuncs = dbService.getFuncionarios();
-    const qualquerDiretor = todosFuncs.find(f => f.role === 'DiretorGeral');
-    if (qualquerDiretor && qualquerDiretor.nomeCompleto && !isPlaceholderInvalido(qualquerDiretor.nomeCompleto)) {
-      return qualquerDiretor.nomeCompleto.trim();
-    }
-  } catch (e) {
-    // Ignorar
   }
 
   return (escola.diretorGeralNome && !isPlaceholderInvalido(escola.diretorGeralNome) && escola.diretorGeralNome.trim()) || 'Director Geral da Instituição';
@@ -147,10 +138,10 @@ export const obterNomeSubdiretorPedagogico = (escola?: Escola | null, funcionari
     return escola.subdiretorPedagogicoNome.trim();
   }
 
-  // 2. Buscar nos funcionários da escola por role ou cargo pedagógico
+  // 2. Buscar nos funcionários registados nesta escola por role ou cargo pedagógico
   const funcs = funcionariosLista || dbService.getFuncionarios(escola.id) || [];
   const subFunc = funcs.find(f => 
-    (!f.escolaId || f.escolaId === escola.id || escola.id === 'todas') &&
+    (f.escolaId === escola.id || escola.id === 'todas') &&
     (f.role === 'SubdiretorPedagogico' ||
      f.role === 'CoordenadorPedagogico' ||
      (f.cargo && (
@@ -165,23 +156,20 @@ export const obterNomeSubdiretorPedagogico = (escola?: Escola | null, funcionari
     return subFunc.nomeCompleto.trim();
   }
 
-  // 3. Buscar nos utilizadores autenticados ou funcionários globais
+  // 3. Se o utilizador autenticado atual pertence a esta escola e é Subdiretor Pedagógico
   try {
     const user = dbService.getCurrentUser();
-    if (user && (user.role === 'SubdiretorPedagogico' || user.cargo?.toLowerCase().includes('pedagóg')) && user.nomeCompleto && !isPlaceholderInvalido(user.nomeCompleto)) {
+    if (user && (user.escolaId === escola.id || user.role === 'AdminGeral') && 
+        (user.role === 'SubdiretorPedagogico' || user.cargo?.toLowerCase().includes('pedagóg')) && 
+        user.nomeCompleto && !isPlaceholderInvalido(user.nomeCompleto)) {
       return user.nomeCompleto.trim();
-    }
-    const todosFuncs = dbService.getFuncionarios();
-    const globalSub = todosFuncs.find(f => f.role === 'SubdiretorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg'));
-    if (globalSub && globalSub.nomeCompleto && !isPlaceholderInvalido(globalSub.nomeCompleto)) {
-      return globalSub.nomeCompleto.trim();
     }
   } catch (e) {
     // Ignorar
   }
 
-  // 4. Se houver algum professor experiente como responsável pedagógico
-  const primeiroProf = funcs.find(f => f.ehProfessor && f.nomeCompleto && !isPlaceholderInvalido(f.nomeCompleto));
+  // 4. Se houver algum professor desta escola registado
+  const primeiroProf = funcs.find(f => (f.escolaId === escola.id || escola.id === 'todas') && f.ehProfessor && f.nomeCompleto && !isPlaceholderInvalido(f.nomeCompleto));
   if (primeiroProf) {
     return primeiroProf.nomeCompleto.trim();
   }
@@ -229,7 +217,7 @@ export const obterNomeChefeSecretaria = (escola?: Escola | null, funcionariosLis
   // 2. Buscar nos funcionários da escola por role ou cargo de secretaria
   const funcs = funcionariosLista || dbService.getFuncionarios(escola.id) || [];
   const secFunc = funcs.find(f => 
-    (!f.escolaId || f.escolaId === escola.id || escola.id === 'todas') &&
+    (f.escolaId === escola.id || escola.id === 'todas') &&
     (f.role === 'ChefeSecretaria' ||
      f.role === 'Secretario' ||
      f.role === 'SecretarioEscolar' ||
@@ -246,17 +234,13 @@ export const obterNomeChefeSecretaria = (escola?: Escola | null, funcionariosLis
     return secFunc.nomeCompleto.trim();
   }
 
-  // 3. Buscar nos utilizadores globais
+  // 3. Se o utilizador atual pertence a esta escola e é Chefe de Secretaria
   try {
-    const todosFuncs = dbService.getFuncionarios();
-    const globalSec = todosFuncs.find(f => 
-      f.role === 'ChefeSecretaria' || 
-      f.role === 'Secretario' || 
-      f.role === 'SecretarioEscolar' ||
-      f.cargo?.toLowerCase().includes('secretar')
-    );
-    if (globalSec && globalSec.nomeCompleto && !isPlaceholderInvalido(globalSec.nomeCompleto)) {
-      return globalSec.nomeCompleto.trim();
+    const user = dbService.getCurrentUser();
+    if (user && (user.escolaId === escola.id || user.role === 'AdminGeral') &&
+        (user.role === 'ChefeSecretaria' || user.role === 'Secretario' || user.role === 'SecretarioEscolar') &&
+        user.nomeCompleto && !isPlaceholderInvalido(user.nomeCompleto)) {
+      return user.nomeCompleto.trim();
     }
   } catch (e) {
     // Ignorar
@@ -518,14 +502,50 @@ export const obterSecretarioJuri = (comissao?: ComissaoJuri | null, funcionarios
 export const obterVogaisJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): { primeiroVogal: string; segundoVogal: string } => {
   const funcs = funcionariosLista || (comissao ? dbService.getFuncionarios(comissao.escolaId) : dbService.getFuncionarios()) || [];
   
-  if (comissao && comissao.membros) {
-    const vogais = comissao.membros.filter(m => (m.funcao as string) === 'Vogal' && m.nome && !isPlaceholderInvalido(m.nome));
-    if (vogais.length >= 2) {
-      return { primeiroVogal: vogais[0].nome.trim(), segundoVogal: vogais[1].nome.trim() };
+  if (comissao) {
+    let pVogal = '';
+    let sVogal = '';
+
+    // 1. Verificar IDs diretos vogal1Id e vogal2Id
+    if (comissao.vogal1Id) {
+      const f1 = funcs.find(f => f.id === comissao.vogal1Id);
+      if (f1?.nomeCompleto && !isPlaceholderInvalido(f1.nomeCompleto)) {
+        pVogal = f1.nomeCompleto.trim();
+      }
     }
-    if (vogais.length === 1) {
-      const suplente = funcs.find(f => f.ehProfessor && f.nomeCompleto !== vogais[0].nome && !isPlaceholderInvalido(f.nomeCompleto));
-      return { primeiroVogal: vogais[0].nome.trim(), segundoVogal: suplente?.nomeCompleto?.trim() || '2º Vogal do Júri' };
+    if (comissao.vogal2Id) {
+      const f2 = funcs.find(f => f.id === comissao.vogal2Id);
+      if (f2?.nomeCompleto && !isPlaceholderInvalido(f2.nomeCompleto)) {
+        sVogal = f2.nomeCompleto.trim();
+      }
+    }
+
+    // 2. Verificar membros da comissão estruturados
+    if (comissao.membros && comissao.membros.length > 0) {
+      const v1 = comissao.membros.find(m => ((m.funcao as string) === '1º Vogal' || (m.funcao as string) === '1° Vogal') && m.nome && !isPlaceholderInvalido(m.nome));
+      const v2 = comissao.membros.find(m => ((m.funcao as string) === '2º Vogal' || (m.funcao as string) === '2° Vogal') && m.nome && !isPlaceholderInvalido(m.nome));
+      if (v1 && !pVogal) pVogal = v1.nome.trim();
+      if (v2 && !sVogal) sVogal = v2.nome.trim();
+
+      // Membros genéricos marcados como Vogal ou Membro
+      const outrosVogais = comissao.membros.filter(m => 
+        ((m.funcao as string) === 'Vogal' || (m.funcao as string) === 'Membro') && 
+        m.nome && 
+        !isPlaceholderInvalido(m.nome) &&
+        m.nome.trim() !== pVogal &&
+        m.nome.trim() !== sVogal
+      );
+
+      if (!pVogal && outrosVogais.length > 0) pVogal = outrosVogais[0].nome.trim();
+      if (!sVogal && outrosVogais.length > 1) sVogal = outrosVogais[1].nome.trim();
+    }
+
+    if (pVogal && sVogal) {
+      return { primeiroVogal: pVogal, segundoVogal: sVogal };
+    }
+    if (pVogal && !sVogal) {
+      const suplente = funcs.find(f => f.ehProfessor && f.nomeCompleto?.trim() !== pVogal && !isPlaceholderInvalido(f.nomeCompleto));
+      return { primeiroVogal: pVogal, segundoVogal: suplente?.nomeCompleto?.trim() || '2º Vogal do Júri' };
     }
   }
 
@@ -536,4 +556,13 @@ export const obterVogaisJuri = (comissao?: ComissaoJuri | null, funcionariosList
     segundoVogal: profs[1]?.nomeCompleto?.trim() || '2º Vogal do Júri'
   };
 };
+
+export const obterPrimeiroVogalJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
+  return obterVogaisJuri(comissao, funcionariosLista).primeiroVogal;
+};
+
+export const obterSegundoVogalJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
+  return obterVogaisJuri(comissao, funcionariosLista).segundoVogal;
+};
+
 

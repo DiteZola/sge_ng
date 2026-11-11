@@ -79,6 +79,7 @@ export interface Escola {
   matriculasAbertas?: boolean;
   lancamentoNotasAberto?: boolean;
   permitirSolicitacaoAlteracaoNota?: boolean;
+  permitirSubdiretorCadastrarFuncionarios?: boolean;
   exigirPropinaRegularizadaParaDocumentos?: boolean;
   moduloFinanceiroAtivo?: boolean;
   emissaoPassesAtiva?: boolean;
@@ -514,7 +515,7 @@ export interface SolicitacaoAlteracaoNota {
 // MÓDULO COMISSÃO DE JÚRI (CONFORME ESPECIFICAÇÃO MED)
 // ==========================================
 
-export type FuncaoMembroJuri = 'Presidente' | 'Secretario' | 'Membro';
+export type FuncaoMembroJuri = 'Presidente' | 'Secretario' | 'Membro' | '1º Vogal' | '2º Vogal' | 'Vogal';
 
 export type EstadoSessaoJuri = 
   | 'Planeada' 

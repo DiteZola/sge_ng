@@ -187,6 +187,21 @@ class FirebaseSyncEngine {
           });
           const mesclados = Array.from(map.values());
           localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(mesclados));
+          
+          // Sincronizar sessão ativa do utilizador autenticado
+          const curRaw = localStorage.getItem('sge_user') || localStorage.getItem('sge_current_user');
+          if (curRaw) {
+            try {
+              const cur = JSON.parse(curRaw);
+              const updatedCur = mesclados.find(f => f.id === cur.id || (f.email && f.email.toLowerCase() === cur.email?.toLowerCase()));
+              if (updatedCur) {
+                const mergedCur = { ...cur, ...updatedCur };
+                localStorage.setItem('sge_user', JSON.stringify(mergedCur));
+                localStorage.setItem('sge_current_user', JSON.stringify(mergedCur));
+              }
+            } catch {}
+          }
+
           const temAdmin = mesclados.some(f => f.role === 'AdminGeral' && f.ativo);
           if (temAdmin) {
             localStorage.setItem('sge_admin_configured', 'true');
@@ -490,6 +505,20 @@ class FirebaseSyncEngine {
         funcs.push(user);
       }
       localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(funcs));
+
+      // Sincronizar sessão ativa do utilizador autenticado se for ele mesmo
+      const curRaw = localStorage.getItem('sge_user') || localStorage.getItem('sge_current_user');
+      if (curRaw) {
+        try {
+          const cur = JSON.parse(curRaw);
+          if (cur.id === user.id || (cur.email && cur.email.toLowerCase() === user.email?.toLowerCase())) {
+            const mergedCur = { ...cur, ...user };
+            localStorage.setItem('sge_user', JSON.stringify(mergedCur));
+            localStorage.setItem('sge_current_user', JSON.stringify(mergedCur));
+          }
+        } catch {}
+      }
+
       offlineStorage.registarMutacao('Dispositivo', 'ATUALIZAR', `Utilizador ${user.nomeCompleto} guardado localmente.`);
     } catch (e) {
       console.warn('[SGE Firebase Sync] Erro ao gravar utilizador no dispositivo:', e);

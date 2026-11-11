@@ -35,6 +35,7 @@ import {
   AtribuicaoDocente, 
   Funcionario, 
   ComissaoJuri, 
+  MembroComissaoJuri, 
   EstadoAno, 
   Trimestre, 
   NivelEnsino,
@@ -681,6 +682,41 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     e.preventDefault();
     if (!juriNome || !juriTurmaId || !juriPresidenteId) return;
     const turma = turmas.find(t => t.id === juriTurmaId);
+
+    const membros: MembroComissaoJuri[] = [];
+    const pres = funcionarios.find(f => f.id === juriPresidenteId);
+    if (pres) {
+      membros.push({
+        usuarioId: pres.id,
+        nome: pres.nomeCompleto,
+        email: pres.email,
+        funcao: 'Presidente',
+        cargoOriginal: pres.cargo
+      });
+    }
+    const v1 = funcionarios.find(f => f.id === juriVogal1Id);
+    if (v1) {
+      membros.push({
+        usuarioId: v1.id,
+        nome: v1.nomeCompleto,
+        email: v1.email,
+        funcao: '1º Vogal',
+        cargoOriginal: v1.cargo,
+        ehProfessor: v1.ehProfessor
+      });
+    }
+    const v2 = funcionarios.find(f => f.id === juriVogal2Id);
+    if (v2) {
+      membros.push({
+        usuarioId: v2.id,
+        nome: v2.nomeCompleto,
+        email: v2.email,
+        funcao: '2º Vogal',
+        cargoOriginal: v2.cargo,
+        ehProfessor: v2.ehProfessor
+      });
+    }
+
     const novo: ComissaoJuri = {
       id: `juri-${Date.now()}`,
       escolaId: escola.id,
@@ -691,7 +727,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       vogal1Id: juriVogal1Id || undefined,
       vogal2Id: juriVogal2Id || undefined,
       anoLectivo: escola.anoLectivoActivo,
-      fase: '1ª Época'
+      fase: '1ª Época',
+      membros
     };
     onSalvarJuri(novo);
     setShowJuriModal(false);

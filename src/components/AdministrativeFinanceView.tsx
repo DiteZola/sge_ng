@@ -2957,7 +2957,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-bold text-gray-800 focus:ring-2 focus:ring-indigo-600"
                 >
                   <option value="">-- Selecione o Colaborador --</option>
-                  {dbService.getFuncionarios()
+                  {dbService.getFuncionarios(escola.id)
                     .filter(f => f.role !== 'AdminGeral' && f.role !== 'DiretorGeral')
                     .map(f => (
                       <option key={f.id} value={f.id}>

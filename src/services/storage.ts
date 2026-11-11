@@ -61,6 +61,7 @@ import {
   TipoDelegacao,
   AcaoDelegadaLog
 } from '../types';
+import { isClasseFinal } from './macEngine';
 
 const STORAGE_KEYS = {
   ESCOLAS: 'sge_escolas',
@@ -2413,7 +2414,7 @@ export const dbService = {
   getFuncionarios: (escolaId?: string): Funcionario[] => {
     const list = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
     if (!escolaId || escolaId === 'todas') return list;
-    return list.filter(f => !f.escolaId || f.escolaId === escolaId);
+    return list.filter(f => f.escolaId === escolaId);
   },
   salvarFuncionario: (func: Funcionario) => {
     const funcs = dbService.getFuncionarios();
@@ -3123,6 +3124,563 @@ export const dbService = {
     const dataHoje = new Date().toISOString().split('T')[0];
     XLSX.writeFile(wb, `SGE_NG_Dados_Completos_${escola.sigla || 'Escola'}_${dataHoje}.xlsx`);
     dbService.registarLog('Exportação Excel', 'Ficheiro consolidado completo exportado em Excel (.xlsx) contendo todas as notas, dados e identificação institucional.');
+  },
+
+  // 1. Exportar Alunos com Todas as Notas em Excel (.xlsx)
+  exportarAlunosComNotasExcel: (escolaId?: string) => {
+    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const nppAtivo = escola?.nppAtivo !== false;
+    
+    const alunos = isEscolaEspecifica 
+      ? dbService.getAlunos().filter(a => a.escolaId === escolaId) 
+      : dbService.getAlunos();
+    const turmas = dbService.getTurmas();
+    const disciplinas = dbService.getDisciplinas();
+    const notasConsolidadas = dbService.getNotasConsolidadas();
+
+    const linhasAlunos: any[] = [];
+
+    alunos.forEach(aluno => {
+      const turma = turmas.find(t => t.id === aluno.turmaId);
+      const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id);
+      const ehFinal = isClasseFinal(turma?.classe || aluno.classeId);
+
+      const discList = disciplinas.filter(d => 
+        !d.classes || d.classes.length === 0 || d.classes.includes(turma?.classe || '')
+      );
+
+      (discList.length > 0 ? discList : disciplinas).forEach(disc => {
+        const n1 = notasAluno.find(n => n.disciplinaId === disc.id && String(n.trimestre).includes('1'));
+        const n2 = notasAluno.find(n => n.disciplinaId === disc.id && String(n.trimestre).includes('2'));
+        const n3 = notasAluno.find(n => n.disciplinaId === disc.id && String(n.trimestre).includes('3'));
+
+        const mt1 = n1?.mediaTrimestral ?? n1?.notaFinal;
+        const mt2 = n2?.mediaTrimestral ?? n2?.notaFinal;
+        const mt3 = n3?.mediaTrimestral ?? n3?.notaFinal;
+
+        let mdf = 0;
+        const mtsValidos = [mt1, mt2, mt3].filter((v): v is number => v !== undefined && v !== null);
+        if (mtsValidos.length > 0) {
+          mdf = Number((mtsValidos.reduce((a, b) => a + b, 0) / mtsValidos.length).toFixed(1));
+        }
+
+        const ne = ehFinal ? (n3?.notaExame ?? null) : null;
+        let mf: number | null = null;
+        if (ehFinal && ne !== null && ne !== undefined) {
+          mf = Number(((mdf * 0.4) + (ne * 0.6)).toFixed(1));
+        } else {
+          mf = mdf;
+        }
+
+        const linha: any = {
+          'Instituição Escolar': escola?.nomeOficial || 'Instituição Escolar',
+          'Código SIGE': escola?.codigoSIGE || escola?.codigoMEC || '',
+          'Nº Processo': aluno.codigoMatricula || aluno.id,
+          'Nome Completo': aluno.nomeCompleto,
+          'Gênero': aluno.genero === 'M' ? 'Masculino' : 'Feminino',
+          'Data de Nascimento': aluno.dataNascimento || '—',
+          'BI / Cédula': aluno.numeroBI || aluno.numeroDocumento || '—',
+          'Turma': turma?.nome || aluno.turmaId,
+          'Classe': turma?.classe || aluno.classeId || '—',
+          'Turno': turma?.periodo || turma?.turno || '—',
+          'Sala': turma?.sala || '—',
+          'Disciplina': disc.nome,
+          '1T - MAC': n1?.mac ?? '—',
+        };
+
+        if (nppAtivo) {
+          linha['1T - Prova Professor (NPP)'] = n1?.npp ?? '—';
+        }
+        linha['1T - Prova Trimestral (PT)'] = n1?.npt ?? '—';
+        linha['1T - Média Trimestral (MT1)'] = mt1 ?? '—';
+
+        linha['2T - MAC'] = n2?.mac ?? '—';
+        if (nppAtivo) {
+          linha['2T - Prova Professor (NPP)'] = n2?.npp ?? '—';
+        }
+        linha['2T - Prova Trimestral (PT)'] = n2?.npt ?? '—';
+        linha['2T - Média Trimestral (MT2)'] = mt2 ?? '—';
+
+        linha['3T - MAC'] = n3?.mac ?? '—';
+        if (nppAtivo) {
+          linha['3T - Prova Professor (NPP)'] = n3?.npp ?? '—';
+        }
+        linha['3T - Prova Trimestral (PT)'] = n3?.npt ?? '—';
+        linha['3T - Média Trimestral (MT3)'] = mt3 ?? '—';
+
+        linha['Média dos Trimestres (MDF)'] = mdf > 0 ? mdf : '—';
+        
+        if (ehFinal) {
+          linha['Exame Nacional / Júri (NE)'] = ne !== null ? ne : 'Pendente';
+          linha['Média Final (MF com Exame)'] = mf !== null ? mf : '—';
+        } else {
+          linha['Média Final (MF Anual)'] = mdf > 0 ? mdf : '—';
+        }
+
+        const notaDecisiva = mf !== null ? mf : mdf;
+        linha['Resultado Final'] = notaDecisiva >= 10 ? 'Aprovado' : (notaDecisiva > 0 ? 'Não Transita' : 'Pendente');
+
+        linhasAlunos.push(linha);
+      });
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(linhasAlunos.length > 0 ? linhasAlunos : [{ 'Informação': 'Nenhum estudante ou nota disponível para exportação.' }]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Alunos e Notas');
+
+    const dataHoje = new Date().toISOString().split('T')[0];
+    const sigla = escola?.sigla || (isEscolaEspecifica ? 'Escola' : 'Rede_Nacional');
+    XLSX.writeFile(wb, `SGE_Alunos_Com_Notas_${sigla}_${dataHoje}.xlsx`);
+    dbService.registarLog('Exportação Excel', `Livro Excel com notas completas dos alunos (${sigla}) exportado com sucesso.`);
+  },
+
+  // 2. Exportar Alunos com Todas as Notas em JSON (.json)
+  exportarAlunosComNotasJSON: (escolaId?: string) => {
+    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const alunos = isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === escolaId) : dbService.getAlunos();
+    const turmas = isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === escolaId) : dbService.getTurmas();
+    const disciplinas = dbService.getDisciplinas();
+    const notasConsolidadas = dbService.getNotasConsolidadas();
+
+    const dadosExportacao = {
+      tipo: 'SGE_ALUNOS_NOTAS_COMPLETO',
+      versao: '2.5',
+      dataExportacao: new Date().toISOString(),
+      escola: escola ? {
+        id: escola.id,
+        nomeOficial: escola.nomeOficial,
+        sigla: escola.sigla,
+        codigoSIGE: escola.codigoSIGE,
+        provincia: escola.provincia,
+        municipio: escola.municipio,
+        nppAtivo: escola.nppAtivo !== false
+      } : null,
+      totalAlunos: alunos.length,
+      alunos: alunos.map(aluno => {
+        const turma = turmas.find(t => t.id === aluno.turmaId);
+        const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id);
+        const ehFinal = isClasseFinal(turma?.classe || aluno.classeId);
+        return {
+          id: aluno.id,
+          codigoMatricula: aluno.codigoMatricula,
+          numeroOrdem: aluno.numeroOrdem,
+          nomeCompleto: aluno.nomeCompleto,
+          genero: aluno.genero,
+          dataNascimento: aluno.dataNascimento,
+          biOuCedula: aluno.numeroBI || aluno.numeroDocumento || '—',
+          telefone: aluno.telefone,
+          endereco: aluno.residencia || aluno.bairro || '—',
+          turma: turma ? { id: turma.id, nome: turma.nome, classe: turma.classe, turno: turma.periodo || turma.turno } : null,
+          ehClasseFinal: ehFinal,
+          disciplinasNotas: notasAluno.map(n => {
+            const disc = disciplinas.find(d => d.id === n.disciplinaId);
+            return {
+              disciplinaId: n.disciplinaId,
+              disciplinaNome: disc?.nome || (n as any).disciplinaNome || n.disciplinaId,
+              trimestre: n.trimestre,
+              mac: n.mac,
+              npp: n.npp,
+              npt: n.npt,
+              mediaTrimestral: n.mediaTrimestral,
+              notaExame: ehFinal ? n.notaExame : undefined,
+              notaFinal: n.notaFinal
+            };
+          })
+        };
+      })
+    };
+
+    const blob = new Blob([JSON.stringify(dadosExportacao, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const sigla = escola?.sigla || (isEscolaEspecifica ? 'Escola' : 'Rede_Nacional');
+    const dataHoje = new Date().toISOString().split('T')[0];
+    a.download = `SGE_Alunos_Com_Notas_${sigla}_${dataHoje}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    dbService.registarLog('Backup JSON', `Arquivo JSON de estudantes e notas (${sigla}) gerado com sucesso.`);
+  },
+
+  // 3. Exportar Quadro Completo de Funcionários em Excel (.xlsx)
+  exportarFuncionariosCompletosExcel: (escolaId?: string) => {
+    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const funcs = isEscolaEspecifica 
+      ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId) 
+      : dbService.getFuncionarios();
+
+    const linhas = funcs.map(f => {
+      const esc = todasEscolas.find(e => e.id === f.escolaId) || escola;
+      return {
+        'Instituição Escolar': esc?.nomeOficial || 'SGE-NG Central',
+        'Código SIGE Escola': esc?.codigoSIGE || esc?.codigoMEC || '',
+        'ID Funcionário': f.id,
+        'Nome Completo': f.nomeCompleto,
+        'Gênero': f.genero === 'M' ? 'Masculino' : (f.genero === 'F' ? 'Feminino' : '—'),
+        'Data de Nascimento': f.dataNascimento || '—',
+        'Estado Civil': f.estadoCivil || '—',
+        'Nacionalidade': f.nacionalidade || 'Angolana',
+        'Nº Bilhete de Identidade (BI)': f.numeroBI,
+        'Data Emissão BI': f.dataEmissaoBI || '—',
+        'Validade BI': f.dataValidadeBI || '—',
+        'NIF': f.nif || '—',
+        'Cargo / Função': f.cargo,
+        'Categoria Profissional': f.categoriaProfissional || 'Técnico Pedagógico',
+        'Nº de Agente do Estado': f.numeroAgente || '—',
+        'Regime Contratual': f.tipoContrato || 'Quadro Efetivo',
+        'Data de Admissão': f.dataAdmissao || '—',
+        'Papel no Sistema (Role)': f.role,
+        'Status da Conta': f.statusConta || 'Ativa',
+        'É Professor': f.ehProfessor ? 'Sim' : 'Não',
+        'Especialidade / Formação': f.especialidade || '—',
+        'Habilitações Literárias': f.habilitacoes || 'Licenciatura',
+        'Instituição de Graduação': (f as any).instituicaoFormacao || '—',
+        'Telefone Principal': f.telefone,
+        'Telefone Alternativo': f.telefoneAlternativo || '—',
+        'Email Institucional': f.email,
+        'Email Pessoal': (f as any).emailPessoal || '—',
+        'Província Residência': f.provincia || esc?.provincia || '—',
+        'Município Residência': f.municipio || esc?.municipio || '—',
+        'Bairro / Morada': f.residencia || f.bairro || '—',
+        'Banco': f.banco || '—',
+        'IBAN / Conta Bancária': f.iban || '—',
+        'Grupo Sanguíneo': f.grupoSanguineo || '—',
+        'Contacto Emergência (Nome)': f.contactoEmergenciaNome || '—',
+        'Contacto Emergência (Telefone)': f.contactoEmergenciaTelefone || '—'
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(linhas.length > 0 ? linhas : [{ 'Informação': 'Nenhum funcionário encontrado.' }]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Quadro de Funcionários');
+
+    const dataHoje = new Date().toISOString().split('T')[0];
+    const sigla = escola?.sigla || (isEscolaEspecifica ? 'Escola' : 'Rede_Nacional');
+    XLSX.writeFile(wb, `SGE_Quadro_Funcionarios_Completo_${sigla}_${dataHoje}.xlsx`);
+    dbService.registarLog('Exportação Excel', `Quadro completo de funcionários (${sigla}) exportado com sucesso.`);
+  },
+
+  // 4. Exportar Quadro Completo de Funcionários em JSON (.json)
+  exportarFuncionariosCompletosJSON: (escolaId?: string) => {
+    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const funcs = isEscolaEspecifica 
+      ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId) 
+      : dbService.getFuncionarios();
+
+    const dadosExportacao = {
+      tipo: 'SGE_QUADRO_FUNCIONARIOS_COMPLETO',
+      versao: '2.5',
+      dataExportacao: new Date().toISOString(),
+      escolaAlvo: escola ? { id: escola.id, nome: escola.nomeOficial, sigla: escola.sigla } : null,
+      totalFuncionarios: funcs.length,
+      funcionarios: funcs
+    };
+
+    const blob = new Blob([JSON.stringify(dadosExportacao, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const sigla = escola?.sigla || (isEscolaEspecifica ? 'Escola' : 'Rede_Nacional');
+    const dataHoje = new Date().toISOString().split('T')[0];
+    a.download = `SGE_Quadro_Funcionarios_Completo_${sigla}_${dataHoje}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    dbService.registarLog('Backup JSON', `Arquivo JSON do quadro de funcionários (${sigla}) exportado com sucesso.`);
+  },
+
+  // 5. Exportar Escola Completa em Excel (.xlsx) com Múltiplas Abas Oficiais
+  exportarEscolaCompletaExcel: (escolaId?: string) => {
+    const todasEscolas = dbService.getEscolas();
+    const escolaAlvoId = escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva()?.id;
+    const escola = todasEscolas.find(e => e.id === escolaAlvoId) || dbService.getEscolaAtiva() || todasEscolas[0];
+    const nppAtivo = escola?.nppAtivo !== false;
+
+    const alunos = dbService.getAlunos().filter(a => a.escolaId === escola.id);
+    const turmas = dbService.getTurmas().filter(t => t.escolaId === escola.id);
+    const disciplinas = dbService.getDisciplinas();
+    const funcs = dbService.getFuncionarios().filter(f => f.escolaId === escola.id);
+    const notasConsolidadas = dbService.getNotasConsolidadas();
+    const transacoes = dbService.getTransacoesFinanceiras().filter(t => t.escolaId === escola.id);
+    const patrimonio = dbService.getPatrimonio().filter(p => p.escolaId === escola.id);
+
+    const wb = XLSX.utils.book_new();
+
+    // Folha 1: Instituição Escolar
+    const escolaInfo = [{
+      'Designação Oficial': escola.nomeOficial,
+      'Sigla': escola.sigla || 'MED',
+      'Código SIGE': escola.codigoSIGE || escola.codigoMEC || escola.id,
+      'Província': escola.provincia || 'Luanda',
+      'Município': escola.municipio || 'Luanda',
+      'Comuna / Distrito': escola.comunaDistrito || 'Urbano',
+      'Bairro': escola.bairro || 'Central',
+      'Telefone Oficial': escola.telefone || '—',
+      'Email Oficial': escola.email || '—',
+      'Ano Lectivo Activo': escola.anoLectivoActivo || '2024/2025',
+      'Trimestre Activo': `${escola.trimestreActivo || 'II'}º Trimestre`,
+      'Diretor Geral': escola.diretorGeralNome || 'Pendente de Nomeação',
+      'Subdiretor Pedagógico': escola.subdiretorPedagogicoNome || 'Pendente',
+      'Subdiretor Administrativo': escola.subdirectorAdministrativoNome || escola.subdiretorAdministrativoNome || 'Pendente',
+      'Ponderação Trimestral Oficial': nppAtivo ? 'MT = (MAC + NPP + PT) / 3' : 'MT = (MAC + PT) / 2',
+      'Total de Turmas': turmas.length,
+      'Total de Estudantes': alunos.length,
+      'Total de Funcionários': funcs.length
+    }];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(escolaInfo), 'Instituição Escolar');
+
+    // Folha 2: Quadro de Alunos
+    const alunosRows = alunos.map(a => {
+      const t = turmas.find(turma => turma.id === a.turmaId);
+      return {
+        'Nº Processo': a.codigoMatricula || a.id,
+        'Nº de Ordem': a.numeroOrdem || 1,
+        'Nome Completo': a.nomeCompleto,
+        'Gênero': a.genero === 'M' ? 'Masculino' : 'Feminino',
+        'Data Nascimento': a.dataNascimento || '—',
+        'BI / Cédula': a.numeroBI || a.numeroDocumento || '—',
+        'Turma': t?.nome || a.turmaId,
+        'Classe': t?.classe || a.classeId || '—',
+        'Turno': t?.periodo || t?.turno || '—',
+        'Sala': t?.sala || '—',
+        'Telefone Aluno/Encarregado': a.telefone || '—',
+        'Endereço / Residência': a.residencia || a.bairro || '—'
+      };
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(alunosRows.length > 0 ? alunosRows : [{ 'Info': 'Sem alunos' }]), 'Alunos & Matrículas');
+
+    // Folha 3: Pauta Geral de Notas
+    const pautaDetalhada: any[] = [];
+    alunos.forEach(a => {
+      const t = turmas.find(turma => turma.id === a.turmaId);
+      const notasAluno = notasConsolidadas.filter(n => n.alunoId === a.id);
+      const ehFinal = isClasseFinal(t?.classe || a.classeId);
+
+      disciplinas.forEach(d => {
+        const n1 = notasAluno.find(n => n.disciplinaId === d.id && String(n.trimestre).includes('1'));
+        const n2 = notasAluno.find(n => n.disciplinaId === d.id && String(n.trimestre).includes('2'));
+        const n3 = notasAluno.find(n => n.disciplinaId === d.id && String(n.trimestre).includes('3'));
+
+        if (n1 || n2 || n3) {
+          const mt1Val = n1?.mediaTrimestral ?? n1?.notaFinal;
+          const mt2Val = n2?.mediaTrimestral ?? n2?.notaFinal;
+          const mt3Val = n3?.mediaTrimestral ?? n3?.notaFinal;
+          const mts = [mt1Val, mt2Val, mt3Val].filter((v): v is number => v !== undefined && v !== null);
+          const mdf = mts.length > 0 ? Number((mts.reduce((x, y) => x + y, 0) / mts.length).toFixed(1)) : 0;
+          const ne = ehFinal ? (n3?.notaExame ?? null) : null;
+          const mf = (ehFinal && ne !== null) ? Number(((mdf * 0.4) + (ne * 0.6)).toFixed(1)) : mdf;
+
+          const row: any = {
+            'Nº Processo': a.codigoMatricula || a.id,
+            'Nome do Estudante': a.nomeCompleto,
+            'Turma': t?.nome || a.turmaId,
+            'Classe': t?.classe || a.classeId || '—',
+            'Disciplina': d.nome,
+            '1T - MAC': n1?.mac ?? '—'
+          };
+          if (nppAtivo) row['1T - NPP'] = n1?.npp ?? '—';
+          row['1T - PT'] = n1?.npt ?? '—';
+          row['1T - MT'] = mt1Val ?? '—';
+
+          row['2T - MAC'] = n2?.mac ?? '—';
+          if (nppAtivo) row['2T - NPP'] = n2?.npp ?? '—';
+          row['2T - PT'] = n2?.npt ?? '—';
+          row['2T - MT'] = mt2Val ?? '—';
+
+          row['3T - MAC'] = n3?.mac ?? '—';
+          if (nppAtivo) row['3T - NPP'] = n3?.npp ?? '—';
+          row['3T - PT'] = n3?.npt ?? '—';
+          row['3T - MT'] = mt3Val ?? '—';
+
+          row['MDF'] = mdf > 0 ? mdf : '—';
+          if (ehFinal) {
+            row['NE (Exame)'] = ne !== null ? ne : '—';
+            row['MF (Final)'] = mf > 0 ? mf : '—';
+          } else {
+            row['MF (Final)'] = mdf > 0 ? mdf : '—';
+          }
+          row['Classificação'] = (mf > 0 ? mf : mdf) >= 10 ? 'Aprovado' : 'Não Transita';
+
+          pautaDetalhada.push(row);
+        }
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pautaDetalhada.length > 0 ? pautaDetalhada : [{ 'Info': 'Sem notas lançadas' }]), 'Pauta Geral de Notas');
+
+    // Folha 4: Quadro de Funcionários
+    const funcsRows = funcs.map(f => ({
+      'ID': f.id,
+      'Nome Completo': f.nomeCompleto,
+      'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
+      'BI': f.numeroBI,
+      'Cargo': f.cargo,
+      'Papel no Sistema': f.role,
+      'Professor': f.ehProfessor ? 'Sim' : 'Não',
+      'Habilitações': f.habilitacoes || 'Licenciatura',
+      'Especialidade': f.especialidade || '—',
+      'Telefone': f.telefone,
+      'Email': f.email
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(funcsRows.length > 0 ? funcsRows : [{ 'Info': 'Sem funcionários' }]), 'Quadro de Funcionários');
+
+    // Folha 5: Turmas
+    const turmasRows = turmas.map(t => ({
+      'ID Turma': t.id,
+      'Nome': t.nome,
+      'Classe': t.classe,
+      'Curso': t.curso,
+      'Turno': t.periodo || t.turno,
+      'Sala': t.sala,
+      'Ano Lectivo': t.anoLectivo || escola.anoLectivoActivo,
+      'Estudantes': alunos.filter(a => a.turmaId === t.id).length
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(turmasRows.length > 0 ? turmasRows : [{ 'Info': 'Sem turmas' }]), 'Turmas Homologadas');
+
+    // Folha 6: Livro de Caixa & Recibos
+    const finRows = transacoes.map(tr => ({
+      'Nº Recibo / Transação': tr.numeroRecibo || tr.id,
+      'Data': tr.dataHora || '—',
+      'Estudante': tr.alunoNome || '—',
+      'Conceito / Emolumento': tr.tipo || tr.mesReferencia || '—',
+      'Valor (Kz)': tr.valorKz || tr.valorTotalKz || 0,
+      'Método de Pagamento': tr.metodoPagamento || 'TPA',
+      'Estado': tr.status || 'Confirmado'
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(finRows.length > 0 ? finRows : [{ 'Info': 'Sem movimentações financeiras' }]), 'Livro de Caixa & Recibos');
+
+    // Folha 7: Património Escolar
+    const patRows = patrimonio.map(p => ({
+      'Código / Tombamento': p.codigoTombamento || p.codigoTombo || p.id,
+      'Designação do Bem': p.designacao || p.nomeItem || 'Item',
+      'Categoria': p.categoria,
+      'Localização / Sala': p.salaLocalizacao || p.localizacao || '—',
+      'Quantidade': p.quantidade || 1,
+      'Estado de Conservação': p.estadoConservacao || 'Bom'
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(patRows.length > 0 ? patRows : [{ 'Info': 'Sem património registado' }]), 'Património Escolar');
+
+    const dataHoje = new Date().toISOString().split('T')[0];
+    const sigla = escola.sigla || 'Escola';
+    XLSX.writeFile(wb, `SGE_Escola_Completa_${sigla}_${dataHoje}.xlsx`);
+    dbService.registarLog('Exportação Excel', `Livro Excel com todos os dados da escola (${sigla}) exportado com sucesso.`);
+  },
+
+  // 6. Exportar Escola Completa em JSON (.json)
+  exportarEscolaCompletaJSON: (escolaId?: string) => {
+    dbService.gerarBackupJSON(escolaId);
+  },
+
+  // 7. Exportar Todo o Sistema Completo em Excel (.xlsx)
+  exportarSistemaCompletoExcel: () => {
+    const wb = XLSX.utils.book_new();
+    const escolas = dbService.getEscolas();
+    const alunos = dbService.getAlunos();
+    const funcs = dbService.getFuncionarios();
+    const turmas = dbService.getTurmas();
+    const notasCons = dbService.getNotasConsolidadas();
+    const logs = dbService.getAuditoria();
+
+    // 1. Resumo Geral
+    const ativas = escolas.filter(e => e.ativo && e.estadoEscola !== 'Suspensa').length;
+    const resumo = [
+      { 'Indicador Estratégico MED': 'República de Angola', 'Valor Registado': 'Ministério da Educação (MED)' },
+      { 'Indicador Estratégico MED': 'Data do Balanço Nacional', 'Valor Registado': new Date().toLocaleDateString('pt-AO') },
+      { 'Indicador Estratégico MED': 'Total de Instituições Cadastradas', 'Valor Registado': escolas.length },
+      { 'Indicador Estratégico MED': 'Instituições em Pleno Funcionamento', 'Valor Registado': ativas },
+      { 'Indicador Estratégico MED': 'Total de Alunos Matriculados no Sistema', 'Valor Registado': alunos.length },
+      { 'Indicador Estratégico MED': 'Total de Professores e Quadros Administrativos', 'Valor Registado': funcs.length },
+      { 'Indicador Estratégico MED': 'Total de Turmas Homologadas', 'Valor Registado': turmas.length },
+      { 'Indicador Estratégico MED': 'Total de Lançamentos de Notas Consolidadas', 'Valor Registado': notasCons.length },
+      { 'Indicador Estratégico MED': 'Registos na Trilha Central de Auditoria', 'Valor Registado': logs.length }
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Balanço Geral Nacional');
+
+    // 2. Escolas
+    const escolasData = escolas.map(e => ({
+      'ID Escola': e.id,
+      'Código SIGE / MEC': e.codigoSIGE || e.codigoEscola || '',
+      'Designação Oficial': e.nomeOficial,
+      'Sigla': e.sigla,
+      'Província': e.provincia,
+      'Município': e.municipio,
+      'Diretor Geral': e.diretorGeralNome || 'Pendente',
+      'Subdiretor Pedagógico': e.subdiretorPedagogicoNome || 'Pendente',
+      'Ponderação Trimestral': e.nppAtivo !== false ? 'MT=(MAC+NPP+PT)/3' : 'MT=(MAC+PT)/2',
+      'Estado': e.ativo ? 'Ativa' : 'Suspensa',
+      'Ano Lectivo Activo': e.anoLectivoActivo,
+      'Total Alunos': alunos.filter(a => a.escolaId === e.id).length,
+      'Total Funcionários': funcs.filter(f => f.escolaId === e.id).length,
+      'Total Turmas': turmas.filter(t => t.escolaId === e.id).length
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(escolasData), 'Rede de Escolas');
+
+    // 3. Alunos
+    const alunosData = alunos.map(a => {
+      const e = escolas.find(esc => esc.id === a.escolaId);
+      const t = turmas.find(turma => turma.id === a.turmaId);
+      return {
+        'Escola': e?.nomeOficial || a.escolaId,
+        'Nº Processo': a.codigoMatricula || a.id,
+        'Nome Completo': a.nomeCompleto,
+        'Gênero': a.genero === 'M' ? 'Masculino' : 'Feminino',
+        'Data Nascimento': a.dataNascimento || '—',
+        'BI / Cédula': a.numeroBI || a.numeroDocumento || '—',
+        'Turma': t?.nome || a.turmaId,
+        'Classe': t?.classe || a.classeId || '—'
+      };
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(alunosData), 'Quadro Nacional de Alunos');
+
+    // 4. Funcionários
+    const funcsData = funcs.map(f => {
+      const e = escolas.find(esc => esc.id === f.escolaId);
+      return {
+        'Escola': e?.nomeOficial || f.escolaId || 'Central',
+        'Nome Completo': f.nomeCompleto,
+        'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
+        'BI': f.numeroBI,
+        'Cargo': f.cargo,
+        'Papel no Sistema': f.role,
+        'Professor': f.ehProfessor ? 'Sim' : 'Não',
+        'Habilitações': f.habilitacoes || 'Licenciatura',
+        'Telefone': f.telefone,
+        'Email': f.email,
+        'Status Conta': f.statusConta || 'Ativa'
+      };
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(funcsData), 'Quadro Nacional de RH');
+
+    // 5. Turmas
+    const turmasData = turmas.map(t => {
+      const e = escolas.find(esc => esc.id === t.escolaId);
+      return {
+        'Escola': e?.nomeOficial || t.escolaId,
+        'Nome da Turma': t.nome,
+        'Classe': t.classe,
+        'Curso': t.curso,
+        'Turno': t.periodo || t.turno,
+        'Sala': t.sala,
+        'Ano Lectivo': t.anoLectivo,
+        'Capacidade': t.capacidadeMaxima || 45
+      };
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(turmasData), 'Rede de Turmas');
+
+    const dataHoje = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `SGE_Sistema_Completo_Nacional_${dataHoje}.xlsx`);
+    dbService.registarLog('Relatório Ministerial', 'Cópia integral do sistema nacional em formato Excel (.xlsx) gerada com sucesso.');
+  },
+
+  // 8. Exportar Todo o Sistema Completo em JSON (.json)
+  exportarSistemaCompletoJSON: () => {
+    dbService.gerarBackupJSON('todas');
   },
 
   // Importar Dados do Excel
