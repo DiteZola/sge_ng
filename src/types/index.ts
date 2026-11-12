@@ -488,6 +488,8 @@ export interface NotaTrimestralConsolidada {
   validadaPelaDirecao: boolean;
 }
 
+export type NotaConsolidada = NotaTrimestralConsolidada;
+
 export interface SolicitacaoAlteracaoNota {
   id: string;
   escolaId: string;

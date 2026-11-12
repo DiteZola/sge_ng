@@ -1517,14 +1517,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          {/* Tabela de Notas Trimestrais com MAC, NPP, NPT, MT, Faltas, Comportamento, Assiduidade */}
+          {/* Tabela de Notas Trimestrais com MAC, NPP (se ativo), NPT, MT, Faltas, Comportamento, Assiduidade */}
           <div className="pt-3 overflow-x-auto">
             <table className="w-full min-w-[560px] text-[10px] sm:text-[11px] border border-black text-left">
               <thead className="bg-gray-100 font-bold border-b border-black text-center text-[9px] sm:text-[10px]">
                 <tr>
                   <th className="p-1.5 border-r border-black text-left">DISCIPLINA</th>
                   <th className="p-1 border-r border-black w-12" title="Média de Avaliação Contínua">MAC{escola.trimestreActivo}</th>
-                  <th className="p-1 border-r border-black w-12" title="Nota da Prova do Professor">NPP{escola.trimestreActivo}</th>
+                  {provaProfessorAtiva && (
+                    <th className="p-1 border-r border-black w-12" title="Nota da Prova do Professor">NPP{escola.trimestreActivo}</th>
+                  )}
                   <th className="p-1 border-r border-black w-12" title="Nota da Prova Trimestral">NPT{escola.trimestreActivo}</th>
                   <th className="p-1 border-r border-black w-14 bg-gray-200" title="Média Trimestral">MT{escola.trimestreActivo}</th>
                   <th className="p-1 border-r border-black w-12">N.º F</th>
@@ -1533,28 +1535,38 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-black">
-                {notasDoAluno.length > 0 ? (
-                  notasDoAluno.map((nota) => {
-                    const disc = disciplinas.find(d => d.id === nota.disciplinaId);
+                {disciplinasDaClasseDocumento.length > 0 ? (
+                  disciplinasDaClasseDocumento.map((disc) => {
+                    const nota = notasDoAluno.find(n => n.disciplinaId === disc.id);
                     return (
-                      <tr key={nota.id} className="hover:bg-gray-50">
-                        <td className="p-1.5 border-r border-black font-semibold uppercase">{disc?.nome || nota.disciplinaId}</td>
-                        <td className="p-1 border-r border-black text-center font-mono">{nota.mac?.toFixed(1) || '—'}</td>
-                        <td className="p-1 border-r border-black text-center font-mono">{nota.npp?.toFixed(1) || '—'}</td>
-                        <td className="p-1 border-r border-black text-center font-mono">{nota.npt?.toFixed(1) || nota.provaTrimestral?.toFixed(1) || '—'}</td>
-                        <td className="p-1 border-r border-black text-center font-mono font-black bg-gray-50">
-                          {nota.mediaTrimestral?.toFixed(1) || '—'}
+                      <tr key={disc.id} className="hover:bg-gray-50">
+                        <td className="p-1.5 border-r border-black font-semibold uppercase">{disc.nome}</td>
+                        <td className="p-1 border-r border-black text-center font-mono">
+                          {typeof nota?.mac === 'number' ? nota.mac.toFixed(1) : '—'}
                         </td>
-                        <td className="p-1 border-r border-black text-center font-mono">{nota.faltas || 0}</td>
-                        <td className="p-1 border-r border-black text-center text-[9px] font-semibold">{nota.comportamentoConceito || '—'}</td>
-                        <td className="p-1 text-center text-[9px] font-semibold">{nota.assiduidadeConceito || '—'}</td>
+                        {provaProfessorAtiva && (
+                          <td className="p-1 border-r border-black text-center font-mono">
+                            {typeof nota?.npp === 'number' ? nota.npp.toFixed(1) : '—'}
+                          </td>
+                        )}
+                        <td className="p-1 border-r border-black text-center font-mono">
+                          {typeof nota?.npt === 'number'
+                            ? nota.npt.toFixed(1)
+                            : (typeof nota?.provaTrimestral === 'number' ? nota.provaTrimestral.toFixed(1) : '—')}
+                        </td>
+                        <td className="p-1 border-r border-black text-center font-mono font-black bg-gray-50">
+                          {typeof nota?.mediaTrimestral === 'number' ? nota.mediaTrimestral.toFixed(1) : '—'}
+                        </td>
+                        <td className="p-1 border-r border-black text-center font-mono">{nota?.faltas || 0}</td>
+                        <td className="p-1 border-r border-black text-center text-[9px] font-semibold">{nota?.comportamentoConceito || '—'}</td>
+                        <td className="p-1 text-center text-[9px] font-semibold">{nota?.assiduidadeConceito || '—'}</td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="p-4 text-center text-gray-500">
-                      Nenhuma nota consolidada encontrada para este estudante no trimestre selecionado.
+                    <td colSpan={provaProfessorAtiva ? 8 : 7} className="p-4 text-center text-gray-500">
+                      Nenhuma disciplina configurada para esta classe no plano curricular.
                     </td>
                   </tr>
                 )}

@@ -51,6 +51,8 @@ import { StudentAttendanceReportView } from './components/StudentAttendanceRepor
 import { StudentPassesView } from './components/StudentPassesView';
 import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
 import { SchoolCalendarView } from './components/SchoolCalendarView';
+import { ReportsView } from './components/ReportsView';
+import { StatisticsView } from './components/StatisticsView';
 import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
 import { GuidedTourModal } from './components/GuidedTourModal';
@@ -407,7 +409,9 @@ export default function App() {
       'rh',
       'comunicacao',
       'documentos',
-      'formulas_notas'
+      'formulas_notas',
+      'relatorios',
+      'estatisticas'
     ],
     DiretorGeral: [
       'dashboard',
@@ -451,7 +455,9 @@ export default function App() {
       'comunicacao',
       'documentos',
       'sistema',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     SubdiretorPedagogico: [
       'dashboard',
@@ -485,7 +491,9 @@ export default function App() {
       'rh',
       'comunicacao',
       'documentos',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     CoordenadorPedagogico: [
       'dashboard',
@@ -518,7 +526,9 @@ export default function App() {
       'rh',
       'comunicacao',
       'documentos',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     SubdirectorAdministrativo: [
       'dashboard',
@@ -540,7 +550,9 @@ export default function App() {
       'comunicacao',
       'documentos',
       'arquitetura',
-      'comissao_juri'
+      'comissao_juri',
+      'relatorios',
+      'estatisticas'
     ],
     SubdiretorAdministrativo: [
       'dashboard',
@@ -562,7 +574,9 @@ export default function App() {
       'comunicacao',
       'documentos',
       'arquitetura',
-      'comissao_juri'
+      'comissao_juri',
+      'relatorios',
+      'estatisticas'
     ],
     Professor: [
       'dashboard',
@@ -579,7 +593,9 @@ export default function App() {
       'meu_perfil',
       'estudantes',
       'avaliacoes',
-      'comunicacao'
+      'comunicacao',
+      'relatorios',
+      'estatisticas'
     ],
     Secretaria: [
       'dashboard',
@@ -606,7 +622,9 @@ export default function App() {
       'estudantes',
       'comunicacao',
       'documentos',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     ChefeSecretaria: [
       'dashboard',
@@ -636,7 +654,9 @@ export default function App() {
       'estudantes',
       'comunicacao',
       'documentos',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     Secretario: [
       'dashboard',
@@ -663,7 +683,9 @@ export default function App() {
       'estudantes',
       'comunicacao',
       'documentos',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     CoordenadorTurno: [
       'dashboard',
@@ -688,7 +710,9 @@ export default function App() {
       'avaliacoes',
       'comunicacao',
       'documentos',
-      'arquitetura'
+      'arquitetura',
+      'relatorios',
+      'estatisticas'
     ],
     Encarregado: [
       'dashboard',
@@ -723,7 +747,9 @@ export default function App() {
       'usuarios_perfis',
       'meu_perfil',
       'comunicacao',
-      'documentos'
+      'documentos',
+      'relatorios',
+      'estatisticas'
     ],
     CoordenadorDisciplina: [
       'dashboard',
@@ -735,7 +761,9 @@ export default function App() {
       'pautas',
       'boletins',
       'meu_perfil',
-      'comunicacao'
+      'comunicacao',
+      'relatorios',
+      'estatisticas'
     ],
     Tesoureiro: [
       'dashboard',
@@ -772,7 +800,9 @@ export default function App() {
       'apoio_tecnico',
       'patrimonio',
       'meu_perfil',
-      'comunicacao'
+      'comunicacao',
+      'relatorios',
+      'estatisticas'
     ]
   };
 
@@ -1169,6 +1199,7 @@ export default function App() {
           || (activeTab === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
           || (activeTab === 'alunos' && temDelegacaoMatriculas) // Acesso por delegação de matrículas do Diretor
           || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
+          || (activeTab === 'relatorios' || activeTab === 'estatisticas') // Acesso oficial sem restrições para Direção, Professores, Coordenadores e Secretaria
           || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
   // Isolamento Rigoroso de Dados por Escola e Ano Letivo Ativo
@@ -1599,6 +1630,50 @@ export default function App() {
                     activeTab === 'boletins' ? 'boletim_oficial' :
                     activeTab === 'termos_exame' ? 'termos_exame' : undefined
                   }
+                />
+              )}
+
+              {/* 4.1 RELATÓRIOS OFICIAIS & BALANÇOS MED */}
+              {activeTab === 'relatorios' && (
+                <ReportsView
+                  escola={escola}
+                  escolas={escolas}
+                  currentUser={effectiveUser}
+                  turmas={turmasDaEscola}
+                  alunos={alunosDaEscola}
+                  disciplinas={disciplinas}
+                  notasConsolidadas={notasConsolidadasDoAnoActivo}
+                  funcionarios={funcionarios}
+                  atribuicoes={atribuicoesDoAnoActivo}
+                  onMudarEscola={(escId) => {
+                    const esc = escolas.find(e => e.id === escId);
+                    if (esc) {
+                      setEscola(esc);
+                      dbService.setEscolaAtiva(esc.id);
+                    }
+                  }}
+                />
+              )}
+
+              {/* 4.2 ESTATÍSTICAS & ANALYTICS */}
+              {activeTab === 'estatisticas' && (
+                <StatisticsView
+                  escola={escola}
+                  escolas={escolas}
+                  currentUser={effectiveUser}
+                  turmas={turmasDaEscola}
+                  alunos={alunosDaEscola}
+                  disciplinas={disciplinas}
+                  notasConsolidadas={notasConsolidadasDoAnoActivo}
+                  funcionarios={funcionarios}
+                  atribuicoes={atribuicoesDoAnoActivo}
+                  onMudarEscola={(escId) => {
+                    const esc = escolas.find(e => e.id === escId);
+                    if (esc) {
+                      setEscola(esc);
+                      dbService.setEscolaAtiva(esc.id);
+                    }
+                  }}
                 />
               )}
 

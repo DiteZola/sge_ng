@@ -58,6 +58,7 @@ import { converterNotaParaCertificadoExtenso, converterNotaParaExtenso } from '.
 import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '../utils/curriculoAngola';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { AngolaDateInput } from './AngolaDateInput';
+import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 import { LocationPicker } from './LocationPicker';
 import { InsigniaAngola } from '../constants/insignia';
 import { StudentClassListPdfDocument } from './StudentClassListPdfDocument';
@@ -288,7 +289,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
           const diffAnos = classesDoCiclo.length - 1 - idx;
           const anoLetivoEst = `${anoBase - diffAnos}/${anoBase - diffAnos + 1}`;
-          const discPadrao = CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8);
+          const discFiltradas = filtrarDisciplinasDaClasse(todasDisciplinas, cls, target.curso);
+          const discPadrao = discFiltradas.length > 0 
+            ? discFiltradas.map(d => d.nome) 
+            : (CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8));
           const escalaInfo = obterInformacaoEscala(cls);
 
           // Verificar se no historicoAnterior legítimo tem nota averbada
@@ -1464,7 +1468,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     if (!classeAtual) return;
 
     const escalaInfo = obterInformacaoEscala(classeAtual.classe);
-    const listaPadrao = CURRICULO_POR_CLASSE[classeAtual.classe] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8);
+    const todasDisciplinas = dbService.getDisciplinas();
+    const discFiltradas = filtrarDisciplinasDaClasse(todasDisciplinas, classeAtual.classe, historicoAluno.curso);
+    const listaPadrao = discFiltradas.length > 0
+      ? discFiltradas.map(d => d.nome)
+      : (CURRICULO_POR_CLASSE[classeAtual.classe] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8));
 
     const notasAtualizadas = [...classeAtual.notasDisciplinas];
     const nomesExistentes = notasAtualizadas.map(d => d.disciplinaNome.toLowerCase());
@@ -1540,7 +1548,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
       const diffAnos = classesDoCiclo.length - 1 - idx;
       const anoLetivoEst = `${anoBase - diffAnos}/${anoBase - diffAnos + 1}`;
-      const discPadrao = CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8);
+      const discFiltradas = filtrarDisciplinasDaClasse(todasDisciplinas, cls, historicoAluno.curso);
+      const discPadrao = discFiltradas.length > 0
+        ? discFiltradas.map(d => d.nome)
+        : (CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['7ª'] || DISCIPLINAS_ANGOLA_PADRAO.slice(0, 8));
       const escalaInfo = obterInformacaoEscala(cls);
 
       const histAnt = historicoAluno.historicoAnterior?.find(h => h.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());

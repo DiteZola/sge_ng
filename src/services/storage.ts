@@ -2261,7 +2261,15 @@ export const dbService = {
   },
 
   // Disciplinas
-  getDisciplinas: (): Disciplina[] => getLocal(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS),
+  getDisciplinas: (): Disciplina[] => {
+    const list = getLocal(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    return [...list].sort((a, b) => {
+      const ordemA = typeof a.ordem === 'number' && !isNaN(a.ordem) ? a.ordem : 999;
+      const ordemB = typeof b.ordem === 'number' && !isNaN(b.ordem) ? b.ordem : 999;
+      if (ordemA !== ordemB) return ordemA - ordemB;
+      return a.nome.localeCompare(b.nome, 'pt-AO', { sensitivity: 'base' });
+    });
+  },
   salvarDisciplina: (disc: Disciplina) => {
     const discs = dbService.getDisciplinas();
     const idx = discs.findIndex(d => d.id === disc.id);

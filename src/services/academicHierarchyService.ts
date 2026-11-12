@@ -10,6 +10,7 @@
  */
 
 import { Turma, Disciplina, Aluno, NivelEnsino, ClasseEscolar } from '../types';
+export { isClasseFinal } from './macEngine';
 
 export const CLASSES_ENSINO_PRIMARIO = ['Iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
 export const CLASSES_PRIMEIRO_CICLO = ['7ª', '8ª', '9ª'];
@@ -261,38 +262,25 @@ export function getCursoDaTurma(turma?: Turma | null): string {
 }
 
 /**
- * Filtra disciplinas disponíveis para uma turma baseada estritamente na sua Classe e Curso
+ * Ordena disciplinas rigorosamente de acordo com a ordem estabelecida na gestão de disciplinas
+ * (ordem ascendente e alfabética como desempate natural)
+ */
+export function ordenarDisciplinas(disciplinas: Disciplina[]): Disciplina[] {
+  return [...disciplinas].sort((a, b) => {
+    const ordemA = typeof a.ordem === 'number' && !isNaN(a.ordem) ? a.ordem : 999;
+    const ordemB = typeof b.ordem === 'number' && !isNaN(b.ordem) ? b.ordem : 999;
+    if (ordemA !== ordemB) return ordemA - ordemB;
+    return a.nome.localeCompare(b.nome, 'pt-AO', { sensitivity: 'base' });
+  });
+}
+
+/**
+ * Filtra disciplinas disponíveis para uma turma baseada estritamente na sua Classe e Curso,
+ * retornando-as na ordem curricular exata definida na gestão de disciplinas.
  */
 export function getDisciplinasDaTurma(disciplinas: Disciplina[], turma?: Turma | null): Disciplina[] {
-  if (!turma) return disciplinas;
-
-  const turmaClasseNorm = normalizarClasse(turma.classe);
-  const nomesEsperados = getDisciplinasMatrizOficial(turma.classe, turma.curso);
-  const nomesNorm = nomesEsperados.map(n => n.toLowerCase().trim());
-
-  // Procura correspondência considerando d.classe, d.classes, d.ciclo e a matriz oficial
-  const correspondentes = disciplinas.filter(d => {
-    // 1. Se a disciplina tem classes explicitamente definidas:
-    if (d.classes && d.classes.length > 0) {
-      return d.classes.some(c => normalizarClasse(c) === turmaClasseNorm);
-    }
-    // 2. Se tem classe única definida:
-    if (d.classe) {
-      return normalizarClasse(d.classe) === turmaClasseNorm;
-    }
-    // 3. Se tem ciclo curricular definido:
-    if (d.ciclo) {
-      const cicloTurma = formatarCicloPorClasse(turma.classe);
-      if (d.ciclo.toLowerCase().includes(cicloTurma.toLowerCase()) || cicloTurma.toLowerCase().includes(d.ciclo.toLowerCase())) {
-        return true;
-      }
-    }
-    // 4. Verificação nominal na matriz curricular oficial da classe e curso
-    const dNome = d.nome.toLowerCase().trim();
-    return nomesNorm.some(esperado => dNome.includes(esperado) || esperado.includes(dNome));
-  });
-
-  return correspondentes.length > 0 ? correspondentes : disciplinas;
+  if (!turma) return ordenarDisciplinas(disciplinas);
+  return filtrarDisciplinasDaClasse(disciplinas, turma.classe, turma.curso);
 }
 
 /**
@@ -356,83 +344,74 @@ export function getDisciplinasPorClasseECiclo(
   classeSelecionada?: string,
   cicloSelecionado?: string
 ): Disciplina[] {
-  if (!classeSelecionada && !cicloSelecionado) return disciplinas;
+  if (!classeSelecionada && !cicloSelecionado) return ordenarDisciplinas(disciplinas);
   const cSel = classeSelecionada && classeSelecionada !== 'TODAS' && classeSelecionada !== 'todas' ? classeSelecionada : null;
   const ciSel = cicloSelecionado && cicloSelecionado !== 'TODOS' && cicloSelecionado !== 'todos' ? cicloSelecionado : null;
 
-  if (!cSel && !ciSel) return disciplinas;
+  if (!cSel && !ciSel) return ordenarDisciplinas(disciplinas);
 
-  return disciplinas.filter(d => {
-    // 1. Filtro estrito por classe
-    if (cSel) {
-      const normClasse = normalizarClasse(cSel);
-      if (d.classe && normalizarClasse(d.classe) === normClasse) return true;
-      if (d.classes && d.classes.some(c => normalizarClasse(c) === normClasse)) return true;
-      
-      // Se não possui classe expressa, verificar matriz curricular oficial ou ciclo correspondente
-      const matrizOficial = getDisciplinasMatrizOficial(cSel);
-      const bateMatriz = matrizOficial.some(m => m.toLowerCase().trim() === d.nome.toLowerCase().trim());
-      if (bateMatriz) return true;
+  if (cSel) {
+    return filtrarDisciplinasDaClasse(disciplinas, cSel);
+  }
 
-      if (d.ciclo) {
-        const cicloEsperado = formatarCicloPorClasse(cSel);
-        if (d.ciclo.toLowerCase().includes(cicloEsperado.toLowerCase()) || cicloEsperado.toLowerCase().includes(d.ciclo.toLowerCase())) {
-          return true;
-        }
-      }
-      return false;
+  // Filtro puramente por ciclo
+  if (!ciSel) return ordenarDisciplinas(disciplinas);
+  const cicloLower = ciSel.toLowerCase();
+  const filtradasCiclo = disciplinas.filter(d => {
+    if (d.ciclo && d.ciclo.toLowerCase().includes(cicloLower)) return true;
+    if (ciSel.includes('Primário')) {
+      if (d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao') return true;
+      if (d.classe && isEnsinoPrimario(d.classe)) return true;
+      if (d.classes && d.classes.some(c => isEnsinoPrimario(c))) return true;
     }
-
-    // 2. Filtro por ciclo
-    if (ciSel) {
-      if (d.ciclo && d.ciclo.toLowerCase().includes(ciSel.toLowerCase())) return true;
-      if (ciSel.includes('Primário')) {
-        if (d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao') return true;
-        if (d.classe && isEnsinoPrimario(d.classe)) return true;
-        if (d.classes && d.classes.some(c => isEnsinoPrimario(c))) return true;
-      }
-      if (ciSel.includes('Iº Ciclo')) {
-        if (d.nivelEnsino === 'ICiclo') return true;
-        if (d.classe && isPrimeiroCiclo(d.classe)) return true;
-        if (d.classes && d.classes.some(c => isPrimeiroCiclo(c))) return true;
-      }
-      if (ciSel.includes('IIº Ciclo') || ciSel.includes('Secundário')) {
-        if (d.nivelEnsino === 'IICiclo' || d.nivelEnsino === 'EnsinoTecnico') return true;
-        if (d.classe && isSegundoCiclo(d.classe)) return true;
-        if (d.classes && d.classes.some(c => isSegundoCiclo(c))) return true;
-      }
-      return false;
+    if (ciSel.includes('Iº Ciclo')) {
+      if (d.nivelEnsino === 'ICiclo') return true;
+      if (d.classe && isPrimeiroCiclo(d.classe)) return true;
+      if (d.classes && d.classes.some(c => isPrimeiroCiclo(c))) return true;
     }
-
-    return true;
+    if (ciSel.includes('IIº Ciclo') || ciSel.includes('Secundário')) {
+      if (d.nivelEnsino === 'IICiclo' || d.nivelEnsino === 'EnsinoTecnico') return true;
+      if (d.classe && isSegundoCiclo(d.classe)) return true;
+      if (d.classes && d.classes.some(c => isSegundoCiclo(c))) return true;
+    }
+    return false;
   });
+
+  return ordenarDisciplinas(filtradasCiclo);
 }
 
 /**
- * Filtro estrito e infalível de disciplinas por classe e curso para Documentos, Pautas, Boletins e Termos.
- * Garante que em nenhuma hipótese entrem disciplinas de outras classes ou ciclos.
+ * Filtro estrito e infalível de disciplinas por classe e curso para Documentos, Pautas, Boletins, Histórico Escolar e Termos.
+ * Garante que cada classe exibe exclusivamente as disciplinas a ela vinculadas, preservando rigorosamente
+ * a ordem curricular definida na funcionalidade Disciplinas.
  */
 export function filtrarDisciplinasDaClasse(
   disciplinas: Disciplina[],
   classe: string | undefined | null,
   curso?: string | null
 ): Disciplina[] {
-  if (!classe || classe === 'TODAS' || classe === 'todas') return disciplinas;
+  if (!classe || classe === 'TODAS' || classe === 'todas') return ordenarDisciplinas(disciplinas);
   const normClasse = normalizarClasse(classe);
-  const matrizOficial = getDisciplinasMatrizOficial(classe, curso || undefined);
 
-  const filtradas = disciplinas.filter(d => {
-    // 1. Se tem `classes` cadastradas explicitamente
+  // 1. Prioridade Absoluta: Disciplinas cadastradas especificamente para esta classe
+  const disciplinasEspecificasClasse = disciplinas.filter(d => {
     if (d.classes && Array.isArray(d.classes) && d.classes.length > 0) {
       return d.classes.some(c => normalizarClasse(c) === normClasse);
     }
-
-    // 2. Se tem `classe` cadastrada diretamente
     if (d.classe && d.classe.trim()) {
       return normalizarClasse(d.classe) === normClasse;
     }
+    return false;
+  });
 
-    // 3. Validação por Matriz Oficial MED da classe e curso
+  if (disciplinasEspecificasClasse.length > 0) {
+    return ordenarDisciplinas(disciplinasEspecificasClasse);
+  }
+
+  // 2. Se nenhuma disciplina tiver classe explicitamente atribuída no cadastro,
+  // consultar a Matriz Curricular Oficial MED de Angola e o Ciclo correspondente:
+  const matrizOficial = getDisciplinasMatrizOficial(classe, curso || undefined);
+  const filtradas = disciplinas.filter(d => {
     const nomeNorm = d.nome.toLowerCase().trim();
     const naMatriz = matrizOficial.some(m => {
       const mNorm = m.toLowerCase().trim();
@@ -440,7 +419,6 @@ export function filtrarDisciplinasDaClasse(
     });
     if (naMatriz) return true;
 
-    // 4. Verificação estrita por ciclo / nível de ensino
     if (isEnsinoPrimario(normClasse)) {
       return (d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao') && !d.ehTecnica;
     }
@@ -460,10 +438,13 @@ export function filtrarDisciplinasDaClasse(
     return false;
   });
 
-  return filtradas.length > 0 ? filtradas : disciplinas.filter(d => {
+  const resultadoFinal = filtradas.length > 0 ? filtradas : disciplinas.filter(d => {
     const nomeNorm = d.nome.toLowerCase().trim();
     return matrizOficial.some(m => m.toLowerCase().trim() === nomeNorm);
   });
+
+  return ordenarDisciplinas(resultadoFinal);
 }
+
 
 

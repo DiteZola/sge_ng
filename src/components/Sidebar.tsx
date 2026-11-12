@@ -72,6 +72,9 @@ export type NavTab =
   // FINANCEIRO
   | 'pagamentos'
   | 'relatorios_financeiros'
+  // RELATÓRIOS & ESTATÍSTICAS
+  | 'relatorios'
+  | 'estatisticas'
   // OUTROS
   | 'biblioteca'
   | 'patrimonio'
@@ -314,6 +317,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Termos de Exame',
           icon: ClipboardList,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario']
+        }
+      ]
+    },
+    {
+      categoria: 'RELATÓRIOS & ESTATÍSTICAS',
+      items: [
+        {
+          id: 'relatorios',
+          label: 'Relatórios Oficiais MED',
+          icon: FileSpreadsheet,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'TecnicoTI'],
+          badge: 'Balanços'
+        },
+        {
+          id: 'estatisticas',
+          label: 'Estatísticas & Rendimento',
+          icon: TrendingUp,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'TecnicoTI'],
+          badge: 'Analytics'
         }
       ]
     },
