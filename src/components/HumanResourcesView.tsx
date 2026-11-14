@@ -229,7 +229,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
     setComprimindoFoto(true);
     try {
-      const res = await processarFotoUpload(file, 1200, 0.90);
+      const res = await processarFotoUpload(file, 500, 0.82);
       if (res.sucesso && res.dataUrl) {
         setFotoUrl(res.dataUrl);
       } else {
@@ -388,7 +388,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       ehProfessor,
       ehAdministrativoQueLeciona,
       habilitacoes: (habilitacoes || especialidade).trim(),
-      fotoUrl: fotoUrl.trim() || funcExistente?.fotoUrl || '',
+      fotoUrl: fotoUrl.trim(),
       grupoSanguineo,
       alergias: alergias.trim(),
       doencasCronicas: doencasCronicas.trim(),

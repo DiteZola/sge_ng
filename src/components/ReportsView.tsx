@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   FileBarChart, 
   Download, 
@@ -32,6 +32,8 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
+import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { 
   filtrarDisciplinasDaClasse, 
   normalizarClasse, 
@@ -75,9 +77,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   atribuicoes: propAtribuicoes,
   onMudarEscola
 }) => {
-  // Carregar dados atualizados do banco caso não fornecidos
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  useEffect(() => {
+    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+  }, []);
+
+  // Carregar dados atualizados do banco caso não fornecidos, estritamente isolados à escola ativa
   const notas = useMemo(() => propNotas || dbService.getNotasConsolidadas(), [propNotas]);
-  const funcionarios = useMemo(() => propFuncionarios || dbService.getFuncionarios(), [propFuncionarios]);
+  const funcionarios = useMemo(() => {
+    const base = propFuncionarios || dbService.getFuncionarios();
+    return base.filter(f => f.escolaId === escola.id && f.role !== 'AdminGeral');
+  }, [propFuncionarios, escola.id]);
   const anosConfigs = useMemo(() => anoLectivoConfigs.length > 0 ? anoLectivoConfigs : dbService.getAnosLectivosConfigs(), [anoLectivoConfigs]);
   const atribuicoesTodas = useMemo(() => propAtribuicoes || dbService.getAtribuicoes(), [propAtribuicoes]);
 
@@ -786,18 +800,39 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleExportarExcel}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all"
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all cursor-pointer"
               title="Baixar Dossier Estatístico Completo em Formato Excel"
             >
               <Download className="w-4 h-4" />
               <span>Exportar Excel (.xlsx)</span>
             </button>
             <button
+              type="button"
+              disabled={isDownloadingPdf}
+              onClick={async () => {
+                setIsDownloadingPdf(true);
+                try {
+                  await downloadElementAsPdf(
+                    'relatorio-pedagogico-oficial-doc',
+                    `Relatorio_Oficial_${(escola.sigla || escola.nome || 'MED').replace(/\s+/g, '_')}_${filtroAno.replace('/', '-')}`,
+                    { orientation: 'portrait', format: 'a4' }
+                  );
+                } finally {
+                  setIsDownloadingPdf(false);
+                }
+              }}
+              className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:bg-indigo-400 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all cursor-pointer"
+              title="Baixar Relatório Oficial em formato PDF com formatação exata"
+            >
+              <Download className="w-4 h-4" />
+              <span>{isDownloadingPdf ? 'Gerando PDF...' : 'Baixar PDF (.pdf)'}</span>
+            </button>
+            <button
               onClick={handleImprimir}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all"
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all cursor-pointer"
               title="Imprimir Relatório Formatado para A4"
             >
               <Printer className="w-4 h-4" />
@@ -1015,11 +1050,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       </div>
 
       {/* DOCUMENTO OFICIAL A4 PARA VISUALIZAÇÃO E IMPRESSÃO */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-lg p-6 sm:p-10 print:p-0 print:border-none print:shadow-none">
+      <div id="relatorio-pedagogico-oficial-doc" className="bg-white rounded-2xl border border-slate-300 shadow-lg p-6 sm:p-10 print:p-0 print:border-none print:shadow-none">
         {/* CABEÇALHO OFICIAL DO MINISTÉRIO DA EDUCAÇÃO DE ANGOLA */}
         <div className="text-center space-y-1 mb-8 border-b-2 border-slate-800 pb-5">
           <div className="flex justify-center mb-2">
-            <InsigniaAngola className="w-16 h-16 object-contain" />
+            <InsigniaAngola customUrl={configSistema.insigniaNacionalUrl} className="w-16 h-16 object-contain" />
           </div>
           <h2 className="text-xs sm:text-sm font-bold tracking-widest uppercase text-slate-900">
             República de Angola
@@ -1426,9 +1461,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
 
-        {/* RODAPÉ DO DOCUMENTO */}
-        <div className="mt-8 text-center text-[10px] text-slate-500 font-mono">
-          Documento gerado pelo Sistema Integrado de Gestão Escolar (SGE Angola) em {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO')} • {escola.nomeOficial || escola.nome}
+        {/* RODAPÉ DO DOCUMENTO COM QR DE AUTENTICAÇÃO */}
+        <div className="mt-8 pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] text-slate-500 font-mono">
+          <div className="text-center sm:text-left">
+            <p>Documento gerado pelo Sistema Integrado de Gestão Escolar (SGE Angola) em {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO')}</p>
+            <p className="font-bold text-slate-700 mt-0.5">{escola.nomeOficial || escola.nome}</p>
+          </div>
+          <OfficialQrCode
+            value={gerarPayloadQrDocumento({
+              docType: 'RELATORIO_OFICIAL',
+              escolaId: escola.id,
+              docRef: `${subAbaAtiva}-${filtroAno}-${filtroTrimestre}`,
+              turmaId: filtroTurmaId !== 'TODAS' ? filtroTurmaId : undefined,
+              anoLectivo: filtroAno
+            })}
+            size={54}
+            label="Validar Relatório"
+          />
         </div>
       </div>
     </div>

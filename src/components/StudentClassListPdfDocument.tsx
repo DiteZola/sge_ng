@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Download, Printer, Users, X, User } from 'lucide-react';
 import { Escola, Turma, Aluno } from '../types';
 import { InsigniaAngola } from '../constants/insignia';
+import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { isSegundoCiclo } from '../services/academicHierarchyService';
 import { downloadElementAsPdf } from '../utils/pdfGenerator';
 import { formatarParaDataAngola } from './AngolaDateInput';
@@ -49,6 +50,13 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
   onClose
 }) => {
   const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+
+  useEffect(() => {
+    const atualizar = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', atualizar);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', atualizar);
+  }, []);
 
   // Ordenar alunos por número de chamada ou nome
   const alunosOrdenados = [...alunos].sort((a, b) => {
@@ -144,7 +152,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
         {/* Cabeçalho Oficial do Ministério da Educação da República de Angola */}
         <div className="text-center space-y-1 mb-5">
           <div className="flex justify-center mb-1">
-            <InsigniaAngola size={50} customUrl={dbService.getConfiguracaoSistema().insigniaNacionalUrl || escola.logotipoUrl} />
+            <InsigniaAngola size={50} customUrl={configSistema.insigniaNacionalUrl} />
           </div>
           <h1 className="text-xs font-bold uppercase tracking-wide text-gray-900">
             República de Angola
@@ -300,6 +308,24 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
             <p className="font-bold text-gray-900">{escola.diretorGeralNome || 'Direcção da Escola'}</p>
             <p className="text-gray-500 text-[9px]">Visto & Homologado</p>
           </div>
+        </div>
+
+        <div className="mt-5 pt-3 border-t border-gray-300 flex items-center justify-between text-[9px] text-gray-600">
+          <div>
+            <p className="font-bold text-gray-800">Documento Oficial • Sistema de Gestão Escolar MED</p>
+            <p>Turma {turma.nome} ({turma.classe}) • {totalAlunos} estudantes listados</p>
+          </div>
+          <OfficialQrCode
+            value={gerarPayloadQrDocumento({
+              docType: 'LISTA_NOMINAL',
+              escolaId: escola.id,
+              docRef: `${turma.id}-${turma.anoLectivo}`,
+              turmaId: turma.id,
+              anoLectivo: turma.anoLectivo
+            })}
+            size={48}
+            label="Validar Lista"
+          />
         </div>
       </div>
     </div>

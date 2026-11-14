@@ -93,6 +93,21 @@
         "status": { "type": "string", "enum": ["Pendente", "Em_Atendimento", "Concluido", "Recusado"] }
       },
       "required": ["id", "escolaId", "motivo"]
+    },
+    "LibraryAccess": {
+      "title": "LibraryAccess",
+      "description": "Registos de acesso à biblioteca e empréstimos validados por Código QR do passe estudantil",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "alunoId": { "type": "string", "maxLength": 128 },
+        "alunoNome": { "type": "string", "maxLength": 200 },
+        "codigoMatricula": { "type": "string", "maxLength": 100 },
+        "tipoAcesso": { "type": "string", "enum": ["Entrada_Biblioteca", "Consulta_Local", "Emprestimo_Livro", "Devolucao_Livro"] },
+        "dataHora": { "type": "string" }
+      },
+      "required": ["id", "escolaId", "alunoId", "tipoAcesso"]
     }
   },
   "firestore": {
@@ -119,6 +134,10 @@
     "/solicitacoes_apoio/{solId}": {
       "schema": "TechnicalSupport",
       "description": "Solicitações de apoio técnico e autorizações ministeriais"
+    },
+    "/biblioteca_acessos/{accessId}": {
+      "schema": "LibraryAccess",
+      "description": "Registos em tempo real de entrada e empréstimos na biblioteca por QR Code"
     }
   }
 }

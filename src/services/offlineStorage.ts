@@ -1,7 +1,7 @@
 /**
  * SGE-NG Angola - Motor de Persistência Offline Blindado (IndexedDB + LocalStorage Dual Mirror)
  * Garante 100% de disponibilidade contínua sem internet, prevenção absoluta de perda de dados,
- * diário de mutações atómicas (Offline Journal) e sincronização multi-separadores.
+ * diário de mutações atómicas (Offline Journal), fila coalescida de sincronização e espelhamento em IndexedDB.
  */
 
 export interface OfflineJournalEntry {
@@ -10,6 +10,7 @@ export interface OfflineJournalEntry {
   entidade: string;
   operacao: 'CRIAR' | 'ATUALIZAR' | 'ELIMINAR' | 'IMPORTAR' | 'RESTAURO';
   usuario: string;
+  autorRole?: string;
   detalhes: string;
   sucesso: boolean;
 }
@@ -25,6 +26,18 @@ export interface StorageHealthInfo {
   ultimoSnapshotHora: string | null;
 }
 
+export interface PendingSyncItem {
+  id: string;
+  entidade: string;
+  docId?: string;
+  acao: string; // 'CRIAR' | 'ATUALIZAR' | 'ELIMINAR'
+  timestamp: string;
+  descricao: string;
+  dados?: any;
+  extraColecoes?: string[];
+  autorRole?: string;
+}
+
 const DB_NAME = 'SGE_NG_ANGOLA_OFFLINE_DB';
 const DB_VERSION = 1;
 const STORE_ENTITIES = 'entities';
@@ -36,6 +49,8 @@ class OfflineStorageEngine {
   private dbReadyPromise: Promise<boolean>;
   private broadcastChannel: BroadcastChannel | null = null;
   private journalListeners: Array<(journal: OfflineJournalEntry[]) => void> = [];
+  private mirrorQueue = new Set<string>();
+  private mirrorTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.dbReadyPromise = this.initIndexedDB();
@@ -45,7 +60,6 @@ class OfflineStorageEngine {
 
   private async initIndexedDB(): Promise<boolean> {
     if (typeof window === 'undefined' || !window.indexedDB) {
-      console.warn('[SGE Offline] IndexedDB não suportado neste ambiente.');
       return false;
     }
 
@@ -69,7 +83,8 @@ class OfflineStorageEngine {
 
         request.onsuccess = (event) => {
           this.db = (event.target as IDBOpenDBRequest).result;
-          this.syncLocalStorageToIndexedDB();
+          // Espelhar após inicializar sem bloquear o thread principal
+          setTimeout(() => this.syncLocalStorageToIndexedDB(), 500);
           resolve(true);
         };
 
@@ -102,26 +117,67 @@ class OfflineStorageEngine {
   private setupSafetyHooks() {
     if (typeof window === 'undefined') return;
 
+    // Espelhamento automático em tempo real de qualquer chave escrita no localStorage para IndexedDB
+    window.addEventListener('sge_local_write', (event: any) => {
+      const key = event?.detail?.key;
+      if (typeof key === 'string' && key.startsWith('sge_')) {
+        this.agendarEspelhamentoChave(key);
+      }
+    });
+
     // Proteção contra perda acidental durante navegação
     window.addEventListener('beforeunload', () => {
       this.criarSnapshotEmergencia('Auto-Save pré-fechamento do separador');
     });
 
-    // Criar snapshots automáticos periódicos (a cada 3 minutos)
+    // Snapshots automáticos periódicos em segundo plano (a cada 5 minutos)
     setInterval(() => {
       this.criarSnapshotEmergencia('Snapshot de rotina em segundo plano');
-    }, 180000);
+    }, 300000);
   }
 
-  // Copia as entidades do localStorage para o IndexedDB na inicialização para garantia de redundância
+  private agendarEspelhamentoChave(key: string) {
+    this.mirrorQueue.add(key);
+    if (this.mirrorTimer) return;
+    this.mirrorTimer = setTimeout(() => {
+      this.mirrorTimer = null;
+      if (!this.db) {
+        this.mirrorQueue.clear();
+        return;
+      }
+      const keys = Array.from(this.mirrorQueue);
+      this.mirrorQueue.clear();
+      try {
+        const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
+        const store = tx.objectStore(STORE_ENTITIES);
+        const now = new Date().toISOString();
+        for (const k of keys) {
+          const val = localStorage.getItem(k);
+          if (val !== null) {
+            store.put({ key: k, value: val, updatedAt: now });
+          } else {
+            store.delete(k);
+          }
+        }
+      } catch {
+        // Ignora erro transitório de IndexedDB
+      }
+    }, 300);
+  }
+
+  // Copia as entidades do localStorage para o IndexedDB numa única transação rápida
   private async syncLocalStorageToIndexedDB() {
     if (!this.db) return;
     try {
       const keys = Object.keys(localStorage).filter(k => k.startsWith('sge_'));
+      if (keys.length === 0) return;
+      const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
+      const store = tx.objectStore(STORE_ENTITIES);
+      const now = new Date().toISOString();
       for (const k of keys) {
         const val = localStorage.getItem(k);
         if (val) {
-          await this.gravarNoIndexedDB(STORE_ENTITIES, { key: k, value: val, updatedAt: new Date().toISOString() });
+          store.put({ key: k, value: val, updatedAt: now });
         }
       }
     } catch (e) {
@@ -151,20 +207,34 @@ class OfflineStorageEngine {
     entidade: string,
     operacao: 'CRIAR' | 'ATUALIZAR' | 'ELIMINAR' | 'IMPORTAR' | 'RESTAURO',
     detalhes: string,
-    usuario: string = 'Utilizador Local'
+    usuario: string = 'Utilizador Local',
+    autorRole?: string
   ) {
+    let resolvedRole = autorRole;
+    if (!resolvedRole && typeof localStorage !== 'undefined') {
+      try {
+        const uRaw = localStorage.getItem('sge_current_user');
+        if (uRaw) {
+          const parsed = JSON.parse(uRaw);
+          if (parsed?.role) resolvedRole = parsed.role;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const entry: OfflineJournalEntry = {
       id: `mut-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       timestamp: new Date().toISOString(),
       entidade,
       operacao,
       usuario,
+      autorRole: resolvedRole,
       detalhes,
       sucesso: true
     };
 
     try {
-      // Gravar no localStorage (histórico recente)
       const existingStr = localStorage.getItem('sge_offline_journal');
       let list: OfflineJournalEntry[] = [];
       if (existingStr && existingStr !== 'undefined' && existingStr !== 'null') {
@@ -176,17 +246,14 @@ class OfflineStorageEngine {
         }
       }
       list.unshift(entry);
-      // Manter últimos 100 registos em localStorage
       const trimmed = list.slice(0, 100);
       localStorage.setItem('sge_offline_journal', JSON.stringify(trimmed));
       localStorage.setItem('sge_last_mutation_time', entry.timestamp);
 
-      // Gravar também no IndexedDB para arquivo ilimitado
       if (this.db) {
         this.gravarNoIndexedDB(STORE_JOURNAL, entry);
       }
 
-      // Notificar outros separadores
       if (this.broadcastChannel) {
         this.broadcastChannel.postMessage({
           type: 'STORAGE_MUTATED',
@@ -194,11 +261,29 @@ class OfflineStorageEngine {
         });
       }
 
-      // Notificar ouvintes na UI
       this.journalListeners.forEach(l => l(trimmed));
     } catch (e) {
       console.error('[SGE Offline] Falha ao registar mutação no diário:', e);
     }
+  }
+
+  public isEntradaDoAdminGeral(entry: OfflineJournalEntry): boolean {
+    if (!entry) return false;
+    if (entry.autorRole === 'AdminGeral') return true;
+    const usr = (entry.usuario || '').toLowerCase();
+    const det = (entry.detalhes || '').toLowerCase();
+    return (
+      usr.includes('administrador geral') ||
+      det.includes('[apoio técnico autorizado') ||
+      det.includes('administrador geral') ||
+      det.includes('admin geral') ||
+      det.includes('inicialização oficial do sistema') ||
+      det.includes('criação de escola') ||
+      det.includes('suspensão de escola') ||
+      det.includes('reativação de escola') ||
+      det.includes('eliminação total de escola') ||
+      det.includes('credenciais do diretor geral')
+    );
   }
 
   /**
@@ -213,6 +298,12 @@ class OfflineStorageEngine {
     } catch {
       return [];
     }
+  }
+
+  public obterDiarioVisivel(isAdminGeral: boolean): OfflineJournalEntry[] {
+    const list = this.obterDiario();
+    if (isAdminGeral) return list;
+    return list.filter(e => !this.isEntradaDoAdminGeral(e));
   }
 
   public subscreverDiario(listener: (journal: OfflineJournalEntry[]) => void): () => void {
@@ -244,19 +335,15 @@ class OfflineStorageEngine {
         totalChaves: allSGEKeys.length
       };
 
-      // Gravar no IndexedDB
       if (this.db) {
         this.gravarNoIndexedDB(STORE_SNAPSHOTS, snapshotObject);
       }
 
-      // Gravar metadados em localStorage
       const metaStr = localStorage.getItem('sge_snapshots_meta') || '[]';
       const metas = JSON.parse(metaStr);
       metas.unshift({ id, timestamp, motivo, totalChaves: allSGEKeys.length });
       localStorage.setItem('sge_snapshots_meta', JSON.stringify(metas.slice(0, 10)));
       localStorage.setItem('sge_last_snapshot_time', timestamp);
-
-      this.registarMutacao('Sistema', 'ATUALIZAR', `Ponto de restauro criado: ${motivo}`, 'Sistema Offline');
 
       return { sucesso: true, id, timestamp };
     } catch (e) {
@@ -270,7 +357,7 @@ class OfflineStorageEngine {
    */
   public async obterDiagnostico(): Promise<StorageHealthInfo> {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-    let quotaBytes = 50 * 1024 * 1024; // 50MB padrão se não suportar API
+    let quotaBytes = 50 * 1024 * 1024;
     let usedBytes = 0;
 
     if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
@@ -278,9 +365,7 @@ class OfflineStorageEngine {
         const estimate = await navigator.storage.estimate();
         quotaBytes = estimate.quota || quotaBytes;
         usedBytes = estimate.usage || 0;
-      } catch {
-        // cálculo manual via localStorage
-      }
+      } catch {}
     }
 
     if (usedBytes === 0) {
@@ -290,7 +375,7 @@ class OfflineStorageEngine {
         const val = localStorage.getItem(key) || '';
         lsChars += key.length + val.length;
       }
-      usedBytes = lsChars * 2; // UTF-16 ~2 bytes por caractere
+      usedBytes = lsChars * 2;
     }
 
     const usedPercentage = Math.min(100, Math.round((usedBytes / quotaBytes) * 1000) / 10);
@@ -314,12 +399,54 @@ class OfflineStorageEngine {
    */
   public descarregarBackupOfflineEmergencia() {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    let isNonAdminSession = false;
+    let activeSchoolId = '';
+    try {
+      if (localStorage.getItem('sge_authenticated') === 'true') {
+        const uRaw = localStorage.getItem('sge_current_user');
+        const u = uRaw ? JSON.parse(uRaw) : null;
+        if (u && u.role !== 'AdminGeral') {
+          isNonAdminSession = true;
+          activeSchoolId = localStorage.getItem('sge_active_escola_id') || u.escolaId || '';
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const dump: Record<string, any> = {};
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && k.startsWith('sge_')) {
+        if (isNonAdminSession && (k === 'sge_sec_tentativas_falhadas' || k === 'sge_sec_alertas_dashboard' || k === 'sge_alertas_seguranca' || k === 'sge_setup_master_lock' || k === 'sge_setup_inicial_concluido')) {
+          continue;
+        }
         try {
-          dump[k] = JSON.parse(localStorage.getItem(k) || '');
+          let parsed = JSON.parse(localStorage.getItem(k) || '');
+          if (isNonAdminSession) {
+            if (k === 'sge_funcionarios' && Array.isArray(parsed)) {
+              parsed = parsed.filter((f: any) => f && f.role !== 'AdminGeral' && f.id !== 'admin-geral' && (!activeSchoolId || f.escolaId === activeSchoolId));
+            } else if (k === 'sge_auditoria' && Array.isArray(parsed)) {
+              parsed = parsed.filter((l: any) => l && !l.origemAdminGeral && l.papel !== 'AdminGeral' && !(l.papel || '').includes('AdminGeral') && !(l.detalhe || '').includes('[APOIO TÉCNICO AUTORIZADO'));
+            } else if (k === 'sge_mensagens' && Array.isArray(parsed)) {
+              parsed = parsed.filter((m: any) => m && m.remetentePapel !== 'AdminGeral' && m.destinatarioId !== 'admin-geral');
+            } else if (k === 'sge_sessoes_ativas' && Array.isArray(parsed)) {
+              parsed = parsed.filter((s: any) => s && s.userRole !== 'AdminGeral' && s.role !== 'AdminGeral');
+            } else if (k === 'sge_offline_journal' && Array.isArray(parsed)) {
+              parsed = parsed.filter((e: any) => !this.isEntradaDoAdminGeral(e));
+            } else if (k === 'sge_escolas' && Array.isArray(parsed)) {
+              parsed = parsed
+                .filter((esc: any) => !activeSchoolId || esc.id === activeSchoolId)
+                .map((esc: any) => {
+                  const clone = { ...esc };
+                  delete clone.sessaoApoioTecnicoAtiva;
+                  return clone;
+                });
+            } else if (k === 'sge_configuracao_sistema' && parsed && typeof parsed === 'object') {
+              parsed = { nomeSistema: parsed.nomeSistema, ministerioNome: parsed.ministerioNome };
+            }
+          }
+          dump[k] = parsed;
         } catch {
           dump[k] = localStorage.getItem(k);
         }
@@ -349,13 +476,14 @@ class OfflineStorageEngine {
    * Sincronização e validação de integridade do storage offline
    */
   public async sincronizar(): Promise<boolean> {
+    await this.dbReadyPromise;
+    await this.syncLocalStorageToIndexedDB();
     this.criarSnapshotEmergencia('Sincronização de integridade offline');
-    this.registarMutacao('Sync', 'ATUALIZAR', 'Sincronização de integridade offline e persistência local realizada.');
     return true;
   }
 
   /**
-   * Gestão de Fila de Informações Pendentes para Sincronizar com o Firebase
+   * Gestão de Fila de Informações Pendentes para Sincronizar com o Firebase (com coalescência por coleção + docId)
    */
   public obterPendencias(): PendingSyncItem[] {
     try {
@@ -368,20 +496,64 @@ class OfflineStorageEngine {
     }
   }
 
+  public obterPendenciasVisiveis(isAdminGeral: boolean): PendingSyncItem[] {
+    const list = this.obterPendencias();
+    if (isAdminGeral) return list;
+    return list.filter(p => {
+      if (p.autorRole === 'AdminGeral') return false;
+      if (p.dados && (p.dados.role === 'AdminGeral' || p.dados.origemAdminGeral === true || p.dados.papel === 'AdminGeral')) return false;
+      const desc = (p.descricao || '').toLowerCase();
+      if (desc.includes('administrador geral') || desc.includes('admin geral') || desc.includes('apoio técnico')) return false;
+      return true;
+    });
+  }
+
   public obterTotalPendentes(): number {
     return this.obterPendencias().length;
   }
 
-  public adicionarPendencia(entidade: string, acao: string, descricao: string, dados?: any): void {
+  public adicionarPendencia(
+    entidade: string,
+    acao: string,
+    descricao: string,
+    dados?: any,
+    docId?: string,
+    extraColecoes?: string[],
+    autorRole?: string
+  ): void {
     try {
-      const list = this.obterPendencias();
+      const resolvedDocId = docId || dados?.id;
+      const entidadeNorm = entidade.toLowerCase();
+      let list = this.obterPendencias();
+
+      let resolvedRole = autorRole;
+      if (!resolvedRole && typeof localStorage !== 'undefined') {
+        try {
+          const uRaw = localStorage.getItem('sge_current_user');
+          if (uRaw) {
+            const parsed = JSON.parse(uRaw);
+            if (parsed?.role) resolvedRole = parsed.role;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Coalescer: remover pendência anterior para a mesma entidade e docId para manter fila enxuta e ordem final correta
+      if (resolvedDocId) {
+        list = list.filter(p => !(p.entidade.toLowerCase() === entidadeNorm && (p.docId || p.dados?.id) === resolvedDocId));
+      }
+
       const item: PendingSyncItem = {
         id: `pend-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        entidade,
+        entidade: entidadeNorm,
+        docId: resolvedDocId,
         acao,
         timestamp: new Date().toISOString(),
         descricao,
-        dados
+        dados,
+        extraColecoes,
+        autorRole: resolvedRole
       };
       list.push(item);
       localStorage.setItem('sge_pending_sync_queue', JSON.stringify(list));
@@ -391,6 +563,20 @@ class OfflineStorageEngine {
     } catch (e) {
       console.warn('[SGE Offline] Erro ao adicionar pendência de sincronização:', e);
     }
+  }
+
+  public removerPendenciaPorDocumento(entidade: string, docId: string): void {
+    try {
+      const entidadeNorm = entidade.toLowerCase();
+      const atual = this.obterPendencias();
+      const filtrada = atual.filter(p => !(p.entidade.toLowerCase() === entidadeNorm && (p.docId || p.dados?.id) === docId));
+      if (filtrada.length !== atual.length) {
+        localStorage.setItem('sge_pending_sync_queue', JSON.stringify(filtrada));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: filtrada.length } }));
+        }
+      }
+    } catch {}
   }
 
   public removerPendencia(id: string): void {
@@ -411,15 +597,6 @@ class OfflineStorageEngine {
       }
     } catch {}
   }
-}
-
-export interface PendingSyncItem {
-  id: string;
-  entidade: string;
-  acao: string;
-  timestamp: string;
-  descricao: string;
-  dados?: any;
 }
 
 export const offlineStorage = new OfflineStorageEngine();

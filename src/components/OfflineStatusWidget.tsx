@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { offlineStorage, StorageHealthInfo, OfflineJournalEntry, PendingSyncItem } from '../services/offlineStorage';
 import { firebaseSyncEngine, SyncStatus } from '../services/firebaseSyncEngine';
+import { dbService } from '../services/storage';
 
 export const OfflineStatusWidget: React.FC = () => {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -32,10 +33,11 @@ export const OfflineStatusWidget: React.FC = () => {
   const [isSyncingNow, setIsSyncingNow] = useState(false);
 
   const carregarDados = async () => {
+    const isAdminGeral = dbService.getCurrentUser()?.role === 'AdminGeral';
     const diag = await offlineStorage.obterDiagnostico();
     setHealth(diag);
-    setJournal(offlineStorage.obterDiario().slice(0, 15));
-    const pends = offlineStorage.obterPendencias();
+    setJournal(offlineStorage.obterDiarioVisivel(isAdminGeral).slice(0, 15));
+    const pends = offlineStorage.obterPendenciasVisiveis(isAdminGeral);
     setPendencias(pends);
     setTotalPendentes(pends.length);
     setSyncStatus(firebaseSyncEngine.getStatus());
@@ -52,7 +54,8 @@ export const OfflineStatusWidget: React.FC = () => {
     };
 
     const handlePendingChanged = () => {
-      const pends = offlineStorage.obterPendencias();
+      const isAdminGeral = dbService.getCurrentUser()?.role === 'AdminGeral';
+      const pends = offlineStorage.obterPendenciasVisiveis(isAdminGeral);
       setPendencias(pends);
       setTotalPendentes(pends.length);
     };
@@ -70,9 +73,10 @@ export const OfflineStatusWidget: React.FC = () => {
       setSyncStatus(status);
     });
 
-    // Subscrição ao diário de mutações
-    const unsubscribeJournal = offlineStorage.subscreverDiario((newJournal) => {
-      setJournal(newJournal.slice(0, 15));
+    // Subscrição ao diário de mutações filtrado pelo perfil atual
+    const unsubscribeJournal = offlineStorage.subscreverDiario(() => {
+      const isAdminGeral = dbService.getCurrentUser()?.role === 'AdminGeral';
+      setJournal(offlineStorage.obterDiarioVisivel(isAdminGeral).slice(0, 15));
     });
 
     const interval = setInterval(carregarDados, 15000);
@@ -112,7 +116,8 @@ export const OfflineStatusWidget: React.FC = () => {
     try {
       await firebaseSyncEngine.processarPendenciasOffline();
       await firebaseSyncEngine.sincronizarTudoImediato();
-      const pendsRestantes = offlineStorage.obterPendencias();
+      const isAdminGeral = dbService.getCurrentUser()?.role === 'AdminGeral';
+      const pendsRestantes = offlineStorage.obterPendenciasVisiveis(isAdminGeral);
       setPendencias(pendsRestantes);
       setTotalPendentes(pendsRestantes.length);
       setMsgSucesso(

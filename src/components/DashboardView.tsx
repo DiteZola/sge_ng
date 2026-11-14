@@ -128,12 +128,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [identificadorDesbloqueioRapido, setIdentificadorDesbloqueioRapido] = useState('');
   const [statusBanco, setStatusBanco] = useState(() => dbService.verificarIntegridadeBanco());
 
-  // Monitorização em tempo real de falhas de login pelo securityEngine
+  // Monitorização em tempo real de falhas de login pelo securityEngine (Exclusivo Admin Geral)
   const [alertasSeguranca, setAlertasSeguranca] = useState<AlertaSegurancaVisual[]>(() => {
-    return securityEngine.obterAlertasDashboard();
+    return currentUser.role === 'AdminGeral' ? securityEngine.obterAlertasDashboard() : [];
   });
 
   useEffect(() => {
+    if (currentUser.role !== 'AdminGeral') {
+      setAlertasSeguranca([]);
+      return;
+    }
     // Subscrever métricas do securityEngine
     const unsubscribe = securityEngine.subscrever((metrics) => {
       setAlertasSeguranca(metrics.alertasVisuais || []);
@@ -151,7 +155,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       window.removeEventListener('sge_security_alert', handleSecurityEvent);
       window.removeEventListener('sge_security_alert_cleared', handleSecurityEvent);
     };
-  }, []);
+  }, [currentUser.role]);
 
   const handleDesbloquearConta = (identificador: string) => {
     dbService.desbloquearContaUtilizador(identificador, `${currentUser.nomeCompleto} (${currentUser.role})`);
@@ -1064,7 +1068,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* ========================================================================= */}
       {/* ALERTA VISUAL EM TEMPO REAL: 3 TENTATIVAS FALHADAS DE LOGIN DETETADAS   */}
       {/* ========================================================================= */}
-      {alertasSeguranca.length > 0 && (
+      {isAdminGeral && alertasSeguranca.length > 0 && (
         <div className="space-y-3 animate-in fade-in slide-in-from-top-3">
           {alertasSeguranca.map((alerta) => (
             <div 

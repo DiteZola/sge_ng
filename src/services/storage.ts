@@ -59,7 +59,8 @@ import {
   SessaoAtivaUsuario,
   DelegacaoPoderes,
   TipoDelegacao,
-  AcaoDelegadaLog
+  AcaoDelegadaLog,
+  RegistoAcessoBiblioteca
 } from '../types';
 import { isClasseFinal } from './macEngine';
 
@@ -84,6 +85,7 @@ const STORAGE_KEYS = {
   AUDITORIA: 'sge_auditoria',
   MENSAGENS: 'sge_mensagens',
   BIBLIOTECA: 'sge_biblioteca',
+  BIBLIOTECA_ACESSOS: 'sge_biblioteca_acessos',
   RECIBOS: 'sge_recibos',
   CURRENT_USER: 'sge_current_user',
   ACTIVE_ESCOLA_ID: 'sge_active_escola_id',
@@ -554,6 +556,9 @@ export function inicializarArmazenamento(): void {
   if (!localStorage.getItem(STORAGE_KEYS.BIBLIOTECA)) {
     setLocal(STORAGE_KEYS.BIBLIOTECA, DEFAULT_BIBLIOTECA);
   }
+  if (!localStorage.getItem(STORAGE_KEYS.BIBLIOTECA_ACESSOS)) {
+    setLocal(STORAGE_KEYS.BIBLIOTECA_ACESSOS, []);
+  }
   if (!localStorage.getItem(STORAGE_KEYS.RECIBOS)) {
     setLocal(STORAGE_KEYS.RECIBOS, DEFAULT_RECIBOS);
   }
@@ -735,19 +740,125 @@ if (typeof window !== 'undefined') {
   }
 }
 
+const getAuthenticatedUserFromStorage = (): Funcionario | null => {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    if (localStorage.getItem('sge_authenticated') !== 'true') return null;
+    const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    if (!raw) return null;
+    const user = JSON.parse(raw) as Funcionario;
+    return user && user.id && user.role ? user : null;
+  } catch {
+    return null;
+  }
+};
+
+const isSessaoAutenticadaNaoAdminGeral = (): boolean => {
+  const user = getAuthenticatedUserFromStorage();
+  return Boolean(user && user.role !== 'AdminGeral');
+};
+
+const isAdminGeralUserObj = (f: Partial<Funcionario> | null | undefined): boolean => {
+  if (!f) return false;
+  return f.role === 'AdminGeral' || f.id === 'admin-geral';
+};
+
+const getAdminGeralIdsAndNomes = (): { ids: Set<string>; nomes: Set<string> } => {
+  const rawFuncs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+  const ids = new Set<string>(['admin-geral']);
+  const nomes = new Set<string>(['administrador geral', 'administrador geral do sistema']);
+  rawFuncs.forEach(f => {
+    if (isAdminGeralUserObj(f)) {
+      if (f.id) ids.add(f.id);
+      if (f.nomeCompleto) nomes.add(f.nomeCompleto.trim().toLowerCase());
+      if (f.email) nomes.add(f.email.trim().toLowerCase());
+    }
+  });
+  return { ids, nomes };
+};
+
+const isLogOuAcaoDoAdminGeral = (
+  log: LogAuditoria,
+  adminIds: Set<string>,
+  adminNomes: Set<string>
+): boolean => {
+  if (!log) return false;
+  if (log.origemAdminGeral === true) return true;
+  const papelLower = (log.papel || '').toLowerCase();
+  const roleLower = (log.usuarioRole || '').toLowerCase();
+  const nomeLower = (log.utilizadorNome || log.usuarioNome || '').trim().toLowerCase();
+  const acaoLower = (log.acao || '').toLowerCase();
+  const detalheLower = (log.detalhe || log.detalhes || '').toLowerCase();
+
+  if (
+    log.papel === 'AdminGeral' ||
+    log.usuarioRole === 'AdminGeral' ||
+    papelLower.includes('admingeral') ||
+    papelLower.includes('administrador geral') ||
+    papelLower.includes('apoio técnico') ||
+    roleLower.includes('admingeral')
+  ) {
+    return true;
+  }
+
+  if (log.utilizadorId && adminIds.has(log.utilizadorId)) return true;
+  if (nomeLower && (adminNomes.has(nomeLower) || nomeLower.includes('administrador geral'))) return true;
+
+  if (
+    detalheLower.includes('[apoio técnico autorizado') ||
+    detalheLower.includes('administrador geral') ||
+    detalheLower.includes('admin geral')
+  ) {
+    return true;
+  }
+
+  const acoesExclusivasAdmin = [
+    'inicialização oficial do sistema',
+    'reinicialização do administrador geral',
+    'criação de escola',
+    'suspensão de escola',
+    'reativação de escola',
+    'eliminação total de escola',
+    'edição de escola',
+    'credenciais do diretor geral',
+    'acesso de suporte técnico autorizado',
+    'encerramento de suporte técnico',
+    'configuração inicial concluída',
+    'configurações globais'
+  ];
+  if (acoesExclusivasAdmin.some(a => acaoLower.includes(a))) {
+    return true;
+  }
+
+  return false;
+};
+
 // Data Access API
 export const dbService = {
+  // Getters brutos internos (apenas para autenticação, setup, sync e manipulação segura sem apagar dados do AdminGeral)
+  getEscolasBrutas: (): Escola[] => getLocal<Escola[]>(STORAGE_KEYS.ESCOLAS, []),
+  getFuncionariosBruto: (): Funcionario[] => getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []),
+  getAuditoriaBruta: (): LogAuditoria[] => getLocal<LogAuditoria[]>(STORAGE_KEYS.AUDITORIA, DEFAULT_AUDITORIA),
+  getMensagensBrutas: (): MensagemInterna[] => getLocal<MensagemInterna[]>(STORAGE_KEYS.MENSAGENS, DEFAULT_MENSAGENS),
+  getSolicitacoesApoioBrutas: (): SolicitacaoApoioTecnico[] => getLocal<SolicitacaoApoioTecnico[]>(STORAGE_KEYS.SOLICITACOES_APOIO, DEFAULT_SOLICITACOES_APOIO),
+  getSessoesAtivasBrutas: (): SessaoAtivaUsuario[] => getLocal<SessaoAtivaUsuario[]>(STORAGE_KEYS.SESSOES_ATIVAS, []),
+
   // Escolas
   getEscolas: (): Escola[] => {
-    const escolas = getLocal<Escola[]>(STORAGE_KEYS.ESCOLAS, []);
-    const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    const escolas = dbService.getEscolasBrutas();
+    const funcs = dbService.getFuncionariosBruto();
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
     const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', 'subdireção pedagógica', 'subdirecao pedagogica', 'chefe da secretaria', 'secretaria', ''];
 
     return escolas.map(e => {
       const mod = { ...e };
+      if (ocultarAdmin) {
+        delete mod.sessaoApoioTecnicoAtiva;
+      }
       // 1. Diretor Geral
       if (!mod.diretorGeralNome || placeholders.includes(mod.diretorGeralNome.trim().toLowerCase())) {
         const dir = funcs.find(f => 
+          !isAdminGeralUserObj(f) &&
           (!f.escolaId || f.escolaId === e.id || e.id === 'todas') && 
           (f.role === 'DiretorGeral' || f.cargo?.toLowerCase().includes('diretor geral') || f.cargo?.toLowerCase().includes('director geral'))
         );
@@ -759,6 +870,7 @@ export const dbService = {
       // 2. Subdiretor Pedagógico
       if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
         const sub = funcs.find(f =>
+          !isAdminGeralUserObj(f) &&
           (!f.escolaId || f.escolaId === e.id || e.id === 'todas') &&
           (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
         );
@@ -769,6 +881,7 @@ export const dbService = {
       // 3. Chefe da Secretaria
       if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
         const sec = funcs.find(f =>
+          !isAdminGeralUserObj(f) &&
           (!f.escolaId || f.escolaId === e.id || e.id === 'todas') &&
           (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
         );
@@ -828,22 +941,29 @@ export const dbService = {
     }
   },
   salvarEscola: (escola: Escola) => {
-    const escolas = dbService.getEscolas();
+    const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escola.id);
-    if (idx >= 0) escolas[idx] = escola;
-    else escolas.push(escola);
+    const agora = new Date().toISOString();
+    const escolaFinal = idx >= 0
+      ? { ...escolas[idx], ...escola, atualizadoEm: agora, sessaoApoioTecnicoAtiva: escola.sessaoApoioTecnicoAtiva ?? escolas[idx].sessaoApoioTecnicoAtiva }
+      : { ...escola, atualizadoEm: agora };
+    if (idx >= 0) escolas[idx] = escolaFinal;
+    else escolas.push(escolaFinal);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
-    firebaseSyncEngine.salvarEscola(escola);
+    firebaseSyncEngine.salvarEscola(escolaFinal);
     dbService.registarLog('Atualização da Instituição', `Dados da escola ${escola.nomeOficial} atualizados.`);
   },
   salvarEscolas: (escolas: Escola[]) => {
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
-    escolas.forEach(e => firebaseSyncEngine.salvarEscola(e));
+    firebaseSyncEngine.salvarEscolasLote(escolas);
   },
 
   // Operações do Administrador Geral: Criar, Suspender, Reativar, Eliminar Escolas
   criarEscola: (dados: Partial<Escola>): Escola => {
-    const escolas = dbService.getEscolas();
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: operação exclusiva da Administração Central.');
+    }
+    const escolas = dbService.getEscolasBrutas();
     const id = `esc-${Date.now()}`;
     const novaEscola: Escola = {
       id,
@@ -879,7 +999,10 @@ export const dbService = {
   },
 
   suspenderEscola: (escolaId: string, motivo: string): Escola => {
-    const escolas = dbService.getEscolas();
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: operação exclusiva da Administração Central.');
+    }
+    const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escolaId);
     if (idx < 0) throw new Error('Escola não encontrada');
     const esc: Escola = {
@@ -897,7 +1020,10 @@ export const dbService = {
   },
 
   reativarEscola: (escolaId: string): Escola => {
-    const escolas = dbService.getEscolas();
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: operação exclusiva da Administração Central.');
+    }
+    const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escolaId);
     if (idx < 0) throw new Error('Escola não encontrada');
     const esc: Escola = {
@@ -915,23 +1041,28 @@ export const dbService = {
   },
 
   atualizarEscolaCompleta: (dadosEscola: Partial<Escola> & { id: string }): Escola => {
-    const escolas = dbService.getEscolas();
+    const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === dadosEscola.id);
     if (idx < 0) throw new Error('Escola não encontrada para atualização');
     const atualizada: Escola = {
       ...escolas[idx],
-      ...dadosEscola
+      ...dadosEscola,
+      atualizadoEm: new Date().toISOString(),
+      sessaoApoioTecnicoAtiva: dadosEscola.sessaoApoioTecnicoAtiva ?? escolas[idx].sessaoApoioTecnicoAtiva
     };
     escolas[idx] = atualizada;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
     firebaseSyncEngine.salvarEscola(atualizada);
 
-    dbService.registarLog('Edição de Escola', `Dados institucionais da escola "${atualizada.nomeOficial}" atualizados pelo Administrador Geral.`);
+    dbService.registarLog('Edição de Escola', `Dados institucionais da escola "${atualizada.nomeOficial}" atualizados.`);
     return atualizada;
   },
 
   eliminarEscola: (escolaId: string): boolean => {
-    let escolas = dbService.getEscolas();
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: operação exclusiva da Administração Central.');
+    }
+    let escolas = dbService.getEscolasBrutas();
     const esc = escolas.find(e => e.id === escolaId);
     if (!esc) return false;
 
@@ -970,6 +1101,7 @@ export const dbService = {
     filterOutSchool(STORAGE_KEYS.HORARIOS);
     filterOutSchool(STORAGE_KEYS.MENSAGENS);
     filterOutSchool(STORAGE_KEYS.BIBLIOTECA);
+    filterOutSchool(STORAGE_KEYS.BIBLIOTECA_ACESSOS);
     filterOutSchool(STORAGE_KEYS.RECIBOS);
     filterOutSchool(STORAGE_KEYS.DELEGACOES_PODERES);
     filterOutSchool(STORAGE_KEYS.ACOES_DELEGADAS_LOGS);
@@ -1011,8 +1143,11 @@ export const dbService = {
     password?: string;
     habilitacoes: string;
   }): Funcionario => {
-    const funcs = dbService.getFuncionarios();
-    const escolas = dbService.getEscolas();
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: operação exclusiva da Administração Central.');
+    }
+    const funcs = dbService.getFuncionariosBruto();
+    const escolas = dbService.getEscolasBrutas();
     const idxEsc = escolas.findIndex(e => e.id === escolaId);
 
     const diretorExistente = funcs.find(f => f.escolaId === escolaId && f.role === 'DiretorGeral');
@@ -1054,6 +1189,7 @@ export const dbService = {
       escolas[idxEsc].diretorGeralEmail = dadosDiretor.email;
       escolas[idxEsc].diretorGeralTelefone = dadosDiretor.telefone;
       setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+      firebaseSyncEngine.salvarEscola(escolas[idxEsc]);
     }
 
     dbService.registarLog('Credenciais do Diretor Geral', `Diretor Geral ${novoDiretor.nomeCompleto} atribuído à escola com credenciais de acesso.`);
@@ -1070,7 +1206,10 @@ export const dbService = {
     email: string;
     password?: string;
   }): Funcionario => {
-    const funcs = dbService.getFuncionarios();
+    if (dados.role === 'AdminGeral' && isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: não possui permissão para criar perfil de Administrador Geral.');
+    }
+    const funcs = dbService.getFuncionariosBruto();
     const novoFunc: Funcionario = {
       id: dados.id || `func-${Date.now()}`,
       escolaId: dados.escolaId,
@@ -1103,20 +1242,27 @@ export const dbService = {
   },
 
   atualizarStatusFuncionario: (funcionarioId: string, status: 'Ativa' | 'Suspensa'): Funcionario => {
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const idx = funcs.findIndex(f => f.id === funcionarioId);
     if (idx < 0) throw new Error('Funcionário não encontrado');
+    if (isAdminGeralUserObj(funcs[idx])) {
+      throw new Error('Acesso negado: a conta do Administrador Geral não pode ser suspensa ou alterada.');
+    }
     funcs[idx].statusConta = status;
     funcs[idx].ativo = (status === 'Ativa');
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    firebaseSyncEngine.salvarPerfilUsuario(funcs[idx]);
     dbService.registarLog('Status de Acesso de Funcionário', `Conta de ${funcs[idx].nomeCompleto} definida como ${status}.`);
     return funcs[idx];
   },
 
   redefinirSenhaFuncionario: (funcionarioId: string, novaSenha: string): Funcionario => {
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const idx = funcs.findIndex(f => f.id === funcionarioId);
     if (idx < 0) throw new Error('Funcionário não encontrado');
+    if (isAdminGeralUserObj(funcs[idx]) && isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: não possui permissão para alterar a credencial do Administrador Geral.');
+    }
     funcs[idx].password = novaSenha;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
     // Persistência imediata no Firebase Firestore e no dispositivo
@@ -1139,18 +1285,25 @@ export const dbService = {
     novaSenha: string,
     operador: Funcionario
   ): Promise<{ sucesso: boolean; mensagem: string; funcionario: Funcionario }> => {
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const idx = funcs.findIndex(f => f.id === targetUserId);
     if (idx < 0) {
       throw new Error('Utilizador não encontrado no sistema.');
     }
     const target = funcs[idx];
 
+    if (isAdminGeralUserObj(target) && operador.role !== 'AdminGeral') {
+      throw new Error('Acesso negado: nenhum perfil pode alterar a palavra-passe do Administrador Geral.');
+    }
+
     // Validação estrita de RBAC
     if (operador.role === 'AdminGeral') {
+      if (isSessaoAutenticadaNaoAdminGeral()) {
+        throw new Error('Acesso negado: sessão ativa sem privilégios de Administração Geral.');
+      }
       // AdminGeral tem autoridade máxima em toda a rede nacional
     } else if (operador.role === 'DiretorGeral') {
-      if (target.role === 'AdminGeral') {
+      if (isAdminGeralUserObj(target)) {
         throw new Error('Um Diretor Geral não tem permissão para alterar a palavra-passe do Administrador Geral.');
       }
       if (target.escolaId !== operador.escolaId && operador.escolaId !== 'todas') {
@@ -1196,14 +1349,17 @@ export const dbService = {
   },
 
   eliminarFuncionario: (funcionarioId: string): boolean => {
-    let funcs = dbService.getFuncionarios();
+    let funcs = dbService.getFuncionariosBruto();
     const f = funcs.find(item => item.id === funcionarioId);
     if (!f) return false;
+    if (isAdminGeralUserObj(f)) {
+      throw new Error('Acesso negado: o perfil do Administrador Geral não pode ser eliminado.');
+    }
     funcs = funcs.filter(item => item.id !== funcionarioId);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
 
     // Se o funcionário for diretor de alguma escola, desvincula da instituição
-    const escolas = dbService.getEscolas();
+    const escolas = dbService.getEscolasBrutas();
     let escolaAlterada = false;
     const escolasAtualizadas = escolas.map(esc => {
       if (esc.diretorGeralId === funcionarioId) {
@@ -1251,6 +1407,7 @@ export const dbService = {
     if (idx >= 0) configs[idx] = config;
     else configs.push(config);
     setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, configs);
+    firebaseSyncEngine.salvarAnoLectivoConfig(config);
     dbService.adicionarAnoLectivo(config.rotulo);
     dbService.registarLog('Configuração de Ano Letivo', `Ano letivo ${config.rotulo} (${config.estado}) atualizado.`);
   },
@@ -1323,6 +1480,7 @@ export const dbService = {
     if (!anos.includes(novoAno)) {
       anos.push(novoAno);
       setLocal(STORAGE_KEYS.ANOS_LECTIVOS, anos);
+      firebaseSyncEngine.salvarAnosLectivosLista(anos);
       dbService.registarLog('Ano Lectivo Criado', `Novo ano letivo ${novoAno} adicionado ao sistema.`);
     }
   },
@@ -1358,9 +1516,11 @@ export const dbService = {
 
     configs = configs.filter(c => c.id !== target.id && c.rotulo !== target.rotulo);
     setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, configs);
+    firebaseSyncEngine.eliminarAnoLectivoConfig(target.id);
 
     const anosStr = dbService.getAnosLectivos().filter(a => a !== target.rotulo);
     setLocal(STORAGE_KEYS.ANOS_LECTIVOS, anosStr);
+    firebaseSyncEngine.salvarAnosLectivosLista(anosStr);
 
     // Se era o ano ativo, troca para o primeiro restante
     const escola = dbService.getEscolaAtiva();
@@ -1385,6 +1545,7 @@ export const dbService = {
     if (idx >= 0) turnos[idx] = turno;
     else turnos.push(turno);
     setLocal(STORAGE_KEYS.TURNOS_CONFIGS, turnos);
+    firebaseSyncEngine.salvarTurnoConfig(turno);
     dbService.registarLog('Turno Escolar', `Horário de funcionamento do turno ${turno.nome} atualizado.`);
   },
   eliminarTurnoConfig: (id: string): boolean => {
@@ -1393,6 +1554,7 @@ export const dbService = {
     if (!target) return false;
     const filtrados = turnos.filter(t => t.id !== id);
     setLocal(STORAGE_KEYS.TURNOS_CONFIGS, filtrados);
+    firebaseSyncEngine.eliminarTurnoConfig(id);
     dbService.registarLog('Exclusão de Turno', `Turno escolar ${target.nome} eliminado.`);
     return true;
   },
@@ -1406,6 +1568,7 @@ export const dbService = {
     if (idx >= 0) classes[idx] = classe;
     else classes.push(classe);
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, classes);
+    firebaseSyncEngine.salvarClasseConfig(classe);
     dbService.registarLog('Classe Escolar', `Nível de escolaridade ${classe.nome} atualizado.`);
   },
   eliminarClasseConfig: (id: string): boolean => {
@@ -1414,6 +1577,7 @@ export const dbService = {
     if (!target) return false;
     const filtradas = classes.filter(c => c.id !== id);
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, filtradas);
+    firebaseSyncEngine.eliminarClasseConfig(id);
     dbService.registarLog('Exclusão de Classe', `Classe escolar ${target.nome} eliminada.`);
     return true;
   },
@@ -1428,6 +1592,7 @@ export const dbService = {
     if (idx >= 0) cursos[idx] = curso;
     else cursos.push(curso);
     setLocal(STORAGE_KEYS.CURSOS, cursos);
+    firebaseSyncEngine.salvarCurso(curso);
     dbService.registarLog('Gestão de Cursos', `Curso "${curso.nome}" (${curso.area}) guardado com sucesso.`);
   },
   eliminarCurso: (id: string): boolean => {
@@ -1436,6 +1601,7 @@ export const dbService = {
     if (!target) return false;
     const filtrados = cursos.filter(c => c.id !== id);
     setLocal(STORAGE_KEYS.CURSOS, filtrados);
+    firebaseSyncEngine.eliminarCurso(id);
     dbService.registarLog('Exclusão de Curso', `Curso "${target.nome}" eliminado do catálogo.`);
     return true;
   },
@@ -1622,7 +1788,7 @@ export const dbService = {
     }
 
     // 2. Sanitização de credenciais e integridade de utilizadores
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     let credenciaisSanitizadas = 0;
     funcs.forEach(f => {
       if (!f.statusConta) {
@@ -1680,12 +1846,18 @@ export const dbService = {
   // SOLICITAÇÕES DE APOIO TÉCNICO AO ADMINISTRADOR GERAL
   // ==========================================
   getSolicitacoesApoioTecnico: (escolaId?: string): SolicitacaoApoioTecnico[] => {
-    const list = getLocal<SolicitacaoApoioTecnico[]>(STORAGE_KEYS.SOLICITACOES_APOIO, DEFAULT_SOLICITACOES_APOIO);
-    if (!escolaId || escolaId === 'todas') return list;
-    return list.filter(s => s.escolaId === escolaId);
+    const list = dbService.getSolicitacoesApoioBrutas();
+    const filtrada = (!escolaId || escolaId === 'todas') ? list : list.filter(s => s.escolaId === escolaId);
+    if (!isSessaoAutenticadaNaoAdminGeral()) {
+      return filtrada;
+    }
+    return filtrada.map(s => ({
+      ...s,
+      atendidoPorAdminNome: s.atendidoPorAdminNome ? 'Equipa Técnica DTI / MED' : undefined
+    }));
   },
   criarSolicitacaoApoioTecnico: (dados: any): SolicitacaoApoioTecnico => {
-    const list = dbService.getSolicitacoesApoioTecnico();
+    const list = dbService.getSolicitacoesApoioBrutas();
     const nova: SolicitacaoApoioTecnico = {
       ...dados,
       id: `sol-${Date.now()}`,
@@ -1710,7 +1882,7 @@ export const dbService = {
     return nova;
   },
   atualizarSolicitacaoApoioTecnico: (solicitacao: SolicitacaoApoioTecnico) => {
-    const list = dbService.getSolicitacoesApoioTecnico();
+    const list = dbService.getSolicitacoesApoioBrutas();
     const idx = list.findIndex(s => s.id === solicitacao.id);
     if (idx >= 0) list[idx] = solicitacao;
     else list.unshift(solicitacao);
@@ -1721,7 +1893,10 @@ export const dbService = {
     dbService.atualizarSolicitacaoApoioTecnico(solicitacao);
   },
   responderSolicitacaoApoioTecnico: (id: string, respostaOuStatus: string, adminNome: string, notas?: string) => {
-    const list = dbService.getSolicitacoesApoioTecnico();
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: atendimento técnico exclusivo da Administração Central.');
+    }
+    const list = dbService.getSolicitacoesApoioBrutas();
     const target = list.find(s => s.id === id);
     if (target) {
       if (respostaOuStatus === 'Em_Atendimento') {
@@ -1743,7 +1918,8 @@ export const dbService = {
     }
   },
   temAutorizacaoApoioTecnico: (escolaId: string): boolean => {
-    const chamados = dbService.getSolicitacoesApoioTecnico(escolaId);
+    const list = dbService.getSolicitacoesApoioBrutas();
+    const chamados = (!escolaId || escolaId === 'todas') ? list : list.filter(s => s.escolaId === escolaId);
     return chamados.some(c => (c.autorizacaoAcessoConcedida || c.autorizacaoAcessoValida) && c.estado !== 'Resolvido' && c.status !== 'Resolvido');
   },
 
@@ -1756,13 +1932,16 @@ export const dbService = {
     novaSenha?: string,
     senhaAtual?: string
   ): { sucesso: boolean; mensagem: string; usuarioAtualizado?: Funcionario } => {
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const idx = funcs.findIndex(f => f.id === funcionarioId);
     if (idx < 0) {
       return { sucesso: false, mensagem: 'Utilizador não encontrado no sistema.' };
     }
 
     const func = funcs[idx];
+    if (isAdminGeralUserObj(func) && isSessaoAutenticadaNaoAdminGeral()) {
+      return { sucesso: false, mensagem: 'Acesso negado: não possui permissão para alterar o perfil do Administrador Geral.' };
+    }
 
     // Se forneceu nova senha, validar senha atual
     if (novaSenha && novaSenha.trim()) {
@@ -1773,10 +1952,12 @@ export const dbService = {
     }
 
     if (dados.nomeCompleto) func.nomeCompleto = dados.nomeCompleto.trim();
-    if (dados.telefone) func.telefone = dados.telefone.trim();
-    if (dados.email) func.email = dados.email.trim();
-    if (dados.fotoUrl) func.fotoUrl = dados.fotoUrl;
-    if (dados.habilitacoes) func.habilitacoes = dados.habilitacoes;
+    if (dados.telefone !== undefined) func.telefone = dados.telefone.trim();
+    if (dados.email !== undefined) func.email = dados.email.trim();
+    if (dados.fotoUrl !== undefined) func.fotoUrl = dados.fotoUrl;
+    if (dados.habilitacoes !== undefined) func.habilitacoes = dados.habilitacoes;
+    if (dados.genero) func.genero = dados.genero;
+    func.atualizadoEm = new Date().toISOString();
 
     funcs[idx] = func;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
@@ -1852,14 +2033,15 @@ export const dbService = {
   // ==========================================
   temAdminGeral: (): boolean => {
     if (typeof window === 'undefined') return false;
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const adminAtivo = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
     return Boolean(adminAtivo);
   },
 
   obterAdminGeral: (): Funcionario | null => {
     if (typeof window === 'undefined') return null;
-    const funcs = dbService.getFuncionarios();
+    if (isSessaoAutenticadaNaoAdminGeral()) return null;
+    const funcs = dbService.getFuncionariosBruto();
     return funcs.find(f => f.role === 'AdminGeral' && f.ativo) || null;
   },
 
@@ -1874,7 +2056,7 @@ export const dbService = {
   }> => {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     let temLocal = dbService.temAdminGeral();
-    let funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     let admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
 
     // REGRA 1: Se estiver OFFLINE
@@ -1992,7 +2174,7 @@ export const dbService = {
   concluirSetupInicial: async (dadosAdmin: Partial<Funcionario>, dadosEscola?: Partial<Escola>): Promise<Funcionario> => {
     // 1. Criptografia e preparação das credenciais do Administrador Geral
     const senhaPlana = dadosAdmin.password || '';
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const existingAdmin = funcs.find(f => f.role === 'AdminGeral');
     const adminId = dadosAdmin.id || existingAdmin?.id || `func-admin-${Date.now()}`;
 
@@ -2059,10 +2241,14 @@ export const dbService = {
   },
 
   redefinirAdminGeralParaTestes: () => {
+    const authUser = getAuthenticatedUserFromStorage();
+    if (!authUser || authUser.role !== 'AdminGeral') {
+      throw new Error('Acesso negado: apenas o Administrador Geral pode executar esta operação.');
+    }
     localStorage.removeItem('sge_admin_configured');
     setLocal(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, false);
     setLocal(STORAGE_KEYS.SETUP_MASTER_LOCK, false);
-    const funcs = dbService.getFuncionarios().filter(f => f.role !== 'AdminGeral');
+    const funcs = dbService.getFuncionariosBruto().filter(f => f.role !== 'AdminGeral');
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
     localStorage.removeItem('sge_authenticated');
     localStorage.removeItem('sge_current_user');
@@ -2145,16 +2331,20 @@ export const dbService = {
     if (!aluno.propinaStatus) {
       aluno.propinaStatus = 'Pendente';
     }
+    const alunoComTimestamp: Aluno = {
+      ...aluno,
+      atualizadoEm: new Date().toISOString()
+    };
     const alunos = dbService.getAlunos();
-    const idx = alunos.findIndex(a => a.id === aluno.id);
-    if (idx >= 0) alunos[idx] = aluno;
-    else alunos.push(aluno);
+    const idx = alunos.findIndex(a => a.id === alunoComTimestamp.id);
+    if (idx >= 0) alunos[idx] = alunoComTimestamp;
+    else alunos.push(alunoComTimestamp);
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
     try {
-      offlineStorage.registarMutacao('Alunos', 'ATUALIZAR', `Aluno ${aluno.nomeCompleto} guardado`, 'SGE');
+      offlineStorage.registarMutacao('Alunos', 'ATUALIZAR', `Aluno ${alunoComTimestamp.nomeCompleto} guardado`, 'SGE');
     } catch {}
-    firebaseSyncEngine.salvarAluno(aluno);
-    dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${aluno.nomeCompleto} (${aluno.codigoMatricula}) gravado para o Ano Lectivo ${aluno.anoLectivo}.`);
+    firebaseSyncEngine.salvarAluno(alunoComTimestamp);
+    dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${alunoComTimestamp.nomeCompleto} (${alunoComTimestamp.codigoMatricula}) gravado para o Ano Lectivo ${alunoComTimestamp.anoLectivo}.`);
   },
   adicionarOcorrenciaHistoricoAluno: (alunoId: string, ocorrencia: any) => {
     const alunos = dbService.getAlunos();
@@ -2178,7 +2368,7 @@ export const dbService = {
       anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || '2025/2026'
     }));
     setLocal(STORAGE_KEYS.ALUNOS, alunosComAno);
-    alunosComAno.forEach(a => firebaseSyncEngine.salvarAluno(a));
+    firebaseSyncEngine.salvarAlunosLote(alunosComAno);
   },
   excluirAluno: (id: string) => {
     const alunos = dbService.getAlunos().filter(a => a.id !== id);
@@ -2247,7 +2437,7 @@ export const dbService = {
   },
   salvarTurmas: (turmas: Turma[]) => {
     setLocal(STORAGE_KEYS.TURMAS, turmas);
-    turmas.forEach(t => firebaseSyncEngine.salvarTurma(t));
+    firebaseSyncEngine.salvarTurmasLote(turmas);
   },
   eliminarTurma: (id: string): boolean => {
     const turmas = dbService.getTurmas();
@@ -2281,7 +2471,7 @@ export const dbService = {
   },
   salvarDisciplinas: (disciplinas: Disciplina[]) => {
     setLocal(STORAGE_KEYS.DISCIPLINAS, disciplinas);
-    disciplinas.forEach(d => firebaseSyncEngine.salvarDisciplina(d));
+    firebaseSyncEngine.salvarDisciplinasLote(disciplinas);
   },
   eliminarDisciplina: (id: string): boolean => {
     const discs = dbService.getDisciplinas();
@@ -2294,7 +2484,13 @@ export const dbService = {
     return true;
   },
   limparTodasDisciplinas: () => {
+    const existentes = dbService.getDisciplinas();
     setLocal(STORAGE_KEYS.DISCIPLINAS, []);
+    existentes.forEach(d => {
+      if (d?.id) {
+        firebaseSyncEngine.eliminarDisciplina(d.id);
+      }
+    });
     dbService.registarLog('Gestão Curricular', 'Todas as disciplinas padrão foram limpas para permitir criação personalizada pela Direção.');
   },
   replicarAtribuicoesAnoAnterior: (escolaId: string, anoActivo: string): { sucesso: boolean; totalReplicadas: number; novasAtribuicoes: AtribuicaoDocente[]; novasTurmas: Turma[]; mensagem: string } => {
@@ -2348,7 +2544,7 @@ export const dbService = {
 
     if (recemCriadasTurmas.length > 0) {
       setLocal(STORAGE_KEYS.TURMAS, todasTurmasAtualizadas);
-      recemCriadasTurmas.forEach(t => firebaseSyncEngine.salvarTurma(t));
+      firebaseSyncEngine.salvarTurmasLote(recemCriadasTurmas);
     }
 
     // 2. Replicar Atribuições Docentes e Coordenações para as turmas do novo ano
@@ -2377,6 +2573,9 @@ export const dbService = {
     });
 
     setLocal(STORAGE_KEYS.ATRIBUICOES, novasAtribs);
+    if (recemCriadas.length > 0) {
+      firebaseSyncEngine.salvarAtribuicoesLote(recemCriadas);
+    }
 
     dbService.registarLog('Gestão Académica', `${recemCriadasTurmas.length} turmas e ${count} atribuições docentes replicadas para o ano lectivo ${anoActivo}.`);
     return {
@@ -2413,30 +2612,52 @@ export const dbService = {
     if (idx >= 0) list[idx] = atrib;
     else list.push(atrib);
     setLocal(STORAGE_KEYS.ATRIBUICOES, list);
+    firebaseSyncEngine.salvarAtribuicao(atrib);
   },
   removerAtribuicao: (id: string) => {
     const list = dbService.getAtribuicoes().filter(a => a.id !== id);
     setLocal(STORAGE_KEYS.ATRIBUICOES, list);
+    firebaseSyncEngine.removerAtribuicao(id);
   },
 
   getFuncionarios: (escolaId?: string): Funcionario[] => {
-    const list = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
-    if (!escolaId || escolaId === 'todas') return list;
-    return list.filter(f => f.escolaId === escolaId);
+    const list = dbService.getFuncionariosBruto();
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const filtrada = ocultarAdmin ? list.filter(f => !isAdminGeralUserObj(f)) : list;
+    if (!escolaId || escolaId === 'todas') return filtrada;
+    return filtrada.filter(f => f.escolaId === escolaId);
   },
   salvarFuncionario: (func: Funcionario) => {
-    const funcs = dbService.getFuncionarios();
-    const idx = funcs.findIndex(f => f.id === func.id);
-    if (idx >= 0) funcs[idx] = func;
-    else funcs.push(func);
+    const funcs = dbService.getFuncionariosBruto();
+    const existing = funcs.find(f => f.id === func.id);
+    if ((isAdminGeralUserObj(func) || isAdminGeralUserObj(existing)) && isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: não possui autorização para criar ou alterar o perfil do Administrador Geral.');
+    }
+    const funcComTimestamp: Funcionario = {
+      ...func,
+      atualizadoEm: new Date().toISOString()
+    };
+    const idx = funcs.findIndex(f => f.id === funcComTimestamp.id);
+    if (idx >= 0) funcs[idx] = funcComTimestamp;
+    else funcs.push(funcComTimestamp);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    // Sincronização e persistência no Firebase Firestore e no dispositivo
-    firebaseSyncEngine.salvarPerfilUsuario(func);
-    dbService.registarLog('Gestão de Funcionários', `Funcionário ${func.nomeCompleto} atualizado e sincronizado no Firestore.`);
+    const current = dbService.getCurrentUser();
+    if (current && current.id === funcComTimestamp.id) {
+      dbService.setCurrentUser(funcComTimestamp);
+    }
+    firebaseSyncEngine.salvarPerfilUsuario(funcComTimestamp);
+    dbService.registarLog('Gestão de Funcionários', `Funcionário ${funcComTimestamp.nomeCompleto} atualizado e sincronizado no Firestore.`);
   },
   salvarFuncionarios: (funcs: Funcionario[]) => {
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      const adminsExistentes = dbService.getFuncionariosBruto().filter(f => isAdminGeralUserObj(f));
+      const semAdmin = funcs.filter(f => !isAdminGeralUserObj(f));
+      setLocal(STORAGE_KEYS.FUNCIONARIOS, [...adminsExistentes, ...semAdmin]);
+      firebaseSyncEngine.salvarFuncionariosLote(semAdmin);
+      return;
+    }
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    funcs.forEach(f => firebaseSyncEngine.salvarPerfilUsuario(f));
+    firebaseSyncEngine.salvarFuncionariosLote(funcs);
   },
 
   // Regras de Cálculo da MAC
@@ -2449,10 +2670,12 @@ export const dbService = {
     if (idx >= 0) regras[idx] = regra;
     else regras.push(regra);
     setLocal(STORAGE_KEYS.REGRAS_MAC, regras);
+    firebaseSyncEngine.salvarRegraMAC(regra);
     dbService.registarLog('Configuração Pedagógica', `Regra de cálculo da MAC atualizada para versão v${regra.versao} (${regra.nivelEnsino} - ${regra.classe}).`);
   },
   salvarRegrasMAC: (regras: RegraCalculoMAC[]) => {
     setLocal(STORAGE_KEYS.REGRAS_MAC, regras);
+    firebaseSyncEngine.salvarRegrasMACLote(regras);
   },
 
   // Tipos de Avaliação
@@ -2463,9 +2686,11 @@ export const dbService = {
     if (idx >= 0) tipos[idx] = tipo;
     else tipos.push(tipo);
     setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, tipos);
+    firebaseSyncEngine.salvarTipoAvaliacao(tipo);
   },
   salvarTiposAvaliacao: (tipos: TipoAvaliacaoConfig[]) => {
     setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, tipos);
+    firebaseSyncEngine.salvarTiposAvaliacaoLote(tipos);
   },
 
   // Avaliações do Professor
@@ -2483,9 +2708,15 @@ export const dbService = {
     const avs = dbService.getAvaliacoes().filter(a => a.id !== id);
     setLocal(STORAGE_KEYS.AVALIACOES, avs);
     firebaseSyncEngine.eliminarAvaliacao(id);
-    // Remove notas vinculadas
-    const notas = dbService.getNotas().filter(n => n.avaliacaoId !== id);
+    // Remove notas vinculadas no dispositivo e no Firebase
+    const todasNotas = dbService.getNotas();
+    const notasRemovidas = todasNotas.filter(n => n.avaliacaoId === id);
+    const notas = todasNotas.filter(n => n.avaliacaoId !== id);
     setLocal(STORAGE_KEYS.NOTAS, notas);
+    notasRemovidas.forEach(n => {
+      const notaDocId = (n as any).id || `${n.avaliacaoId}_${n.alunoId}`;
+      firebaseSyncEngine.eliminarDocumentoDireto('notas_estudantes', notaDocId, undefined, `Remoção de nota vinculada à avaliação ${id}`);
+    });
   },
 
   // Notas
@@ -2500,7 +2731,7 @@ export const dbService = {
   },
   salvarNotas: (notas: NotaEstudante[]) => {
     setLocal(STORAGE_KEYS.NOTAS, notas);
-    notas.forEach(n => firebaseSyncEngine.salvarNotaEstudante(n));
+    firebaseSyncEngine.salvarNotasLote(notas);
   },
 
   // Notas Consolidadas / Pautas
@@ -2515,7 +2746,7 @@ export const dbService = {
   },
   salvarNotasConsolidadas: (lista: NotaTrimestralConsolidada[]) => {
     setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, lista);
-    lista.forEach(c => firebaseSyncEngine.salvarNota(c));
+    firebaseSyncEngine.salvarNotasConsolidadasLote(lista);
   },
 
   // Solicitações de Nota
@@ -2526,6 +2757,7 @@ export const dbService = {
     if (idx >= 0) sols[idx] = sol;
     else sols.push(sol);
     setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, sols);
+    firebaseSyncEngine.salvarSolicitacaoNota(sol);
     dbService.registarLog('Solicitação de Correção', `Professor ${sol.professorNome} solicitou correção de nota para ${sol.alunoNome}.`);
   },
 
@@ -2538,11 +2770,13 @@ export const dbService = {
     if (idx >= 0) juris[idx] = juri;
     else juris.push(juri);
     setLocal(STORAGE_KEYS.JURIS, juris);
+    firebaseSyncEngine.salvarJuri(juri);
     dbService.registarLog('Comissão de Júri', `Comissão de Júri ${juri.nomeJuri} (${juri.numeroSessao || ''}) atualizada.`);
   },
   excluirJuri: (id: string) => {
     const juris = dbService.getJuris().filter(j => j.id !== id);
     setLocal(STORAGE_KEYS.JURIS, juris);
+    firebaseSyncEngine.eliminarJuri(id);
     dbService.registarLog('Comissão de Júri', `Comissão de Júri ${id} eliminada.`);
   },
   salvarDeliberacaoJuri: (juriId: string, deliberacao: DeliberacaoAlunoJuri) => {
@@ -2591,6 +2825,7 @@ export const dbService = {
       notas[notaIdx].mediaTrimestral = alteracao.novaNota;
       notas[notaIdx].notaFinal = alteracao.novaNota;
       setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, notas);
+      firebaseSyncEngine.salvarNota(notas[notaIdx]);
     }
 
     dbService.registarLog(
@@ -2651,11 +2886,13 @@ export const dbService = {
     if (idx >= 0) termos[idx] = termo;
     else termos.push(termo);
     setLocal(STORAGE_KEYS.TERMOS_EXAME, termos);
+    firebaseSyncEngine.salvarTermoExame(termo);
     dbService.registarLog('Termos de Exame', `Termo de exame da disciplina ${termo.disciplinaNome} (${termo.classe} - ${termo.epoca}) atualizado.`);
   },
   excluirTermoExame: (id: string) => {
     const termos = dbService.getTermosExame().filter(t => t.id !== id);
     setLocal(STORAGE_KEYS.TERMOS_EXAME, termos);
+    firebaseSyncEngine.eliminarTermoExame(id);
     dbService.registarLog('Termos de Exame', `Termo de exame removido.`);
   },
 
@@ -2670,6 +2907,7 @@ export const dbService = {
     if (idx >= 0) {
       escolas[idx].nppAtivo = nppAtivo;
       setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+      firebaseSyncEngine.salvarEscola(escolas[idx]);
       dbService.registarLog('Configuração Pedagógica', `Uso de Prova do Professor (NPP) ${nppAtivo ? 'ATIVADO' : 'DESATIVADO'} para o cálculo trimestral.`);
     }
   },
@@ -2678,16 +2916,19 @@ export const dbService = {
   salvarTurmasOrdenadas: (turmasOrdenadas: Turma[]) => {
     const comOrdem = turmasOrdenadas.map((t, idx) => ({ ...t, ordem: idx }));
     setLocal(STORAGE_KEYS.TURMAS, comOrdem);
+    firebaseSyncEngine.salvarTurmasLote(comOrdem);
     dbService.registarLog('Gestão Académica', 'Ordem de turmas atualizada pela instituição.');
   },
   salvarDisciplinasOrdenadas: (disciplinasOrdenadas: Disciplina[]) => {
     const comOrdem = disciplinasOrdenadas.map((d, idx) => ({ ...d, ordem: idx }));
     setLocal(STORAGE_KEYS.DISCIPLINAS, comOrdem);
+    firebaseSyncEngine.salvarDisciplinasLote(comOrdem);
     dbService.registarLog('Gestão Académica', 'Ordem de disciplinas curriculares atualizada.');
   },
   salvarClassesOrdenadas: (classesOrdenadas: ClasseConfig[]) => {
     const comOrdem = classesOrdenadas.map((c, idx) => ({ ...c, ordem: idx }));
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, comOrdem);
+    firebaseSyncEngine.salvarClassesLote(comOrdem);
     dbService.registarLog('Gestão Académica', 'Ordem de classes da instituição atualizada.');
   },
 
@@ -2699,26 +2940,38 @@ export const dbService = {
     if (idx >= 0) pres[idx] = p;
     else pres.push(p);
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
+    firebaseSyncEngine.salvarPresencaFuncionario(p);
   },
   removerPresenca: (funcionarioId: string, data: string) => {
     let pres = dbService.getPresencas();
     pres = pres.filter(item => !(item.funcionarioId === funcionarioId && item.data === data));
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
+    firebaseSyncEngine.eliminarPresencaFuncionario(funcionarioId, data);
     dbService.registarLog('Assiduidade', `Registo de ponto do funcionário ${funcionarioId} na data ${data} removido por retificação.`);
   },
 
   // Auditoria
-  getAuditoria: (): LogAuditoria[] => getLocal(STORAGE_KEYS.AUDITORIA, DEFAULT_AUDITORIA),
+  getAuditoria: (): LogAuditoria[] => {
+    const logs = dbService.getAuditoriaBruta();
+    if (!isSessaoAutenticadaNaoAdminGeral()) {
+      return logs;
+    }
+    const { ids, nomes } = getAdminGeralIdsAndNomes();
+    return logs.filter(l => !isLogOuAcaoDoAdminGeral(l, ids, nomes));
+  },
   registarLog: (acao: string, detalhe: string) => {
-    const logs = dbService.getAuditoria();
+    const logs = dbService.getAuditoriaBruta();
     const user = dbService.getCurrentUser();
-    const escolaAtiva = dbService.getEscolaAtiva();
+    const escolasBrutas = dbService.getEscolasBrutas();
+    const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
+    const escolaAtiva = escolasBrutas.find(e => e.id === idAtivo) || escolasBrutas[0] || DEFAULT_ESCOLA_VAZIA;
 
+    const ehAdminGeral = user.role === 'AdminGeral';
     let detalheFinal = detalhe;
     let papelFinal = user.cargo || user.role;
 
     // Se o Admin Geral estiver a atuar sob sessão de apoio técnico autorizada pelo Diretor
-    if (user.role === 'AdminGeral' && escolaAtiva.sessaoApoioTecnicoAtiva) {
+    if (ehAdminGeral && escolaAtiva.sessaoApoioTecnicoAtiva) {
       detalheFinal = `[APOIO TÉCNICO AUTORIZADO - ADMIN GERAL] ${detalhe} (Ref: Chamado #${escolaAtiva.sessaoApoioTecnicoAtiva.solicitacaoId.slice(-6)})`;
       papelFinal = 'AdminGeral (Apoio Técnico Autorizado)';
     }
@@ -2729,6 +2982,8 @@ export const dbService = {
       utilizadorId: user.id,
       utilizadorNome: user.nomeCompleto,
       papel: papelFinal,
+      usuarioRole: user.role,
+      origemAdminGeral: ehAdminGeral,
       acao,
       detalhe: detalheFinal,
       ip: '197.234.' + Math.floor(Math.random() * 250) + '.' + Math.floor(Math.random() * 250),
@@ -2738,6 +2993,7 @@ export const dbService = {
     // Limite de 500 logs locais para performance
     if (logs.length > 500) logs.length = 500;
     setLocal(STORAGE_KEYS.AUDITORIA, logs);
+    firebaseSyncEngine.salvarLogAuditoria(newLog);
 
     // Registar batimento cardíaco da sessão do utilizador
     try {
@@ -2751,24 +3007,41 @@ export const dbService = {
       'Auditoria',
       'ATUALIZAR',
       `${acao}: ${detalheFinal}`,
-      user.nomeCompleto || 'Utilizador'
+      user.nomeCompleto || 'Utilizador',
+      user.role
     );
   },
   limparLogsAntigos: () => {
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      throw new Error('Acesso negado: apenas o Administrador Geral pode limpar logs do sistema.');
+    }
     setLocal(STORAGE_KEYS.AUDITORIA, []);
   },
 
   // Mensagens
-  getMensagens: (): MensagemInterna[] => getLocal(STORAGE_KEYS.MENSAGENS, DEFAULT_MENSAGENS),
+  getMensagens: (): MensagemInterna[] => {
+    const msgs = dbService.getMensagensBrutas();
+    if (!isSessaoAutenticadaNaoAdminGeral()) return msgs;
+    const { ids } = getAdminGeralIdsAndNomes();
+    return msgs.filter(m => {
+      if (!m) return false;
+      if (m.remetentePapel === 'AdminGeral') return false;
+      if ((m.remetenteCargo || '').toLowerCase().includes('administrador geral')) return false;
+      if (m.destinatarioId === 'admin-geral') return false;
+      if (m.remetenteId && ids.has(m.remetenteId)) return false;
+      if (m.destinatarioId && ids.has(m.destinatarioId)) return false;
+      return true;
+    });
+  },
   enviarMensagem: (msg: MensagemInterna) => {
-    const msgs = dbService.getMensagens();
+    const msgs = dbService.getMensagensBrutas();
     msgs.unshift(msg);
     setLocal(STORAGE_KEYS.MENSAGENS, msgs);
     firebaseSyncEngine.salvarMensagem(msg);
     dbService.registarLog('Comunicação Interna', `Mensagem "${msg.titulo}" enviada.`);
   },
   marcarMensagemLida: (id: string) => {
-    const msgs = dbService.getMensagens();
+    const msgs = dbService.getMensagensBrutas();
     const idx = msgs.findIndex(m => m.id === id);
     if (idx !== -1) {
       msgs[idx].lida = true;
@@ -2777,8 +3050,13 @@ export const dbService = {
     }
   },
   marcarTodasMensagensLidas: (escolaId?: string) => {
-    const msgs = dbService.getMensagens();
+    const msgs = dbService.getMensagensBrutas();
+    const isNonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const { ids } = getAdminGeralIdsAndNomes();
     msgs.forEach(m => {
+      if (isNonAdmin && (m.remetentePapel === 'AdminGeral' || m.destinatarioId === 'admin-geral' || ids.has(m.remetenteId))) {
+        return;
+      }
       if (!escolaId || m.escolaId === escolaId) {
         m.lida = true;
         firebaseSyncEngine.salvarMensagem(m);
@@ -2791,9 +3069,29 @@ export const dbService = {
   getBiblioteca: (): DocumentoBiblioteca[] => getLocal(STORAGE_KEYS.BIBLIOTECA, DEFAULT_BIBLIOTECA),
   salvarDocumento: (doc: DocumentoBiblioteca) => {
     const docs = dbService.getBiblioteca();
-    docs.unshift(doc);
+    const docComTimestamp = { ...doc, atualizadoEm: new Date().toISOString() };
+    docs.unshift(docComTimestamp);
     setLocal(STORAGE_KEYS.BIBLIOTECA, docs);
-    dbService.registarLog('Biblioteca Digital', `Documento "${doc.titulo}" carregado.`);
+    firebaseSyncEngine.salvarDocumentoBiblioteca(docComTimestamp);
+    dbService.registarLog('Biblioteca Digital', `Documento "${docComTimestamp.titulo}" carregado.`);
+  },
+  getAcessosBiblioteca: (escolaId?: string): RegistoAcessoBiblioteca[] => {
+    const lista = getLocal<RegistoAcessoBiblioteca[]>(STORAGE_KEYS.BIBLIOTECA_ACESSOS, []);
+    if (!escolaId || escolaId === 'todas') return lista;
+    return lista.filter(a => a.escolaId === escolaId);
+  },
+  registarAcessoBiblioteca: (acesso: RegistoAcessoBiblioteca) => {
+    const acessos = getLocal<RegistoAcessoBiblioteca[]>(STORAGE_KEYS.BIBLIOTECA_ACESSOS, []);
+    const registro: RegistoAcessoBiblioteca = {
+      ...acesso,
+      atualizadoEm: new Date().toISOString()
+    };
+    const idx = acessos.findIndex(a => a.id === registro.id);
+    if (idx >= 0) acessos[idx] = registro;
+    else acessos.unshift(registro);
+    setLocal(STORAGE_KEYS.BIBLIOTECA_ACESSOS, acessos);
+    firebaseSyncEngine.salvarAcessoBiblioteca(registro);
+    dbService.registarLog('Controlo da Biblioteca', `${registro.tipoAcesso.replace(/_/g, ' ')} registado via QR Code para ${registro.alunoNome}.`);
   },
 
   // Recibos Térmicos
@@ -2802,6 +3100,7 @@ export const dbService = {
     const recs = dbService.getRecibos();
     recs.unshift(rec);
     setLocal(STORAGE_KEYS.RECIBOS, recs);
+    firebaseSyncEngine.salvarRecibo(rec);
     dbService.registarLog('Emissão de Recibo', `Recibo ${rec.numeroRecibo} emitido para ${rec.alunoNome} no valor de ${rec.valorPagoKz} Kz.`);
   },
 
@@ -2809,7 +3108,7 @@ export const dbService = {
   getCurrentUser: (): Funcionario => {
     const user = getLocal<Funcionario | null>(STORAGE_KEYS.CURRENT_USER, null);
     if (user && user.id && user.role) return user;
-    const funcs = dbService.getFuncionarios();
+    const funcs = dbService.getFuncionariosBruto();
     const admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
     if (admin) return admin;
     if (funcs.length > 0 && funcs[0]?.id) return funcs[0];
@@ -3587,6 +3886,10 @@ export const dbService = {
 
   // 7. Exportar Todo o Sistema Completo em Excel (.xlsx)
   exportarSistemaCompletoExcel: () => {
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      dbService.exportarEscolaCompletaExcel(dbService.getEscolaAtiva().id);
+      return;
+    }
     const wb = XLSX.utils.book_new();
     const escolas = dbService.getEscolas();
     const alunos = dbService.getAlunos();
@@ -3688,6 +3991,10 @@ export const dbService = {
 
   // 8. Exportar Todo o Sistema Completo em JSON (.json)
   exportarSistemaCompletoJSON: () => {
+    if (isSessaoAutenticadaNaoAdminGeral()) {
+      dbService.gerarBackupJSON(dbService.getEscolaAtiva().id);
+      return;
+    }
     dbService.gerarBackupJSON('todas');
   },
 
@@ -3784,38 +4091,46 @@ export const dbService = {
 
   // Backup Completo JSON (Todas as coleções e dados com suporte a isolamento por escola)
   gerarBackupJSON: (escolaId?: string) => {
-    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
-    const escolaAlvo = isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : null;
+    const escolaAlvo = isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : null;
+
+    const funcsVisiveis = dbService.getFuncionarios().filter(f => !isAdminGeralUserObj(f));
+    const logsVisiveis = dbService.getAuditoria();
 
     const backupData = {
       versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Enterprise Cloud/Local)',
       dataExportacao: new Date().toISOString(),
-      escolaIdAlvo: escolaId || 'todas',
+      escolaIdAlvo: effectiveEscolaId || 'todas',
       escolas: isEscolaEspecifica && escolaAlvo ? [escolaAlvo] : todasEscolas,
-      alunos: isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === escolaId) : dbService.getAlunos(),
-      turmas: isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === escolaId) : dbService.getTurmas(),
-      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas().filter(d => !(d as any).escolaId || (d as any).escolaId === escolaId) : dbService.getDisciplinas(),
-      atribuicoes: isEscolaEspecifica ? dbService.getAtribuicoes().filter(at => at.escolaId === escolaId) : dbService.getAtribuicoes(),
-      funcionarios: isEscolaEspecifica ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId || f.role === 'AdminGeral') : dbService.getFuncionarios(),
+      alunos: isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAlunos(),
+      turmas: isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas(),
+      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas().filter(d => !(d as any).escolaId || (d as any).escolaId === effectiveEscolaId) : dbService.getDisciplinas(),
+      atribuicoes: isEscolaEspecifica ? dbService.getAtribuicoes().filter(at => at.escolaId === effectiveEscolaId) : dbService.getAtribuicoes(),
+      funcionarios: isEscolaEspecifica ? funcsVisiveis.filter(f => f.escolaId === effectiveEscolaId) : (nonAdmin ? funcsVisiveis : dbService.getFuncionarios()),
       tiposAvaliacao: dbService.getTiposAvaliacao(),
       regrasMAC: dbService.getRegrasMAC(),
-      avaliacoes: isEscolaEspecifica ? dbService.getAvaliacoes().filter(a => a.escolaId === escolaId) : dbService.getAvaliacoes(),
-      notas: isEscolaEspecifica ? dbService.getNotas().filter(n => !(n as any).escolaId || (n as any).escolaId === escolaId) : dbService.getNotas(),
-      notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => (nc as any).escolaId === escolaId) : dbService.getNotasConsolidadas(),
-      solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === escolaId) : dbService.getSolicitacoesNota(),
-      juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === escolaId) : dbService.getJuris(),
-      presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === escolaId) : dbService.getPresencas(),
-      auditoria: isEscolaEspecifica ? dbService.getAuditoria().filter(a => !a.escolaId || a.escolaId === escolaId) : dbService.getAuditoria(),
-      mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === escolaId) : dbService.getMensagens(),
-      biblioteca: isEscolaEspecifica ? dbService.getBiblioteca().filter(b => b.escolaId === escolaId) : dbService.getBiblioteca(),
-      recibos: isEscolaEspecifica ? dbService.getRecibos().filter(r => r.escolaId === escolaId) : dbService.getRecibos(),
+      avaliacoes: isEscolaEspecifica ? dbService.getAvaliacoes().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAvaliacoes(),
+      notas: isEscolaEspecifica ? dbService.getNotas().filter(n => !(n as any).escolaId || (n as any).escolaId === effectiveEscolaId) : dbService.getNotas(),
+      notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => (nc as any).escolaId === effectiveEscolaId) : dbService.getNotasConsolidadas(),
+      solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === effectiveEscolaId) : dbService.getSolicitacoesNota(),
+      juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === effectiveEscolaId) : dbService.getJuris(),
+      presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPresencas(),
+      auditoria: isEscolaEspecifica ? logsVisiveis.filter(a => !a.escolaId || a.escolaId === effectiveEscolaId) : logsVisiveis,
+      mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === effectiveEscolaId) : dbService.getMensagens(),
+      biblioteca: isEscolaEspecifica ? dbService.getBiblioteca().filter(b => b.escolaId === effectiveEscolaId) : dbService.getBiblioteca(),
+      bibliotecaAcessos: isEscolaEspecifica ? dbService.getAcessosBiblioteca(effectiveEscolaId) : dbService.getAcessosBiblioteca(),
+      recibos: isEscolaEspecifica ? dbService.getRecibos().filter(r => r.escolaId === effectiveEscolaId) : dbService.getRecibos(),
       configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
-      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras().filter(t => t.escolaId === escolaId) : dbService.getTransacoesFinanceiras(),
-      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares().filter(d => d.escolaId === escolaId) : dbService.getDespesasEscolares(),
-      patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === escolaId) : dbService.getPatrimonio(),
+      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTransacoesFinanceiras(),
+      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares().filter(d => d.escolaId === effectiveEscolaId) : dbService.getDespesasEscolares(),
+      patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPatrimonio(),
       historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
-      configuracaoSistema: dbService.getConfiguracaoSistema(),
+      configuracaoSistema: nonAdmin ? undefined : dbService.getConfiguracaoSistema(),
       anosLectivos: dbService.getAnosLectivos(),
       anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
       turnosConfigs: dbService.getTurnosConfigs(),
@@ -3824,8 +4139,8 @@ export const dbService = {
       emolumentosPersonalizados: getLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
       delegacoesCobranca: getLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
       presencasAlunos: getLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
-      solicitacoesApoio: dbService.getSolicitacoesApoioTecnico(),
-      alertasSeguranca: dbService.getAlertasSeguranca()
+      solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
+      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
     };
 
     const nomeSufixo = escolaAlvo?.sigla || (isEscolaEspecifica ? 'Instituicao' : 'Rede_Nacional');
@@ -3843,14 +4158,45 @@ export const dbService = {
   restaurarBackupJSON: (jsonString: string): boolean => {
     try {
       const data = JSON.parse(jsonString);
-      if (data.escolas) setLocal(STORAGE_KEYS.ESCOLAS, data.escolas);
-      else if (data.escola) setLocal(STORAGE_KEYS.ESCOLAS, [data.escola]);
+      const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+      const adminsExistentes = dbService.getFuncionariosBruto().filter(f => isAdminGeralUserObj(f));
+      const { ids: adminIds, nomes: adminNomes } = getAdminGeralIdsAndNomes();
+      const logsAdminExistentes = dbService.getAuditoriaBruta().filter(l => isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes));
+      const escolasBrutasExistentes = dbService.getEscolasBrutas();
+
+      if (data.escolas) {
+        if (nonAdmin && Array.isArray(data.escolas)) {
+          const mapaSessoesApoio = new Map(
+            escolasBrutasExistentes
+              .filter(e => e.sessaoApoioTecnicoAtiva)
+              .map(e => [e.id, e.sessaoApoioTecnicoAtiva])
+          );
+          const restauradasIds = new Set(data.escolas.map((e: Escola) => e.id));
+          const preservadasOutras = escolasBrutasExistentes.filter(e => !restauradasIds.has(e.id));
+          const restauradasComProtecao = data.escolas.map((e: Escola) => ({
+            ...e,
+            sessaoApoioTecnicoAtiva: mapaSessoesApoio.get(e.id)
+          }));
+          setLocal(STORAGE_KEYS.ESCOLAS, [...preservadasOutras, ...restauradasComProtecao]);
+        } else {
+          setLocal(STORAGE_KEYS.ESCOLAS, data.escolas);
+        }
+      } else if (data.escola && !nonAdmin) {
+        setLocal(STORAGE_KEYS.ESCOLAS, [data.escola]);
+      }
 
       if (data.alunos) setLocal(STORAGE_KEYS.ALUNOS, data.alunos);
       if (data.turmas) setLocal(STORAGE_KEYS.TURMAS, data.turmas);
       if (data.disciplinas) setLocal(STORAGE_KEYS.DISCIPLINAS, data.disciplinas);
       if (data.atribuicoes) setLocal(STORAGE_KEYS.ATRIBUICOES, data.atribuicoes);
-      if (data.funcionarios) setLocal(STORAGE_KEYS.FUNCIONARIOS, data.funcionarios);
+      if (data.funcionarios) {
+        if (nonAdmin && Array.isArray(data.funcionarios)) {
+          const semAdmin = data.funcionarios.filter((f: Funcionario) => !isAdminGeralUserObj(f));
+          setLocal(STORAGE_KEYS.FUNCIONARIOS, [...adminsExistentes, ...semAdmin]);
+        } else {
+          setLocal(STORAGE_KEYS.FUNCIONARIOS, data.funcionarios);
+        }
+      }
       if (data.tiposAvaliacao) setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, data.tiposAvaliacao);
       if (data.regrasMAC) setLocal(STORAGE_KEYS.REGRAS_MAC, data.regrasMAC);
       if (data.avaliacoes) setLocal(STORAGE_KEYS.AVALIACOES, data.avaliacoes);
@@ -3859,9 +4205,17 @@ export const dbService = {
       if (data.solicitacoesNota) setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, data.solicitacoesNota);
       if (data.juris) setLocal(STORAGE_KEYS.JURIS, data.juris);
       if (data.presencas) setLocal(STORAGE_KEYS.PRESENCAS, data.presencas);
-      if (data.auditoria) setLocal(STORAGE_KEYS.AUDITORIA, data.auditoria);
+      if (data.auditoria) {
+        if (nonAdmin && Array.isArray(data.auditoria)) {
+          const logsSemAdmin = data.auditoria.filter((l: LogAuditoria) => !isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes));
+          setLocal(STORAGE_KEYS.AUDITORIA, [...logsAdminExistentes, ...logsSemAdmin]);
+        } else {
+          setLocal(STORAGE_KEYS.AUDITORIA, data.auditoria);
+        }
+      }
       if (data.mensagens) setLocal(STORAGE_KEYS.MENSAGENS, data.mensagens);
       if (data.biblioteca) setLocal(STORAGE_KEYS.BIBLIOTECA, data.biblioteca);
+      if (data.bibliotecaAcessos) setLocal(STORAGE_KEYS.BIBLIOTECA_ACESSOS, data.bibliotecaAcessos);
       if (data.recibos) setLocal(STORAGE_KEYS.RECIBOS, data.recibos);
 
       if (data.configuracoesFinanceiras) setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, data.configuracoesFinanceiras);
@@ -3869,7 +4223,7 @@ export const dbService = {
       if (data.despesasEscolares) setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, data.despesasEscolares);
       if (data.patrimonio) setLocal(STORAGE_KEYS.PATRIMONIO, data.patrimonio);
       if (data.historicoCompleto) setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, data.historicoCompleto);
-      if (data.configuracaoSistema) setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, data.configuracaoSistema);
+      if (data.configuracaoSistema && !nonAdmin) setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, data.configuracaoSistema);
       if (data.anosLectivos) setLocal(STORAGE_KEYS.ANOS_LECTIVOS, data.anosLectivos);
       if (data.anosLectivosConfigs) setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, data.anosLectivosConfigs);
       if (data.turnosConfigs) setLocal(STORAGE_KEYS.TURNOS_CONFIGS, data.turnosConfigs);
@@ -3878,10 +4232,11 @@ export const dbService = {
       if (data.emolumentosPersonalizados) setLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, data.emolumentosPersonalizados);
       if (data.delegacoesCobranca) setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, data.delegacoesCobranca);
       if (data.presencasAlunos) setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, data.presencasAlunos);
-      if (data.solicitacoesApoio) setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, data.solicitacoesApoio);
-      if (data.alertasSeguranca) setLocal(STORAGE_KEYS.ALERTAS_SEGURANCA, data.alertasSeguranca);
+      if (data.solicitacoesApoio && !nonAdmin) setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, data.solicitacoesApoio);
+      if (data.alertasSeguranca && !nonAdmin) setLocal(STORAGE_KEYS.ALERTAS_SEGURANCA, data.alertasSeguranca);
 
-      dbService.registarLog('Restauração de Backup Integral', 'Sistema completamente restaurado a partir de ficheiro de segurança.');
+      dbService.registarLog('Restauração de Backup Integral', 'Sistema restaurado a partir de ficheiro de segurança.');
+      firebaseSyncEngine.sincronizarTudoImediato();
       return true;
     } catch (e) {
       console.error('Falha na restauração:', e);
@@ -3914,7 +4269,7 @@ export const dbService = {
     return dbService.atualizarStatusFuncionario(funcionarioId, status === 'Suspensa' ? 'Suspensa' : 'Ativa');
   },
   salvarMensagem: (msg: any) => {
-    const list = dbService.getMensagens();
+    const list = dbService.getMensagensBrutas();
     list.unshift(msg);
     setLocal(STORAGE_KEYS.MENSAGENS, list);
     firebaseSyncEngine.salvarMensagem(msg);
@@ -3922,6 +4277,8 @@ export const dbService = {
   salvarLivro: (livro: any) => dbService.salvarDocumento(livro),
   limparLogs: () => dbService.limparLogsAntigos(),
   criarBackupJSON: () => {
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const funcsVisiveis = dbService.getFuncionarios().filter(f => !isAdminGeralUserObj(f));
     return JSON.stringify({
       versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Enterprise Cloud/Local)',
       dataExportacao: new Date().toISOString(),
@@ -3930,7 +4287,7 @@ export const dbService = {
       turmas: dbService.getTurmas(),
       disciplinas: dbService.getDisciplinas(),
       atribuicoes: dbService.getAtribuicoes(),
-      funcionarios: dbService.getFuncionarios(),
+      funcionarios: nonAdmin ? funcsVisiveis : dbService.getFuncionarios(),
       tiposAvaliacao: dbService.getTiposAvaliacao(),
       regrasMAC: dbService.getRegrasMAC(),
       avaliacoes: dbService.getAvaliacoes(),
@@ -3942,19 +4299,20 @@ export const dbService = {
       auditoria: dbService.getAuditoria(),
       mensagens: dbService.getMensagens(),
       biblioteca: dbService.getBiblioteca(),
+      bibliotecaAcessos: dbService.getAcessosBiblioteca(),
       recibos: dbService.getRecibos(),
       configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
       transacoesFinanceiras: dbService.getTransacoesFinanceiras(),
       despesasEscolares: dbService.getDespesasEscolares(),
       patrimonio: dbService.getPatrimonio(),
       historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
-      configuracaoSistema: dbService.getConfiguracaoSistema(),
+      configuracaoSistema: nonAdmin ? undefined : dbService.getConfiguracaoSistema(),
       anosLectivos: dbService.getAnosLectivos(),
       anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
       turnosConfigs: dbService.getTurnosConfigs(),
       classesConfigs: dbService.getClassesConfigs(),
       solicitacoesApoio: dbService.getSolicitacoesApoioTecnico(),
-      alertasSeguranca: dbService.getAlertasSeguranca()
+      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
     }, null, 2);
   },
   exportarParaExcel: () => dbService.exportarExcelCompleto(),
@@ -4037,9 +4395,13 @@ export const dbService = {
     return getLocal<ConfiguracaoSistema>(STORAGE_KEYS.CONFIGURACAO_SISTEMA, DEFAULT_CONFIGURACAO_SISTEMA);
   },
   salvarConfiguracaoSistema: (config: ConfiguracaoSistema): void => {
-    setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, config);
+    const configComTimestamp: ConfiguracaoSistema = {
+      ...config,
+      atualizadoEm: new Date().toISOString()
+    };
+    setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, configComTimestamp);
     // Gravação e sincronização imediata no Firebase Firestore e no dispositivo
-    firebaseSyncEngine.salvarConfiguracaoSistema(config);
+    firebaseSyncEngine.salvarConfiguracaoSistema(configComTimestamp);
     dbService.registarLog('Configuração Geral', 'Parâmetros e Insígnia do Sistema atualizados pelo Administrador Geral.');
   },
 
@@ -4091,6 +4453,7 @@ export const dbService = {
     );
     map[config.escolaId] = config;
     setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, map);
+    firebaseSyncEngine.salvarConfiguracaoFinanceira(config);
     dbService.registarLog('Configuração Financeira', `Tabela de propinas e taxas atualizada para a escola.`);
   },
 
@@ -4148,6 +4511,7 @@ export const dbService = {
     if (idx >= 0) todas[idx] = transacao;
     else todas.unshift(transacao);
     setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, todas);
+    firebaseSyncEngine.salvarTransacaoFinanceira(transacao);
     dbService.registarLog('Receita Arrecadada', `Pagamento de ${transacao.tipo} (${transacao.anoLectivo}) no valor de ${transacao.valorTotalKz.toLocaleString()} Kz para o aluno ${transacao.alunoNome} (Recibo: ${transacao.numeroRecibo}).`);
   },
   editarTransacaoComAuditoria: (
@@ -4169,6 +4533,7 @@ export const dbService = {
     };
     todas[idx] = transacaoAtualizada;
     setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, todas);
+    firebaseSyncEngine.salvarTransacaoFinanceira(transacaoAtualizada);
     dbService.registarLog(
       'Auditoria Financeira - Edição de Pagamento',
       `Recibo ${anterior.numeroRecibo} (${anterior.alunoNome}) retificado por ${operadorNome}. Valor anterior: ${anterior.valorTotalKz.toLocaleString()} Kz -> Novo: ${transacaoAtualizada.valorTotalKz.toLocaleString()} Kz. Motivo: "${motivoAuditoria}".`
@@ -4187,6 +4552,7 @@ export const dbService = {
 
     const filtradas = todas.filter(t => t.id !== transacaoId);
     setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, filtradas);
+    firebaseSyncEngine.eliminarTransacaoFinanceira(transacaoId);
 
     // Se a transação estiver associada a um aluno, reavaliar o estado de propina
     if (anterior.alunoId) {
@@ -4202,6 +4568,7 @@ export const dbService = {
         if (pagamentosRestantes.length === 0 && aluno.propinaStatus !== 'Isento') {
           alunos[alunoIdx] = { ...aluno, propinaStatus: 'Pendente' };
           setLocal(STORAGE_KEYS.ALUNOS, alunos);
+          firebaseSyncEngine.salvarAluno(alunos[alunoIdx]);
         }
       }
     }
@@ -4237,6 +4604,7 @@ export const dbService = {
     if (idx >= 0) todas[idx] = despesa;
     else todas.unshift(despesa);
     setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, todas);
+    firebaseSyncEngine.salvarDespesaEscolar(despesa);
     dbService.registarLog('Despesa Registada', `Saída de caixa (${despesa.anoLectivo}): ${despesa.descricao} no valor de ${despesa.valorKz.toLocaleString()} Kz.`);
   },
   eliminarDespesaEscolar: (despesaId: string, operadorNome: string, motivo: string): boolean => {
@@ -4246,6 +4614,7 @@ export const dbService = {
 
     const filtradas = todas.filter(d => d.id !== despesaId);
     setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, filtradas);
+    firebaseSyncEngine.eliminarDespesaEscolar(despesaId);
 
     dbService.registarLog(
       'Auditoria Financeira - Despesa Anulada / Apagada',
@@ -4268,12 +4637,14 @@ export const dbService = {
     if (idx >= 0) todos[idx] = item;
     else todos.unshift(item);
     setLocal(STORAGE_KEYS.PATRIMONIO, todos);
+    firebaseSyncEngine.salvarItemPatrimonio(item);
     dbService.registarLog('Património Escolar', `Item patrimonial "${item.nomeItem}" tombado sob código ${item.codigoTombamento}.`);
   },
   eliminarItemPatrimonio: (id: string): void => {
     const todos = getLocal<ItemPatrimonio[]>(STORAGE_KEYS.PATRIMONIO, DEFAULT_PATRIMONIO);
     const filtrados = todos.filter(p => p.id !== id);
     setLocal(STORAGE_KEYS.PATRIMONIO, filtrados);
+    firebaseSyncEngine.eliminarItemPatrimonio(id);
     dbService.registarLog('Património Escolar', `Item de património ${id} removido do inventário.`);
   },
 
@@ -4294,6 +4665,7 @@ export const dbService = {
     );
     map[historico.alunoId] = historico;
     setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, map);
+    firebaseSyncEngine.salvarHistoricoEscolarCompleto(historico);
     dbService.registarLog('Histórico Escolar', `Histórico de notas finais por disciplina atualizado para o aluno ${historico.alunoId}.`);
   },
 
@@ -4406,6 +4778,7 @@ export const dbService = {
     const configs = getLocal<Record<string, ConfiguracaoPassesEscola>>(STORAGE_KEYS.CONFIGURACOES_PASSES, {});
     configs[escolaId] = config;
     setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, configs);
+    firebaseSyncEngine.salvarConfiguracaoPasses(escolaId, config);
 
     // Também sincroniza as cores da instituição
     const escola = dbService.getEscolaAtiva();
@@ -4502,6 +4875,7 @@ export const dbService = {
       horarios.push(item);
     }
     setLocal(STORAGE_KEYS.HORARIOS, horarios);
+    firebaseSyncEngine.salvarHorario(item);
     return { sucesso: true };
   },
 
@@ -4509,6 +4883,7 @@ export const dbService = {
     const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
     const filtrados = horarios.filter(h => h.id !== id);
     setLocal(STORAGE_KEYS.HORARIOS, filtrados);
+    firebaseSyncEngine.eliminarHorario(id);
   },
 
   // ==========================================
@@ -4522,13 +4897,15 @@ export const dbService = {
 
   salvarPresencaAluno: (item: PresencaAlunoItem): void => {
     const presencas = getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
-    const index = presencas.findIndex(p => p.id === item.id || (p.alunoId === item.alunoId && p.data === item.data && p.tempoLectivo === item.tempoLectivo));
+    const itemComTimestamp = { ...item, atualizadoEm: new Date().toISOString() };
+    const index = presencas.findIndex(p => p.id === itemComTimestamp.id || (p.alunoId === itemComTimestamp.alunoId && p.data === itemComTimestamp.data && p.tempoLectivo === itemComTimestamp.tempoLectivo));
     if (index >= 0) {
-      presencas[index] = item;
+      presencas[index] = itemComTimestamp;
     } else {
-      presencas.push(item);
+      presencas.push(itemComTimestamp);
     }
     setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, presencas);
+    firebaseSyncEngine.salvarPresencaAluno(itemComTimestamp);
   },
 
   salvarPresencasAlunosLote: (items: PresencaAlunoItem[]): void => {
@@ -4542,6 +4919,7 @@ export const dbService = {
       }
     }
     setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, presencas);
+    firebaseSyncEngine.salvarPresencasAlunosLote(items);
   },
 
   verificarIntegridadeBanco: () => {
@@ -4605,12 +4983,15 @@ export const dbService = {
   // SESSÕES, UTILIZADORES ONLINE E ÚLTIMAS 24 HORAS
   // ==========================================
   getSessoesAtivas: (): SessaoAtivaUsuario[] => {
-    return getLocal<SessaoAtivaUsuario[]>(STORAGE_KEYS.SESSOES_ATIVAS, []);
+    const sessoes = dbService.getSessoesAtivasBrutas();
+    if (!isSessaoAutenticadaNaoAdminGeral()) return sessoes;
+    const { ids } = getAdminGeralIdsAndNomes();
+    return sessoes.filter(s => s.userRole !== 'AdminGeral' && (s as any).role !== 'AdminGeral' && !ids.has(s.userId));
   },
 
   registarHeartbeatUsuario: (user: Funcionario, escola?: Escola): void => {
     try {
-      const sessoes = dbService.getSessoesAtivas();
+      const sessoes = dbService.getSessoesAtivasBrutas();
       const agora = Date.now();
       const esc = escola || dbService.getEscolaAtiva();
       const idx = sessoes.findIndex(s => s.userId === user.id);
@@ -4647,6 +5028,19 @@ export const dbService = {
       // Manter apenas as últimas 150 sessões
       if (sessoes.length > 150) sessoes.length = 150;
       setLocal(STORAGE_KEYS.SESSOES_ATIVAS, sessoes);
+
+      // Sincronizar sessão ativa com throttle (a cada 60s por utilizador) para o Firestore
+      if (user?.id) {
+        const lastSyncKey = `sge_hb_sync_${user.id}`;
+        const lastSync = Number(sessionStorage.getItem(lastSyncKey) || 0);
+        if (agora - lastSync > 60000) {
+          sessionStorage.setItem(lastSyncKey, String(agora));
+          const sessaoAtual = sessoes.find(s => s.userId === user.id);
+          if (sessaoAtual) {
+            firebaseSyncEngine.salvarSessaoAtiva(sessaoAtual);
+          }
+        }
+      }
     } catch {
       // Ignora erro
     }
@@ -4656,10 +5050,15 @@ export const dbService = {
     const sessoes = dbService.getSessoesAtivas();
     const agora = Date.now();
     const limiteOnline = agora - 15 * 60 * 1000; // 15 minutos de tolerância
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const { ids } = getAdminGeralIdsAndNomes();
 
     const filtradas = sessoes.filter(s => {
       const isOnline = s.online || s.ultimoAcesso >= limiteOnline;
       if (!isOnline) return false;
+      if (ocultarAdmin && (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral' || ids.has(s.userId))) {
+        return false;
+      }
       // Se escolaId foi fornecido (Diretor de Escola), NUNCA exibir sessões do Administrador Geral
       if (escolaId && escolaId !== 'todas') {
         if (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral') return false;
@@ -4685,9 +5084,14 @@ export const dbService = {
     const sessoes = dbService.getSessoesAtivas();
     const agora = Date.now();
     const limite24h = agora - 24 * 60 * 60 * 1000;
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const { ids } = getAdminGeralIdsAndNomes();
 
     const filtradas = sessoes.filter(s => {
       if (s.ultimoAcesso < limite24h) return false;
+      if (ocultarAdmin && (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral' || ids.has(s.userId))) {
+        return false;
+      }
       // Se escolaId foi fornecido (Diretor de Escola), NUNCA exibir sessões do Administrador Geral
       if (escolaId && escolaId !== 'todas') {
         if (s.userRole === 'AdminGeral' || (s as any).role === 'AdminGeral') return false;
@@ -4714,7 +5118,10 @@ export const dbService = {
   // ==========================================
   getRegistosAlteracoesNotas: (professorId?: string, escolaId?: string): RegistroAlteracaoNotaDirecao[] => {
     const todos = getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []);
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const { ids } = getAdminGeralIdsAndNomes();
     return todos.filter(r => {
+      if (ocultarAdmin && (r.alteradoPorRole === 'AdminGeral' || (r.alteradoPorId && ids.has(r.alteradoPorId)))) return false;
       if (professorId && r.professorId !== professorId) return false;
       if (escolaId && escolaId !== 'todas' && r.escolaId !== escolaId) return false;
       return true;
@@ -4726,33 +5133,36 @@ export const dbService = {
     todos.unshift(reg);
     if (todos.length > 300) todos.length = 300;
     setLocal(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, todos);
+    firebaseSyncEngine.salvarAlteracaoNotaDirecao(reg);
 
-    // 1. Registar no log de auditoria oficial da escola
+    // 1. Registar no log de auditoria oficial da escola (automaticamente marcado como origemAdminGeral se aplicável)
     dbService.registarLog(
       'Retificação Executiva de Nota',
       `Nota de ${reg.tipoNota} do estudante "${reg.alunoNome}" (Turma ${reg.turmaNome}, ${reg.classe}, ${reg.disciplinaNome}) retificada de ${reg.notaAnterior} para ${reg.novaNota} por ${reg.alteradoPorNome} (${reg.alteradoPorRole}). Motivo: "${reg.motivoJustificativa}". Professor titular: ${reg.professorNome}.`
     );
 
-    // 2. Notificar automaticamente o professor titular da disciplina via Mensagem Interna Direta
-    try {
-      dbService.enviarMensagem({
-        id: `msg-retif-${Date.now()}`,
-        escolaId: reg.escolaId,
-        remetenteId: reg.alteradoPorId,
-        remetenteNome: reg.alteradoPorNome,
-        remetentePapel: reg.alteradoPorRole,
-        remetenteCargo: reg.alteradoPorRole === 'DiretorGeral' ? 'Diretor Geral' : 'Subdiretor Pedagógico',
-        tipo: 'DIRECTA',
-        destinatarioTipo: 'Individual',
-        destinatarioId: reg.professorId,
-        destinatarioNome: reg.professorNome,
-        titulo: `Aviso de Retificação de Nota: ${reg.alunoNome} (${reg.disciplinaNome} - ${reg.turmaNome})`,
-        assunto: 'Retificação Executiva de Nota',
-        conteudo: `Estimado(a) Colega ${reg.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${reg.tipoNota} do(a) estudante ${reg.alunoNome} na turma ${reg.turmaNome} (${reg.classe}${reg.curso ? ' - ' + reg.curso : ''}) na disciplina de ${reg.disciplinaNome} (${reg.trimestre}º Trimestre).\n\n• Nota Anterior: ${reg.notaAnterior}\n• Nova Nota Homologada: ${reg.novaNota}\n• Justificativa: ${reg.motivoJustificativa}\n• Autorizado por: ${reg.alteradoPorNome} (${reg.alteradoPorRole})\n• Data/Hora: ${reg.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
-        dataHora: new Date().toISOString()
-      });
-    } catch {
-      // Ignora erro
+    // 2. Notificar automaticamente o professor titular apenas quando não for intervenção silenciosa do AdminGeral
+    if (reg.alteradoPorRole !== 'AdminGeral') {
+      try {
+        dbService.enviarMensagem({
+          id: `msg-retif-${Date.now()}`,
+          escolaId: reg.escolaId,
+          remetenteId: reg.alteradoPorId,
+          remetenteNome: reg.alteradoPorNome,
+          remetentePapel: reg.alteradoPorRole,
+          remetenteCargo: reg.alteradoPorRole === 'DiretorGeral' ? 'Diretor Geral' : 'Subdiretor Pedagógico',
+          tipo: 'DIRECTA',
+          destinatarioTipo: 'Individual',
+          destinatarioId: reg.professorId,
+          destinatarioNome: reg.professorNome,
+          titulo: `Aviso de Retificação de Nota: ${reg.alunoNome} (${reg.disciplinaNome} - ${reg.turmaNome})`,
+          assunto: 'Retificação Executiva de Nota',
+          conteudo: `Estimado(a) Colega ${reg.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${reg.tipoNota} do(a) estudante ${reg.alunoNome} na turma ${reg.turmaNome} (${reg.classe}${reg.curso ? ' - ' + reg.curso : ''}) na disciplina de ${reg.disciplinaNome} (${reg.trimestre}º Trimestre).\n\n• Nota Anterior: ${reg.notaAnterior}\n• Nova Nota Homologada: ${reg.novaNota}\n• Justificativa: ${reg.motivoJustificativa}\n• Autorizado por: ${reg.alteradoPorNome} (${reg.alteradoPorRole})\n• Data/Hora: ${reg.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
+          dataHora: new Date().toISOString()
+        });
+      } catch {
+        // Ignora erro
+      }
     }
   },
 
@@ -4762,6 +5172,7 @@ export const dbService = {
     if (idx >= 0) {
       todos[idx].lidoPeloProfessor = true;
       setLocal(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, todos);
+      firebaseSyncEngine.salvarAlteracaoNotaDirecao(todos[idx]);
     }
   },
 
@@ -5024,6 +5435,7 @@ export const dbService = {
     const chave = `${config.escolaId}_${config.tipoDocumento}`;
     todos[chave] = config;
     setLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, todos);
+    firebaseSyncEngine.salvarConfiguracaoDocumento(config);
 
     dbService.registarLog(
       'Configuração de Documento',
@@ -5050,6 +5462,7 @@ export const dbService = {
     }
     map[escolaId] = lista;
     setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, map);
+    firebaseSyncEngine.salvarDelegacoesCobranca(escolaId, lista);
 
     dbService.registarLog(
       'Delegação Financeira',
@@ -5063,6 +5476,7 @@ export const dbService = {
     const alvo = lista.find(d => d.id === delegacaoId);
     map[escolaId] = lista.filter(d => d.id !== delegacaoId);
     setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, map);
+    firebaseSyncEngine.salvarDelegacoesCobranca(escolaId, map[escolaId]);
 
     if (alvo) {
       dbService.registarLog(
@@ -5078,7 +5492,10 @@ export const dbService = {
   // ==========================================
   getDelegacoesPoderes: (escolaId?: string, tipo?: TipoDelegacao): DelegacaoPoderes[] => {
     const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const { ids } = getAdminGeralIdsAndNomes();
     return todas.filter(d => {
+      if (ocultarAdmin && (d.delegadoPorCargo === 'AdminGeral' || ids.has(d.delegadoPorId) || ids.has(d.funcionarioId))) return false;
       if (escolaId && d.escolaId !== escolaId) return false;
       if (tipo && d.tipo !== tipo) return false;
       return true;
@@ -5088,12 +5505,16 @@ export const dbService = {
   salvarDelegacaoPoderes: (delegacao: DelegacaoPoderes): void => {
     const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
     const idx = todas.findIndex(d => d.id === delegacao.id);
+    const registroFinal: DelegacaoPoderes = idx >= 0
+      ? { ...delegacao, atualizadoEm: new Date().toISOString() }
+      : { ...delegacao, criadoEm: delegacao.criadoEm || new Date().toISOString() };
     if (idx >= 0) {
-      todas[idx] = { ...delegacao, atualizadoEm: new Date().toISOString() };
+      todas[idx] = registroFinal;
     } else {
-      todas.unshift({ ...delegacao, criadoEm: delegacao.criadoEm || new Date().toISOString() });
+      todas.unshift(registroFinal);
     }
     setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
+    firebaseSyncEngine.salvarDelegacaoPoderes(registroFinal);
 
     dbService.registarLog(
       'Delegação de Competências',
@@ -5108,6 +5529,7 @@ export const dbService = {
       alvo.ativo = false;
       alvo.atualizadoEm = new Date().toISOString();
       setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
+      firebaseSyncEngine.salvarDelegacaoPoderes(alvo);
 
       dbService.registarLog(
         'Revogação de Delegação',
@@ -5148,11 +5570,15 @@ export const dbService = {
     logs.unshift(novoLog);
     if (logs.length > 2000) logs.pop();
     setLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, logs);
+    firebaseSyncEngine.salvarAcaoDelegadaLog(novoLog);
   },
 
   getLogsAcoesDelegadas: (escolaId?: string, tipo?: TipoDelegacao, funcionarioId?: string): AcaoDelegadaLog[] => {
     const logs = getLocal<AcaoDelegadaLog[]>(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []);
+    const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const { ids, nomes } = getAdminGeralIdsAndNomes();
     return logs.filter(l => {
+      if (ocultarAdmin && (ids.has(l.funcionarioId) || nomes.has((l.funcionarioNome || '').trim().toLowerCase()))) return false;
       if (escolaId && l.escolaId !== escolaId) return false;
       if (tipo && l.tipo !== tipo) return false;
       if (funcionarioId && l.funcionarioId !== funcionarioId) return false;
@@ -5164,7 +5590,10 @@ export const dbService = {
   // SESSÕES DE APOIO TÉCNICO AUTORIZADAS (ADMIN GERAL)
   // ==========================================
   iniciarSessaoApoioTecnico: (escolaId: string, solicitacaoId: string, admin: Funcionario, motivo?: string): boolean => {
-    const escolas = dbService.getEscolas();
+    if (admin.role !== 'AdminGeral' || isSessaoAutenticadaNaoAdminGeral()) {
+      return false;
+    }
+    const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escolaId);
     if (idx < 0) return false;
 
@@ -5188,7 +5617,10 @@ export const dbService = {
   },
 
   encerrarSessaoApoioTecnico: (escolaId: string, admin: Funcionario): boolean => {
-    const escolas = dbService.getEscolas();
+    if (admin.role !== 'AdminGeral' || isSessaoAutenticadaNaoAdminGeral()) {
+      return false;
+    }
+    const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escolaId);
     if (idx < 0) return false;
 

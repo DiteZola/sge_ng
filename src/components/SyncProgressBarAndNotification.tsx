@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Cloud, 
-  Database, 
-  Smartphone, 
   CheckCircle2, 
   RefreshCw, 
-  ShieldCheck, 
-  Wifi, 
-  WifiOff, 
   X,
-  ArrowRight,
   Sparkles
 } from 'lucide-react';
 import { firebaseSyncEngine, SyncStatus } from '../services/firebaseSyncEngine';
@@ -111,96 +105,34 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
     }
   };
 
-  // REGRA DO MED / EXIGÊNCIA DO UTILIZADOR:
-  // A janela de sincronizar NÃO PODE ficar por cima se o usuário já usa o sistema!
-  // Somente fica por cima na primeira configuração num novo dispositivo virgem.
-  const deveExibirOverlay = !dispositivoJaConfigurado && !overlayMinimizado && status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100;
+  // Indicador compacto e NÃO-BLOQUEANTE durante a sincronização inicial num novo dispositivo
+  const deveExibirCardProgresso = !dispositivoJaConfigurado && !overlayMinimizado && status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100;
 
   return (
     <>
-      {/* 1. OVERLAY DE BARRA DE PROGRESSO — APENAS NA PRIMEIRA CONFIGURAÇÃO NUM NOVO DISPOSITIVO */}
-      {deveExibirOverlay && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-blue-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl text-white relative overflow-hidden">
-            {/* Efeito luminoso de fundo */}
-            <div className="absolute -top-24 -right-24 w-48 h-48 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-emerald-600/20 rounded-full blur-3xl pointer-events-none" />
-
-            {/* Cabeçalho de Animação de Sincronização */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
-                  <Cloud className="w-6 h-6 animate-pulse" />
-                </div>
-                <div className="flex items-center text-gray-500">
-                  <ArrowRight className="w-4 h-4 animate-bounce" />
-                </div>
-                <div className="w-12 h-12 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                  <Smartphone className="w-6 h-6" />
-                </div>
+      {/* 1. CARTÃO FLUTUANTE NÃO-BLOQUEANTE DE PROGRESSO INICIAL (permite usar o sistema imediatamente) */}
+      {deveExibirCardProgresso && (
+        <aside
+          aria-label="Progresso de sincronização inicial"
+          className="fixed bottom-5 right-5 z-40 bg-slate-900 border border-blue-500/40 rounded-2xl p-4 max-w-sm w-[calc(100vw-2rem)] shadow-2xl text-white animate-fadeIn"
+        >
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+                <Cloud className="w-4 h-4 animate-pulse" />
               </div>
-              <div className="flex items-center space-x-2">
-                <span className="px-3 py-1 text-[11px] font-mono font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                  {status.progressoPercentual}%
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOverlayMinimizado(true);
-                    setDispositivoJaConfigurado(true);
-                    try {
-                      localStorage.setItem('sge_dispositivo_inicializado', 'true');
-                    } catch {}
-                  }}
-                  className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-                  title="Minimizar e continuar a trabalhar"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+              <div>
+                <h3 className="text-xs font-black text-white flex items-center space-x-1.5">
+                  <span>A Sincronizar Dispositivo</span>
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                </h3>
+                <p className="text-[10px] text-slate-400">Firebase Firestore ↔ Dispositivo</p>
               </div>
             </div>
-
-            {/* Títulos e Descrição */}
-            <div className="space-y-1.5 mb-6">
-              <h3 className="text-base sm:text-lg font-black text-white flex items-center space-x-2">
-                <span>Configuração Inicial do Dispositivo</span>
-                <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
-              </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                A descarregar escolas, turmas, alunos e pautas oficiais do Firebase Firestore para funcionamento em tempo real e modo offline no dispositivo.
-              </p>
-            </div>
-
-            {/* Barra de Progresso Animada */}
-            <div className="space-y-2 mb-6">
-              <div className="flex items-center justify-between text-xs font-semibold">
-                <span className="text-blue-300 truncate max-w-[280px]">
-                  {status.etapaAtual || 'A processar pacotes de dados...'}
-                </span>
-                <span className="text-slate-400 font-mono">{status.progressoPercentual}%</span>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-3.5 p-0.5 border border-slate-700/60 overflow-hidden relative">
-                <div 
-                  className="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 transition-all duration-300 ease-out shadow-sm relative overflow-hidden"
-                  style={{ width: `${Math.max(status.progressoPercentual, 5)}%` }}
-                >
-                  <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite] bg-[linear-gradient(90deg,rgba(255,255,255,0)_0%,rgba(255,255,255,0.4)_50%,rgba(255,255,255,0)_100%)]" />
-                </div>
-              </div>
-            </div>
-
-            {/* Badges de Garantia e Botão de Prosseguir em Segundo Plano */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800">
-              <div className="flex items-center space-x-3 text-[11px] text-slate-400">
-                <span className="flex items-center space-x-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Cifragem AES-256</span>
-                </span>
-                <span className="flex items-center space-x-1">
-                  <Database className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Dispositivo Conectado</span>
-                </span>
-              </div>
+            <div className="flex items-center space-x-1.5">
+              <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                {status.progressoPercentual}%
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -210,13 +142,26 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
                     localStorage.setItem('sge_dispositivo_inicializado', 'true');
                   } catch {}
                 }}
-                className="w-full sm:w-auto px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm cursor-pointer"
+                className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Ocultar progresso"
               >
-                Prosseguir a Trabalhar
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-        </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-blue-200 truncate">
+              {status.etapaAtual || 'A descarregar dados em segundo plano...'}
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-2 p-0.5 border border-slate-700/60 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 transition-all duration-300 ease-out"
+                style={{ width: `${Math.max(status.progressoPercentual, 8)}%` }}
+              />
+            </div>
+          </div>
+        </aside>
       )}
 
       {/* 2. NOTIFICAÇÃO FLUTUANTE DE SINCRONIZAÇÃO CONCLUÍDA */}

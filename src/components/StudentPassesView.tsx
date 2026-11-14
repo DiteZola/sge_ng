@@ -26,6 +26,9 @@ import {
   Upload
 } from 'lucide-react';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
+import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { processarFotoUpload } from '../utils/imageCompressor';
+import { OfficialQrCode, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
 import {
   getTurmasPorClasse,
   normalizarClasse,
@@ -98,8 +101,17 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   });
   const [fotoPosicao, setFotoPosicao] = useState<'esquerda' | 'direita'>('esquerda');
   const [configSalvaSucesso, setConfigSalvaSucesso] = useState(false);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
 
-  const configSistema = dbService.getConfiguracaoSistema();
+  useEffect(() => {
+    const syncListener = () => {
+      setConfigSistema(dbService.getConfiguracaoSistema());
+      setPassConfig(escola.configuracaoPasses || dbService.obterConfiguracaoPasses(escola.id));
+    };
+    window.addEventListener('sge_dados_atualizados_remoto', syncListener);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncListener);
+  }, [escola.id, escola.configuracaoPasses]);
 
   const todasClasses = useMemo(() => [
     'Iniciação',
@@ -262,6 +274,21 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     );
   };
 
+  const handleBaixarPdf = async () => {
+    setGerandoPdf(true);
+    try {
+      await downloadElementAsPdf(
+        'passes-print-grid',
+        `Passes_Escolares_${escola.sigla || 'MED'}_8porA4.pdf`,
+        { orientation: 'landscape', format: 'a4', marginMm: 6 }
+      );
+    } catch (e) {
+      console.error('Erro ao exportar passes PDF:', e);
+    } finally {
+      setGerandoPdf(false);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -319,12 +346,23 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
             <button
               type="button"
+              onClick={handleBaixarPdf}
+              disabled={gerandoPdf}
+              className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs disabled:opacity-60"
+              title="Descarregar passes com formatação exata em PDF (.pdf)"
+            >
+              <Download className="h-4 w-4" />
+              <span>{gerandoPdf ? 'A Gerar PDF...' : 'Baixar Passes (.pdf)'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleBaixarHTML}
               className="px-3.5 py-2 text-xs font-bold text-blue-950 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               title="Baixar arquivo dos passes em formato web offline"
             >
               <Download className="h-4 w-4 text-blue-700" />
-              <span>Baixar Passes (.html)</span>
+              <span>Baixar HTML</span>
             </button>
 
             <button
@@ -628,10 +666,12 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                         {/* QR Code de Validação Digital Oficial */}
                         {isAtivo('qrCode') && (
                           <div className="shrink-0 flex flex-col items-center">
-                            <div className="h-10 w-10 bg-white border border-gray-300 p-0.5 flex items-center justify-center rounded">
-                              <QrCode className="h-9 w-9 text-gray-900" />
-                            </div>
-                            <span className="text-[6px] font-bold text-gray-500 mt-0.5">MED Válido</span>
+                            <OfficialQrCode
+                              value={gerarPayloadQrEstudante(aluno, escola, turma)}
+                              size={42}
+                              className="border-gray-300"
+                            />
+                            <span className="text-[6px] font-bold text-gray-500 mt-0.5">QR Passe MED</span>
                           </div>
                         )}
                       </div>
@@ -813,16 +853,15 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (re) => {
-                                const url = re.target?.result as string;
-                                setPassConfig(prev => ({ ...prev, assinaturaDiretorUrl: url }));
-                              };
-                              reader.readAsDataURL(file);
+                              const res = await processarFotoUpload(file, 360, 0.82);
+                              if (res.sucesso && res.dataUrl) {
+                                setPassConfig(prev => ({ ...prev, assinaturaDiretorUrl: res.dataUrl }));
+                              }
                             }
+                            e.target.value = '';
                           }}
                         />
                       </label>
@@ -959,7 +998,10 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                       {isAtivo('qrCode') && (
                         <div className="shrink-0 flex flex-col items-center">
-                          <QrCode className="h-8 w-8 text-gray-900" />
+                          <OfficialQrCode
+                            value={gerarPayloadQrEstudante(alunoExemplo, escola, turmaExemplo)}
+                            size={34}
+                          />
                           <span className="text-[5.5px] font-bold text-gray-500">Validação</span>
                         </div>
                       )}

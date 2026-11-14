@@ -96,9 +96,11 @@ export default function App() {
   const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
   const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(() => {
     try {
-      if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true') {
-        return false;
+      if (typeof localStorage !== 'undefined') {
+        if (localStorage.getItem('sge_authenticated') === 'true') return false;
+        if (localStorage.getItem('sge_admin_configured') === 'true') return false;
       }
+      if (dbService.temAdminGeral()) return false;
     } catch {}
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       return false;
@@ -170,6 +172,7 @@ export default function App() {
   const recarregarDados = useCallback(() => {
     setEscolas(dbService.getEscolas());
     setEscola(dbService.getEscolaAtiva());
+    const funcsFrescos = dbService.getFuncionariosBruto();
     setFuncionarios(dbService.obterFuncionarios());
     setTurmas(dbService.obterTurmas());
     setAlunos(dbService.obterAlunos());
@@ -185,20 +188,31 @@ export default function App() {
     setLivros(dbService.obterLivros());
     setLogs(dbService.obterLogs());
     setAnosLectivos(dbService.getAnosLectivos());
+    setTiposAvaliacao(dbService.obterTiposAvaliacao());
+    setRegrasMAC(dbService.obterRegrasMAC());
 
-    // Garantir que a sessão e utilizador autenticado nunca são desvirtuados
+    // Garantir que a sessão e perfil do utilizador autenticado refletem imediatamente alterações remotas (ex.: fotografia)
     const userLogado = dbService.getCurrentUser();
     if (userLogado && userLogado.id && userLogado.nomeCompleto) {
+      const remotoMaisRecente = funcsFrescos.find(f => f.id === userLogado.id);
+      if (remotoMaisRecente) {
+        const tsLocal = userLogado.atualizadoEm ? Date.parse(userLogado.atualizadoEm) || 0 : 0;
+        const tsRemoto = remotoMaisRecente.atualizadoEm ? Date.parse(remotoMaisRecente.atualizadoEm) || 0 : 0;
+        if (tsRemoto >= tsLocal && JSON.stringify(remotoMaisRecente) !== JSON.stringify(userLogado)) {
+          dbService.setCurrentUser(remotoMaisRecente);
+          setAuthenticatedUser(remotoMaisRecente);
+          return;
+        }
+      }
       setAuthenticatedUser(userLogado);
     }
   }, []);
 
-  // Listener para status online/offline e verificação do Administrador Geral no Firebase
+  // Listener para status online/offline e verificação rápida do Administrador Geral no Firebase
   useEffect(() => {
     let ativo = true;
 
     const verificarAdmin = async () => {
-      // Se o utilizador já se encontra autenticado neste dispositivo, NUNCA exibe configuração inicial nem altera sessão
       if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true') {
         if (ativo) {
           setMostrarSetupInicial(false);
@@ -207,8 +221,16 @@ export default function App() {
         return;
       }
 
-      // Se estiver offline:
-      // "se a internet estiver offline não mostra esta página"
+      // Se já existe Administrador Geral no dispositivo, nunca bloqueia nem mostra setup inicial
+      if (dbService.temAdminGeral()) {
+        if (ativo) {
+          setTemAdminGeral(true);
+          setMostrarSetupInicial(false);
+          setVerificandoAdminOnline(false);
+        }
+        return;
+      }
+
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         if (ativo) {
           setMostrarSetupInicial(false);
@@ -218,12 +240,9 @@ export default function App() {
       }
 
       try {
-        // "ao carregar o sistema quando está online deve verificar sempre se há administrador geral ou não"
-        // Timeout de 2500ms para salvaguarda de internet lenta
-        const res = await dbService.verificarAdminGeralOnline(2500);
+        const res = await dbService.verificarAdminGeralOnline(1500);
         if (ativo) {
           setTemAdminGeral(res.existe);
-          // "se não tiver mostra a página de configuração inicial e se a internet estiver lenta ou offline não mostra esta página"
           setMostrarSetupInicial(res.deveMostrarSetupInicial);
           if (res.existe) {
             setFuncionarios(dbService.obterFuncionarios());
@@ -231,7 +250,6 @@ export default function App() {
         }
       } catch (err) {
         console.warn('Erro ao verificar Administrador Geral no Firebase:', err);
-        // Em caso de erro de rede ou internet lenta, NÃO mostra a página de configuração inicial
         if (ativo) {
           setMostrarSetupInicial(false);
         }
@@ -244,35 +262,46 @@ export default function App() {
 
     verificarAdmin();
 
-    // Timeout de segurança de 2.5s para que a aplicação nunca fique presa na verificação inicial se a internet for lenta
+    // Salvaguarda máxima de 1.5s para arranque imediato mesmo com rede lenta
     const timer = setTimeout(() => {
       if (ativo) {
         setVerificandoAdminOnline(false);
-        // Se a verificação demorou demais por internet lenta, não exibe a configuração inicial
         setMostrarSetupInicial(false);
       }
-    }, 2500);
+    }, 1500);
 
-    // Descarregar base de dados em tempo real do Firestore para suportar múltiplos dispositivos
+    // Ciclo único de arranque online (evita downloads duplicados em novos dispositivos)
     if (typeof navigator !== 'undefined' && navigator.onLine) {
-      firebaseSyncEngine.puxarTudoDoFirebase().then(() => {
+      firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
         if (ativo) {
           recarregarDados();
-          verificarAdmin();
+          if (!dbService.temAdminGeral()) {
+            verificarAdmin();
+          } else {
+            setTemAdminGeral(true);
+            setMostrarSetupInicial(false);
+            setVerificandoAdminOnline(false);
+          }
         }
       });
     }
 
     const handleRemoteUpdate = () => {
+      if (!ativo) return;
       recarregarDados();
-      verificarAdmin();
+      if (dbService.temAdminGeral()) {
+        setTemAdminGeral(true);
+        setMostrarSetupInicial(false);
+        setVerificandoAdminOnline(false);
+      }
     };
     window.addEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
 
     const handleOnline = () => {
       setIntegrity(verificarIntegridadeSistema());
-      verificarAdmin();
-      firebaseSyncEngine.puxarTudoDoFirebase().then(recarregarDados);
+      if (!dbService.temAdminGeral()) {
+        verificarAdmin();
+      }
     };
     const handleOffline = () => {
       setIntegrity(verificarIntegridadeSistema());
@@ -298,7 +327,7 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [recarregarDados]);
 
   // Listener contínuo do securityEngine para notificar o AdminGeral via RealtimeSecurityModal
   useEffect(() => {
@@ -951,7 +980,6 @@ export default function App() {
 
   // Handler de Atualização de Perfil pelo próprio Usuário
   const handleSalvarPerfil = (perfilAtualizado: Funcionario) => {
-    dbService.salvarFuncionario(perfilAtualizado);
     dbService.setCurrentUser(perfilAtualizado);
     setAuthenticatedUser(perfilAtualizado);
     setFuncionarios(dbService.obterFuncionarios());
@@ -1339,7 +1367,7 @@ export default function App() {
         onNavigateToPerfil={() => setActiveTab('meu_perfil')}
         onNavigateToComunicacao={() => setActiveTab('comunicacao')}
         onLogout={handleLogout}
-        onOpenSecurityEngine={() => setShowSecurityModal(true)}
+        onOpenSecurityEngine={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
         onOpenTour={() => setShowTourModal(true)}
       />
 
@@ -1451,7 +1479,7 @@ export default function App() {
                   turmas={turmasDoAnoActivo}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
                   onNavigate={(tab) => setActiveTab(tab)}
-                  onOpenSecurityModal={() => setShowSecurityModal(true)}
+                  onOpenSecurityModal={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
                   onOpenTour={() => setShowTourModal(true)}
                 />
               )}
@@ -1698,6 +1726,8 @@ export default function App() {
                   escola={escola}
                   currentUser={effectiveUser}
                   funcionarios={funcionarios}
+                  alunos={alunosDaEscola}
+                  turmas={turmasDaEscola}
                   mensagens={mensagens}
                   livros={livros}
                   onEnviarMensagem={handleEnviarMensagem}
@@ -1803,12 +1833,15 @@ export default function App() {
         escolasExistentes={escolas}
       />
 
-      {/* Motor de Segurança & Criptografia AES-256 em Tempo Real */}
-      <RealtimeSecurityModal
-        isOpen={showSecurityModal}
-        onClose={() => setShowSecurityModal(false)}
-        onAbrirSetupInicial={() => setTemAdminGeral(false)}
-      />
+      {/* Motor de Segurança & Criptografia AES-256 em Tempo Real (Exclusivo Admin Geral) */}
+      {currentUser.role === 'AdminGeral' && (
+        <RealtimeSecurityModal
+          isOpen={showSecurityModal}
+          onClose={() => setShowSecurityModal(false)}
+          onAbrirSetupInicial={() => setTemAdminGeral(false)}
+          currentUserRole={currentUser.role}
+        />
+      )}
 
       {/* Tour Guiado Oficial da Dashboard e Plataforma */}
       <GuidedTourModal

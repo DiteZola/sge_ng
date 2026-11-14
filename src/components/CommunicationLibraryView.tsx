@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   MessageSquare, 
   BookOpen, 
@@ -14,14 +14,29 @@ import {
   CheckCircle2,
   Mail,
   MailOpen,
-  Bell
+  Bell,
+  QrCode,
+  Clock
 } from 'lucide-react';
-import { Mensagem, DocumentoBiblioteca, Funcionario, Escola } from '../types';
+import {
+  Mensagem,
+  DocumentoBiblioteca,
+  Funcionario,
+  Escola,
+  Aluno,
+  Turma,
+  RegistoAcessoBiblioteca,
+  TipoAcessoBiblioteca
+} from '../types';
+import { dbService } from '../services/storage';
+import { QrScannerModal } from './QrScannerModal';
 
 interface CommunicationLibraryViewProps {
   escola: Escola;
   currentUser: Funcionario;
   funcionarios: Funcionario[];
+  alunos?: Aluno[];
+  turmas?: Turma[];
   mensagens: Mensagem[];
   livros: DocumentoBiblioteca[];
   onEnviarMensagem: (msg: Mensagem) => void;
@@ -34,6 +49,8 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   escola,
   currentUser,
   funcionarios,
+  alunos = [],
+  turmas = [],
   mensagens,
   livros,
   onEnviarMensagem,
@@ -43,12 +60,70 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
 }) => {
   const [activeTab, setActiveTab] = useState<'comunicados' | 'mensagens_diretas' | 'biblioteca'>('comunicados');
   const [filtroMensagens, setFiltroMensagens] = useState<'todas' | 'nao_lidas' | 'lidas'>('todas');
+  const [showQrScannerBiblioteca, setShowQrScannerBiblioteca] = useState(false);
+  const [tipoAcessoQr, setTipoAcessoQr] = useState<TipoAcessoBiblioteca>('Entrada_Biblioteca');
+  const [livroSelecionadoQrId, setLivroSelecionadoQrId] = useState('');
+  const [acessosBiblioteca, setAcessosBiblioteca] = useState<RegistoAcessoBiblioteca[]>(() =>
+    dbService.getAcessosBiblioteca(escola.id)
+  );
+  const [feedbackQrBiblioteca, setFeedbackQrBiblioteca] = useState<string | null>(null);
 
-  const totalNaoLidas = mensagens.filter(m => !m.lida).length;
-  const totalLidas = mensagens.filter(m => !!m.lida).length;
+  useEffect(() => {
+    setAcessosBiblioteca(dbService.getAcessosBiblioteca(escola.id));
+    const refreshAcessos = () => {
+      setAcessosBiblioteca(dbService.getAcessosBiblioteca(escola.id));
+    };
+    window.addEventListener('sge_dados_atualizados_remoto', refreshAcessos);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', refreshAcessos);
+  }, [escola.id]);
+
+  const handleRegistarAcessoQrBiblioteca = (aluno: Aluno) => {
+    const turma = turmas.find(t => t.id === aluno.turmaId);
+    const livro = livros.find(l => l.id === livroSelecionadoQrId);
+    const agora = new Date();
+    const agoraIso = agora.toISOString();
+    const codigoMat = aluno.codigoMatricula || aluno.numeroProcesso || '';
+    const novoRegisto: RegistoAcessoBiblioteca = {
+      id: `bib-acc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      escolaId: escola.id,
+      alunoId: aluno.id,
+      alunoNome: aluno.nomeCompleto,
+      codigoMatricula: codigoMat,
+      alunoCodigo: codigoMat,
+      turmaNome: turma ? `${turma.classe} • ${turma.nome}` : aluno.classeId || 'Turma',
+      tipoAcesso: tipoAcessoQr,
+      livroId: livro?.id,
+      livroTitulo: livro?.titulo,
+      dataHora: agoraIso,
+      dataDia: agoraIso.slice(0, 10),
+      operadorId: currentUser.id,
+      operadorNome: currentUser.nomeCompleto,
+      registadoPorId: currentUser.id,
+      registadoPorNome: currentUser.nomeCompleto
+    };
+
+    dbService.registarAcessoBiblioteca(novoRegisto);
+    setAcessosBiblioteca(dbService.getAcessosBiblioteca(escola.id));
+    setFeedbackQrBiblioteca(
+      `Acesso à biblioteca (${tipoAcessoQr.replace(/_/g, ' ')}) registado para ${aluno.nomeCompleto}${livro ? ` — ${livro.titulo}` : ''}.`
+    );
+  };
+
+  const isAdminGeral = currentUser.role === 'AdminGeral';
+  const mensagensVisiveis = isAdminGeral
+    ? mensagens
+    : mensagens.filter(m =>
+        m.remetentePapel !== 'AdminGeral' &&
+        m.destinatarioId !== 'admin-geral' &&
+        !(m.remetenteCargo || '').toLowerCase().includes('administrador geral') &&
+        !((m.remetenteId || '').toLowerCase().includes('admin-geral'))
+      );
+
+  const totalNaoLidas = mensagensVisiveis.filter(m => !m.lida).length;
+  const totalLidas = mensagensVisiveis.filter(m => !!m.lida).length;
 
   // Separação oficial: Comunicados vs Mensagens Diretas
-  const comunicadosLista = mensagens.filter(m => 
+  const comunicadosLista = mensagensVisiveis.filter(m => 
     m.tipo === 'GERAL' || 
     m.tipo === 'GRUPO' || 
     m.destinatarioTipo === 'Todos' || 
@@ -56,12 +131,12 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     m.destinatarioTipo === 'Secretaria'
   );
 
-  const mensagensDiretasLista = mensagens.filter(m => 
+  const mensagensDiretasLista = mensagensVisiveis.filter(m => 
     m.tipo === 'DIRECTA' || 
     m.destinatarioTipo === 'Individual' || 
     m.destinatarioId === currentUser.id || 
     m.remetenteId === currentUser.id ||
-    m.destinatarioId === 'admin-geral'
+    (isAdminGeral && m.destinatarioId === 'admin-geral')
   );
 
   const itensExibidos = (activeTab === 'comunicados' ? comunicadosLista : mensagensDiretasLista).filter(m => {
@@ -194,7 +269,9 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                     <Mail className="w-4 h-4 text-emerald-600" />
                   )}
                   <h3 className="font-bold text-gray-900 text-sm">
-                    {activeTab === 'comunicados' ? 'Circulares & Despachos Oficiais' : 'Conversas Diretas & Linha com Admin Geral'}
+                    {activeTab === 'comunicados'
+                      ? 'Circulares & Despachos Oficiais'
+                      : (isAdminGeral ? 'Conversas Diretas & Linha com Admin Geral' : 'Conversas Diretas & Direção')}
                   </h3>
                 </div>
 
@@ -259,7 +336,9 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-gray-500 text-xs">
                     {activeTab === 'comunicados' 
                       ? 'Nenhum comunicado oficial ativo no momento.' 
-                      : 'Nenhuma mensagem direta trocada com utilizadores ou com a Administração Geral.'}
+                      : (isAdminGeral
+                        ? 'Nenhuma mensagem direta trocada com utilizadores ou com a Administração Geral.'
+                        : 'Nenhuma mensagem direta trocada.')}
                   </div>
                 ) : (
                   itensExibidos.map((msg) => {
@@ -369,14 +448,12 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                     className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
                   >
                     <option value="">Selecione o destinatário...</option>
-                    {/* Linha direta com o Administrador Geral do Sistema para Diretores e Administradores */}
-                    {currentUser.role !== 'AdminGeral' && (
-                      <option value="admin-geral" className="font-black text-purple-900 bg-purple-50">
-                        🏛️ Administrador Geral (Supervisão Central MED)
-                      </option>
-                    )}
                     {funcionarios
-                      .filter(f => f.id !== currentUser.id)
+                      .filter(f =>
+                        f.id !== currentUser.id &&
+                        f.role !== 'AdminGeral' &&
+                        (isAdminGeral || f.escolaId === escola.id)
+                      )
                       .map((f, fIdx) => (
                         <option key={`${f.id}-${f.escolaId || ''}-${fIdx}`} value={f.id}>
                           {f.nomeCompleto} ({f.cargo || f.role})
@@ -425,6 +502,80 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
       {/* 2. BIBLIOTECA DIGITAL */}
       {activeTab === 'biblioteca' && (
         <div className="space-y-6">
+          {/* Controlo de Acesso & Empréstimos via QR Code do Passe */}
+          <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <span className="inline-flex items-center space-x-1.5 text-[10px] font-black uppercase tracking-wider text-amber-300">
+                  <QrCode className="h-3.5 w-3.5" />
+                  <span>Controlo Digital da Biblioteca • Leitura de Passe Estudantil</span>
+                </span>
+                <h3 className="text-base font-black text-white mt-0.5">
+                  Registar Acesso ou Empréstimo por QR Code
+                </h3>
+                <p className="text-xs text-slate-300">
+                  Leia o código QR do cartão do estudante para autorizar a entrada, consulta de acervo ou empréstimo/devolução de manuais.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowQrScannerBiblioteca(true)}
+                className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl transition-colors flex items-center space-x-2 cursor-pointer shrink-0 shadow-xs"
+              >
+                <QrCode className="h-4 w-4" />
+                <span>Ler Passe Estudantil (QR)</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Tipo de Registo</label>
+                <select
+                  value={tipoAcessoQr}
+                  onChange={(e) => setTipoAcessoQr(e.target.value as TipoAcessoBiblioteca)}
+                  className="w-full p-2 rounded-lg bg-slate-800 border border-slate-700 text-white font-bold"
+                >
+                  <option value="Entrada_Biblioteca">Entrada / Presença na Biblioteca</option>
+                  <option value="Consulta_Local">Consulta Local de Material</option>
+                  <option value="Emprestimo_Livro">Empréstimo de Manual / Livro</option>
+                  <option value="Devolucao_Livro">Devolução de Manual / Livro</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">Manual / Livro (Opcional)</label>
+                <select
+                  value={livroSelecionadoQrId}
+                  onChange={(e) => setLivroSelecionadoQrId(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-slate-800 border border-slate-700 text-white font-bold"
+                >
+                  <option value="">Acesso geral sem livro específico</option>
+                  {livros.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.titulo} ({l.classe})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {feedbackQrBiblioteca && (
+              <div className="p-3 bg-emerald-500/20 border border-emerald-400/50 rounded-xl text-xs text-emerald-100 flex items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-300 shrink-0" />
+                  <span>{feedbackQrBiblioteca}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFeedbackQrBiblioteca(null)}
+                  className="font-bold text-emerald-200 hover:underline cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-base font-bold text-gray-900">Biblioteca Digital & Manuais Escolares do MED</h3>
@@ -433,7 +584,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
 
             <button
               onClick={() => setShowNovoLivroModal(true)}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded-lg transition-colors inline-flex items-center space-x-1.5"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
             >
               <Plus className="h-4 w-4" />
               <span>Adicionar Ficheiro PDF</span>
@@ -470,8 +621,80 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
               </div>
             ))}
           </div>
+
+          {/* Histórico de Acessos e Empréstimos via QR Code */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Clock className="h-4 w-4 text-blue-600" />
+                <h4 className="text-sm font-black text-gray-900">
+                  Registo em Tempo Real de Acessos & Empréstimos ({acessosBiblioteca.length})
+                </h4>
+              </div>
+              <span className="text-[11px] text-gray-500 font-semibold">Sincronizado na nuvem Firebase</span>
+            </div>
+
+            {acessosBiblioteca.length === 0 ? (
+              <div className="p-6 text-center bg-gray-50 border border-dashed border-gray-200 rounded-xl text-xs text-gray-500">
+                Ainda não foram registados acessos ou empréstimos via QR Code nesta instituição.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-[10px] uppercase font-black text-gray-600">
+                      <th className="p-2.5">Data / Hora</th>
+                      <th className="p-2.5">Estudante</th>
+                      <th className="p-2.5">Turma</th>
+                      <th className="p-2.5">Operação</th>
+                      <th className="p-2.5">Obra / Manual</th>
+                      <th className="p-2.5">Operador</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {acessosBiblioteca.slice(0, 30).map((acc) => (
+                      <tr key={acc.id} className="hover:bg-blue-50/40">
+                        <td className="p-2.5 font-mono text-[11px] text-gray-600 whitespace-nowrap">
+                          {new Date(acc.dataHora).toLocaleString('pt-AO', { dateStyle: 'short', timeStyle: 'short' })}
+                        </td>
+                        <td className="p-2.5 font-bold text-gray-900">
+                          {acc.alunoNome}
+                          <span className="block text-[10px] font-mono font-normal text-gray-500">{acc.alunoCodigo}</span>
+                        </td>
+                        <td className="p-2.5 text-gray-700 font-medium">{acc.turmaNome || '—'}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            acc.tipoAcesso === 'Emprestimo_Livro'
+                              ? 'bg-amber-100 text-amber-900'
+                              : acc.tipoAcesso === 'Devolucao_Livro'
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : 'bg-blue-100 text-blue-900'
+                          }`}>
+                            {acc.tipoAcesso.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-gray-700">{acc.livroTitulo || 'Consulta Geral'}</td>
+                        <td className="p-2.5 text-gray-500 text-[11px]">{acc.registadoPorNome || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
+
+      <QrScannerModal
+        isOpen={showQrScannerBiblioteca}
+        onClose={() => setShowQrScannerBiblioteca(false)}
+        titulo="Leitor QR — Acesso à Biblioteca Escolar"
+        subtitulo="Valide o cartão de estudante para registar entrada, consulta local ou empréstimo."
+        acaoRotulo={`Registar ${tipoAcessoQr.replace(/_/g, ' ')}`}
+        alunos={alunos.length > 0 ? alunos : dbService.getAlunos().filter(a => !a.escolaId || a.escolaId === escola.id)}
+        turmas={turmas.length > 0 ? turmas : dbService.getTurmas().filter(t => !t.escolaId || t.escolaId === escola.id)}
+        onStudentMatched={handleRegistarAcessoQrBiblioteca}
+      />
 
       {/* Modal Novo Livro */}
       {showNovoLivroModal && (

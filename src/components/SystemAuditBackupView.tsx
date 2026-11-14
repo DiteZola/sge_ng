@@ -416,10 +416,18 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   // ESTADO & AÇÕES: USUÁRIOS & PERFIS RBAC
   // ==========================================
   const [listaUsuarios, setListaUsuarios] = useState<Funcionario[]>(() => {
-    return isAdminGeral 
-      ? dbService.obterFuncionarios() 
-      : dbService.obterFuncionarios().filter(f => f.escolaId === escola.id);
+    return isAdminGeral
+      ? dbService.obterFuncionarios()
+      : dbService.obterFuncionarios().filter(f => f.escolaId === escola.id && f.role !== 'AdminGeral');
   });
+
+  useEffect(() => {
+    setListaUsuarios(
+      isAdminGeral
+        ? funcionarios
+        : funcionarios.filter(f => f.escolaId === escola.id && f.role !== 'AdminGeral')
+    );
+  }, [funcionarios, escola.id, isAdminGeral]);
   const [buscaUsuario, setBuscaUsuario] = useState('');
   const [filtroRoleUsuario, setFiltroRoleUsuario] = useState<string>('TODOS');
   const [filtroStatusUsuario, setFiltroStatusUsuario] = useState<string>('TODOS');
@@ -437,6 +445,11 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
 
   const handleConfirmarEliminarUsuario = () => {
     if (!usuarioParaEliminar) return;
+    if (!isAdminGeral && usuarioParaEliminar.role === 'AdminGeral') {
+      notificar('Operação não autorizada para esta conta.');
+      setUsuarioParaEliminar(null);
+      return;
+    }
     const nome = usuarioParaEliminar.nomeCompleto;
     try {
       if (onEliminarFuncionario) {
@@ -454,6 +467,10 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   };
 
   const handleAlternarStatusUsuario = (usuario: Funcionario) => {
+    if (!isAdminGeral && usuario.role === 'AdminGeral') {
+      notificar('Operação não autorizada para esta conta.');
+      return;
+    }
     const novoStatus: 'Ativa' | 'Suspensa' = usuario.statusConta === 'Suspensa' ? 'Ativa' : 'Suspensa';
     try {
       dbService.atualizarStatusFuncionario(usuario.id, novoStatus);
@@ -470,6 +487,11 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   const handleSalvarRedefinicaoSenha = (e: React.FormEvent) => {
     e.preventDefault();
     if (!usuarioParaRedefinir || !novaSenhaInput.trim()) return;
+    if (!isAdminGeral && usuarioParaRedefinir.role === 'AdminGeral') {
+      notificar('Operação não autorizada para esta conta.');
+      setUsuarioParaRedefinir(null);
+      return;
+    }
     try {
       dbService.redefinirSenhaFuncionario(usuarioParaRedefinir.id, novaSenhaInput.trim());
       dbService.registarLog(
@@ -486,6 +508,10 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
 
   const handleCriarNovoUsuario = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdminGeral && novoUserRole === 'AdminGeral') {
+      notificar('Operação não autorizada para o perfil selecionado.');
+      return;
+    }
     if (!novoUserNome.trim() || !novoUserEmail.trim() || !novoUserBI.trim()) {
       notificar('Preencha os campos obrigatórios (Nome, BI e Email).');
       return;
@@ -701,9 +727,28 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     notificar('Configurações globais do sistema gravadas com sucesso.');
   };
 
-  const logsFiltrados = logs.filter(l => {
+  const logsVisiveis = useMemo(() => {
+    if (isAdminGeral) return logs;
+    return logs.filter(l => {
+      if (
+        l.origemAdminGeral ||
+        l.usuarioRole === 'AdminGeral' ||
+        l.papel === 'AdminGeral' ||
+        (l.papel || '').includes('AdminGeral') ||
+        (l.papel || '').includes('Apoio Técnico') ||
+        (l.detalhe || '').includes('[APOIO TÉCNICO AUTORIZADO') ||
+        (l.detalhes || '').includes('[APOIO TÉCNICO AUTORIZADO')
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [logs, isAdminGeral]);
+
+  const logsFiltrados = logsVisiveis.filter(l => {
     if (filtroAcao === 'TODAS') return true;
     if (filtroAcao === 'APOIO_TECNICO') {
+      if (!isAdminGeral) return false;
       return (
         l.detalhe?.includes('[APOIO TÉCNICO AUTORIZADO') || 
         l.papel?.includes('Apoio Técnico') ||
@@ -823,7 +868,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
           }`}
         >
           <ShieldCheck className="h-4 w-4" />
-          <span>Trilha de Auditoria ({logs.length})</span>
+          <span>Trilha de Auditoria ({logsVisiveis.length})</span>
         </button>
 
         <button
@@ -977,7 +1022,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdminGeral ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
               {/* 1. Alunos e Notas */}
               <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/40 hover:bg-blue-50 transition-colors flex flex-col justify-between">
                 <div>
@@ -1035,24 +1080,26 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </button>
               </div>
 
-              {/* 4. Sistema Completo */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">Rede Nacional</span>
-                  <h4 className="text-xs font-bold text-gray-900 mt-2">Todo o Sistema Completo</h4>
-                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
-                    Cópia mestra integral de todas as escolas, utilizadores, parametrizações e auditoria central.
-                  </p>
+              {/* 4. Sistema Completo (Exclusivo Admin Geral) */}
+              {isAdminGeral && (
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">Rede Nacional</span>
+                    <h4 className="text-xs font-bold text-gray-900 mt-2">Todo o Sistema Completo</h4>
+                    <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                      Cópia mestra integral de todas as escolas, utilizadores, parametrizações e auditoria central.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportSistemaJSON}
+                    className="mt-3 w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Baixar JSON</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleExportSistemaJSON}
-                  className="mt-3 w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Baixar JSON</span>
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -1788,7 +1835,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 className="p-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-blue-600"
               >
                 <option value="TODAS">Todas as Ações</option>
-                <option value="APOIO_TECNICO">Ações do Admin Geral (Apoio Técnico)</option>
+                {isAdminGeral && <option value="APOIO_TECNICO">Ações do Admin Geral (Apoio Técnico)</option>}
                 <option value="Autenticação">Autenticação</option>
                 <option value="Aluno">Gestão de Alunos</option>
                 <option value="Nota">Lançamento de Notas</option>
@@ -1906,7 +1953,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs">
               <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">Direção & Coordenação</span>
               <p className="text-2xl font-black text-indigo-700 mt-1">
-                {listaUsuarios.filter(u => ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'CoordenadorPedagogico'].includes(u.role)).length}
+                {listaUsuarios.filter(u => (isAdminGeral ? ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'CoordenadorPedagogico'] : ['DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'CoordenadorPedagogico']).includes(u.role)).length}
               </p>
               <span className="text-[11px] text-indigo-700 font-bold">Nível executivo</span>
             </div>
@@ -1932,7 +1979,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 className="px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
               >
                 <option value="TODOS">Todos os Perfis (RBAC)</option>
-                <option value="AdminGeral">Administrador Geral</option>
+                {isAdminGeral && <option value="AdminGeral">Administrador Geral</option>}
                 <option value="DiretorGeral">Diretor Geral</option>
                 <option value="SubdiretorPedagogico">Subdiretor Pedagógico</option>
                 <option value="SubdirectorAdministrativo">Subdirector Administrativo</option>
@@ -2019,55 +2066,61 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                         </td>
 
                         <td className="py-3 px-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleAlternarStatusUsuario(usuario)}
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
-                              usuario.statusConta === 'Suspensa'
-                                ? 'bg-rose-100 text-rose-800 hover:bg-rose-200'
-                                : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                            }`}
-                          >
-                            {usuario.statusConta === 'Suspensa' ? 'Suspensa' : 'Ativa'}
-                          </button>
+                          {(!isAdminGeral && usuario.role === 'AdminGeral') ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-500">Protegida</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleAlternarStatusUsuario(usuario)}
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                                usuario.statusConta === 'Suspensa'
+                                  ? 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                  : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                              }`}
+                            >
+                              {usuario.statusConta === 'Suspensa' ? 'Suspensa' : 'Ativa'}
+                            </button>
+                          )}
                         </td>
 
                         <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end space-x-1.5">
-                            <button
-                              onClick={() => {
-                                setUsuarioParaRedefinir(usuario);
-                                setNovaSenhaInput('');
-                              }}
-                              className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
-                              title="Redefinir Senha de Acesso"
-                            >
-                              <Key className="h-3 w-3 text-amber-600" />
-                              <span>Senha</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleAlternarStatusUsuario(usuario)}
-                              className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                usuario.statusConta === 'Suspensa'
-                                  ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                              }`}
-                              title={usuario.statusConta === 'Suspensa' ? 'Reativar Conta' : 'Suspender Acesso'}
-                            >
-                              {usuario.statusConta === 'Suspensa' ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-                            </button>
-
-                            {(isAdminGeral || isDiretorGeral) && usuario.id !== currentUser.id && (
+                          {(!isAdminGeral && usuario.role === 'AdminGeral') ? null : (
+                            <div className="flex items-center justify-end space-x-1.5">
                               <button
-                                onClick={() => setUsuarioParaEliminar(usuario)}
-                                className="p-1.5 rounded-lg text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 transition-all cursor-pointer"
-                                title="Eliminar Utilizador do Sistema e do Firebase"
+                                onClick={() => {
+                                  setUsuarioParaRedefinir(usuario);
+                                  setNovaSenhaInput('');
+                                }}
+                                className="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
+                                title="Redefinir Senha de Acesso"
                               >
-                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                <Key className="h-3 w-3 text-amber-600" />
+                                <span>Senha</span>
                               </button>
-                            )}
-                          </div>
+
+                              <button
+                                onClick={() => handleAlternarStatusUsuario(usuario)}
+                                className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                  usuario.statusConta === 'Suspensa'
+                                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                    : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                                }`}
+                                title={usuario.statusConta === 'Suspensa' ? 'Reativar Conta' : 'Suspender Acesso'}
+                              >
+                                {usuario.statusConta === 'Suspensa' ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                              </button>
+
+                              {(isAdminGeral || isDiretorGeral) && usuario.id !== currentUser.id && usuario.role !== 'AdminGeral' && (
+                                <button
+                                  onClick={() => setUsuarioParaEliminar(usuario)}
+                                  className="p-1.5 rounded-lg text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 transition-all cursor-pointer"
+                                  title="Eliminar Utilizador do Sistema e do Firebase"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -2500,7 +2553,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdminGeral ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
               {/* 1. Alunos com Todas as Notas */}
               <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50 transition-colors flex flex-col justify-between">
                 <div>
@@ -2558,24 +2611,26 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </button>
               </div>
 
-              {/* 4. Todo o Sistema Completo */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
-                <div>
-                  <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">Rede Nacional</span>
-                  <h4 className="text-xs font-bold text-gray-900 mt-2">Todo o Sistema Completo</h4>
-                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
-                    Consolidação executiva de toda a rede nacional: balanço geral, todas as escolas, turmas, alunos e funcionários.
-                  </p>
+              {/* 4. Todo o Sistema Completo (Exclusivo Admin Geral) */}
+              {isAdminGeral && (
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">Rede Nacional</span>
+                    <h4 className="text-xs font-bold text-gray-900 mt-2">Todo o Sistema Completo</h4>
+                    <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                      Consolidação executiva de toda a rede nacional: balanço geral, todas as escolas, turmas, alunos e funcionários.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportSistemaExcel}
+                    className="mt-3 w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Baixar Excel</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleExportSistemaExcel}
-                  className="mt-3 w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Baixar Excel</span>
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </div>

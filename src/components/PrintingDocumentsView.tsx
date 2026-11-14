@@ -57,6 +57,8 @@ import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import { OfficialQrCode, gerarPayloadQrDocumento, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
+import { processarFotoUpload } from '../utils/imageCompressor';
 import { DocumentTemplateConfigModal } from './DocumentTemplateConfigModal';
 import { 
   obterNomeDiretorGeral, 
@@ -308,7 +310,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return obterTituloChefeSecretaria(escola, funcionariosEscola);
   };
 
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  useEffect(() => {
+    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+  }, []);
   const [showAssinaturaModal, setShowAssinaturaModal] = useState(false);
   const [assinaturaPreview, setAssinaturaPreview] = useState(
     escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl || ''
@@ -326,7 +333,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     dbService.salvarEscola(escolaAtualizada);
     setShowAssinaturaModal(false);
   };
-  const funcionariosLista: Funcionario[] = useMemo(() => dbService.obterFuncionarios(), [escola.id]);
+  const funcionariosLista: Funcionario[] = useMemo(
+    () =>
+      dbService
+        .obterFuncionarios()
+        .filter(f => f.role !== 'AdminGeral' && (currentUser?.role === 'AdminGeral' || f.escolaId === escola.id)),
+    [escola.id, currentUser?.role]
+  );
   const [selectedFuncionarioId, setSelectedFuncionarioId] = useState<string>(funcionariosLista[0]?.id || '');
   const funcionarioSelecionado = funcionariosLista.find(f => f.id === selectedFuncionarioId) || funcionariosLista[0];
   const [dataInicioPresencas, setDataInicioPresencas] = useState<string>('2026-03-01');
@@ -1592,12 +1605,19 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
 
             <div className="flex items-center justify-end space-x-4">
-              <div className="text-center">
-                <div className="h-16 w-16 bg-white border border-gray-400 p-1 flex items-center justify-center mx-auto">
-                  <QrCode className="h-14 w-14" />
-                </div>
-                <span className="text-[8px] text-gray-500 block mt-0.5">Código de Autenticação</span>
-              </div>
+              <OfficialQrCode
+                value={gerarPayloadQrDocumento({
+                  docType: 'BOLETIM_OFICIAL',
+                  escolaId: escola.id,
+                  docRef: `${alunoSelecionado.codigoMatricula}-${escola.trimestreActivo || 'II'}T`,
+                  alunoId: alunoSelecionado.id,
+                  alunoNome: alunoSelecionado.nomeCompleto,
+                  turmaId: turmaDoAluno.id,
+                  anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                })}
+                size={60}
+                label="Código de Autenticação"
+              />
             </div>
           </div>
 
@@ -2139,6 +2159,24 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </div>
               </div>
             )}
+
+            <div className="mt-5 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+              <div className="text-left">
+                <p className="font-bold uppercase text-gray-800">Autenticidade da Pauta Oficial</p>
+                <p>Verifique a validade deste registo escolar digitalizando o código QR ao lado.</p>
+              </div>
+              <OfficialQrCode
+                value={gerarPayloadQrDocumento({
+                  docType: 'PAUTA_OFICIAL',
+                  escolaId: escola.id,
+                  docRef: `${turmaSelecionada?.id || 'turma'}-${pautaDisciplinaId}`,
+                  turmaId: turmaSelecionada?.id,
+                  anoLectivo: turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                })}
+                size={54}
+                label="Validar Pauta"
+              />
+            </div>
           </div>
         </div>
         )
@@ -2306,6 +2344,26 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <div className="w-56 border-b border-black mx-auto my-1.5" />
               <p className="font-bold text-gray-900 text-xs uppercase">{nomeDiretorGeral}</p>
             </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+            <div className="text-left">
+              <p className="font-bold uppercase text-gray-800">Verificação Oficial da Declaração</p>
+              <p>Código QR vinculado ao processo individual n.º {alunoSelecionado.codigoMatricula}.</p>
+            </div>
+            <OfficialQrCode
+              value={gerarPayloadQrDocumento({
+                docType: 'DECLARACAO_NOTAS',
+                escolaId: escola.id,
+                docRef: `DECL-${alunoSelecionado.codigoMatricula}`,
+                alunoId: alunoSelecionado.id,
+                alunoNome: alunoSelecionado.nomeCompleto,
+                turmaId: turmaDoAluno?.id,
+                anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+              })}
+              size={56}
+              label="Validar Declaração"
+            />
           </div>
         </div>
         )
@@ -2643,10 +2701,19 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
 
             <div className="flex flex-col items-center justify-center">
-              <div className="h-16 w-16 bg-white border border-gray-400 p-1 flex items-center justify-center">
-                <QrCode className="h-14 w-14" />
-              </div>
-              <span className="text-[8px] text-gray-500 mt-0.5">Certificação MED</span>
+              <OfficialQrCode
+                value={gerarPayloadQrDocumento({
+                  docType: 'CERTIFICADO_CICLO',
+                  escolaId: escola.id,
+                  docRef: `CERT-${alunoSelecionado.codigoMatricula}`,
+                  alunoId: alunoSelecionado.id,
+                  alunoNome: alunoSelecionado.nomeCompleto,
+                  turmaId: turmaDoAluno?.id,
+                  anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                })}
+                size={62}
+                label="Certificação MED"
+              />
             </div>
 
             <div className="space-y-1 flex flex-col items-center justify-end">
@@ -2699,18 +2766,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <div>
                     <div className="text-center border-b pb-1 border-blue-200 print:border-gray-400">
                       <div className="flex items-center justify-between px-1">
-                        {(escola.logotipoUrl || escola.logotipo) ? (
-                          <img 
-                            src={escola.logotipoUrl || escola.logotipo} 
-                            alt="Logo Escola" 
-                            className="h-6 w-6 object-contain rounded shrink-0" 
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="h-5 w-5 flex items-center justify-center">
-                            <InsigniaAngola size={18} />
-                          </div>
-                        )}
+                        <div className="h-6 w-6 flex items-center justify-center shrink-0">
+                          {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                            <img src={configSistema.insigniaNacionalUrl} alt="Insígnia da República de Angola" className="h-6 w-6 object-contain" referrerPolicy="no-referrer" />
+                          ) : (
+                            <InsigniaAngola size={20} />
+                          )}
+                        </div>
                         <div className="flex-1 min-w-0 px-1 text-center">
                           <p className="text-[7.5px] font-bold uppercase text-gray-600 truncate">República de Angola</p>
                           <p className="text-[8.5px] font-black uppercase text-blue-900 truncate print:text-black">
@@ -2718,10 +2780,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                           </p>
                         </div>
                         <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                          {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                            <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-5 w-5 object-contain" referrerPolicy="no-referrer" />
+                          {(escola.logotipoUrl || escola.logotipo) ? (
+                            <img
+                              src={escola.logotipoUrl || escola.logotipo}
+                              alt="Logo Escola"
+                              className="h-5 w-5 object-contain rounded"
+                              referrerPolicy="no-referrer"
+                            />
                           ) : (
-                            <InsigniaAngola size={16} />
+                            <span className="w-5" />
                           )}
                         </div>
                       </div>
@@ -2781,8 +2848,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="h-7 w-7 bg-gray-100 border border-gray-300 flex items-center justify-center text-gray-800 rounded">
-                      <QrCode className="h-5 w-5" />
+                    <div className="flex items-center justify-center shrink-0">
+                      <OfficialQrCode
+                        value={gerarPayloadQrEstudante(aluno, escola, turma)}
+                        size={34}
+                      />
                     </div>
                   </div>
                 </div>
@@ -2930,6 +3000,18 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <p className="font-semibold text-gray-800 text-[11px]">{nomeDiretorGeral}</p>
             </div>
           </div>
+
+          <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+            <div className="text-left">
+              <p className="font-bold uppercase text-gray-800">Identificação Digital do Estudante</p>
+              <p>Código QR oficial para validação de matrícula e assiduidade.</p>
+            </div>
+            <OfficialQrCode
+              value={gerarPayloadQrEstudante(alunoSelecionado, escola, turmaDoAluno)}
+              size={52}
+              label="Validar Ficha"
+            />
+          </div>
         </div>
         )
       )}
@@ -3044,6 +3126,23 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <p className="text-gray-700">O Director Geral</p>
                   <div className="border-b border-black w-40 mx-auto" />
                 </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+                <div className="text-left">
+                  <p className="font-bold uppercase text-gray-800">Autenticação de Registo Profissional</p>
+                  <p>Ficha individual oficial emitida pelos Serviços Administrativos e Recursos Humanos.</p>
+                </div>
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'FICHA_FUNCIONARIO',
+                    escolaId: escola.id,
+                    docRef: funcionarioSelecionado.numeroBI || funcionarioSelecionado.id,
+                    anoLectivo: escola.anoLectivoActivo
+                  })}
+                  size={50}
+                  label="Validar Ficha"
+                />
               </div>
             </div>
           ) : (
@@ -3169,6 +3268,24 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <p className="font-semibold text-gray-800 text-[11px]">{nomeDiretorGeral}</p>
               </div>
             </div>
+
+            <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+              <div className="text-left">
+                <p className="font-bold uppercase text-gray-800">Autenticação da Folha de Presenças</p>
+                <p>Período: {dataInicioPresencas} a {dataFimPresencas} • {turmaSelecionada?.nome}.</p>
+              </div>
+              <OfficialQrCode
+                value={gerarPayloadQrDocumento({
+                  docType: 'FICHA_PRESENCAS',
+                  escolaId: escola.id,
+                  docRef: `${turmaSelecionada?.id || 'turma'}-${dataInicioPresencas}-${dataFimPresencas}`,
+                  turmaId: turmaSelecionada?.id,
+                  anoLectivo: turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                })}
+                size={50}
+                label="Validar Folha"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -3253,10 +3370,25 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
             </div>
 
-            <div className="text-center pt-2 border-t border-dashed border-gray-400 space-y-1 text-[9px]">
+            <div className="text-center pt-2 border-t border-dashed border-gray-400 space-y-1.5 text-[9px]">
               <p className="font-bold">OBRIGADO PELA SUA PREFERÊNCIA</p>
               <p className="text-[8px] text-gray-500">Documento Oficial de Tesouraria Escolar</p>
-              <p className="pt-2">--------------------------------</p>
+              <div className="flex justify-center pt-1">
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'RECIBO_TESOURARIA',
+                    escolaId: escola.id,
+                    docRef: `REC-${alunoSelecionado.codigoMatricula}`,
+                    alunoId: alunoSelecionado.id,
+                    alunoNome: alunoSelecionado.nomeCompleto,
+                    turmaId: turmaDoAluno?.id,
+                    anoLectivo: escola.anoLectivoActivo
+                  })}
+                  size={52}
+                  label="Validar Recibo"
+                />
+              </div>
+              <p className="pt-1">--------------------------------</p>
               <p className="text-[8px] text-gray-400">[CORTE DO TALÃO AQUI]</p>
             </div>
           </div>
@@ -3404,6 +3536,24 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">{tituloDiretorGeral} (Homologação)</p>
                 </div>
               </div>
+
+              <div className="mt-4 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600 font-sans">
+                <div className="text-left">
+                  <p className="font-bold uppercase text-gray-800">Autenticação Oficial do Termo de Exame</p>
+                  <p>Verifique a validade deste documento oficial digitalizando o código QR.</p>
+                </div>
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'TERMO_EXAME',
+                    escolaId: escola.id,
+                    docRef: `TERMO-${turmaSelecionada.id}`,
+                    turmaId: turmaSelecionada.id,
+                    anoLectivo: turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                  })}
+                  size={54}
+                  label="Validar Termo"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -3486,16 +3636,17 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (event) => {
-                          if (event.target?.result) {
-                            setAssinaturaPreview(event.target.result as string);
+                        try {
+                          const res = await processarFotoUpload(file, 360, 0.82);
+                          if (res.dataUrl) {
+                            setAssinaturaPreview(res.dataUrl);
                           }
-                        };
-                        reader.readAsDataURL(file);
+                        } catch {
+                          // fallback handled inside processarFotoUpload
+                        }
                       }
                     }}
                   />

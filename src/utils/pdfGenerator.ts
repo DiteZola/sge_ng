@@ -10,44 +10,170 @@ export interface PdfExportOptions {
   scale?: number;
 }
 
-/**
- * Normaliza qualquer cor CSS para formato seguro HEX/RGB
- */
-function normalizeColorForCanvas(colorStr: string): string {
-  if (!colorStr || colorStr === 'transparent' || colorStr === 'inherit' || colorStr === 'initial') {
-    return colorStr;
-  }
+const MODERN_COLOR_FN_RE = /(?:oklch|oklab|lab|lch|color-mix|color)\([^)]*(?:\([^)]*\)[^)]*)*\)/gi;
+
+let colorSamplerCtx: CanvasRenderingContext2D | null = null;
+const colorCache = new Map<string, string>();
+
+function getColorSamplerContext(): CanvasRenderingContext2D | null {
+  if (colorSamplerCtx) return colorSamplerCtx;
   try {
-    const d = document.createElement('div');
-    d.style.color = colorStr;
-    document.body.appendChild(d);
-    const computed = window.getComputedStyle(d).color;
-    document.body.removeChild(d);
-    return computed || colorStr;
+    const c = document.createElement('canvas');
+    c.width = 1;
+    c.height = 1;
+    colorSamplerCtx = c.getContext('2d', { willReadFrequently: true });
+    return colorSamplerCtx;
   } catch {
-    return colorStr;
+    return null;
   }
 }
 
 /**
- * Aguarda o carregamento de todas as imagens presentes num elemento HTML
+ * Converte qualquer expressão de cor moderna (oklch, lab, oklab, color-mix, var) para rgba(...)
+ * através de rasterização em canvas 1x1 — compatível 100% com html2canvas v1.4.
  */
-async function aguardarImagens(elemento: HTMLElement): Promise<void> {
+function normalizeColorForCanvas(colorStr: string): string {
+  if (!colorStr || colorStr === 'transparent' || colorStr === 'inherit' || colorStr === 'initial' || colorStr === 'none') {
+    return colorStr;
+  }
+  const trimmed = colorStr.trim();
+  const cached = colorCache.get(trimmed);
+  if (cached) return cached;
+
+  try {
+    // Primeiro tenta deixar o browser resolver via div temporária (resolve variáveis CSS)
+    let resolved = trimmed;
+    if (trimmed.includes('var(') || !trimmed.startsWith('rgb')) {
+      const probe = document.createElement('div');
+      probe.style.position = 'fixed';
+      probe.style.left = '-9999px';
+      probe.style.color = trimmed;
+      document.body.appendChild(probe);
+      resolved = window.getComputedStyle(probe).color || trimmed;
+      document.body.removeChild(probe);
+    }
+
+    // Se ainda contiver oklch/lab/oklab/color-mix/color(, amostra o pixel num canvas 1x1
+    if (/(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(resolved)) {
+      const ctx = getColorSamplerContext();
+      if (ctx) {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = '#000000';
+        ctx.fillStyle = resolved;
+        ctx.fillRect(0, 0, 1, 1);
+        const data = ctx.getImageData(0, 0, 1, 1).data;
+        const alpha = Number((data[3] / 255).toFixed(3));
+        const rgba = `rgba(${data[0]}, ${data[1]}, ${data[2]}, ${alpha})`;
+        colorCache.set(trimmed, rgba);
+        return rgba;
+      }
+    }
+
+    colorCache.set(trimmed, resolved);
+    return resolved;
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
+ * Substitui expressões oklch/lab/oklab/color-mix dentro de blocos CSS compilados
+ */
+function sanitizeCssForCanvas(cssText: string): string {
+  if (!cssText || !/(?:oklch|oklab|lab|lch|color-mix)/i.test(cssText)) {
+    return cssText;
+  }
+  return cssText.replace(MODERN_COLOR_FN_RE, (match) => {
+    const converted = normalizeColorForCanvas(match);
+    if (/(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(converted)) {
+      return '#1f2937';
+    }
+    return converted;
+  });
+}
+
+/**
+ * Aguarda carregamento de fontes e imagens presentes no elemento HTML alvo
+ */
+async function aguardarRecursosProntos(elemento: HTMLElement): Promise<void> {
+  try {
+    if (document.fonts && document.fonts.ready) {
+      await Promise.race([
+        document.fonts.ready,
+        new Promise<void>((r) => setTimeout(r, 1200))
+      ]);
+    }
+  } catch {}
+
   const imagens = Array.from(elemento.querySelectorAll('img'));
-  const promises = imagens.map(img => {
+  const promises = imagens.map((img) => {
     if (img.complete && img.naturalHeight !== 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
       img.onload = () => resolve();
-      img.onerror = () => resolve(); // Continua mesmo se uma imagem falhar
-      setTimeout(resolve, 2000); // Timeout de segurança
+      img.onerror = () => resolve();
+      setTimeout(resolve, 2500);
     });
   });
   await Promise.all(promises);
 }
 
 /**
- * Utilitário profissional para gerar e descarregar ficheiros PDF (.pdf) reais
- * com preservação integral de formatação, tabelas, gráficos, carimbos e insígnia nacional.
+ * Encontra a melhor linha horizontal (em Y) próxima de `idealY` que possua fundo branco/uniforme,
+ * evitando cortar texto ou linhas de tabela ao meio nas quebras de página do PDF.
+ */
+function encontrarMelhorQuebraPaginaY(
+  canvas: HTMLCanvasElement,
+  idealY: number,
+  minY: number
+): number {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return idealY;
+
+  const width = canvas.width;
+  const maxScanDown = Math.min(canvas.height - 2, idealY + 24);
+  const maxScanUp = Math.max(minY + 40, idealY - 120);
+  const stepX = Math.max(2, Math.floor(width / 180));
+
+  let melhorY = idealY;
+  let melhorPontuacao = -1;
+
+  for (let y = maxScanDown; y >= maxScanUp; y--) {
+    try {
+      const rowData = ctx.getImageData(0, y, width, 1).data;
+      let pixelsBrancosOuUniformes = 0;
+      let totalAmostras = 0;
+
+      for (let x = 0; x < width; x += stepX) {
+        const idx = x * 4;
+        const r = rowData[idx];
+        const g = rowData[idx + 1];
+        const b = rowData[idx + 2];
+        // Quase branco ou fundo neutro claro (espaço entre linhas / margens de células)
+        if (r >= 242 && g >= 242 && b >= 242) {
+          pixelsBrancosOuUniformes++;
+        }
+        totalAmostras++;
+      }
+
+      const ratio = totalAmostras > 0 ? pixelsBrancosOuUniformes / totalAmostras : 0;
+      if (ratio >= 0.995) {
+        return y; // Linha perfeitamente limpa encontrada
+      }
+      if (ratio > melhorPontuacao) {
+        melhorPontuacao = ratio;
+        melhorY = y;
+      }
+    } catch {
+      return idealY;
+    }
+  }
+
+  return melhorPontuacao >= 0.88 ? melhorY : idealY;
+}
+
+/**
+ * Motor Oficial SGE-NG de Exportação PDF (.pdf) com Preservação Exata de Formatação,
+ * Tabelas, Cores, Assinaturas, Códigos QR e Insígnia da República de Angola.
  */
 export async function downloadElementAsPdf(
   elementOrId: HTMLElement | string,
@@ -67,73 +193,76 @@ export async function downloadElementAsPdf(
     return false;
   }
 
-  const cleanFilename = filename.replace(/\.pdf$/i, '').trim();
+  const cleanFilename = filename.replace(/\.pdf$/i, '').trim() || 'Documento_SGE_MED';
   const orientation = options.orientation || 'portrait';
-  const scale = options.scale || 2.4; // 2.4x oferece nitidez de nível de publicação e tamanho de arquivo controlado
+  const scale = options.scale || 2.3;
   const marginMm = options.marginMm ?? 6;
 
-  // Dimensões oficiais da folha A4 em milímetros
   const a4WidthMm = orientation === 'landscape' ? 297 : 210;
   const a4HeightMm = orientation === 'landscape' ? 210 : 297;
-  const printableWidthMm = a4WidthMm - (marginMm * 2);
-  const printableHeightMm = a4HeightMm - (marginMm * 2);
+  const printableWidthMm = a4WidthMm - marginMm * 2;
+  const printableHeightMm = a4HeightMm - marginMm * 2;
 
-  // Aguardar imagens antes da captura
-  await aguardarImagens(element);
+  await aguardarRecursosProntos(element);
 
   const originalBackground = element.style.backgroundColor;
+  const hadMarker = element.hasAttribute('data-sge-pdf-target');
+  const originalWidthPx = element.getBoundingClientRect().width;
+  const originalScrollWidth = element.scrollWidth;
+  const isThermalReceipt =
+    element.id === 'recibo-imprimir-modal' ||
+    (originalWidthPx > 0 && originalWidthPx <= 430 && !element.querySelector('table'));
+
   element.style.backgroundColor = '#ffffff';
+  element.setAttribute('data-sge-pdf-target', 'true');
 
   try {
     const isLandscape = orientation === 'landscape';
-    const targetA4WidthPx = isLandscape ? 1122 : 794;
+    const baseTargetWidthPx = isLandscape ? 1122 : 794;
+    const captureWidthPx = isThermalReceipt
+      ? Math.max(320, Math.round(originalWidthPx || 360))
+      : Math.max(baseTargetWidthPx, Math.round(originalScrollWidth || baseTargetWidthPx));
 
-    // Capturar o elemento clonado com html2canvas
     const canvas = await html2canvas(element, {
-      scale: scale,
+      scale,
       useCORS: true,
-      allowTaint: false, // allowTaint: false é obrigatório para exportar toDataURL sem erro de segurança
+      allowTaint: false,
       backgroundColor: '#ffffff',
       logging: false,
       imageTimeout: 15000,
-      windowWidth: isLandscape ? 1280 : 1024,
+      windowWidth: Math.max(captureWidthPx + 80, isLandscape ? 1280 : 1024),
       onclone: (clonedDoc) => {
         try {
-          // 1. INJETAR TODAS AS REGRAS CSS REAIS (CSSOM + ESTILOS VITE/TAILWIND) NO CLONE
-          try {
-            let compiledCss = '';
-            Array.from(document.styleSheets).forEach(sheet => {
-              try {
-                const rules = sheet.cssRules || sheet.rules;
-                if (rules) {
-                  for (let i = 0; i < rules.length; i++) {
-                    compiledCss += rules[i].cssText + '\n';
-                  }
-                }
-              } catch (crossErr) {
-                // Se for stylesheet cross-origin protegida
-              }
-            });
-
-            if (compiledCss.trim().length > 0) {
-              const fullStyle = clonedDoc.createElement('style');
-              fullStyle.setAttribute('data-sge-compiled-styles', 'true');
-              fullStyle.textContent = compiledCss;
-              clonedDoc.head.appendChild(fullStyle);
-            }
-          } catch (e) {
-            console.warn('[PDF Generator] Erro ao extrair cssRules:', e);
-          }
-
-          // Injetar também as tags de estilo e links existentes
-          const parentStyles = document.querySelectorAll('style, link[rel="stylesheet"]');
-          parentStyles.forEach(styleNode => {
+          // 1. Extrair e sanitizar todas as regras CSSOM reais (eliminando oklch/lab do Tailwind v4)
+          let compiledCss = '';
+          Array.from(document.styleSheets).forEach((sheet) => {
             try {
-              clonedDoc.head.appendChild(styleNode.cloneNode(true));
+              const rules = sheet.cssRules || sheet.rules;
+              if (rules) {
+                for (let i = 0; i < rules.length; i++) {
+                  compiledCss += sanitizeCssForCanvas(rules[i].cssText) + '\n';
+                }
+              }
             } catch {}
           });
 
-          // 2. INJETAR ESTILOS CRÍTICOS DE IMPRESSÃO MED ANGOLA SEM DESTRUIR AS BORDAS ORIGINAIS
+          // Remover links/styles crus que possam conter oklch bruto no clone e injetar CSS já sanitizado
+          clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+            if (node.tagName === 'STYLE') {
+              node.textContent = sanitizeCssForCanvas(node.textContent || '');
+            } else {
+              node.remove();
+            }
+          });
+
+          if (compiledCss.trim().length > 0) {
+            const fullStyle = clonedDoc.createElement('style');
+            fullStyle.setAttribute('data-sge-compiled-styles', 'true');
+            fullStyle.textContent = compiledCss;
+            clonedDoc.head.appendChild(fullStyle);
+          }
+
+          // 2. Estilos normativos de impressão exata
           const overrideStyle = clonedDoc.createElement('style');
           overrideStyle.innerHTML = `
             * {
@@ -147,7 +276,6 @@ export async function downloadElementAsPdf(
               color: #000000 !important;
               margin: 0 !important;
               padding: 0 !important;
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
             }
             .no-print, button, input[type="button"], input[type="submit"], nav {
               display: none !important;
@@ -164,61 +292,48 @@ export async function downloadElementAsPdf(
               display: block !important;
               visibility: visible !important;
             }
-            img {
-              max-width: 100% !important;
-              height: auto !important;
-            }
           `;
           clonedDoc.head.appendChild(overrideStyle);
 
-          // 3. NORMALIZAR LARGURA DO DOCUMENTO CLONADO PARA O FORMATO A4 EXATO
-          clonedDoc.documentElement.style.width = `${targetA4WidthPx}px`;
-          clonedDoc.documentElement.style.minWidth = `${targetA4WidthPx}px`;
-          clonedDoc.body.style.width = `${targetA4WidthPx}px`;
-          clonedDoc.body.style.minWidth = `${targetA4WidthPx}px`;
-          clonedDoc.body.style.margin = '0 auto';
+          // 3. Normalizar viewport do documento clonado
+          clonedDoc.documentElement.style.width = `${captureWidthPx}px`;
+          clonedDoc.documentElement.style.minWidth = `${captureWidthPx}px`;
+          clonedDoc.body.style.width = `${captureWidthPx}px`;
+          clonedDoc.body.style.minWidth = `${captureWidthPx}px`;
+          clonedDoc.body.style.margin = '0';
           clonedDoc.body.style.padding = '0';
           clonedDoc.body.style.overflow = 'visible';
           clonedDoc.body.style.backgroundColor = '#ffffff';
 
-          // 4. PRESERVAR AS BORDAS E FORMATOS VISÍVEIS DO DOCUMENTO OFICIAL
-          const targetEl = clonedDoc.getElementById(typeof elementOrId === 'string' ? elementOrId : (element.id || 'documento-para-impressao')) ||
-                           clonedDoc.getElementById('documento-para-impressao') ||
-                           clonedDoc.querySelector('[data-doc-root="true"]') ||
-                           clonedDoc.querySelector('.documento-oficial-print');
-
+          // 4. Localizar exatamente o elemento marcado antes do clone
+          const targetEl = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
           if (targetEl) {
-            const hEl = targetEl as HTMLElement;
-            hEl.style.width = `${targetA4WidthPx}px`;
-            hEl.style.minWidth = `${targetA4WidthPx}px`;
-            hEl.style.maxWidth = `${targetA4WidthPx}px`;
-            (hEl.style as any).zoom = '1';
-            hEl.style.transform = 'none';
-            hEl.style.margin = '0 auto';
-            hEl.style.boxSizing = 'border-box';
-            hEl.style.overflow = 'visible';
-            hEl.style.backgroundColor = '#ffffff';
+            targetEl.style.width = `${captureWidthPx}px`;
+            targetEl.style.minWidth = `${captureWidthPx}px`;
+            targetEl.style.maxWidth = `${captureWidthPx}px`;
+            (targetEl.style as any).zoom = '1';
+            targetEl.style.transform = 'none';
+            targetEl.style.margin = '0 auto';
+            targetEl.style.boxSizing = 'border-box';
+            targetEl.style.overflow = 'visible';
+            targetEl.style.backgroundColor = '#ffffff';
           }
 
-          // Resetar todos os recipientes com zoom no clone
-          const zoomedParents = clonedDoc.querySelectorAll('[style*="zoom"]');
-          zoomedParents.forEach(node => {
+          // Resetar zoom/transform em ancestrais ou filhos
+          clonedDoc.querySelectorAll('[style*="zoom"]').forEach((node) => {
             (node as HTMLElement).style.zoom = '1';
           });
 
-          // Se for grade de cartões/passes escolares (8 por folha A4)
-          const passGrids = clonedDoc.querySelectorAll('[data-passes-grid="true"], .passes-grid-container');
-          passGrids.forEach(pg => {
+          // Garantir que grades de passes (8/folha) e boletins (4/folha) mantêm colunas nítidas
+          clonedDoc.querySelectorAll('[data-passes-grid="true"], .passes-grid-container, .passes-sheet-grid').forEach((pg) => {
             const el = pg as HTMLElement;
             el.style.display = 'grid';
             el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
-            el.style.gap = '8px';
+            el.style.gap = '10px';
             el.style.width = '100%';
           });
 
-          // Se for grade de boletins (4 por folha A4)
-          const boletimGrids = clonedDoc.querySelectorAll('.boletins-grid-4');
-          boletimGrids.forEach(bg => {
+          clonedDoc.querySelectorAll('.boletins-grid-4').forEach((bg) => {
             const el = bg as HTMLElement;
             el.style.display = 'grid';
             el.style.gridTemplateColumns = 'repeat(2, 1fr)';
@@ -226,19 +341,38 @@ export async function downloadElementAsPdf(
             el.style.width = '100%';
           });
 
-          // Remover scroll horizontal artificial no clone para renderizar 100% das colunas
-          const scrollWrappers = clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"]');
-          scrollWrappers.forEach(w => {
+          // Expandir containers com scroll horizontal para não cortar nenhuma coluna da pauta
+          clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"], .overflow-y-auto, .max-h-\\[75vh\\]').forEach((w) => {
             const el = w as HTMLElement;
             el.style.overflow = 'visible';
+            el.style.maxHeight = 'none';
             el.style.width = '100%';
             el.style.maxWidth = 'none';
           });
 
-          // Normalizar cores modernas para compatibilidade total com o canvas
-          const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
-          const allCloned = clonedDoc.querySelectorAll('*');
-          allCloned.forEach(node => {
+          // Garantir dimensões explícitas em SVGs (Insígnia vetorial / ícones)
+          clonedDoc.querySelectorAll('svg').forEach((svg) => {
+            const rect = svg.getBoundingClientRect();
+            if (!svg.getAttribute('width') && rect.width > 0) {
+              svg.setAttribute('width', String(Math.round(rect.width)));
+            }
+            if (!svg.getAttribute('height') && rect.height > 0) {
+              svg.setAttribute('height', String(Math.round(rect.height)));
+            }
+          });
+
+          // Normalizar cores computadas inline no clone
+          const colorProps = [
+            'color',
+            'backgroundColor',
+            'borderColor',
+            'borderTopColor',
+            'borderBottomColor',
+            'borderLeftColor',
+            'borderRightColor',
+            'outlineColor'
+          ];
+          clonedDoc.querySelectorAll('*').forEach((node) => {
             const el = node as HTMLElement;
             if (!el.style) return;
             try {
@@ -246,7 +380,7 @@ export async function downloadElementAsPdf(
               if (!comp) return;
               for (const prop of colorProps) {
                 const val = (comp as any)[prop];
-                if (val && (val.includes('oklch') || val.includes('color(') || val.includes('lab('))) {
+                if (val && /(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(val)) {
                   (el.style as any)[prop] = normalizeColorForCanvas(val);
                 }
               }
@@ -258,35 +392,54 @@ export async function downloadElementAsPdf(
       }
     });
 
-    // 2. Criar documento jsPDF
     const pdf = new jsPDF({
-      orientation: orientation,
+      orientation,
       unit: 'mm',
       format: 'a4',
       compress: true
     });
 
-    const imgWidthMm = printableWidthMm;
     const canvasTotalHeight = canvas.height;
     const canvasTotalWidth = canvas.width;
+
+    // Recibo térmico estreito: manter proporção elegante centralizada sem esticar para 198mm
+    if (isThermalReceipt) {
+      const targetReceiptMm = Math.min(printableWidthMm, 105);
+      const receiptHeightMm = (canvasTotalHeight * targetReceiptMm) / canvasTotalWidth;
+      const offsetX = (a4WidthMm - targetReceiptMm) / 2;
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', offsetX, marginMm + 4, targetReceiptMm, Math.min(receiptHeightMm, printableHeightMm - 4), undefined, 'FAST');
+      pdf.save(`${cleanFilename}.pdf`);
+      return true;
+    }
+
+    const imgWidthMm = printableWidthMm;
     const totalHeightMm = (canvasTotalHeight * imgWidthMm) / canvasTotalWidth;
 
-    // Se couber numa única página A4
     if (totalHeightMm <= printableHeightMm + 2) {
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      pdf.addImage(imgData, 'JPEG', marginMm, marginMm, imgWidthMm, Math.min(totalHeightMm, printableHeightMm), undefined, 'FAST');
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', marginMm, marginMm, imgWidthMm, Math.min(totalHeightMm, printableHeightMm), undefined, 'FAST');
     } else {
-      // Fatiamento preciso página a página em Canvas independente
-      const pageHeightPx = (canvasTotalWidth * printableHeightMm) / imgWidthMm;
+      const maxPageHeightPx = Math.floor((canvasTotalWidth * printableHeightMm) / imgWidthMm);
       let yOffset = 0;
       let pageIndex = 0;
 
-      while (yOffset < canvasTotalHeight) {
+      while (yOffset < canvasTotalHeight - 2) {
         if (pageIndex > 0) {
           pdf.addPage('a4', orientation);
         }
 
-        const sliceHeightPx = Math.min(pageHeightPx, canvasTotalHeight - yOffset);
+        const remaining = canvasTotalHeight - yOffset;
+        let sliceHeightPx: number;
+
+        if (remaining <= maxPageHeightPx) {
+          sliceHeightPx = remaining;
+        } else {
+          const idealEnd = yOffset + maxPageHeightPx;
+          const smartEnd = encontrarMelhorQuebraPaginaY(canvas, idealEnd, yOffset);
+          sliceHeightPx = Math.max(120, Math.min(remaining, smartEnd - yOffset));
+        }
+
         const pageCanvas = document.createElement('canvas');
         pageCanvas.width = canvasTotalWidth;
         pageCanvas.height = sliceHeightPx;
@@ -307,9 +460,9 @@ export async function downloadElementAsPdf(
             sliceHeightPx
           );
 
-          const sliceImgData = pageCanvas.toDataURL('image/jpeg', 0.98);
+          const sliceImgData = pageCanvas.toDataURL('image/png');
           const sliceHeightMm = (sliceHeightPx * imgWidthMm) / canvasTotalWidth;
-          pdf.addImage(sliceImgData, 'JPEG', marginMm, marginMm, imgWidthMm, sliceHeightMm, undefined, 'FAST');
+          pdf.addImage(sliceImgData, 'PNG', marginMm, marginMm, imgWidthMm, sliceHeightMm, undefined, 'FAST');
         }
 
         yOffset += sliceHeightPx;
@@ -317,21 +470,22 @@ export async function downloadElementAsPdf(
       }
     }
 
-    // Gravar e descarregar o PDF oficial
     pdf.save(`${cleanFilename}.pdf`);
     return true;
   } catch (error) {
     console.error('[PDF Generator] Falha na renderização de canvas:', error);
-    // Fallback de contingência: Aciona impressão de altíssima fidelidade com estilos preservados
     imprimirElementoDiretamente(element, cleanFilename);
     return true;
   } finally {
     element.style.backgroundColor = originalBackground;
+    if (!hadMarker) {
+      element.removeAttribute('data-sge-pdf-target');
+    }
   }
 }
 
 /**
- * Impressão direta de alta fidelidade com preservação de todas as tabelas, bordas, cores e insígnias
+ * Impressão direta de alta fidelidade via iframe com preservação de estilos e tabelas
  */
 export function imprimirElementoDiretamente(element: HTMLElement, title: string): void {
   try {
@@ -350,14 +504,8 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
       return;
     }
 
-    // Coletar estilos da página atual (tags e regras CSSOM compiladas do Tailwind)
-    let stylesHtml = '';
-    document.querySelectorAll('style, link[rel="stylesheet"]').forEach(el => {
-      stylesHtml += el.outerHTML;
-    });
-
     let compiledCss = '';
-    Array.from(document.styleSheets).forEach(sheet => {
+    Array.from(document.styleSheets).forEach((sheet) => {
       try {
         const rules = sheet.cssRules || sheet.rules;
         if (rules) {
@@ -375,7 +523,6 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
         <head>
           <meta charset="utf-8">
           <title>${title}</title>
-          ${stylesHtml}
           <style>${compiledCss}</style>
           <style>
             @page { size: auto; margin: 8mm; }
@@ -386,17 +533,15 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
               margin: 0 !important; 
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
             }
-            .no-print { display: none !important; }
+            .no-print, button { display: none !important; }
             .print\\:block { display: block !important; }
             .print\\:flex { display: flex !important; }
-            table { width: 100% !important; border-collapse: collapse !important; }
-            th, td { border: 1px solid #1f2937 !important; padding: 4px 6px !important; }
             svg { display: inline-block !important; }
           </style>
         </head>
         <body>
           <div style="padding: 10px; background: #ffffff;">
-            ${element.innerHTML}
+            ${element.outerHTML}
           </div>
         </body>
       </html>
@@ -416,7 +561,7 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
           }
         }, 2000);
       }
-    }, 500);
+    }, 450);
   } catch (err) {
     console.error('[PDF Generator] Erro na impressão direta:', err);
     window.print();

@@ -6,6 +6,8 @@ import {
   doc, 
   setDoc,
   getDocFromServer,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   setLogLevel
 } from "firebase/firestore";
 import appletConfig from "../../firebase-applet-config.json";
@@ -27,7 +29,7 @@ export const firebaseConfig = {
 
 export const customDatabaseId = appletConfig.firestoreDatabaseId || "(default)";
 
-// Inicialização segura do Firebase e Firestore com suporte robusto a long-polling
+// Inicialização segura e rápida do Firebase e Firestore com cache persistente multi-separador e auto-detecção de polling
 let appInstance: FirebaseApp;
 if (getApps().length === 0) {
   appInstance = initializeApp(firebaseConfig);
@@ -35,55 +37,41 @@ if (getApps().length === 0) {
   appInstance = getApp();
 }
 
-const firestoreConfigOptions = {
-  experimentalForceLongPolling: true,
-  ignoreUndefinedProperties: true
-};
+function criarFirestoreInstance(): Firestore {
+  const optionsWithCache = {
+    experimentalAutoDetectLongPolling: true,
+    ignoreUndefinedProperties: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  };
 
-let firestoreInstance: Firestore;
-try {
-  if (customDatabaseId && customDatabaseId !== "(default)") {
-    firestoreInstance = initializeFirestore(
-      appInstance,
-      firestoreConfigOptions,
-      customDatabaseId
-    );
-  } else {
-    firestoreInstance = initializeFirestore(appInstance, firestoreConfigOptions);
-  }
-} catch {
-  if (customDatabaseId && customDatabaseId !== "(default)") {
-    firestoreInstance = getFirestore(appInstance, customDatabaseId);
-  } else {
-    firestoreInstance = getFirestore(appInstance);
-  }
-}
+  const optionsFallback = {
+    experimentalAutoDetectLongPolling: true,
+    ignoreUndefinedProperties: true
+  };
 
-// Validação de conexão inicial com o Firestore com timeout resiliente
-async function testConnection() {
-  if (!firestoreInstance) return;
   try {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('timeout_connection')), 3500);
-    });
-    await Promise.race([
-      getDocFromServer(doc(firestoreInstance, 'test', 'connection')),
-      timeoutPromise
-    ]);
-  } catch (error) {
-    if (error instanceof Error && (
-      error.message.includes('the client is offline') || 
-      error.message.includes('timeout_connection') ||
-      error.message.includes('unavailable')
-    )) {
-      // Cliente operando normalmente em modo offline / persistência local
+    if (customDatabaseId && customDatabaseId !== "(default)") {
+      return initializeFirestore(appInstance, optionsWithCache, customDatabaseId);
+    }
+    return initializeFirestore(appInstance, optionsWithCache);
+  } catch {
+    try {
+      if (customDatabaseId && customDatabaseId !== "(default)") {
+        return initializeFirestore(appInstance, optionsFallback, customDatabaseId);
+      }
+      return initializeFirestore(appInstance, optionsFallback);
+    } catch {
+      if (customDatabaseId && customDatabaseId !== "(default)") {
+        return getFirestore(appInstance, customDatabaseId);
+      }
+      return getFirestore(appInstance);
     }
   }
 }
 
-if (typeof window !== 'undefined') {
-  testConnection();
-}
+const firestoreInstance: Firestore = criarFirestoreInstance();
 
 export const firebaseApp = appInstance;
 export const firestoreDb = firestoreInstance;
@@ -170,7 +158,6 @@ export async function firestoreWriteWithLogging(
   try {
     const docRef = doc(firestoreDb, colecao, id);
     await setDoc(docRef, { ...dados, atualizadoEm: new Date().toISOString() }, { merge });
-    console.log(`[Firestore Write OK] Gravado '${colecao}/${id}' com sucesso.`);
     return true;
   } catch (err: any) {
     if (err?.code === 'permission-denied' || String(err).includes('Missing or insufficient permissions')) {
@@ -180,3 +167,21 @@ export async function firestoreWriteWithLogging(
     return false;
   }
 }
+
+export async function testConnection(): Promise<boolean> {
+  if (!firestoreDb || (typeof navigator !== 'undefined' && !navigator.onLine)) return false;
+  try {
+    await getDocFromServer(doc(firestoreDb, 'test', 'connection'));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firestore offline: operando com cache local persistente.');
+    }
+    return false;
+  }
+}
+
+if (typeof window !== 'undefined') {
+  testConnection();
+}
+

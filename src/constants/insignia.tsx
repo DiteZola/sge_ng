@@ -4,22 +4,43 @@ import React from 'react';
 // Símbolos: Catana e Enxada cruzadas, Sol nascente, Livro aberto, Engrenagem dourada,
 // Ramo de algodão e café, Estrela de 5 pontas vermelha e faixa "REPÚBLICA DE ANGOLA".
 
+function obterInsigniaGlobalAdminGeral(): string {
+  try {
+    if (typeof window === 'undefined') return '';
+    const raw = window.localStorage.getItem('sge_configuracao_sistema');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    const url = parsed?.insigniaNacionalUrl;
+    if (typeof url === 'string' && url.trim() && url !== '[CHUNKED]') {
+      return url.trim();
+    }
+  } catch {}
+  return '';
+}
+
 export const InsigniaAngola: React.FC<{ 
   className?: string; 
   size?: number;
   customUrl?: string;
+  forceVectorOnly?: boolean;
 }> = ({ 
   className = "h-14 w-14", 
   size,
-  customUrl 
+  customUrl,
+  forceVectorOnly = false
 }) => {
-  if (customUrl && customUrl.trim().length > 0) {
+  const resolvedUrl = forceVectorOnly
+    ? ''
+    : ((customUrl !== undefined ? customUrl : obterInsigniaGlobalAdminGeral()) || '').trim();
+
+  if (resolvedUrl.length > 0) {
     return (
       <img 
-        src={customUrl} 
+        src={resolvedUrl} 
         alt="Insígnia da República de Angola" 
         className={`object-contain inline-block ${className}`}
         style={size ? { width: size, height: size } : undefined}
+        referrerPolicy="no-referrer"
       />
     );
   }

@@ -299,11 +299,22 @@ class SecurityEngine {
    */
   public obterAlertasDashboard(): AlertaSegurancaVisual[] {
     try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true') {
+        const uRaw = localStorage.getItem('sge_current_user');
+        if (uRaw) {
+          const u = JSON.parse(uRaw);
+          if (u && u.role !== 'AdminGeral') {
+            return [];
+          }
+        }
+      }
       const raw = localStorage.getItem(STORAGE_KEYS.ALERTAS_DASHBOARD);
       if (!raw) return [];
       const lista: AlertaSegurancaVisual[] = JSON.parse(raw);
-      // Retorna apenas alertas não resolvidos
-      return Array.isArray(lista) ? lista.filter(a => !a.resolvido) : [];
+      // Retorna apenas alertas não resolvidos e nunca do AdminGeral
+      return Array.isArray(lista)
+        ? lista.filter(a => !a.resolvido && !this.isIdentificadorAdminGeral(a.identificador))
+        : [];
     } catch {
       return [];
     }

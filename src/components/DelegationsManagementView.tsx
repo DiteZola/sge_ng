@@ -65,6 +65,11 @@ export const DelegationsManagementView: React.FC<DelegationsManagementViewProps>
     return dbService.getLogsAcoesDelegadas(escola.id);
   });
 
+  React.useEffect(() => {
+    setDelegacoes(dbService.getDelegacoesPoderes(escola.id));
+    setLogs(dbService.getLogsAcoesDelegadas(escola.id));
+  }, [escola.id]);
+
   const recarregarDados = () => {
     setDelegacoes(dbService.getDelegacoesPoderes(escola.id));
     setLogs(dbService.getLogsAcoesDelegadas(escola.id));
@@ -811,7 +816,12 @@ export const DelegationsManagementView: React.FC<DelegationsManagementViewProps>
                 >
                   <option value="">-- Selecione o colaborador da instituição --</option>
                   {funcionarios
-                    .filter(f => f.ativo !== false && f.id !== currentUser.id)
+                    .filter(f =>
+                      f.ativo !== false &&
+                      f.id !== currentUser.id &&
+                      f.role !== 'AdminGeral' &&
+                      (currentUser.role === 'AdminGeral' || f.escolaId === escola.id)
+                    )
                     .map(f => (
                       <option key={f.id} value={f.id}>
                         {f.nomeCompleto} — {f.cargo || f.role} (BI: {f.numeroBI})

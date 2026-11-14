@@ -67,7 +67,10 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   onMudarEscola
 }) => {
   const notas = useMemo(() => propNotas || dbService.getNotasConsolidadas(), [propNotas]);
-  const funcionarios = useMemo(() => propFuncionarios || dbService.getFuncionarios(), [propFuncionarios]);
+  const funcionarios = useMemo(() => {
+    const base = propFuncionarios || dbService.getFuncionarios();
+    return base.filter(f => f.escolaId === escola.id && f.role !== 'AdminGeral');
+  }, [propFuncionarios, escola.id]);
   const anosConfigs = useMemo(() => anoLectivoConfigs.length > 0 ? anoLectivoConfigs : dbService.getAnosLectivosConfigs(), [anoLectivoConfigs]);
   const atribuicoesTodas = useMemo(() => propAtribuicoes || dbService.getAtribuicoes(), [propAtribuicoes]);
 

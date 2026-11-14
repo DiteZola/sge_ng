@@ -74,7 +74,7 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
         urgencia
       });
 
-      setSucessoMsg(`Solicitação #${nova.id.slice(-6)} enviada com sucesso ao Administrador Geral (DTI/MED). A autorização de acesso técnico foi concedida.`);
+      setSucessoMsg(`Solicitação #${nova.id.slice(-6)} enviada com sucesso à Equipa Técnica DTI / MED. O protocolo de suporte técnico foi registado.`);
       setMotivo('');
       setDescricao('');
       recarregar();
@@ -143,7 +143,7 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
               <Lock className="w-5 h-5 text-indigo-600" />
               <div>
                 <h2 className="text-sm font-bold text-gray-900">Solicitar Apoio Técnico & Autorizar Acesso Provisório</h2>
-                <p className="text-[11px] text-gray-500">Ao submeter, você autoriza o Administrador Geral a inspecionar temporariamente os dados da sua escola para resolução.</p>
+                <p className="text-[11px] text-gray-500">Ao submeter, autoriza a Equipa Técnica DTI / MED a prestar assistência provisória à sua escola para resolução do incidente.</p>
               </div>
             </div>
             <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded">

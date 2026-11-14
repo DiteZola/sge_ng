@@ -57,6 +57,7 @@ import { InsigniaAngola } from '../constants/insignia';
 import { obterInformacaoEscala } from '../services/macEngine';
 import { downloadExcelFile } from '../utils/curriculoAngola';
 import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 
 interface JuryCommissionViewProps {
   escola: Escola;
@@ -148,7 +149,12 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
     return comissoesVisiveis.find(c => c.id === comissaoIdAtiva) || comissoesVisiveis[0];
   }, [comissoesVisiveis, comissaoIdAtiva]);
 
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  useEffect(() => {
+    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+  }, []);
 
   // Subaba ativa
   const [subAba, setSubAba] = useState<JurySubTab>('painel');
@@ -2342,6 +2348,23 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     <span className="text-[9px] text-gray-400 block">[Selo Branco / Carimbo]</span>
                   </div>
                 </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-300 flex items-center justify-between gap-4 text-[9px] text-slate-600 font-sans">
+                  <div className="text-left">
+                    <p className="font-bold uppercase text-slate-800">Autenticidade da Ata da Comissão de Júri</p>
+                    <p>Digitalize o código QR para verificar a homologação oficial da sessão de júri.</p>
+                  </div>
+                  <OfficialQrCode
+                    value={gerarPayloadQrDocumento({
+                      docType: 'ATA_JURI',
+                      escolaId: escola.id,
+                      docRef: comissaoAtiva?.ata?.numeroAta || comissaoAtiva?.id || 'ata-juri',
+                      anoLectivo: comissaoAtiva?.anoLectivo || escola.anoLectivoActivo
+                    })}
+                    size={56}
+                    label="Autenticidade da Ata"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -2485,7 +2508,24 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
             </div>
 
             <div className="space-y-2">
-              {dbService.getAuditoria().filter(l => l.acao.includes('Júri') || l.acao.includes('Deliberação') || l.acao.includes('Validação')).slice(0, 15).map((log, idx) => (
+              {dbService.getAuditoria()
+                .filter(l => {
+                  if (currentUser.role !== 'AdminGeral') {
+                    if (
+                      l.origemAdminGeral ||
+                      l.usuarioRole === 'AdminGeral' ||
+                      l.papel === 'AdminGeral' ||
+                      (l.papel || '').includes('AdminGeral') ||
+                      (l.detalhe || '').includes('[APOIO TÉCNICO AUTORIZADO') ||
+                      (l.detalhes || '').includes('[APOIO TÉCNICO AUTORIZADO')
+                    ) {
+                      return false;
+                    }
+                  }
+                  return l.acao.includes('Júri') || l.acao.includes('Deliberação') || l.acao.includes('Validação');
+                })
+                .slice(0, 15)
+                .map((log, idx) => (
                 <div key={idx} className="p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs space-y-1">
                   <div className="flex items-center justify-between font-bold text-gray-800">
                     <span className="text-indigo-700">{log.acao}</span>

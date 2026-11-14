@@ -57,11 +57,11 @@ class SelfHealingService {
   public tirarSnapshot(motivo: string = 'Checkpoint Periódico Automático'): SnapshotSistema {
     try {
       const dados = {
-        escolas: dbService.getEscolas(),
+        escolas: dbService.getEscolasBrutas(),
         turmas: dbService.getTurmas(),
         alunos: dbService.getAlunos(),
         notasConsolidadas: dbService.getNotasConsolidadas(),
-        funcionarios: dbService.getFuncionarios(),
+        funcionarios: dbService.getFuncionariosBruto(),
         comissoesJuri: dbService.getComissoesJuri(),
         configuracaoSistema: dbService.getConfiguracaoSistema()
       };

@@ -64,6 +64,7 @@ import {
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { AngolaDateInput } from './AngolaDateInput';
 import {
   normalizarClasse,
@@ -132,7 +133,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [emolumentosCustomizados, setEmolumentosCustomizados] = useState<ItemEmolumentoConfig[]>(() => 
     dbService.getEmolumentosPersonalizados(escola.id)
   );
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  useEffect(() => {
+    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+  }, []);
 
   // Recarrega todos os dados financeiros sempre que o Diretor alternar o ano lectivo ou a escola ativa
   useEffect(() => {
@@ -2884,9 +2890,23 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </span>
               </div>
 
-              <div className="pt-2 text-[9px] text-slate-400 text-center border-t border-slate-200">
+              <div className="pt-2 text-[9px] text-slate-400 text-center border-t border-slate-200 space-y-2">
                 <p>Emitido em {reciboParaImprimir.dataHora} • Operador: {reciboParaImprimir.operadorNome}</p>
                 <p>O presente recibo serve de comprovativo oficial perante a administração escolar.</p>
+                <div className="flex justify-center pt-1">
+                  <OfficialQrCode
+                    value={gerarPayloadQrDocumento({
+                      docType: 'RECIBO_PAGAMENTO',
+                      escolaId: escola.id,
+                      docRef: reciboParaImprimir.numeroRecibo,
+                      alunoId: reciboParaImprimir.alunoId,
+                      alunoNome: reciboParaImprimir.alunoNome,
+                      anoLectivo: escola.anoLectivoActivo
+                    })}
+                    size={54}
+                    label="Validar Recibo"
+                  />
+                </div>
               </div>
             </div>
 

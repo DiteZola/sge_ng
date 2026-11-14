@@ -505,6 +505,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const menusAdminGeralPadrao: NavTab[] = [
               'dashboard', 
               'admin_escolas', 
+              'relatorios',
+              'estatisticas',
               'apoio_tecnico', 
               'usuarios_perfis', 
               'configuracoes', 

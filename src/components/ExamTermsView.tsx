@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   ClipboardList, 
@@ -42,6 +42,7 @@ import {
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '../utils/curriculoAngola';
+import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import {
   getTurmasPorClasse,
   normalizarClasse,
@@ -73,7 +74,12 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
   alunos,
   funcionarios
 }) => {
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  useEffect(() => {
+    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+  }, []);
   const [termos, setTermos] = useState<TermoExame[]>(() => dbService.getTermosExame(escola.id));
 
   // Subabas: 'termos' (lista de documentos emitidos), 'novo' (gerar/editar termo), 'configuracoes' (regras de exame)
@@ -818,6 +824,24 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                     <div className="w-44 border-b border-black mx-auto my-1" />
                     <p className="font-semibold text-gray-800">{escola.diretorGeralNome || 'Não Atribuído'}</p>
                   </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+                  <div className="text-left">
+                    <p className="font-bold uppercase text-gray-800">Autenticidade do Termo de Exame</p>
+                    <p>Digitalize o código QR para validar o registo oficial do exame e deliberação.</p>
+                  </div>
+                  <OfficialQrCode
+                    value={gerarPayloadQrDocumento({
+                      docType: 'TERMO_EXAME',
+                      escolaId: escola.id,
+                      docRef: termoVisualizacao.id,
+                      turmaId: termoVisualizacao.turmaId,
+                      anoLectivo: termoVisualizacao.anoLectivo || escola.anoLectivoActivo
+                    })}
+                    size={56}
+                    label="Validar Termo"
+                  />
                 </div>
               </div>
             </div>

@@ -211,17 +211,24 @@ export const Header: React.FC<HeaderProps> = ({
                   title="Comunicação e Mensagens Internas da Escola"
                 >
                   <MessageSquare className="w-4 h-4 text-gray-700 hover:text-blue-700" />
-                  {dbService.obterMensagens().filter(m => m.escolaId === escola.id && !m.lida).length > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs animate-bounce">
-                      {dbService.obterMensagens().filter(m => m.escolaId === escola.id && !m.lida).length}
-                    </span>
-                  )}
+                  {(() => {
+                    const msgsVisiveis = dbService.obterMensagens().filter(m =>
+                      m.escolaId === escola.id &&
+                      !m.lida &&
+                      (isAdminGeral || (m.remetentePapel !== 'AdminGeral' && m.destinatarioId !== 'admin-geral'))
+                    );
+                    return msgsVisiveis.length > 0 ? (
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs animate-bounce">
+                        {msgsVisiveis.length}
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
               )}
             </div>
 
-            {/* Motor de Segurança & Criptografia AES-256 */}
-            {onOpenSecurityEngine && (
+            {/* Motor de Segurança & Criptografia AES-256 (Exclusivo Admin Geral) */}
+            {isAdminGeral && onOpenSecurityEngine && (
               <button
                 type="button"
                 onClick={onOpenSecurityEngine}

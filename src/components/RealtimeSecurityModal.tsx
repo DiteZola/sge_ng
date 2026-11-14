@@ -25,18 +25,22 @@ import {
 import { securityEngine, RealtimeSecurityMetrics, SecurityEvent, SecurityAnomaly } from '../services/securityEngine';
 import { cryptoService } from '../services/cryptoService';
 import { dbService } from '../services/storage';
+import { UserRole } from '../types';
 
 interface RealtimeSecurityModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAbrirSetupInicial?: () => void;
+  currentUserRole?: UserRole;
 }
 
 export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
   isOpen,
   onClose,
-  onAbrirSetupInicial
+  onAbrirSetupInicial,
+  currentUserRole
 }) => {
+  const isAdminGeralAutorizado = (currentUserRole || dbService.getCurrentUser()?.role) === 'AdminGeral';
   const [metrics, setMetrics] = useState<RealtimeSecurityMetrics>(() => securityEngine.obterMetricas());
   const [activeTab, setActiveTab] = useState<'monitor' | 'desbloqueio' | 'teste_aes' | 'forense' | 'sync_firebase'>('monitor');
   const [contasBloqueadas, setContasBloqueadas] = useState(() => securityEngine.obterTodasContasBloqueadas());
@@ -72,7 +76,7 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
 
   // Subscrever ao motor de segurança em tempo real e aos eventos de anomalia
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !isAdminGeralAutorizado) return;
     const desinscrever = securityEngine.subscrever((novasMetricas) => {
       setMetrics(novasMetricas);
       atualizarContas();
@@ -93,9 +97,9 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
       window.removeEventListener('sge_security_alert', handleAnomaly);
       window.removeEventListener('sge_security_alert_cleared', handleAnomaly);
     };
-  }, [isOpen]);
+  }, [isOpen, isAdminGeralAutorizado]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !isAdminGeralAutorizado) return null;
 
   const handleResetarBloqueio = (identificador: string) => {
     const res = securityEngine.resetarBloqueioCredenciais(identificador, 'Administrador Geral');

@@ -61,6 +61,8 @@ import { AngolaDateInput } from './AngolaDateInput';
 import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 import { LocationPicker } from './LocationPicker';
 import { InsigniaAngola } from '../constants/insignia';
+import { OfficialQrCode, gerarPayloadQrDocumento, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
+import { downloadElementAsPdf as downloadExactPdf } from '../utils/pdfGenerator';
 import { StudentClassListPdfDocument } from './StudentClassListPdfDocument';
 import { 
   sanitizeSearchInput, 
@@ -186,7 +188,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   onExcluirAluno
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  useEffect(() => {
+    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
+    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+  }, []);
   const escola = escolaProp || dbService.getEscolaAtiva();
 
   const isProfessor = currentUser?.role === 'Professor';
@@ -713,7 +720,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     setComprimindoFoto(true);
     try {
-      const res = await processarFotoUpload(file, 1200, 0.90);
+      const res = await processarFotoUpload(file, 500, 0.82);
       if (res.sucesso && res.dataUrl) {
         setFotoUrl(res.dataUrl);
       } else {
@@ -4190,15 +4197,29 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
               </div>
 
-              {/* Autenticação & Assinaturas */}
-              <div className="pt-4 grid grid-cols-2 gap-6 text-center font-sans text-[11px]">
+              {/* Autenticação, QR Code Oficial & Assinaturas */}
+              <div className="pt-4 grid grid-cols-3 gap-4 items-end text-center font-sans text-[11px]">
                 <div className="space-y-6">
                   <p className="text-gray-600">O(A) Encarregado(a) de Educação</p>
-                  <div className="w-40 border-b border-black mx-auto" />
+                  <div className="w-36 border-b border-black mx-auto" />
+                </div>
+                <div className="flex flex-col items-center justify-center">
+                  <OfficialQrCode
+                    value={gerarPayloadQrDocumento({
+                      docType: 'COMPROVATIVO_MATRICULA',
+                      escolaId: escola.id,
+                      docRef: alunoConfirmadoComprovativo.aluno.codigoMatricula,
+                      alunoId: alunoConfirmadoComprovativo.aluno.id,
+                      alunoNome: alunoConfirmadoComprovativo.aluno.nomeCompleto,
+                      anoLectivo: alunoConfirmadoComprovativo.aluno.anoLectivo || escola.anoLectivoActivo
+                    })}
+                    size={54}
+                    label="Validar Matrícula"
+                  />
                 </div>
                 <div className="space-y-6">
                   <p className="text-gray-600">O Secretário / A Direcção Escolar</p>
-                  <div className="w-40 border-b border-black mx-auto" />
+                  <div className="w-36 border-b border-black mx-auto" />
                 </div>
               </div>
 
@@ -5378,11 +5399,24 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
+                  onClick={async () => {
+                    await downloadExactPdf(
+                      'dossie-aluno-oficial-doc',
+                      `Dossie_Estudante_${alunoDossieModal.codigoMatricula || alunoDossieModal.nomeCompleto}`
+                    );
+                  }}
+                  className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Baixar PDF (.pdf)</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => window.print()}
                   className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Imprimir Dossiê (PDF)</span>
+                  <span>Imprimir Dossiê</span>
                 </button>
                 <button
                   type="button"
@@ -5394,10 +5428,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </div>
             </div>
 
+            <div id="dossie-aluno-oficial-doc" className="space-y-6 bg-white">
             {/* Cabeçalho Oficial da República de Angola */}
             <div className="text-center space-y-1.5 border-b-2 border-gray-900 pb-4">
               <div className="flex justify-center">
-                <InsigniaAngola className="h-14 w-14" />
+                <InsigniaAngola size={56} customUrl={configSistema.insigniaNacionalUrl} />
               </div>
               <div className="text-xs font-black uppercase tracking-widest text-gray-900">
                 República de Angola
@@ -5781,23 +5816,36 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               )}
             </div>
 
-            {/* Assinaturas Oficiais para Impressão com Nome dos Responsáveis e Gênero */}
-            <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-2 gap-8 text-center text-xs">
+            {/* Assinaturas Oficiais e Validação Digital QR */}
+            <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-3 gap-6 items-end text-center text-xs">
               <div className="space-y-4">
                 <p className="font-bold text-gray-800">
                   {escola.chefeSecretariaNome ? `O(A) Chefe da Secretaria: ${escola.chefeSecretariaNome}` : 'O(A) Chefe da Secretaria Pedagógica'}
                 </p>
-                <div className="border-b border-gray-900 w-56 mx-auto pt-6" />
+                <div className="border-b border-gray-900 w-48 mx-auto pt-6" />
                 <p className="text-[10px] text-gray-500 uppercase">Assinatura e Carimbo Oficial da Secretaria</p>
+              </div>
+
+              <div className="flex flex-col items-center justify-center">
+                <OfficialQrCode
+                  value={gerarPayloadQrEstudante(
+                    alunoDossieModal,
+                    escola,
+                    turmas.find(t => t.id === alunoDossieModal.turmaId)
+                  )}
+                  size={64}
+                  label="QR Biográfico"
+                />
               </div>
 
               <div className="space-y-4">
                 <p className="font-bold text-gray-800">
                   {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}: {escola.diretorGeralNome || 'Direcção da Instituição'}
                 </p>
-                <div className="border-b border-gray-900 w-56 mx-auto pt-6" />
+                <div className="border-b border-gray-900 w-48 mx-auto pt-6" />
                 <p className="text-[10px] text-gray-500 uppercase">Visto Ministerial & Homologação Institucional</p>
               </div>
+            </div>
             </div>
           </div>
         </div>

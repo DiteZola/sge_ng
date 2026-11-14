@@ -111,6 +111,7 @@ export interface Escola {
     dataInicio: string;
     motivo: string;
   };
+  atualizadoEm?: string;
 }
 
 export interface RegraMediaFinalClasse {
@@ -258,6 +259,7 @@ export interface Aluno {
   sala?: string;
   faltas?: number;
   ocorrencias?: OcorrenciaHistoricoAluno[];
+  atualizadoEm?: string;
 }
 
 export interface Turma {
@@ -364,6 +366,7 @@ export interface Funcionario {
   criadoPorRole?: UserRole;
   criadoPorNome?: string;
   dataCriacao?: string;
+  atualizadoEm?: string;
 }
 
 export interface TipoAvaliacaoConfig {
@@ -722,6 +725,7 @@ export interface LogAuditoria {
   ip: string;
   dataHora: string;
   timestamp?: string;
+  origemAdminGeral?: boolean;
 }
 
 export interface MensagemInterna {
@@ -1425,6 +1429,37 @@ export interface AcaoDelegadaLog {
   formaPagamento?: string;
   dataHora: string;
 }
+
+export type TipoAcessoBiblioteca =
+  | 'Entrada_Biblioteca'
+  | 'Consulta_Local'
+  | 'Emprestimo_Livro'
+  | 'Devolucao_Livro';
+
+export interface RegistoAcessoBiblioteca {
+  id: string;
+  escolaId: string;
+  alunoId: string;
+  alunoNome: string;
+  codigoMatricula: string;
+  alunoCodigo?: string;
+  numeroProcesso?: string;
+  turmaNome?: string;
+  classe?: string;
+  tipoAcesso: TipoAcessoBiblioteca;
+  livroId?: string;
+  livroTitulo?: string;
+  observacao?: string;
+  dataHora: string;
+  dataDia: string;
+  operadorId: string;
+  operadorNome: string;
+  registadoPorId?: string;
+  registadoPorNome?: string;
+  codigoQr?: string;
+  atualizadoEm?: string;
+}
+
 
 
 

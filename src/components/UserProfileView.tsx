@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, 
   Mail, 
@@ -53,6 +53,24 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [mensagemErro, setMensagemErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [comprimindoFoto, setComprimindoFoto] = useState(false);
+
+  useEffect(() => {
+    setNomeCompleto(currentUser.nomeCompleto);
+    setEmail(currentUser.email || '');
+    setTelefone(currentUser.telefone || '');
+    setHabilitacoes(currentUser.habilitacoes || 'Licenciatura');
+    setGenero(currentUser.genero || 'M');
+    setFotoUrl(currentUser.fotoUrl || '');
+  }, [
+    currentUser.id,
+    currentUser.nomeCompleto,
+    currentUser.email,
+    currentUser.telefone,
+    currentUser.habilitacoes,
+    currentUser.genero,
+    currentUser.fotoUrl,
+    currentUser.atualizadoEm
+  ]);
 
   const handleSalvarPerfil = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -361,18 +379,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          if (typeof reader.result === 'string') {
-                            setFotoUrl(reader.result);
-                          }
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
+                    onChange={handleFileUpload}
                   />
                 </label>
                 {fotoUrl && (

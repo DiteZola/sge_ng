@@ -14,7 +14,8 @@ import {
   Check, 
   Search,
   Filter,
-  UserCheck
+  UserCheck,
+  QrCode
 } from 'lucide-react';
 import { 
   Escola, 
@@ -41,6 +42,8 @@ import {
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { ModalJustificarFaltaAluno } from './ModalJustificarFaltaAluno';
+import { QrScannerModal } from './QrScannerModal';
+import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 
 interface StudentAttendanceReportViewProps {
   escola: Escola;
@@ -96,8 +99,10 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
   const [dataInicio, setDataInicio] = useState<string>(firstDayStr);
   const [dataFim, setDataFim] = useState<string>(lastDayStr);
   const [searchTerm, setSearchTerm] = useState<string>('');
-
-  const configSistema = dbService.getConfiguracaoSistema();
+  const [showQrScannerModal, setShowQrScannerModal] = useState(false);
+  const [qrScanData, setQrScanData] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [qrFeedback, setQrFeedback] = useState<{ nome: string; turmaNome: string; hora: string; data: string } | null>(null);
+  const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
 
   // Turma selecionada
   const turmaSelecionada = turmas.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmas[0];
@@ -124,8 +129,21 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
     );
   }, [alunosDaTurma, searchTerm]);
 
-  // Presenças salvas
+  // Presenças salvas + escuta em tempo real
   const [presencas, setPresencas] = useState<PresencaAlunoItem[]>(() => dbService.obterPresencasAlunos(selectedTurmaId));
+
+  useEffect(() => {
+    setPresencas(dbService.obterPresencasAlunos(selectedTurmaId));
+  }, [selectedTurmaId]);
+
+  useEffect(() => {
+    const atualizarRemoto = () => {
+      setPresencas(dbService.obterPresencasAlunos(selectedTurmaId));
+      setConfigSistema(dbService.getConfiguracaoSistema());
+    };
+    window.addEventListener('sge_dados_atualizados_remoto', atualizarRemoto);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', atualizarRemoto);
+  }, [selectedTurmaId]);
 
   // Dias letivos calculados conforme o período selecionado (Início e Fim ou Mês)
   const diasLetivos = useMemo(() => {
@@ -207,6 +225,52 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
 
     dbService.salvarPresencaAluno(item);
     setPresencas(dbService.obterPresencasAlunos(selectedTurmaId));
+  };
+
+  const handleRegistrarPresencaPorQr = (aluno: Aluno) => {
+    const dataTarget = qrScanData || new Date().toISOString().split('T')[0];
+    const turmaAluno = turmas.find(t => t.id === aluno.turmaId);
+    const turmaAlvoId = turmaAluno?.id || selectedTurmaId;
+
+    const existing = dbService
+      .obterPresencasAlunos(turmaAlvoId)
+      .find(p => p.alunoId === aluno.id && p.data === dataTarget && p.turmaId === turmaAlvoId);
+
+    const item: PresencaAlunoItem = {
+      id: existing?.id || `pres-${aluno.id}-${dataTarget}`,
+      escolaId: escola.id,
+      turmaId: turmaAlvoId,
+      alunoId: aluno.id,
+      disciplinaId: selectedDisciplinaId !== 'todas' ? selectedDisciplinaId : undefined,
+      data: dataTarget,
+      estado: 'Presente',
+      registadoPorId: currentUser.id,
+      registadoPorNome: `${currentUser.nomeCompleto} (Scanner QR)`
+    };
+
+    dbService.salvarPresencaAluno(item);
+
+    if (turmaAluno) {
+      setSelectedClasse(normalizarClasse(turmaAluno.classe));
+      setSelectedTurmaId(turmaAluno.id);
+    }
+
+    // Garantir que a data registada está visível no intervalo atual
+    if (tipoPeriodo === 'intervalo') {
+      if (dataTarget < dataInicio) setDataInicio(dataTarget);
+      if (dataTarget > dataFim) setDataFim(dataTarget);
+    } else {
+      const mesTarget = dataTarget.slice(0, 7);
+      if (mesTarget !== selectedMes) setSelectedMes(mesTarget);
+    }
+
+    setPresencas(dbService.obterPresencasAlunos(turmaAlvoId));
+    setQrFeedback({
+      nome: aluno.nomeCompleto,
+      turmaNome: turmaAluno ? `${turmaAluno.classe} • ${turmaAluno.nome}` : 'Turma Ativa',
+      data: dataTarget,
+      hora: new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    });
   };
 
   // Exportar Ficha de Presença para Excel (.xlsx)
@@ -362,6 +426,16 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
               <span>{gerandoPdf ? 'A Gerar PDF Oficial...' : 'Baixar em PDF (.pdf)'}</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => setShowQrScannerModal(true)}
+              className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+              title="Escanear QR Code do passe de estudante para marcar presença automática"
+            >
+              <QrCode className="h-4 w-4" />
+              <span>Registar Presença por QR</span>
+            </button>
+
             {alunosFiltrados.length > 0 && (
               <button
                 type="button"
@@ -375,6 +449,25 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
             )}
           </div>
         </div>
+
+        {qrFeedback && (
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center space-x-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>
+                Presença registada por QR Code para <strong>{qrFeedback.nome}</strong> ({qrFeedback.turmaNome}) em{' '}
+                <strong>{qrFeedback.data.split('-').reverse().join('/')}</strong> às <strong>{qrFeedback.hora}</strong> e sincronizada na nuvem.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setQrFeedback(null)}
+              className="text-emerald-700 font-bold hover:underline cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        )}
 
         {/* Alternador de Modo de Período: Intervalo vs Mês */}
         <div className="flex items-center space-x-3 text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-200">
@@ -678,30 +771,64 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
           </table>
         </div>
 
-        {/* Assinaturas Oficiais Regulamentares do MED */}
-        <div className="grid grid-cols-3 gap-6 pt-10 text-center text-xs mt-6 border-t border-black">
+        {/* Assinaturas Oficiais Regulamentares do MED + Validação QR */}
+        <div className="grid grid-cols-4 gap-4 items-end pt-8 text-center text-xs mt-6 border-t border-black">
           <div>
-            <div className="w-44 border-b border-black mx-auto" />
+            <div className="w-40 border-b border-black mx-auto" />
             <p className="font-bold text-gray-900 mt-1">O(A) Director(a) de Turma</p>
             <p className="text-gray-700 font-semibold text-[11px]">{turmaSelecionada?.coordenadorNome || 'Director de Turma'}</p>
             <p className="text-gray-500 text-[10px]">Data e Assinatura</p>
           </div>
           <div>
-            <div className="w-44 border-b border-black mx-auto" />
+            <div className="w-40 border-b border-black mx-auto" />
             <p className="font-bold text-gray-900 mt-1">O Subdirector Pedagógico</p>
             <p className="text-gray-700 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
             <p className="text-gray-500 text-[10px]">Visto em Conformidade</p>
           </div>
           <div>
-            <div className="w-44 border-b border-black mx-auto" />
+            <div className="w-40 border-b border-black mx-auto" />
             <p className="font-bold text-gray-900 mt-1">
               {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
             </p>
             <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Direcção da Instituição'}</p>
             <p className="text-gray-500 text-[10px]">Homologado</p>
           </div>
+          <div className="flex flex-col items-center justify-center">
+            <OfficialQrCode
+              value={gerarPayloadQrDocumento({
+                docType: 'FICHA_PRESENCAS',
+                escolaId: escola.id,
+                docRef: `${selectedTurmaId}-${tipoPeriodo === 'intervalo' ? `${dataInicio}_${dataFim}` : selectedMes}`,
+                turmaId: selectedTurmaId,
+                anoLectivo: escola.anoLectivoActivo
+              })}
+              size={52}
+              label="Autenticidade QR"
+            />
+          </div>
         </div>
       </div>
+
+      <QrScannerModal
+        isOpen={showQrScannerModal}
+        onClose={() => setShowQrScannerModal(false)}
+        titulo="Leitor QR de Presença Escolar"
+        subtitulo="Leia o QR Code do passe de qualquer aluno para registar presença imediata no mapa."
+        acaoRotulo="Confirmar Presença"
+        alunos={alunos}
+        turmas={turmas}
+        onStudentMatched={handleRegistrarPresencaPorQr}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span className="font-bold text-gray-700">Data de marcação da presença:</span>
+          <input
+            type="date"
+            value={qrScanData}
+            onChange={(e) => setQrScanData(e.target.value)}
+            className="px-2.5 py-1 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
+          />
+        </div>
+      </QrScannerModal>
 
       {alunoParaJustificar && (
         <ModalJustificarFaltaAluno
