@@ -31,6 +31,7 @@ import {
   NotificacaoAulaProfessor
 } from '../types';
 import { dbService } from '../services/storage';
+import { notificationService } from '../services/notificationService';
 import { InsigniaAngola } from '../constants/insignia';
 
 interface ScheduleTimetableViewProps {
@@ -139,6 +140,18 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
     tocarSinoEscolar();
     setNotificacaoVisual(`${titulo}: ${msg}`);
     setTimeout(() => setNotificacaoVisual(null), 8000);
+
+    notificationService.dispararNotificacaoSW({
+      escolaId: escola.id,
+      destinatarioUserId: currentUser.id,
+      categoria: tipo === '5_MIN_FIM' ? 'TERMINO_TEMPO' : 'MUDANCA_TEMPO',
+      titulo,
+      mensagem: msg,
+      detalhes: `${item.horaInicio} - ${item.horaFim} • Sala ${item.sala}`,
+      icon: escola.logotipoUrl || escola.logotipo || '/pwa-192x192.png',
+      navegacao: { tab: 'horarios', entityId: item.id },
+      tocarSom: false
+    });
 
     const novaNotif: NotificacaoAulaProfessor = {
       id: `notif-${Date.now()}`,

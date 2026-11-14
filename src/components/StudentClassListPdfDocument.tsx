@@ -4,7 +4,7 @@ import { Escola, Turma, Aluno } from '../types';
 import { InsigniaAngola } from '../constants/insignia';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { isSegundoCiclo } from '../services/academicHierarchyService';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente, PdfMarginsMm } from '../utils/pdfGenerator';
 import { formatarParaDataAngola } from './AngolaDateInput';
 import { dbService } from '../services/storage';
 
@@ -13,6 +13,9 @@ interface StudentClassListPdfDocumentProps {
   turma: Turma;
   alunos: Aluno[];
   onClose?: () => void;
+  pdfFormat?: 'a4' | 'letter';
+  pdfOrientation?: 'portrait' | 'landscape';
+  pdfMargins?: Partial<PdfMarginsMm>;
 }
 
 export function calcularIdadeAluno(dataNascIsoOuStr?: string): string {
@@ -47,7 +50,10 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
   escola,
   turma,
   alunos,
-  onClose
+  onClose,
+  pdfFormat = 'a4',
+  pdfOrientation = 'portrait',
+  pdfMargins
 }) => {
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
@@ -78,8 +84,9 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
     try {
       const nomeLimpo = `lista_nominal_${turma.classe}_${turma.nome.replace(/\s+/g, '_')}_${turma.anoLectivo.replace(/\//g, '-')}.pdf`;
       await downloadElementAsPdf('documento-lista-nominal-alunos', nomeLimpo, {
-        orientation: 'portrait',
-        format: 'a4',
+        orientation: pdfOrientation,
+        format: pdfFormat,
+        margins: pdfMargins,
         marginMm: 8
       });
     } catch (e) {
@@ -91,7 +98,17 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
   };
 
   const handleImprimir = () => {
-    window.print();
+    const el = document.getElementById('documento-lista-nominal-alunos');
+    if (el) {
+      imprimirElementoDiretamente(el, `Lista Nominal - ${turma.classe} ${turma.nome}`, {
+        format: pdfFormat,
+        orientation: pdfOrientation,
+        margins: pdfMargins,
+        marginMm: 8
+      });
+    } else {
+      window.print();
+    }
   };
 
   return (
@@ -143,14 +160,15 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
         </div>
       </div>
 
-      {/* Folha Oficial A4 para Impressão e PDF */}
+      {/* Folha Oficial para Impressão e PDF */}
       <div 
         id="documento-lista-nominal-alunos"
-        className="bg-white p-6 sm:p-8 border border-gray-300 rounded-xl shadow-lg max-w-[210mm] mx-auto text-black print:border-none print:shadow-none print:p-0 print:m-0"
-        style={{ minHeight: '297mm', fontFamily: 'Arial, sans-serif' }}
+        data-doc-root="true"
+        className="documento-oficial-print bg-white p-6 sm:p-8 border border-gray-300 rounded-xl shadow-lg max-w-[210mm] mx-auto text-black print:border-none print:shadow-none print:p-0 print:m-0"
+        style={{ minHeight: pdfFormat === 'letter' ? '279.4mm' : '297mm', fontFamily: 'Arial, sans-serif' }}
       >
         {/* Cabeçalho Oficial do Ministério da Educação da República de Angola */}
-        <div className="text-center space-y-1 mb-5">
+        <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1 mb-5">
           <div className="flex justify-center mb-1">
             <InsigniaAngola size={50} customUrl={configSistema.insigniaNacionalUrl} />
           </div>
@@ -172,7 +190,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
         </div>
 
         {/* Metadados da Turma em Grid Limpo */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-gray-50 border border-gray-300 rounded text-[11px] mb-4">
+        <div data-pdf-fixed-student="true" data-pdf-student-grid="4" className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-gray-50 border border-gray-300 rounded text-[11px] mb-4">
           <div>
             <span className="text-gray-500 block text-[9px] uppercase font-bold">Ano Lectivo</span>
             <span className="font-black text-gray-900">{turma.anoLectivo}</span>
@@ -283,7 +301,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
         </div>
 
         {/* Assinaturas Oficiais com Traço Centrado e Gênero Correto */}
-        <div className="grid grid-cols-3 gap-4 pt-4 text-center text-[10px]">
+        <div data-pdf-fixed-signatures="true" className="grid grid-cols-3 gap-4 pt-4 text-center text-[10px]">
           <div>
             <p className="font-bold text-gray-900 mb-8">O(A) Director(a) de Turma</p>
             <div className="w-40 border-b border-black mx-auto mb-1" />

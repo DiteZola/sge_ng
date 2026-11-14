@@ -136,6 +136,17 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     }
   }, [initialSubTab]);
 
+  useEffect(() => {
+    const handleSubTab = (e: Event) => {
+      const sub = (e as CustomEvent<string>).detail;
+      if (sub === 'solicitacoes' || sub === 'lancamento' || sub === 'governanca_mac' || sub === 'pauta' || sub === 'ranking_turmas') {
+        setActiveSubTab(sub);
+      }
+    };
+    window.addEventListener('sge_open_evaluation_subtab', handleSubTab);
+    return () => window.removeEventListener('sge_open_evaluation_subtab', handleSubTab);
+  }, []);
+
   const isProfessor = currentUser.role === 'Professor';
 
   // Atribuições docentes oficiais da escola

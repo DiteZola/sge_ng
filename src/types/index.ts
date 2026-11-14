@@ -743,6 +743,9 @@ export interface MensagemInterna {
   titulo: string;
   assunto?: string;
   conteudo: string;
+  prioridade?: 'Normal' | 'Urgente' | 'Critica';
+  urgente?: boolean;
+  origemModulo?: 'Comunicacao' | 'Biblioteca' | 'Direcao' | 'Sistema';
   dataHora: string;
   criadaEm?: string;
   lida?: boolean;
@@ -1460,6 +1463,37 @@ export interface RegistoAcessoBiblioteca {
   atualizadoEm?: string;
 }
 
+export type NotificacaoSistemaCategoria =
+  | 'SOLICITACAO_NOTA'
+  | 'MENSAGEM_BIBLIOTECA'
+  | 'MUDANCA_TEMPO'
+  | 'TERMINO_TEMPO'
+  | 'SISTEMA';
 
+export interface NotificacaoSistemaItem {
+  id: string;
+  escolaId: string;
+  destinatarioUserId?: string;
+  categoria: NotificacaoSistemaCategoria;
+  titulo: string;
+  mensagem: string;
+  detalhes?: string;
+  urgente?: boolean;
+  lida: boolean;
+  criadaEm: string;
+  tagSW?: string;
+  navegacao?: {
+    tab: string;
+    subTab?: string;
+    entityId?: string;
+  };
+}
 
-
+export interface PreferenciasNotificacaoSW {
+  somAtivo: boolean;
+  notificarSolicitacoesNota: boolean;
+  notificarBibliotecaUrgente: boolean;
+  notificarMudancaTempo: boolean;
+  notificarTerminoTempo: boolean;
+  avisoPrevio5Min: boolean;
+}

@@ -1,14 +1,127 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
+export interface PdfMarginsMm {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface PdfExportOptions {
   orientation?: 'portrait' | 'landscape';
   unit?: 'mm' | 'pt' | 'px';
   format?: 'a4' | 'letter';
   filename?: string;
   marginMm?: number;
+  margins?: Partial<PdfMarginsMm>;
   scale?: number;
 }
+
+export interface PdfPageGeometry {
+  format: 'a4' | 'letter';
+  orientation: 'portrait' | 'landscape';
+  pageWidthMm: number;
+  pageHeightMm: number;
+  margins: PdfMarginsMm;
+  printableWidthMm: number;
+  printableHeightMm: number;
+}
+
+function clampMarginMm(val: number | undefined, fallback: number): number {
+  if (typeof val !== 'number' || Number.isNaN(val)) return fallback;
+  return Math.max(2, Math.min(35, Math.round(val * 10) / 10));
+}
+
+export function resolvePdfPageGeometry(options: PdfExportOptions = {}): PdfPageGeometry {
+  const format: 'a4' | 'letter' = options.format === 'letter' ? 'letter' : 'a4';
+  const orientation: 'portrait' | 'landscape' = options.orientation === 'landscape' ? 'landscape' : 'portrait';
+
+  const baseW = format === 'letter' ? 215.9 : 210;
+  const baseH = format === 'letter' ? 279.4 : 297;
+
+  const pageWidthMm = orientation === 'landscape' ? baseH : baseW;
+  const pageHeightMm = orientation === 'landscape' ? baseW : baseH;
+
+  const uniformFallback = clampMarginMm(options.marginMm, 8);
+  const margins: PdfMarginsMm = {
+    top: clampMarginMm(options.margins?.top, uniformFallback),
+    right: clampMarginMm(options.margins?.right, uniformFallback),
+    bottom: clampMarginMm(options.margins?.bottom, uniformFallback),
+    left: clampMarginMm(options.margins?.left, uniformFallback),
+  };
+
+  const printableWidthMm = Math.max(50, pageWidthMm - margins.left - margins.right);
+  const printableHeightMm = Math.max(50, pageHeightMm - margins.top - margins.bottom);
+
+  return {
+    format,
+    orientation,
+    pageWidthMm,
+    pageHeightMm,
+    margins,
+    printableWidthMm,
+    printableHeightMm,
+  };
+}
+
+const FIXED_PDF_LAYOUT_CSS = `
+  [data-pdf-fixed-header="true"] {
+    position: relative !important;
+    width: 100% !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  [data-pdf-corner-left="true"] {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    z-index: 20 !important;
+  }
+  [data-pdf-corner-right="true"] {
+    position: absolute !important;
+    right: 0 !important;
+    top: 0 !important;
+    z-index: 20 !important;
+  }
+  [data-pdf-center-insignia="true"] {
+    text-align: center !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+  [data-pdf-fixed-student="true"] {
+    width: 100% !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  [data-pdf-student-grid="2"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  [data-pdf-student-grid="3"] {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  [data-pdf-student-grid="4"] {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+  [data-pdf-student-grid="6"] {
+    display: grid !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  }
+  [data-pdf-student-row="true"] {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+  }
+  [data-pdf-fixed-signatures="true"],
+  [data-pdf-fixed-qr="true"],
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+`;
 
 const MODERN_COLOR_FN_RE = /(?:oklch|oklab|lab|lch|color-mix|color)\([^)]*(?:\([^)]*\)[^)]*)*\)/gi;
 
@@ -172,8 +285,8 @@ function encontrarMelhorQuebraPaginaY(
 }
 
 /**
- * Motor Oficial SGE-NG de Exportação PDF (.pdf) com Preservação Exata de Formatação,
- * Tabelas, Cores, Assinaturas, Códigos QR e Insígnia da República de Angola.
+ * Motor Oficial SGE-NG de Exportação PDF (.pdf) com Suporte A4 / Carta, Margens Configuráveis,
+ * Posicionamento Fixo da Insígnia & Dados do Aluno, Tabelas, Cores, Assinaturas e Códigos QR.
  */
 export async function downloadElementAsPdf(
   elementOrId: HTMLElement | string,
@@ -194,14 +307,9 @@ export async function downloadElementAsPdf(
   }
 
   const cleanFilename = filename.replace(/\.pdf$/i, '').trim() || 'Documento_SGE_MED';
-  const orientation = options.orientation || 'portrait';
   const scale = options.scale || 2.3;
-  const marginMm = options.marginMm ?? 6;
-
-  const a4WidthMm = orientation === 'landscape' ? 297 : 210;
-  const a4HeightMm = orientation === 'landscape' ? 210 : 297;
-  const printableWidthMm = a4WidthMm - marginMm * 2;
-  const printableHeightMm = a4HeightMm - marginMm * 2;
+  const geom = resolvePdfPageGeometry(options);
+  const { format, orientation, margins, printableWidthMm, printableHeightMm } = geom;
 
   await aguardarRecursosProntos(element);
 
@@ -218,7 +326,11 @@ export async function downloadElementAsPdf(
 
   try {
     const isLandscape = orientation === 'landscape';
-    const baseTargetWidthPx = isLandscape ? 1122 : 794;
+    // Largura base proporcional em 96 DPI conforme formato (A4 vs Carta) e orientação
+    const baseTargetWidthPx =
+      format === 'letter'
+        ? (isLandscape ? 1056 : 816)
+        : (isLandscape ? 1122 : 794);
     const captureWidthPx = isThermalReceipt
       ? Math.max(320, Math.round(originalWidthPx || 360))
       : Math.max(baseTargetWidthPx, Math.round(originalScrollWidth || baseTargetWidthPx));
@@ -262,7 +374,7 @@ export async function downloadElementAsPdf(
             clonedDoc.head.appendChild(fullStyle);
           }
 
-          // 2. Estilos normativos de impressão exata
+          // 2. Estilos normativos de impressão exata + travamento de cabeçalho/insígnia e dados do aluno
           const overrideStyle = clonedDoc.createElement('style');
           overrideStyle.innerHTML = `
             * {
@@ -292,6 +404,7 @@ export async function downloadElementAsPdf(
               display: block !important;
               visibility: visible !important;
             }
+            ${FIXED_PDF_LAYOUT_CSS}
           `;
           clonedDoc.head.appendChild(overrideStyle);
 
@@ -325,7 +438,7 @@ export async function downloadElementAsPdf(
           });
 
           // Garantir que grades de passes (8/folha) e boletins (4/folha) mantêm colunas nítidas
-          clonedDoc.querySelectorAll('[data-passes-grid="true"], .passes-grid-container, .passes-sheet-grid').forEach((pg) => {
+          clonedDoc.querySelectorAll('[data-passes-grid="true"] .grid, .passes-grid-container, .passes-sheet-grid').forEach((pg) => {
             const el = pg as HTMLElement;
             el.style.display = 'grid';
             el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
@@ -395,20 +508,30 @@ export async function downloadElementAsPdf(
     const pdf = new jsPDF({
       orientation,
       unit: 'mm',
-      format: 'a4',
+      format,
       compress: true
     });
 
     const canvasTotalHeight = canvas.height;
     const canvasTotalWidth = canvas.width;
 
-    // Recibo térmico estreito: manter proporção elegante centralizada sem esticar para 198mm
+    // Recibo térmico estreito: manter proporção elegante centralizada sem esticar
     if (isThermalReceipt) {
       const targetReceiptMm = Math.min(printableWidthMm, 105);
       const receiptHeightMm = (canvasTotalHeight * targetReceiptMm) / canvasTotalWidth;
-      const offsetX = (a4WidthMm - targetReceiptMm) / 2;
+      const offsetX = margins.left + Math.max(0, (printableWidthMm - targetReceiptMm) / 2);
+      const offsetY = margins.top + 2;
       const imgData = canvas.toDataURL('image/png');
-      pdf.addImage(imgData, 'PNG', offsetX, marginMm + 4, targetReceiptMm, Math.min(receiptHeightMm, printableHeightMm - 4), undefined, 'FAST');
+      pdf.addImage(
+        imgData,
+        'PNG',
+        offsetX,
+        offsetY,
+        targetReceiptMm,
+        Math.min(receiptHeightMm, Math.max(20, printableHeightMm - 4)),
+        undefined,
+        'FAST'
+      );
       pdf.save(`${cleanFilename}.pdf`);
       return true;
     }
@@ -418,7 +541,16 @@ export async function downloadElementAsPdf(
 
     if (totalHeightMm <= printableHeightMm + 2) {
       const imgData = canvas.toDataURL('image/png');
-      pdf.addImage(imgData, 'PNG', marginMm, marginMm, imgWidthMm, Math.min(totalHeightMm, printableHeightMm), undefined, 'FAST');
+      pdf.addImage(
+        imgData,
+        'PNG',
+        margins.left,
+        margins.top,
+        imgWidthMm,
+        Math.min(totalHeightMm, printableHeightMm),
+        undefined,
+        'FAST'
+      );
     } else {
       const maxPageHeightPx = Math.floor((canvasTotalWidth * printableHeightMm) / imgWidthMm);
       let yOffset = 0;
@@ -426,7 +558,7 @@ export async function downloadElementAsPdf(
 
       while (yOffset < canvasTotalHeight - 2) {
         if (pageIndex > 0) {
-          pdf.addPage('a4', orientation);
+          pdf.addPage(format, orientation);
         }
 
         const remaining = canvasTotalHeight - yOffset;
@@ -462,7 +594,16 @@ export async function downloadElementAsPdf(
 
           const sliceImgData = pageCanvas.toDataURL('image/png');
           const sliceHeightMm = (sliceHeightPx * imgWidthMm) / canvasTotalWidth;
-          pdf.addImage(sliceImgData, 'PNG', marginMm, marginMm, imgWidthMm, sliceHeightMm, undefined, 'FAST');
+          pdf.addImage(
+            sliceImgData,
+            'PNG',
+            margins.left,
+            margins.top,
+            imgWidthMm,
+            sliceHeightMm,
+            undefined,
+            'FAST'
+          );
         }
 
         yOffset += sliceHeightPx;
@@ -474,7 +615,7 @@ export async function downloadElementAsPdf(
     return true;
   } catch (error) {
     console.error('[PDF Generator] Falha na renderização de canvas:', error);
-    imprimirElementoDiretamente(element, cleanFilename);
+    imprimirElementoDiretamente(element, cleanFilename, options);
     return true;
   } finally {
     element.style.backgroundColor = originalBackground;
@@ -485,10 +626,18 @@ export async function downloadElementAsPdf(
 }
 
 /**
- * Impressão direta de alta fidelidade via iframe com preservação de estilos e tabelas
+ * Impressão direta de alta fidelidade via iframe com preservação de formato (A4/Carta), margens,
+ * estilos, tabelas, insígnia e dados do aluno fixos.
  */
-export function imprimirElementoDiretamente(element: HTMLElement, title: string): void {
+export function imprimirElementoDiretamente(
+  element: HTMLElement,
+  title: string,
+  options: PdfExportOptions = {}
+): void {
   try {
+    const geom = resolvePdfPageGeometry(options);
+    const { format, orientation, margins } = geom;
+
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
     iframe.style.right = '0';
@@ -525,22 +674,28 @@ export function imprimirElementoDiretamente(element: HTMLElement, title: string)
           <title>${title}</title>
           <style>${compiledCss}</style>
           <style>
-            @page { size: auto; margin: 8mm; }
+            @page {
+              size: ${format} ${orientation};
+              margin: ${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm;
+            }
             body { 
               background: #ffffff !important; 
               color: #000000 !important; 
               padding: 0 !important; 
               margin: 0 !important; 
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; 
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
             .no-print, button { display: none !important; }
             .print\\:block { display: block !important; }
             .print\\:flex { display: flex !important; }
             svg { display: inline-block !important; }
+            ${FIXED_PDF_LAYOUT_CSS}
           </style>
         </head>
         <body>
-          <div style="padding: 10px; background: #ffffff;">
+          <div style="background: #ffffff; width: 100%;">
             ${element.outerHTML}
           </div>
         </body>

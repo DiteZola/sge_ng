@@ -57,6 +57,7 @@ import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
 import { GuidedTourModal } from './components/GuidedTourModal';
 import { PWAInstallNotification } from './components/PWAInstallNotification';
+import { notificationService } from './services/notificationService';
 import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
 export default function App() {
@@ -289,6 +290,11 @@ export default function App() {
     const handleRemoteUpdate = () => {
       if (!ativo) return;
       recarregarDados();
+      const escAtiva = dbService.getEscolaAtiva();
+      const usrAtivo = dbService.getCurrentUser();
+      if (usrAtivo && usrAtivo.id) {
+        notificationService.verificarNovidadesRemotas(escAtiva.id, usrAtivo);
+      }
       if (dbService.temAdminGeral()) {
         setTemAdminGeral(true);
         setMostrarSetupInicial(false);
@@ -296,6 +302,22 @@ export default function App() {
       }
     };
     window.addEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
+
+    // Inicializar Service Worker de Notificações e escuta de navegação por clique em push/alerta
+    notificationService.inicializarServiceWorker();
+    const unsubNavNotif = notificationService.subscreverNavegacao(({ tab, subTab }) => {
+      if (!ativo) return;
+      setActiveTab(tab as NavTab);
+      if (subTab === 'solicitacoes') {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: 'solicitacoes' }));
+        }, 80);
+      } else if (subTab === 'biblioteca' || tab === 'biblioteca') {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('sge_open_comm_subtab', { detail: 'biblioteca' }));
+        }, 80);
+      }
+    });
 
     const handleOnline = () => {
       setIntegrity(verificarIntegridadeSistema());
@@ -323,11 +345,19 @@ export default function App() {
       ativo = false;
       clearTimeout(timer);
       unsubStatus();
+      unsubNavNotif();
       window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [recarregarDados]);
+  }, [recarregarDados, setActiveTab]);
+
+  // Inicializar linha de base de notificações ao autenticar para detetar apenas novidades futuras
+  useEffect(() => {
+    if (isAuthenticated && escola?.id) {
+      notificationService.inicializarBaselineRemoto(escola.id);
+    }
+  }, [isAuthenticated, escola?.id]);
 
   // Listener contínuo do securityEngine para notificar o AdminGeral via RealtimeSecurityModal
   useEffect(() => {
@@ -959,6 +989,7 @@ export default function App() {
     setLogs(dbService.obterLogs());
 
     try {
+      notificationService.inicializarBaselineRemoto(escolaSelecionada.id);
       const jaViuTour = localStorage.getItem(`sge_tour_completed_${user.id || user.role}`);
       if (jaViuTour !== 'true') {
         setTimeout(() => setShowTourModal(true), 600);
@@ -969,6 +1000,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    notificationService.resetarBaseline();
     dbService.setCurrentUser(null);
     setAuthenticatedUser(null);
     setIsAuthenticated(false);
@@ -1082,11 +1114,15 @@ export default function App() {
   const handleSalvarSolicitacao = (solicitacao: SolicitacaoAlteracaoNota) => {
     dbService.salvarSolicitacao(solicitacao);
     setSolicitacoes(dbService.obterSolicitacoes());
+    notificationService.processarSolicitacaoNota(solicitacao, effectiveUser, false);
   };
 
   const handleSalvarFuncionario = (func: Funcionario) => {
     dbService.salvarFuncionario(func);
     setFuncionarios(dbService.obterFuncionarios());
+    if (authenticatedUser && authenticatedUser.id === func.id) {
+      setAuthenticatedUser(dbService.getCurrentUser());
+    }
   };
 
   const handleSalvarRegistoAssiduidade = (registo: RegistoAssiduidade) => {
@@ -1110,6 +1146,7 @@ export default function App() {
   const handleEnviarMensagem = (msg: Mensagem) => {
     dbService.salvarMensagem(msg);
     setMensagens(dbService.obterMensagens());
+    notificationService.processarMensagem(msg, effectiveUser, false);
   };
 
   const handleAdicionarLivro = (livro: DocumentoBiblioteca) => {
@@ -1123,7 +1160,9 @@ export default function App() {
   };
 
   const handleRestaurarBackup = (jsonStr: string) => {
-    dbService.restaurarBackupJSON(jsonStr);
+    if (jsonStr && jsonStr !== '__REFRESH_ONLY__') {
+      dbService.restaurarBackupJSON(jsonStr);
+    }
     setEscolas(dbService.getEscolas());
     setEscola(dbService.obterEscola());
     setTurmas(dbService.obterTurmas());
@@ -1366,6 +1405,18 @@ export default function App() {
         onOpenPublicPortal={() => setActiveTab('alunos')}
         onNavigateToPerfil={() => setActiveTab('meu_perfil')}
         onNavigateToComunicacao={() => setActiveTab('comunicacao')}
+        onNavigateToTab={(tab, subTab) => {
+          setActiveTab(tab as NavTab);
+          if (subTab === 'solicitacoes') {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: 'solicitacoes' }));
+            }, 80);
+          } else if (tab === 'biblioteca' || subTab === 'biblioteca') {
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('sge_open_comm_subtab', { detail: 'biblioteca' }));
+            }, 80);
+          }
+        }}
         onLogout={handleLogout}
         onOpenSecurityEngine={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
         onOpenTour={() => setShowTourModal(true)}

@@ -108,9 +108,9 @@ function safeParseJson<T>(raw: string | null, fallback: T): T {
 function sanitizarParaFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
   const clean: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) {
-      clean[k] = v;
-    }
+    if (v === undefined || typeof v === 'function') continue;
+    if (typeof Blob !== 'undefined' && v instanceof Blob) continue;
+    clean[k] = v;
   }
   return clean;
 }
@@ -195,11 +195,33 @@ class FirebaseSyncEngine {
       atualizadoEm: dados.atualizadoEm || new Date().toISOString()
     });
 
-    // Comprimir automaticamente imagens/fotos/logótipos/assinaturas base64 pesados para caberem com segurança no Firestore (< 160KB)
+    // Se fotoUrl veio como Blob/File ou placeholder __idb_media__, recuperar/converter antes de sanitizar
+    const rawBlobFoto = (dados as any).fotoBlob ?? (typeof Blob !== 'undefined' && (dados as any).fotoUrl instanceof Blob ? (dados as any).fotoUrl : undefined);
+    if (rawBlobFoto && typeof Blob !== 'undefined' && rawBlobFoto instanceof Blob) {
+      try {
+        const b64 = await offlineStorage.converterFonteParaBase64Portatil(rawBlobFoto, 420, 0.78);
+        if (b64) payload.fotoUrl = b64;
+      } catch {}
+    } else if (payload.fotoUrl === '__idb_media__' && payload.id) {
+      const recuperada =
+        (await offlineStorage.obterMidia('funcionario', payload.id)) ||
+        (await offlineStorage.obterMidia('aluno', payload.id));
+      payload.fotoUrl = recuperada || '';
+    }
+    delete payload.fotoBlob;
+
+    // Converter blob: URLs e comprimir imagens base64 pesadas para caberem com segurança no Firestore (< 150KB)
     const imageKeys = ['fotoUrl', 'foto', 'logotipo', 'logotipoUrl', 'assinaturaDiretorUrl'];
     for (const imgKey of imageKeys) {
       const val = payload[imgKey];
-      if (typeof val === 'string' && val.length > 140000 && (val.startsWith('data:image') || val.includes(';base64,'))) {
+      if (typeof val === 'string' && val.startsWith('blob:')) {
+        try {
+          const b64 = await offlineStorage.converterFonteParaBase64Portatil(val, 420, 0.78);
+          payload[imgKey] = b64 || '';
+        } catch {
+          payload[imgKey] = '';
+        }
+      } else if (typeof val === 'string' && val.length > 130000 && (val.startsWith('data:image') || val.includes(';base64,'))) {
         try {
           const comprimida = await comprimirImagemBase64(val, 420, 0.78);
           if (comprimida && comprimida.length < val.length) {
@@ -574,10 +596,28 @@ class FirebaseSyncEngine {
 
     const finalArray = Array.from(resultMap.values());
     if (remotosValidos.length > 0 || jaSincronizouAntes) {
+      const serialized = JSON.stringify(finalArray);
+      if (colecao === 'funcionarios' || colecao === 'alunos') {
+        offlineStorage.gravarChaveNoIndexedDB(storageKey, serialized);
+      }
       try {
-        localStorage.setItem(storageKey, JSON.stringify(finalArray));
+        localStorage.setItem(storageKey, serialized);
       } catch (quotaErr) {
-        console.warn(`[SGE Sync] Quota localStorage excedida ao gravar ${storageKey}:`, quotaErr);
+        console.warn(`[SGE Sync] Quota localStorage excedida ao gravar ${storageKey}, preservando fotos no IndexedDB:`, quotaErr);
+        if (colecao === 'funcionarios' || colecao === 'alunos') {
+          const entityType = colecao === 'funcionarios' ? 'funcionario' : 'aluno';
+          const slimmed = finalArray.map((item: any) => {
+            if (item?.id && typeof item.fotoUrl === 'string' && item.fotoUrl.length > 2048 && item.fotoUrl !== '__idb_media__') {
+              offlineStorage.definirMidiaEmCache(entityType, item.id, item.fotoUrl);
+              offlineStorage.salvarMidia(entityType, item.id, item.fotoUrl, item.atualizadoEm);
+              return { ...item, fotoUrl: '__idb_media__' };
+            }
+            return item;
+          });
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(slimmed));
+          } catch {}
+        }
       }
       if (!fromCache && remotosValidos.length > 0) {
         localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
@@ -696,14 +736,26 @@ class FirebaseSyncEngine {
       "funcionarios",
       STORAGE_KEYS.FUNCIONARIOS,
       (f) => Boolean(f && f.id && f.nomeCompleto && !isDemoFunc(f)),
-      (existing, rf) => ({
-        ...existing,
-        ...rf,
-        password: rf.password || existing?.password || '',
-        fotoUrl: rf.fotoUrl !== undefined ? rf.fotoUrl : (existing?.fotoUrl || '')
-      }),
+      (existing, rf) => {
+        const fotoExistente =
+          existing?.fotoUrl && existing.fotoUrl !== '__idb_media__'
+            ? existing.fotoUrl
+            : (existing?.id ? (offlineStorage.obterMidiaEmCache('funcionario', existing.id) || '') : '');
+        const fotoFinal = rf.fotoUrl !== undefined ? rf.fotoUrl : fotoExistente;
+        if (rf.id && rf.fotoUrl !== undefined) {
+          offlineStorage.definirMidiaEmCache('funcionario', rf.id, rf.fotoUrl);
+        }
+        return {
+          ...existing,
+          ...rf,
+          password: rf.password || existing?.password || '',
+          fotoUrl: fotoFinal
+        };
+      },
       (mesclados) => {
-        const curRaw = localStorage.getItem('sge_user') || localStorage.getItem('sge_current_user');
+        // Espelhar todos os funcionários e respetivas fotos imediatamente no IndexedDB local
+        offlineStorage.salvarFuncionariosLoteNoIndexedDB(mesclados);
+        const curRaw = localStorage.getItem('sge_current_user') || localStorage.getItem('sge_user');
         if (curRaw) {
           try {
             const cur = JSON.parse(curRaw);
@@ -746,11 +798,21 @@ class FirebaseSyncEngine {
       "alunos",
       STORAGE_KEYS.ALUNOS,
       (a) => Boolean(a && a.id && !isDemoAluno(a)),
-      (existing, ra) => ({
-        ...existing,
-        ...ra,
-        fotoUrl: ra.fotoUrl !== undefined ? ra.fotoUrl : (existing?.fotoUrl || '')
-      })
+      (existing, ra) => {
+        const fotoExistente =
+          existing?.fotoUrl && existing.fotoUrl !== '__idb_media__'
+            ? existing.fotoUrl
+            : (existing?.id ? (offlineStorage.obterMidiaEmCache('aluno', existing.id) || '') : '');
+        const fotoFinal = ra.fotoUrl !== undefined ? ra.fotoUrl : fotoExistente;
+        if (ra.id && ra.fotoUrl !== undefined && ra.fotoUrl !== '__idb_media__') {
+          offlineStorage.salvarMidia('aluno', ra.id, ra.fotoUrl, ra.atualizadoEm);
+        }
+        return {
+          ...existing,
+          ...ra,
+          fotoUrl: fotoFinal
+        };
+      }
     );
     registrarEscutaArray<any>("atribuicoes", STORAGE_KEYS.ATRIBUICOES, (at) => Boolean(at && at.id));
     registrarEscutaArray<any>("avaliacoes", STORAGE_KEYS.AVALIACOES, (av) => Boolean(av && av.id));
@@ -1229,15 +1291,28 @@ class FirebaseSyncEngine {
           (async () => {
             const funcs = await this.puxarColecaoArray<Funcionario>("funcionarios", STORAGE_KEYS.FUNCIONARIOS, {
               filterValid: (f) => Boolean(f && f.id && f.nomeCompleto && !isDemoFunc(f)),
-              preserveFieldFn: (existing, rf) => ({
-                ...existing,
-                ...rf,
-                password: rf.password || existing?.password || '',
-                fotoUrl: rf.fotoUrl !== undefined ? rf.fotoUrl : (existing?.fotoUrl || '')
-              }),
+              preserveFieldFn: (existing, rf) => {
+                const fotoExistente =
+                  existing?.fotoUrl && existing.fotoUrl !== '__idb_media__'
+                    ? existing.fotoUrl
+                    : (existing?.id ? (offlineStorage.obterMidiaEmCache('funcionario', existing.id) || '') : '');
+                const fotoFinal = rf.fotoUrl !== undefined ? rf.fotoUrl : fotoExistente;
+                if (rf.id && rf.fotoUrl !== undefined) {
+                  offlineStorage.definirMidiaEmCache('funcionario', rf.id, rf.fotoUrl);
+                }
+                return {
+                  ...existing,
+                  ...rf,
+                  password: rf.password || existing?.password || '',
+                  fotoUrl: fotoFinal
+                };
+              },
               uploadLocalIfRemoteEmpty: true,
               extraColecoes: ["users"]
             });
+            if (funcs.length > 0) {
+              await offlineStorage.salvarFuncionariosLoteNoIndexedDB(funcs);
+            }
             if (funcs.some(f => f.role === 'AdminGeral' && f.ativo !== false)) {
               localStorage.setItem('sge_admin_configured', 'true');
               localStorage.setItem('sge_setup_inicial_concluido', 'true');

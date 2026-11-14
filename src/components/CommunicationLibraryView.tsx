@@ -16,7 +16,8 @@ import {
   MailOpen,
   Bell,
   QrCode,
-  Clock
+  Clock,
+  AlertTriangle
 } from 'lucide-react';
 import {
   Mensagem,
@@ -67,14 +68,28 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     dbService.getAcessosBiblioteca(escola.id)
   );
   const [feedbackQrBiblioteca, setFeedbackQrBiblioteca] = useState<string | null>(null);
+  const [showUrgenteBibModal, setShowUrgenteBibModal] = useState(false);
+  const [bibUrgenteDestino, setBibUrgenteDestino] = useState<'Todos' | 'Docentes' | 'Secretaria'>('Todos');
+  const [bibUrgenteAssunto, setBibUrgenteAssunto] = useState('');
+  const [bibUrgenteConteudo, setBibUrgenteConteudo] = useState('');
 
   useEffect(() => {
     setAcessosBiblioteca(dbService.getAcessosBiblioteca(escola.id));
     const refreshAcessos = () => {
       setAcessosBiblioteca(dbService.getAcessosBiblioteca(escola.id));
     };
+    const handleOpenSubTab = (e: Event) => {
+      const tab = (e as CustomEvent<string>).detail;
+      if (tab === 'comunicados' || tab === 'mensagens_diretas' || tab === 'biblioteca') {
+        setActiveTab(tab);
+      }
+    };
     window.addEventListener('sge_dados_atualizados_remoto', refreshAcessos);
-    return () => window.removeEventListener('sge_dados_atualizados_remoto', refreshAcessos);
+    window.addEventListener('sge_open_comm_subtab', handleOpenSubTab);
+    return () => {
+      window.removeEventListener('sge_dados_atualizados_remoto', refreshAcessos);
+      window.removeEventListener('sge_open_comm_subtab', handleOpenSubTab);
+    };
   }, [escola.id]);
 
   const handleRegistarAcessoQrBiblioteca = (aluno: Aluno) => {
@@ -150,6 +165,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   const [destinatarioId, setDestinatarioId] = useState('');
   const [assunto, setAssunto] = useState('');
   const [conteudo, setConteudo] = useState('');
+  const [prioridadeMsg, setPrioridadeMsg] = useState<'Normal' | 'Urgente'>('Normal');
 
   // Estado upload de livro
   const [showNovoLivroModal, setShowNovoLivroModal] = useState(false);
@@ -166,6 +182,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     const isDirecta = activeTab === 'mensagens_diretas' || tipoDestino === 'Individual';
     const destTipoFinal = isDirecta ? 'Individual' : tipoDestino;
     const destIdFinal = isDirecta ? destinatarioId : undefined;
+    const ehUrgente = prioridadeMsg === 'Urgente';
 
     const novaMsg: Mensagem = {
       id: `msg-${Date.now()}`,
@@ -180,6 +197,9 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
       titulo: assunto,
       assunto,
       conteudo,
+      prioridade: prioridadeMsg,
+      urgente: ehUrgente,
+      origemModulo: 'Comunicacao',
       lida: false,
       dataHora: new Date().toISOString().replace('T', ' ').substring(0, 19),
       criadaEm: new Date().toISOString()
@@ -188,6 +208,38 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     onEnviarMensagem(novaMsg);
     setAssunto('');
     setConteudo('');
+    setPrioridadeMsg('Normal');
+  };
+
+  const handleEnviarAlertaUrgenteBiblioteca = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bibUrgenteAssunto.trim() || !bibUrgenteConteudo.trim()) return;
+
+    const novaMsgBib: Mensagem = {
+      id: `msg-bib-${Date.now()}`,
+      escolaId: escola.id,
+      remetenteId: currentUser.id,
+      remetenteNome: currentUser.nomeCompleto,
+      remetentePapel: currentUser.cargo || currentUser.role,
+      remetenteCargo: currentUser.cargo || currentUser.role,
+      tipo: bibUrgenteDestino === 'Todos' ? 'GERAL' : 'GRUPO',
+      destinatarioTipo: bibUrgenteDestino,
+      titulo: bibUrgenteAssunto.trim(),
+      assunto: bibUrgenteAssunto.trim(),
+      conteudo: bibUrgenteConteudo.trim(),
+      prioridade: 'Urgente',
+      urgente: true,
+      origemModulo: 'Biblioteca',
+      lida: false,
+      dataHora: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      criadaEm: new Date().toISOString()
+    };
+
+    onEnviarMensagem(novaMsgBib);
+    setShowUrgenteBibModal(false);
+    setBibUrgenteAssunto('');
+    setBibUrgenteConteudo('');
+    setFeedbackQrBiblioteca('Alerta urgente da Biblioteca enviado e notificado via Service Worker ao staff!');
   };
 
   const handleSalvarLivro = (e: React.FormEvent) => {
@@ -366,6 +418,13 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                                   : (msg.destinatarioTipo === 'Todos' ? 'Geral para Todos' : msg.destinatarioTipo)}
                               </span>
 
+                              {(msg.urgente || msg.prioridade === 'Urgente' || msg.prioridade === 'Critica') && (
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white shadow-2xs flex items-center space-x-1">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  <span>{msg.origemModulo === 'Biblioteca' ? 'URGENTE • BIBLIOTECA' : 'URGENTE'}</span>
+                                </span>
+                              )}
+
                               {naoLida ? (
                                 <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-white shadow-2xs flex items-center space-x-1">
                                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
@@ -377,7 +436,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                                 </span>
                               )}
                             </div>
-                            <h4 className="font-bold text-gray-900 text-sm mt-1">{msg.assunto}</h4>
+                            <h4 className="font-bold text-gray-900 text-sm mt-1">{msg.assunto || msg.titulo}</h4>
                           </div>
 
                           <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -487,6 +546,22 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                 />
               </div>
 
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Prioridade de Notificação (Service Worker)</label>
+                <select
+                  value={prioridadeMsg}
+                  onChange={(e) => setPrioridadeMsg(e.target.value as 'Normal' | 'Urgente')}
+                  className={`w-full p-2 border rounded font-bold focus:ring-2 focus:outline-none ${
+                    prioridadeMsg === 'Urgente'
+                      ? 'border-red-400 bg-red-50 text-red-900 focus:ring-red-600'
+                      : 'border-gray-300 bg-white text-gray-800 focus:ring-blue-600'
+                  }`}
+                >
+                  <option value="Normal">Normal (Caixa de Entrada)</option>
+                  <option value="Urgente">Urgente (Alerta Push + Som no Staff)</option>
+                </select>
+              </div>
+
               <button
                 type="submit"
                 className="w-full py-2 font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs"
@@ -518,14 +593,24 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowQrScannerBiblioteca(true)}
-                className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl transition-colors flex items-center space-x-2 cursor-pointer shrink-0 shadow-xs"
-              >
-                <QrCode className="h-4 w-4" />
-                <span>Ler Passe Estudantil (QR)</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowUrgenteBibModal(true)}
+                  className="px-3.5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-black text-xs rounded-xl transition-colors flex items-center space-x-2 cursor-pointer shadow-xs"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>Alerta Urgente Biblioteca</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowQrScannerBiblioteca(true)}
+                  className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl transition-colors flex items-center space-x-2 cursor-pointer shadow-xs"
+                >
+                  <QrCode className="h-4 w-4" />
+                  <span>Ler Passe Estudantil (QR)</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -763,6 +848,72 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   className="px-4 py-1.5 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded"
                 >
                   Salvar na Biblioteca
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Alerta Urgente da Biblioteca para o Staff */}
+      {showUrgenteBibModal && (
+        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 border-2 border-red-600 shadow-2xl space-y-4">
+            <div className="flex items-center space-x-2 text-red-700">
+              <AlertTriangle className="h-5 w-5" />
+              <h3 className="text-base font-black text-gray-900">Enviar Alerta Urgente da Biblioteca</h3>
+            </div>
+            <p className="text-xs text-gray-600">
+              Este aviso será enviado via sincronização Firebase e disparará notificação push local pelo Service Worker nos dispositivos do staff selecionado.
+            </p>
+            <form onSubmit={handleEnviarAlertaUrgenteBiblioteca} className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Destinatários (Staff)</label>
+                <select
+                  value={bibUrgenteDestino}
+                  onChange={(e) => setBibUrgenteDestino(e.target.value as 'Todos' | 'Docentes' | 'Secretaria')}
+                  className="w-full p-2 border border-gray-300 rounded font-semibold"
+                >
+                  <option value="Todos">Todo o Staff da Escola</option>
+                  <option value="Docentes">Corpo Docente e Coordenação</option>
+                  <option value="Secretaria">Direção e Secretaria</option>
+                </select>
+              </div>
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Assunto Urgente</label>
+                <input
+                  type="text"
+                  required
+                  value={bibUrgenteAssunto}
+                  onChange={(e) => setBibUrgenteAssunto(e.target.value)}
+                  placeholder="Ex: Devolução urgente de manuais / Ocorrência na Biblioteca"
+                  className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-red-600 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Mensagem para o Staff</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={bibUrgenteConteudo}
+                  onChange={(e) => setBibUrgenteConteudo(e.target.value)}
+                  placeholder="Descreva a mensagem urgente da biblioteca..."
+                  className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-red-600 focus:outline-none"
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setShowUrgenteBibModal(false)}
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 text-xs font-black text-white bg-red-600 hover:bg-red-700 rounded cursor-pointer"
+                >
+                  Disparar Alerta Push
                 </button>
               </div>
             </form>

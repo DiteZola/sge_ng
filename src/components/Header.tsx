@@ -36,6 +36,7 @@ interface HeaderProps {
   onOpenPublicPortal: () => void;
   onNavigateToPerfil: () => void;
   onNavigateToComunicacao?: () => void;
+  onNavigateToTab?: (tab: string, subTab?: string) => void;
   onLogout?: () => void;
   onOpenSecurityEngine?: () => void;
   onOpenTour?: () => void;
@@ -55,6 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPublicPortal,
   onNavigateToPerfil,
   onNavigateToComunicacao,
+  onNavigateToTab,
   onLogout,
   onOpenSecurityEngine,
   onOpenTour
@@ -199,8 +201,8 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Notificações no Topo do Aplicativo & Avisos em Tempo Real */}
             <div className="flex items-center space-x-1">
-              {/* Sino acústico e visual de períodos e horários */}
-              <PeriodNotificationBell escola={escola} currentUser={currentUser} />
+              {/* Sino acústico e Centro de Notificações Service Worker */}
+              <PeriodNotificationBell escola={escola} currentUser={currentUser} onNavigate={onNavigateToTab} />
 
               {/* Botão de Notificações / Mensagens Internas da Escola */}
               {onNavigateToComunicacao && (

@@ -412,7 +412,58 @@ function setLocal<T>(key: string, value: T): void {
       localStorage.removeItem(key);
       return;
     }
-    localStorage.setItem(key, JSON.stringify(value));
+
+    const serialized = JSON.stringify(value);
+
+    // Espelhamento imediato para chaves críticas no IndexedDB (sem esperar debounce de 300ms)
+    if (
+      key === STORAGE_KEYS.FUNCIONARIOS ||
+      key === STORAGE_KEYS.ALUNOS ||
+      key === STORAGE_KEYS.ESCOLAS ||
+      key === STORAGE_KEYS.CURRENT_USER ||
+      key === STORAGE_KEYS.CONFIGURACAO_SISTEMA
+    ) {
+      offlineStorage.gravarChaveNoIndexedDB(key, serialized);
+    }
+
+    try {
+      localStorage.setItem(key, serialized);
+    } catch (quotaErr) {
+      console.warn(`[Storage] Quota localStorage excedida na chave ${key}, aplicando preservação em IndexedDB:`, quotaErr);
+
+      // Preservar mídias em cache + IndexedDB e armazenar versão compacta no localStorage
+      if (Array.isArray(value) && (key === STORAGE_KEYS.FUNCIONARIOS || key === STORAGE_KEYS.ALUNOS)) {
+        const entityType = key === STORAGE_KEYS.FUNCIONARIOS ? 'funcionario' : 'aluno';
+        const slimmed = value.map((item: any) => {
+          if (item && item.id && typeof item.fotoUrl === 'string' && item.fotoUrl.length > 2048 && item.fotoUrl !== '__idb_media__') {
+            offlineStorage.definirMidiaEmCache(entityType, item.id, item.fotoUrl);
+            offlineStorage.salvarMidia(entityType, item.id, item.fotoUrl, item.atualizadoEm);
+            return { ...item, fotoUrl: '__idb_media__' };
+          }
+          return item;
+        });
+        try {
+          localStorage.setItem(key, JSON.stringify(slimmed));
+        } catch {
+          // Último recurso: remover logs antigos para libertar espaço
+          try {
+            localStorage.removeItem(STORAGE_KEYS.AUDITORIA);
+            localStorage.setItem(key, JSON.stringify(slimmed));
+          } catch {}
+        }
+      } else if (key === STORAGE_KEYS.CURRENT_USER && value && typeof value === 'object') {
+        const u: any = value;
+        if (u.id && typeof u.fotoUrl === 'string' && u.fotoUrl.length > 2048 && u.fotoUrl !== '__idb_media__') {
+          offlineStorage.definirMidiaEmCache('funcionario', u.id, u.fotoUrl);
+          offlineStorage.salvarMidia('funcionario', u.id, u.fotoUrl, u.atualizadoEm);
+          try {
+            localStorage.setItem(key, JSON.stringify({ ...u, fotoUrl: '__idb_media__' }));
+          } catch {}
+        }
+      }
+      offlineStorage.registarMutacao('Armazenamento', 'ATUALIZAR', `Preservação de mídia no IndexedDB para a chave: ${key}`, 'Sistema');
+    }
+
     // Notificar motor de persistência offline para espelhamento em IndexedDB
     try {
       if (typeof window !== 'undefined') {
@@ -423,8 +474,143 @@ function setLocal<T>(key: string, value: T): void {
     }
   } catch (e) {
     console.error(`Erro ao gravar chave ${key} no localStorage:`, e);
-    // Gravar mutação de emergência no diário
     offlineStorage.registarMutacao('Armazenamento', 'ATUALIZAR', `Alerta de gravação local na chave: ${key}`, 'Sistema');
+  }
+}
+
+function hidratarFotoDeLista<T extends { id?: string; fotoUrl?: string }>(
+  items: T[],
+  entityType: 'funcionario' | 'aluno'
+): T[] {
+  if (!Array.isArray(items) || items.length === 0) return items;
+  let alterou = false;
+  const resultado = items.map(item => {
+    if (!item || !item.id) return item;
+    if (item.fotoUrl === '__idb_media__' || item.fotoUrl === undefined) {
+      const cached = offlineStorage.obterMidiaEmCache(entityType, item.id);
+      if (cached !== undefined) {
+        alterou = true;
+        return { ...item, fotoUrl: cached };
+      }
+      if (item.fotoUrl === '__idb_media__') {
+        alterou = true;
+        return { ...item, fotoUrl: '' };
+      }
+    }
+    return item;
+  });
+  return alterou ? resultado : items;
+}
+
+async function normalizarEPersistirFuncionarioAsync(
+  funcInicial: Funcionario,
+  rawFotoInput: unknown
+): Promise<void> {
+  try {
+    let fotoFinal: string = typeof funcInicial.fotoUrl === 'string' ? funcInicial.fotoUrl : '';
+
+    const precisaConverter =
+      (typeof Blob !== 'undefined' && rawFotoInput instanceof Blob) ||
+      (typeof rawFotoInput === 'string' && (rawFotoInput.startsWith('blob:') || (rawFotoInput.startsWith('data:image') && rawFotoInput.length > 130000)));
+
+    if (rawFotoInput === '' || rawFotoInput === null) {
+      fotoFinal = '';
+      await offlineStorage.salvarMidia('funcionario', funcInicial.id, '', funcInicial.atualizadoEm);
+    } else if (precisaConverter) {
+      const convertida = await offlineStorage.converterFonteParaBase64Portatil(rawFotoInput, 460, 0.80);
+      if (convertida) {
+        fotoFinal = convertida;
+      } else if (fotoFinal.startsWith('blob:')) {
+        fotoFinal = '';
+      }
+    }
+
+    const funcFinal: Funcionario = {
+      ...funcInicial,
+      fotoUrl: fotoFinal,
+      atualizadoEm: funcInicial.atualizadoEm || new Date().toISOString()
+    };
+
+    // 1. Persistir em IndexedDB (store funcionarios + store media_blobs com Base64 e Blob)
+    await offlineStorage.salvarFuncionarioNoIndexedDB(funcFinal);
+
+    // 2. Atualizar localStorage e sessão ativa caso a foto tenha sido convertida/comprimida
+    if (fotoFinal !== funcInicial.fotoUrl) {
+      const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+      const idx = funcs.findIndex(f => f.id === funcFinal.id);
+      if (idx >= 0) {
+        funcs[idx] = { ...funcs[idx], ...funcFinal };
+        setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+      }
+      const cur = getLocal<Funcionario | null>(STORAGE_KEYS.CURRENT_USER, null);
+      if (cur && cur.id === funcFinal.id) {
+        setLocal(STORAGE_KEYS.CURRENT_USER, { ...cur, ...funcFinal });
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('sge_user', JSON.stringify({ ...cur, ...funcFinal }));
+          }
+        } catch {}
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+      }
+    }
+
+    // 3. Enviar diretamente para o Firebase Firestore para visibilidade imediata em outros dispositivos
+    await firebaseSyncEngine.salvarPerfilUsuario(funcFinal);
+  } catch (err) {
+    console.warn('[Storage] Falha ao normalizar/sincronizar foto do funcionário:', err);
+  }
+}
+
+async function normalizarEPersistirFotoAlunoAsync(
+  alunoInicial: Aluno,
+  rawFotoInput: unknown
+): Promise<void> {
+  try {
+    let fotoFinal: string = typeof alunoInicial.fotoUrl === 'string' ? alunoInicial.fotoUrl : '';
+
+    if (rawFotoInput === '' || rawFotoInput === null) {
+      fotoFinal = '';
+      await offlineStorage.salvarMidia('aluno', alunoInicial.id, '', alunoInicial.atualizadoEm);
+    } else if (
+      (typeof Blob !== 'undefined' && rawFotoInput instanceof Blob) ||
+      (typeof rawFotoInput === 'string' && (rawFotoInput.startsWith('blob:') || (rawFotoInput.startsWith('data:image') && rawFotoInput.length > 130000)))
+    ) {
+      const convertida = await offlineStorage.converterFonteParaBase64Portatil(rawFotoInput, 460, 0.80);
+      if (convertida) {
+        fotoFinal = convertida;
+      } else if (fotoFinal.startsWith('blob:')) {
+        fotoFinal = '';
+      }
+      if (fotoFinal) {
+        await offlineStorage.salvarMidia('aluno', alunoInicial.id, fotoFinal, alunoInicial.atualizadoEm);
+      }
+    } else if (fotoFinal) {
+      await offlineStorage.salvarMidia('aluno', alunoInicial.id, fotoFinal, alunoInicial.atualizadoEm);
+    }
+
+    const alunoFinal: Aluno = {
+      ...alunoInicial,
+      fotoUrl: fotoFinal,
+      atualizadoEm: alunoInicial.atualizadoEm || new Date().toISOString()
+    };
+
+    if (fotoFinal !== alunoInicial.fotoUrl) {
+      const alunos = getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS);
+      const idx = alunos.findIndex(a => a.id === alunoFinal.id);
+      if (idx >= 0) {
+        alunos[idx] = { ...alunos[idx], ...alunoFinal };
+        setLocal(STORAGE_KEYS.ALUNOS, alunos);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+      }
+    }
+
+    await firebaseSyncEngine.salvarAluno(alunoFinal);
+  } catch (err) {
+    console.warn('[Storage] Falha ao normalizar/sincronizar foto do aluno:', err);
   }
 }
 
@@ -731,10 +917,11 @@ export function inicializarArmazenamento(): void {
   }
 }
 
-// Auto-inicialização de armazenamento e verificação de integridade no navegador
+// Auto-inicialização de armazenamento, hidratação IndexedDB e verificação de integridade no navegador
 if (typeof window !== 'undefined') {
   try {
     inicializarArmazenamento();
+    offlineStorage.hidratarArmazenamentoDoIndexedDB();
   } catch (err) {
     console.warn('[Storage] Inicialização de contingência:', err);
   }
@@ -833,11 +1020,234 @@ const isLogOuAcaoDoAdminGeral = (
   return false;
 };
 
+export interface IncrementalBackupCollectionStat {
+  colecao: string;
+  rotulo: string;
+  alterados: number;
+  eliminados: number;
+}
+
+export interface IncrementalBackupSummary {
+  temCheckpointBase: boolean;
+  ultimoBackupEm: string | null;
+  tipoUltimoBackup: 'COMPLETO' | 'INCREMENTAL' | null;
+  sequenciaAtual: number;
+  totalAdicionadosOuAlterados: number;
+  totalEliminados: number;
+  detalhesPorColecao: IncrementalBackupCollectionStat[];
+  estimativaTamanhoKB: number;
+  escolaIdAlvo: string;
+}
+
+const COLECOES_BACKUP_INCREMENTAL_META: Array<{
+  colecao: string;
+  rotulo: string;
+  storageKey: string;
+}> = [
+  { colecao: 'escolas', rotulo: 'Escolas', storageKey: STORAGE_KEYS.ESCOLAS },
+  { colecao: 'alunos', rotulo: 'Estudantes', storageKey: STORAGE_KEYS.ALUNOS },
+  { colecao: 'turmas', rotulo: 'Turmas', storageKey: STORAGE_KEYS.TURMAS },
+  { colecao: 'disciplinas', rotulo: 'Disciplinas', storageKey: STORAGE_KEYS.DISCIPLINAS },
+  { colecao: 'atribuicoes', rotulo: 'Atribuições Docentes', storageKey: STORAGE_KEYS.ATRIBUICOES },
+  { colecao: 'funcionarios', rotulo: 'Funcionários', storageKey: STORAGE_KEYS.FUNCIONARIOS },
+  { colecao: 'tiposAvaliacao', rotulo: 'Tipos de Avaliação', storageKey: STORAGE_KEYS.TIPOS_AVALIACAO },
+  { colecao: 'regrasMAC', rotulo: 'Regras MAC & Médias', storageKey: STORAGE_KEYS.REGRAS_MAC },
+  { colecao: 'avaliacoes', rotulo: 'Avaliações Criadas', storageKey: STORAGE_KEYS.AVALIACOES },
+  { colecao: 'notas', rotulo: 'Notas Lançadas', storageKey: STORAGE_KEYS.NOTAS },
+  { colecao: 'notasConsolidadas', rotulo: 'Notas Consolidadas', storageKey: STORAGE_KEYS.NOTAS_CONSOLIDADAS },
+  { colecao: 'solicitacoesNota', rotulo: 'Solicitações de Nota', storageKey: STORAGE_KEYS.SOLICITACOES_NOTA },
+  { colecao: 'juris', rotulo: 'Júris de Exame', storageKey: STORAGE_KEYS.JURIS },
+  { colecao: 'termosExame', rotulo: 'Termos de Exame', storageKey: STORAGE_KEYS.TERMOS_EXAME },
+  { colecao: 'horarios', rotulo: 'Horários Lectivos', storageKey: STORAGE_KEYS.HORARIOS },
+  { colecao: 'presencas', rotulo: 'Assiduidade Docentes', storageKey: STORAGE_KEYS.PRESENCAS },
+  { colecao: 'presencasAlunos', rotulo: 'Presenças de Alunos', storageKey: STORAGE_KEYS.PRESENCAS_ALUNOS },
+  { colecao: 'auditoria', rotulo: 'Logs de Auditoria', storageKey: STORAGE_KEYS.AUDITORIA },
+  { colecao: 'mensagens', rotulo: 'Mensagens Internas', storageKey: STORAGE_KEYS.MENSAGENS },
+  { colecao: 'biblioteca', rotulo: 'Biblioteca Digital', storageKey: STORAGE_KEYS.BIBLIOTECA },
+  { colecao: 'bibliotecaAcessos', rotulo: 'Acessos Biblioteca', storageKey: STORAGE_KEYS.BIBLIOTECA_ACESSOS },
+  { colecao: 'recibos', rotulo: 'Recibos', storageKey: STORAGE_KEYS.RECIBOS },
+  { colecao: 'transacoesFinanceiras', rotulo: 'Receitas & Pagamentos', storageKey: STORAGE_KEYS.TRANSACOES_FINANCEIRAS },
+  { colecao: 'despesasEscolares', rotulo: 'Despesas Escolares', storageKey: STORAGE_KEYS.DESPESAS_ESCOLARES },
+  { colecao: 'patrimonio', rotulo: 'Património & Inventário', storageKey: STORAGE_KEYS.PATRIMONIO },
+  { colecao: 'delegacoesPoderes', rotulo: 'Delegações de Poderes', storageKey: STORAGE_KEYS.DELEGACOES_PODERES },
+  { colecao: 'acoesDelegadasLogs', rotulo: 'Registos de Delegação', storageKey: STORAGE_KEYS.ACOES_DELEGADAS_LOGS },
+  { colecao: 'delegacoesCobranca', rotulo: 'Delegações de Cobrança', storageKey: STORAGE_KEYS.DELEGACOES_COBRANCA },
+  { colecao: 'emolumentosPersonalizados', rotulo: 'Emolumentos', storageKey: STORAGE_KEYS.EMOLUMENTOS_CONFIG },
+  { colecao: 'anosLectivosConfigs', rotulo: 'Anos Lectivos (Config)', storageKey: STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS },
+  { colecao: 'turnosConfigs', rotulo: 'Turnos', storageKey: STORAGE_KEYS.TURNOS_CONFIGS },
+  { colecao: 'classesConfigs', rotulo: 'Classes', storageKey: STORAGE_KEYS.CLASSES_CONFIGS },
+  { colecao: 'cursos', rotulo: 'Cursos', storageKey: STORAGE_KEYS.CURSOS },
+  { colecao: 'solicitacoesApoio', rotulo: 'Apoio Técnico', storageKey: STORAGE_KEYS.SOLICITACOES_APOIO },
+  { colecao: 'alertasSeguranca', rotulo: 'Alertas de Segurança', storageKey: STORAGE_KEYS.ALERTAS_SEGURANCA }
+];
+
+function hashDeterministicoSge(valor: unknown): string {
+  const str = JSON.stringify(valor) ?? '';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${(hash >>> 0).toString(36)}_${str.length}`;
+}
+
+function obterChaveRegistroIncremental(colecao: string, item: any, fallbackIdx: number): string {
+  if (!item || typeof item !== 'object') return `${colecao}_${fallbackIdx}`;
+  if (item.id !== undefined && item.id !== null && String(item.id).trim() !== '') {
+    return String(item.id);
+  }
+  if (item.nivelEnsino) return `nivel_${item.nivelEnsino}_${item.escolaId || 'global'}`;
+  if (item.codigo) return String(item.codigo);
+  if (item.turmaId && item.disciplinaId) return `${item.turmaId}_${item.disciplinaId}_${item.alunoId || fallbackIdx}`;
+  return `${colecao}_${fallbackIdx}_${hashDeterministicoSge(item)}`;
+}
+
+function calcularEscopoIncremental(escolaId?: string): {
+  nonAdmin: boolean;
+  effectiveEscolaId: string;
+  isEscolaEspecifica: boolean;
+  chaveEscopo: string;
+} {
+  const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+  const activeId = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '') || '';
+  const rawEscolas = getLocal<Escola[]>(STORAGE_KEYS.ESCOLAS, []);
+  const fallbackEscolaId = activeId || rawEscolas[0]?.id || 'todas';
+  const effectiveEscolaId = nonAdmin
+    ? (escolaId && escolaId !== 'todas' ? escolaId : fallbackEscolaId)
+    : (escolaId || 'todas');
+  const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
+  return {
+    nonAdmin,
+    effectiveEscolaId,
+    isEscolaEspecifica,
+    chaveEscopo: isEscolaEspecifica ? effectiveEscolaId : 'todas'
+  };
+}
+
+function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
+  const scope = calcularEscopoIncremental(escolaId);
+  const { nonAdmin, effectiveEscolaId, isEscolaEspecifica } = scope;
+  const { ids: adminIds, nomes: adminNomes } = getAdminGeralIdsAndNomes();
+
+  const listasBrutas: Record<string, any[]> = {
+    escolas: dbService.getEscolas(),
+    alunos: dbService.getAlunos(),
+    turmas: dbService.getTurmas(),
+    disciplinas: dbService.getDisciplinas(),
+    atribuicoes: dbService.getAtribuicoes(),
+    funcionarios: dbService.getFuncionarios().filter(f => !nonAdmin || !isAdminGeralUserObj(f)),
+    tiposAvaliacao: dbService.getTiposAvaliacao(),
+    regrasMAC: dbService.getRegrasMAC(),
+    avaliacoes: dbService.getAvaliacoes(),
+    notas: dbService.getNotas(),
+    notasConsolidadas: dbService.getNotasConsolidadas(),
+    solicitacoesNota: dbService.getSolicitacoesNota(),
+    juris: dbService.getJuris(),
+    termosExame: dbService.getTermosExame(),
+    horarios: getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS),
+    presencas: dbService.getPresencas(),
+    presencasAlunos: getLocal<any[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
+    auditoria: dbService.getAuditoria().filter(l => !nonAdmin || !isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes)),
+    mensagens: dbService.getMensagens(),
+    biblioteca: dbService.getBiblioteca(),
+    bibliotecaAcessos: isEscolaEspecifica ? dbService.getAcessosBiblioteca(effectiveEscolaId) : dbService.getAcessosBiblioteca(),
+    recibos: dbService.getRecibos(),
+    transacoesFinanceiras: dbService.getTransacoesFinanceiras(),
+    despesasEscolares: dbService.getDespesasEscolares(),
+    patrimonio: dbService.getPatrimonio(),
+    delegacoesPoderes: getLocal<any[]>(STORAGE_KEYS.DELEGACOES_PODERES, []),
+    acoesDelegadasLogs: getLocal<any[]>(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []),
+    delegacoesCobranca: getLocal<any[]>(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
+    emolumentosPersonalizados: getLocal<any[]>(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
+    anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
+    turnosConfigs: dbService.getTurnosConfigs(),
+    classesConfigs: dbService.getClassesConfigs(),
+    cursos: dbService.getCursos(),
+    solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
+    alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
+  };
+
+  const colecoesFiltradasPorEscola = new Set([
+    'alunos',
+    'turmas',
+    'atribuicoes',
+    'funcionarios',
+    'avaliacoes',
+    'notasConsolidadas',
+    'solicitacoesNota',
+    'juris',
+    'termosExame',
+    'horarios',
+    'presencas',
+    'presencasAlunos',
+    'mensagens',
+    'biblioteca',
+    'recibos',
+    'transacoesFinanceiras',
+    'despesasEscolares',
+    'patrimonio'
+  ]);
+
+  const itensPorColecao: Record<string, Record<string, any>> = {};
+  const hashesColecoes: Record<string, Record<string, string>> = {};
+
+  for (const def of COLECOES_BACKUP_INCREMENTAL_META) {
+    let list = Array.isArray(listasBrutas[def.colecao]) ? listasBrutas[def.colecao] : [];
+    if (isEscolaEspecifica) {
+      if (def.colecao === 'escolas') {
+        list = list.filter((e: any) => e?.id === effectiveEscolaId);
+      } else if (def.colecao === 'disciplinas' || def.colecao === 'notas' || def.colecao === 'auditoria') {
+        list = list.filter((item: any) => !item?.escolaId || item.escolaId === effectiveEscolaId);
+      } else if (colecoesFiltradasPorEscola.has(def.colecao)) {
+        list = list.filter((item: any) => item?.escolaId === effectiveEscolaId);
+      }
+    }
+
+    const itemMap: Record<string, any> = {};
+    const hashMap: Record<string, string> = {};
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      const recKey = obterChaveRegistroIncremental(def.colecao, item, i);
+      itemMap[recKey] = item;
+      hashMap[recKey] = hashDeterministicoSge(item);
+    }
+    itensPorColecao[def.colecao] = itemMap;
+    hashesColecoes[def.colecao] = hashMap;
+  }
+
+  const configs: Record<string, any> = {
+    configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
+    historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
+    anosLectivos: dbService.getAnosLectivos(),
+    configuracoesDocumentos: getLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, {}),
+    configuracoesPasses: getLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, {})
+  };
+  if (!nonAdmin) {
+    configs.configuracaoSistema = dbService.getConfiguracaoSistema();
+  }
+
+  const hashesConfigs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(configs)) {
+    hashesConfigs[k] = hashDeterministicoSge(v);
+  }
+
+  return {
+    itensPorColecao,
+    hashesColecoes,
+    configs,
+    hashesConfigs
+  };
+}
+
 // Data Access API
 export const dbService = {
   // Getters brutos internos (apenas para autenticação, setup, sync e manipulação segura sem apagar dados do AdminGeral)
   getEscolasBrutas: (): Escola[] => getLocal<Escola[]>(STORAGE_KEYS.ESCOLAS, []),
-  getFuncionariosBruto: (): Funcionario[] => getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []),
+  getFuncionariosBruto: (): Funcionario[] => {
+    const lista = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    return hidratarFotoDeLista(lista, 'funcionario');
+  },
+  hidratarDadosOffline: (): Promise<boolean> => offlineStorage.hidratarArmazenamentoDoIndexedDB(),
   getAuditoriaBruta: (): LogAuditoria[] => getLocal<LogAuditoria[]>(STORAGE_KEYS.AUDITORIA, DEFAULT_AUDITORIA),
   getMensagensBrutas: (): MensagemInterna[] => getLocal<MensagemInterna[]>(STORAGE_KEYS.MENSAGENS, DEFAULT_MENSAGENS),
   getSolicitacoesApoioBrutas: (): SolicitacaoApoioTecnico[] => getLocal<SolicitacaoApoioTecnico[]>(STORAGE_KEYS.SOLICITACOES_APOIO, DEFAULT_SOLICITACOES_APOIO),
@@ -1951,24 +2361,39 @@ export const dbService = {
       func.password = novaSenha.trim();
     }
 
+    const rawFotoInput: unknown = (dados as any).fotoBlob ?? dados.fotoUrl;
     if (dados.nomeCompleto) func.nomeCompleto = dados.nomeCompleto.trim();
     if (dados.telefone !== undefined) func.telefone = dados.telefone.trim();
     if (dados.email !== undefined) func.email = dados.email.trim();
-    if (dados.fotoUrl !== undefined) func.fotoUrl = dados.fotoUrl;
+    if (rawFotoInput !== undefined) {
+      if (typeof Blob !== 'undefined' && rawFotoInput instanceof Blob) {
+        try {
+          func.fotoUrl = typeof URL !== 'undefined' ? URL.createObjectURL(rawFotoInput) : (func.fotoUrl || '');
+        } catch {
+          func.fotoUrl = func.fotoUrl || '';
+        }
+      } else if (typeof rawFotoInput === 'string') {
+        func.fotoUrl = rawFotoInput;
+        if (rawFotoInput && !rawFotoInput.startsWith('blob:') && rawFotoInput !== '__idb_media__') {
+          offlineStorage.definirMidiaEmCache('funcionario', func.id, rawFotoInput);
+        }
+      }
+    }
     if (dados.habilitacoes !== undefined) func.habilitacoes = dados.habilitacoes;
     if (dados.genero) func.genero = dados.genero;
     func.atualizadoEm = new Date().toISOString();
 
     funcs[idx] = func;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    // Persistência imediata no Firebase Firestore e no dispositivo
-    firebaseSyncEngine.salvarPerfilUsuario(func);
 
     // Se for o utilizador atualmente autenticado, atualizar sessão ativa
     const current = dbService.getCurrentUser();
     if (current && current.id === funcionarioId) {
       dbService.setCurrentUser(func);
     }
+
+    // Persistência imediata no IndexedDB (Base64 + Blob) e sincronização garantida com o Firebase
+    normalizarEPersistirFuncionarioAsync(func, rawFotoInput);
 
     dbService.registarLog(
       'Atualização de Perfil',
@@ -2301,7 +2726,7 @@ export const dbService = {
 
   // Alunos
   getAlunos: (): Aluno[] => {
-    const raw = getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS);
+    const raw = hidratarFotoDeLista(getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS), 'aluno');
     const escolaAtiva = dbService.getEscolaAtiva();
     if (escolaAtiva && escolaAtiva.id) {
       let mudou = false;
@@ -2331,11 +2756,31 @@ export const dbService = {
     if (!aluno.propinaStatus) {
       aluno.propinaStatus = 'Pendente';
     }
+    const alunos = dbService.getAlunos();
+    const existing = alunos.find(a => a.id === aluno.id);
+    const rawFotoInput: unknown = (aluno as any).fotoBlob ?? (aluno as any).fotoUrl;
+
+    let fotoResolvida = existing?.fotoUrl || '';
+    if (rawFotoInput !== undefined) {
+      if (typeof Blob !== 'undefined' && rawFotoInput instanceof Blob) {
+        try {
+          fotoResolvida = typeof URL !== 'undefined' ? URL.createObjectURL(rawFotoInput) : (existing?.fotoUrl || '');
+        } catch {
+          fotoResolvida = existing?.fotoUrl || '';
+        }
+      } else if (typeof rawFotoInput === 'string') {
+        fotoResolvida = rawFotoInput;
+        if (fotoResolvida && !fotoResolvida.startsWith('blob:') && fotoResolvida !== '__idb_media__') {
+          offlineStorage.definirMidiaEmCache('aluno', aluno.id, fotoResolvida);
+        }
+      }
+    }
+
     const alunoComTimestamp: Aluno = {
       ...aluno,
+      fotoUrl: fotoResolvida,
       atualizadoEm: new Date().toISOString()
     };
-    const alunos = dbService.getAlunos();
     const idx = alunos.findIndex(a => a.id === alunoComTimestamp.id);
     if (idx >= 0) alunos[idx] = alunoComTimestamp;
     else alunos.push(alunoComTimestamp);
@@ -2343,7 +2788,7 @@ export const dbService = {
     try {
       offlineStorage.registarMutacao('Alunos', 'ATUALIZAR', `Aluno ${alunoComTimestamp.nomeCompleto} guardado`, 'SGE');
     } catch {}
-    firebaseSyncEngine.salvarAluno(alunoComTimestamp);
+    normalizarEPersistirFotoAlunoAsync(alunoComTimestamp, rawFotoInput ?? fotoResolvida);
     dbService.registarLog('Cadastro/Edição de Aluno', `Aluno ${alunoComTimestamp.nomeCompleto} (${alunoComTimestamp.codigoMatricula}) gravado para o Ano Lectivo ${alunoComTimestamp.anoLectivo}.`);
   },
   adicionarOcorrenciaHistoricoAluno: (alunoId: string, ocorrencia: any) => {
@@ -2633,31 +3078,75 @@ export const dbService = {
     if ((isAdminGeralUserObj(func) || isAdminGeralUserObj(existing)) && isSessaoAutenticadaNaoAdminGeral()) {
       throw new Error('Acesso negado: não possui autorização para criar ou alterar o perfil do Administrador Geral.');
     }
+
+    // Suporta fotoUrl em base64, URL externa, Blob/File ou remoção explícita ('')
+    const rawFotoInput: unknown = (func as any).fotoBlob ?? (func as any).fotoUrl;
+    let fotoParaPersistenciaLocal: string = existing?.fotoUrl || '';
+
+    if (rawFotoInput !== undefined) {
+      if (typeof Blob !== 'undefined' && rawFotoInput instanceof Blob) {
+        try {
+          fotoParaPersistenciaLocal = typeof URL !== 'undefined' ? URL.createObjectURL(rawFotoInput) : (existing?.fotoUrl || '');
+        } catch {
+          fotoParaPersistenciaLocal = existing?.fotoUrl || '';
+        }
+      } else if (typeof rawFotoInput === 'string') {
+        fotoParaPersistenciaLocal = rawFotoInput;
+        if (rawFotoInput && !rawFotoInput.startsWith('blob:') && rawFotoInput !== '__idb_media__') {
+          offlineStorage.definirMidiaEmCache('funcionario', func.id, rawFotoInput);
+        } else if (rawFotoInput === '') {
+          offlineStorage.definirMidiaEmCache('funcionario', func.id, '');
+        }
+      }
+    } else if (fotoParaPersistenciaLocal === '__idb_media__') {
+      fotoParaPersistenciaLocal = offlineStorage.obterMidiaEmCache('funcionario', func.id) || '';
+    }
+
     const funcComTimestamp: Funcionario = {
+      ...existing,
       ...func,
+      fotoUrl: fotoParaPersistenciaLocal,
       atualizadoEm: new Date().toISOString()
     };
+    delete (funcComTimestamp as any).fotoBlob;
+
     const idx = funcs.findIndex(f => f.id === funcComTimestamp.id);
     if (idx >= 0) funcs[idx] = funcComTimestamp;
     else funcs.push(funcComTimestamp);
+
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
     const current = dbService.getCurrentUser();
     if (current && current.id === funcComTimestamp.id) {
       dbService.setCurrentUser(funcComTimestamp);
     }
-    firebaseSyncEngine.salvarPerfilUsuario(funcComTimestamp);
-    dbService.registarLog('Gestão de Funcionários', `Funcionário ${funcComTimestamp.nomeCompleto} atualizado e sincronizado no Firestore.`);
+
+    // Persistência imediata no IndexedDB (Base64 + Blob) e sincronização direta com o Firebase
+    normalizarEPersistirFuncionarioAsync(funcComTimestamp, rawFotoInput ?? fotoParaPersistenciaLocal);
+
+    dbService.registarLog('Gestão de Funcionários', `Funcionário ${funcComTimestamp.nomeCompleto} atualizado no IndexedDB e sincronizado no Firestore.`);
   },
   salvarFuncionarios: (funcs: Funcionario[]) => {
+    const agora = new Date().toISOString();
+    const normalizados = funcs.map(f => ({
+      ...f,
+      fotoUrl: typeof f.fotoUrl === 'string'
+        ? (f.fotoUrl === '__idb_media__' ? (offlineStorage.obterMidiaEmCache('funcionario', f.id) || '') : f.fotoUrl)
+        : '',
+      atualizadoEm: f.atualizadoEm || agora
+    }));
+
     if (isSessaoAutenticadaNaoAdminGeral()) {
       const adminsExistentes = dbService.getFuncionariosBruto().filter(f => isAdminGeralUserObj(f));
-      const semAdmin = funcs.filter(f => !isAdminGeralUserObj(f));
-      setLocal(STORAGE_KEYS.FUNCIONARIOS, [...adminsExistentes, ...semAdmin]);
+      const semAdmin = normalizados.filter(f => !isAdminGeralUserObj(f));
+      const listaFinal = [...adminsExistentes, ...semAdmin];
+      setLocal(STORAGE_KEYS.FUNCIONARIOS, listaFinal);
+      offlineStorage.salvarFuncionariosLoteNoIndexedDB(listaFinal);
       firebaseSyncEngine.salvarFuncionariosLote(semAdmin);
       return;
     }
-    setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    firebaseSyncEngine.salvarFuncionariosLote(funcs);
+    setLocal(STORAGE_KEYS.FUNCIONARIOS, normalizados);
+    offlineStorage.salvarFuncionariosLoteNoIndexedDB(normalizados);
+    firebaseSyncEngine.salvarFuncionariosLote(normalizados);
   },
 
   // Regras de Cálculo da MAC
@@ -3107,7 +3596,13 @@ export const dbService = {
   // Utilizador Ativo
   getCurrentUser: (): Funcionario => {
     const user = getLocal<Funcionario | null>(STORAGE_KEYS.CURRENT_USER, null);
-    if (user && user.id && user.role) return user;
+    if (user && user.id && user.role) {
+      if (user.fotoUrl === '__idb_media__' || !user.fotoUrl) {
+        const fotoCache = offlineStorage.obterMidiaEmCache('funcionario', user.id);
+        if (fotoCache) return { ...user, fotoUrl: fotoCache };
+      }
+      return user;
+    }
     const funcs = dbService.getFuncionariosBruto();
     const admin = funcs.find(f => f.role === 'AdminGeral' && f.ativo);
     if (admin) return admin;
@@ -3119,13 +3614,28 @@ export const dbService = {
       if (typeof localStorage !== 'undefined') {
         try {
           localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+          localStorage.removeItem('sge_user');
         } catch {
           // noop
         }
       }
       return;
     }
-    setLocal(STORAGE_KEYS.CURRENT_USER, user);
+    let fotoResolvida = user.fotoUrl || '';
+    if (fotoResolvida === '__idb_media__' || !fotoResolvida) {
+      const cached = offlineStorage.obterMidiaEmCache('funcionario', user.id);
+      if (cached) fotoResolvida = cached;
+      else if (fotoResolvida === '__idb_media__') fotoResolvida = '';
+    } else if (!fotoResolvida.startsWith('blob:')) {
+      offlineStorage.definirMidiaEmCache('funcionario', user.id, fotoResolvida);
+    }
+    const userFinal = { ...user, fotoUrl: fotoResolvida };
+    setLocal(STORAGE_KEYS.CURRENT_USER, userFinal);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('sge_user', JSON.stringify(userFinal));
+      }
+    } catch {}
   },
 
   // Exportar Todos os Dados da Escola em Excel (.xlsx) com Identificação Escolar e Todas as Notas
@@ -4104,6 +4614,7 @@ export const dbService = {
 
     const backupData = {
       versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Enterprise Cloud/Local)',
+      tipoBackup: 'COMPLETO',
       dataExportacao: new Date().toISOString(),
       escolaIdAlvo: effectiveEscolaId || 'todas',
       escolas: isEscolaEspecifica && escolaAlvo ? [escolaAlvo] : todasEscolas,
@@ -4119,6 +4630,10 @@ export const dbService = {
       notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => (nc as any).escolaId === effectiveEscolaId) : dbService.getNotasConsolidadas(),
       solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === effectiveEscolaId) : dbService.getSolicitacoesNota(),
       juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === effectiveEscolaId) : dbService.getJuris(),
+      termosExame: isEscolaEspecifica ? dbService.getTermosExame().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTermosExame(),
+      horarios: isEscolaEspecifica
+        ? getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS).filter(h => h.escolaId === effectiveEscolaId)
+        : getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS),
       presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPresencas(),
       auditoria: isEscolaEspecifica ? logsVisiveis.filter(a => !a.escolaId || a.escolaId === effectiveEscolaId) : logsVisiveis,
       mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === effectiveEscolaId) : dbService.getMensagens(),
@@ -4129,6 +4644,10 @@ export const dbService = {
       transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTransacoesFinanceiras(),
       despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares().filter(d => d.escolaId === effectiveEscolaId) : dbService.getDespesasEscolares(),
       patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPatrimonio(),
+      delegacoesPoderes: getLocal(STORAGE_KEYS.DELEGACOES_PODERES, []),
+      acoesDelegadasLogs: getLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []),
+      configuracoesDocumentos: getLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, {}),
+      configuracoesPasses: getLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, {}),
       historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
       configuracaoSistema: nonAdmin ? undefined : dbService.getConfiguracaoSistema(),
       anosLectivos: dbService.getAnosLectivos(),
@@ -4152,9 +4671,256 @@ export const dbService = {
     a.click();
     URL.revokeObjectURL(url);
     dbService.registarLog('Backup Integral do Sistema', `Cópia de segurança (${nomeSufixo}) exportada com sucesso.`);
+    // Registar linha de base para próximos backups incrementais
+    try {
+      dbService.salvarCheckpointBackupIncremental(effectiveEscolaId || 'todas', 'COMPLETO');
+    } catch {}
   },
 
-  // Restaurar Backup JSON Completo
+  // =========================================================================
+  // MOTOR DE BACKUP INCREMENTAL (DELTA POR HASH + REGISTOS ELIMINADOS)
+  // =========================================================================
+  salvarCheckpointBackupIncremental: (
+    escolaId?: string,
+    tipoUltimoBackup: 'COMPLETO' | 'INCREMENTAL' = 'INCREMENTAL'
+  ) => {
+    const scope = calcularEscopoIncremental(escolaId);
+    const snapshot = coletarSnapshotEstadoAtualParaIncremental(scope.effectiveEscolaId);
+    const checkpoints = getLocal<Record<string, any>>('sge_backup_incremental_checkpoints', {});
+    const anterior = checkpoints[scope.chaveEscopo];
+
+    checkpoints[scope.chaveEscopo] = {
+      escolaIdAlvo: scope.chaveEscopo,
+      sequencia: (anterior?.sequencia || 0) + 1,
+      ultimoBackupEm: new Date().toISOString(),
+      tipoUltimoBackup,
+      hashesColecoes: snapshot.hashesColecoes,
+      hashesConfigs: snapshot.hashesConfigs
+    };
+    setLocal('sge_backup_incremental_checkpoints', checkpoints);
+    return checkpoints[scope.chaveEscopo];
+  },
+
+  limparCheckpointBackupIncremental: (escolaId?: string): void => {
+    const scope = calcularEscopoIncremental(escolaId);
+    const checkpoints = getLocal<Record<string, any>>('sge_backup_incremental_checkpoints', {});
+    if (checkpoints[scope.chaveEscopo]) {
+      delete checkpoints[scope.chaveEscopo];
+      setLocal('sge_backup_incremental_checkpoints', checkpoints);
+    }
+  },
+
+  obterResumoBackupIncremental: (escolaId?: string) => {
+    const scope = calcularEscopoIncremental(escolaId);
+    const checkpoints = getLocal<Record<string, any>>('sge_backup_incremental_checkpoints', {});
+    const checkpoint = checkpoints[scope.chaveEscopo] || null;
+    const atual = coletarSnapshotEstadoAtualParaIncremental(scope.effectiveEscolaId);
+
+    const detalhesPorColecao: Array<{ colecao: string; rotulo: string; alterados: number; eliminados: number }> = [];
+    let totalAdicionadosOuAlterados = 0;
+    let totalEliminados = 0;
+    let bytesEstimados = 512;
+
+    for (const def of COLECOES_BACKUP_INCREMENTAL_META) {
+      const currMap = atual.itensPorColecao[def.colecao] || {};
+      const currHashes = atual.hashesColecoes[def.colecao] || {};
+      const prevHashes = (checkpoint?.hashesColecoes?.[def.colecao] || {}) as Record<string, string>;
+
+      let alterados = 0;
+      let eliminados = 0;
+
+      for (const [recId, recHash] of Object.entries(currHashes)) {
+        if (!checkpoint || prevHashes[recId] !== recHash) {
+          alterados++;
+          try {
+            bytesEstimados += JSON.stringify(currMap[recId]).length;
+          } catch {}
+        }
+      }
+
+      if (checkpoint) {
+        for (const prevId of Object.keys(prevHashes)) {
+          if (!(prevId in currHashes)) {
+            eliminados++;
+            bytesEstimados += prevId.length + 8;
+          }
+        }
+      }
+
+      if (alterados > 0 || eliminados > 0) {
+        detalhesPorColecao.push({
+          colecao: def.colecao,
+          rotulo: def.rotulo,
+          alterados,
+          eliminados
+        });
+        totalAdicionadosOuAlterados += alterados;
+        totalEliminados += eliminados;
+      }
+    }
+
+    // Verificar também secções de configuração modificadas
+    let configsAlteradasCount = 0;
+    for (const [cfgKey, cfgHash] of Object.entries(atual.hashesConfigs)) {
+      if (!checkpoint || checkpoint.hashesConfigs?.[cfgKey] !== cfgHash) {
+        configsAlteradasCount++;
+        try {
+          bytesEstimados += JSON.stringify(atual.configs[cfgKey]).length;
+        } catch {}
+      }
+    }
+    if (configsAlteradasCount > 0) {
+      detalhesPorColecao.push({
+        colecao: 'configuracoes',
+        rotulo: 'Configurações & Parâmetros',
+        alterados: configsAlteradasCount,
+        eliminados: 0
+      });
+      totalAdicionadosOuAlterados += configsAlteradasCount;
+    }
+
+    return {
+      temCheckpointBase: Boolean(checkpoint),
+      ultimoBackupEm: checkpoint?.ultimoBackupEm || null,
+      tipoUltimoBackup: (checkpoint?.tipoUltimoBackup as 'COMPLETO' | 'INCREMENTAL') || null,
+      sequenciaAtual: checkpoint?.sequencia || 0,
+      totalAdicionadosOuAlterados,
+      totalEliminados,
+      detalhesPorColecao,
+      estimativaTamanhoKB: Math.max(1, Math.round((bytesEstimados / 1024) * 10) / 10),
+      escolaIdAlvo: scope.chaveEscopo
+    };
+  },
+
+  gerarBackupIncrementalJSON: (
+    escolaId?: string,
+    options?: { forcarMesmoSemAlteracoes?: boolean }
+  ): {
+    sucesso: boolean;
+    semAlteracoes?: boolean;
+    sequencia: number;
+    totalAlterados: number;
+    totalEliminados: number;
+    mensagem: string;
+  } => {
+    const scope = calcularEscopoIncremental(escolaId);
+    const checkpoints = getLocal<Record<string, any>>('sge_backup_incremental_checkpoints', {});
+    const checkpoint = checkpoints[scope.chaveEscopo] || null;
+    const atual = coletarSnapshotEstadoAtualParaIncremental(scope.effectiveEscolaId);
+
+    const deltas: Record<string, any[]> = {};
+    const eliminados: Record<string, string[]> = {};
+    const configsAlteradas: Record<string, any> = {};
+    const resumoAlteracoes: Record<string, { alterados: number; eliminados: number }> = {};
+
+    let totalAlterados = 0;
+    let totalEliminados = 0;
+
+    for (const def of COLECOES_BACKUP_INCREMENTAL_META) {
+      const currMap = atual.itensPorColecao[def.colecao] || {};
+      const currHashes = atual.hashesColecoes[def.colecao] || {};
+      const prevHashes = (checkpoint?.hashesColecoes?.[def.colecao] || {}) as Record<string, string>;
+
+      const changedItems: any[] = [];
+      const removedIds: string[] = [];
+
+      for (const [recId, recHash] of Object.entries(currHashes)) {
+        if (!checkpoint || prevHashes[recId] !== recHash) {
+          changedItems.push(currMap[recId]);
+        }
+      }
+
+      if (checkpoint) {
+        for (const prevId of Object.keys(prevHashes)) {
+          if (!(prevId in currHashes)) {
+            removedIds.push(prevId);
+          }
+        }
+      }
+
+      if (changedItems.length > 0) {
+        deltas[def.colecao] = changedItems;
+      }
+      if (removedIds.length > 0) {
+        eliminados[def.colecao] = removedIds;
+      }
+      if (changedItems.length > 0 || removedIds.length > 0) {
+        resumoAlteracoes[def.colecao] = {
+          alterados: changedItems.length,
+          eliminados: removedIds.length
+        };
+        totalAlterados += changedItems.length;
+        totalEliminados += removedIds.length;
+      }
+    }
+
+    for (const [cfgKey, cfgHash] of Object.entries(atual.hashesConfigs)) {
+      if (!checkpoint || checkpoint.hashesConfigs?.[cfgKey] !== cfgHash) {
+        configsAlteradas[cfgKey] = atual.configs[cfgKey];
+        totalAlterados++;
+      }
+    }
+
+    if (totalAlterados === 0 && totalEliminados === 0 && !options?.forcarMesmoSemAlteracoes) {
+      return {
+        sucesso: false,
+        semAlteracoes: true,
+        sequencia: checkpoint?.sequencia || 0,
+        totalAlterados: 0,
+        totalEliminados: 0,
+        mensagem: 'Não existem novas alterações desde o último ponto de verificação de backup.'
+      };
+    }
+
+    const novaSequencia = (checkpoint?.sequencia || 0) + 1;
+    const escolaAlvo = scope.isEscolaEspecifica
+      ? dbService.getEscolas().find(e => e.id === scope.effectiveEscolaId)
+      : null;
+    const nomeSufixo = escolaAlvo?.sigla || (scope.isEscolaEspecifica ? 'Instituicao' : 'Rede_Nacional');
+    const dataExportacao = new Date().toISOString();
+
+    const incrementalPayload = {
+      versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Backup Incremental)',
+      tipoBackup: 'INCREMENTAL',
+      sequenciaIncremental: novaSequencia,
+      baseCheckpointEm: checkpoint?.ultimoBackupEm || null,
+      tipoBaseAnterior: checkpoint?.tipoUltimoBackup || null,
+      dataExportacao,
+      escolaIdAlvo: scope.chaveEscopo,
+      totalAlterados,
+      totalEliminados,
+      resumoAlteracoes,
+      deltas,
+      eliminados,
+      configsAlteradas
+    };
+
+    const blob = new Blob([JSON.stringify(incrementalPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SGE_NG_Backup_Incremental_${nomeSufixo}_Seq${String(novaSequencia).padStart(3, '0')}_${dataExportacao.split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    dbService.registarLog(
+      'Backup Incremental do Sistema',
+      `Delta #${novaSequencia} (${nomeSufixo}) exportado: ${totalAlterados} registo(s) novo(s)/alterado(s), ${totalEliminados} eliminado(s).`
+    );
+
+    // Atualizar checkpoint incluindo o log recém-criado para zerar pendências imediatamente
+    dbService.salvarCheckpointBackupIncremental(scope.effectiveEscolaId, 'INCREMENTAL');
+
+    return {
+      sucesso: true,
+      sequencia: novaSequencia,
+      totalAlterados,
+      totalEliminados,
+      mensagem: `Backup Incremental #${novaSequencia} transferido com ${totalAlterados} alteração(ões) e ${totalEliminados} eliminação(ões).`
+    };
+  },
+
+  // Restaurar Backup JSON (Suporte Automático a Snapshot Completo e Backup Incremental)
   restaurarBackupJSON: (jsonString: string): boolean => {
     try {
       const data = JSON.parse(jsonString);
@@ -4164,6 +4930,106 @@ export const dbService = {
       const logsAdminExistentes = dbService.getAuditoriaBruta().filter(l => isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes));
       const escolasBrutasExistentes = dbService.getEscolasBrutas();
 
+      // ============================================================
+      // MODO 1: RESTAURAÇÃO INCREMENTAL (MERGE POR ID + ELIMINADOS)
+      // ============================================================
+      if (data?.tipoBackup === 'INCREMENTAL' && (data.deltas || data.eliminados || data.configsAlteradas)) {
+        const deltas = (data.deltas || {}) as Record<string, any[]>;
+        const eliminados = (data.eliminados || {}) as Record<string, string[]>;
+        const configsAlteradas = (data.configsAlteradas || {}) as Record<string, any>;
+
+        for (const def of COLECOES_BACKUP_INCREMENTAL_META) {
+          if (nonAdmin && def.colecao === 'alertasSeguranca') continue;
+
+          const upserts = Array.isArray(deltas[def.colecao]) ? deltas[def.colecao] : [];
+          const removals = new Set<string>(Array.isArray(eliminados[def.colecao]) ? eliminados[def.colecao] : []);
+          if (upserts.length === 0 && removals.size === 0) continue;
+
+          const atuais = getLocal<any[]>(def.storageKey, []);
+          const mapa = new Map<string, any>();
+
+          for (let i = 0; i < atuais.length; i++) {
+            const item = atuais[i];
+            const k = obterChaveRegistroIncremental(def.colecao, item, i);
+            mapa.set(k, item);
+          }
+
+          // Aplicar eliminações respeitando proteção RBAC do Admin Geral
+          for (const remId of removals) {
+            const existente = mapa.get(remId);
+            if (nonAdmin && existente) {
+              if (def.colecao === 'funcionarios' && isAdminGeralUserObj(existente)) continue;
+              if (def.colecao === 'auditoria' && isLogOuAcaoDoAdminGeral(existente, adminIds, adminNomes)) continue;
+            }
+            mapa.delete(remId);
+          }
+
+          // Aplicar adições/atualizações respeitando proteção RBAC do Admin Geral
+          for (let i = 0; i < upserts.length; i++) {
+            const item = upserts[i];
+            if (nonAdmin) {
+              if (def.colecao === 'funcionarios' && isAdminGeralUserObj(item)) continue;
+              if (def.colecao === 'auditoria' && isLogOuAcaoDoAdminGeral(item, adminIds, adminNomes)) continue;
+              if (def.colecao === 'escolas') {
+                const escolaExistente = escolasBrutasExistentes.find(e => e.id === item?.id);
+                if (escolaExistente?.sessaoApoioTecnicoAtiva) {
+                  item.sessaoApoioTecnicoAtiva = escolaExistente.sessaoApoioTecnicoAtiva;
+                }
+              }
+            }
+            const k = obterChaveRegistroIncremental(def.colecao, item, i);
+            mapa.set(k, item);
+          }
+
+          // Preservar contas Admin Geral caso algum edge case tente removê-las
+          if (nonAdmin && def.colecao === 'funcionarios') {
+            for (const adm of adminsExistentes) {
+              mapa.set(adm.id, adm);
+            }
+          }
+          if (nonAdmin && def.colecao === 'auditoria') {
+            for (const admLog of logsAdminExistentes) {
+              mapa.set(admLog.id, admLog);
+            }
+          }
+
+          setLocal(def.storageKey, Array.from(mapa.values()));
+        }
+
+        // Aplicar configurações alteradas
+        if (configsAlteradas.configuracoesFinanceiras) {
+          setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, configsAlteradas.configuracoesFinanceiras);
+        }
+        if (configsAlteradas.historicoCompleto) {
+          setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, configsAlteradas.historicoCompleto);
+        }
+        if (configsAlteradas.anosLectivos) {
+          setLocal(STORAGE_KEYS.ANOS_LECTIVOS, configsAlteradas.anosLectivos);
+        }
+        if (configsAlteradas.configuracoesDocumentos) {
+          setLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, configsAlteradas.configuracoesDocumentos);
+        }
+        if (configsAlteradas.configuracoesPasses) {
+          setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, configsAlteradas.configuracoesPasses);
+        }
+        if (configsAlteradas.configuracaoSistema && !nonAdmin) {
+          setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, configsAlteradas.configuracaoSistema);
+        }
+
+        dbService.registarLog(
+          'Restauração de Backup Incremental',
+          `Delta #${data.sequenciaIncremental || 1} aplicado (${data.totalAlterados || 0} atualizações, ${data.totalEliminados || 0} eliminações).`
+        );
+        try {
+          dbService.salvarCheckpointBackupIncremental(data.escolaIdAlvo || 'todas', 'INCREMENTAL');
+        } catch {}
+        firebaseSyncEngine.sincronizarTudoImediato();
+        return true;
+      }
+
+      // ============================================================
+      // MODO 2: RESTAURAÇÃO COMPLETA (SNAPSHOT INTEGRAL)
+      // ============================================================
       if (data.escolas) {
         if (nonAdmin && Array.isArray(data.escolas)) {
           const mapaSessoesApoio = new Map(
@@ -4204,6 +5070,8 @@ export const dbService = {
       if (data.notasConsolidadas) setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, data.notasConsolidadas);
       if (data.solicitacoesNota) setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, data.solicitacoesNota);
       if (data.juris) setLocal(STORAGE_KEYS.JURIS, data.juris);
+      if (data.termosExame) setLocal(STORAGE_KEYS.TERMOS_EXAME, data.termosExame);
+      if (data.horarios) setLocal(STORAGE_KEYS.HORARIOS, data.horarios);
       if (data.presencas) setLocal(STORAGE_KEYS.PRESENCAS, data.presencas);
       if (data.auditoria) {
         if (nonAdmin && Array.isArray(data.auditoria)) {
@@ -4222,6 +5090,10 @@ export const dbService = {
       if (data.transacoesFinanceiras) setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, data.transacoesFinanceiras);
       if (data.despesasEscolares) setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, data.despesasEscolares);
       if (data.patrimonio) setLocal(STORAGE_KEYS.PATRIMONIO, data.patrimonio);
+      if (data.delegacoesPoderes) setLocal(STORAGE_KEYS.DELEGACOES_PODERES, data.delegacoesPoderes);
+      if (data.acoesDelegadasLogs) setLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, data.acoesDelegadasLogs);
+      if (data.configuracoesDocumentos) setLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, data.configuracoesDocumentos);
+      if (data.configuracoesPasses) setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, data.configuracoesPasses);
       if (data.historicoCompleto) setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, data.historicoCompleto);
       if (data.configuracaoSistema && !nonAdmin) setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, data.configuracaoSistema);
       if (data.anosLectivos) setLocal(STORAGE_KEYS.ANOS_LECTIVOS, data.anosLectivos);
@@ -4236,6 +5108,9 @@ export const dbService = {
       if (data.alertasSeguranca && !nonAdmin) setLocal(STORAGE_KEYS.ALERTAS_SEGURANCA, data.alertasSeguranca);
 
       dbService.registarLog('Restauração de Backup Integral', 'Sistema restaurado a partir de ficheiro de segurança.');
+      try {
+        dbService.salvarCheckpointBackupIncremental(data.escolaIdAlvo || 'todas', 'COMPLETO');
+      } catch {}
       firebaseSyncEngine.sincronizarTudoImediato();
       return true;
     } catch (e) {

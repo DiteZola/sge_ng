@@ -56,7 +56,12 @@ import { converterNotaParaExtensoMED, numeroParaExtenso, converterNotaParaCertif
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
-import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import {
+  downloadElementAsPdf,
+  imprimirElementoDiretamente,
+  PdfMarginsMm,
+  resolvePdfPageGeometry
+} from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { DocumentTemplateConfigModal } from './DocumentTemplateConfigModal';
@@ -479,11 +484,84 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfSuccessToast, setPdfSuccessToast] = useState<string | null>(null);
 
-  // Estados de Exportação PDF & Responsividade Móvel
+  // Estados de Exportação PDF, Formato (A4/Carta), Margens & Responsividade Móvel
   const [orientacaoPdfOverride, setOrientacaoPdfOverride] = useState<'auto' | 'portrait' | 'landscape'>('auto');
   const [qualidadePdf, setQualidadePdf] = useState<'alta' | 'ultra'>('ultra');
   const [modoVisualizacao, setModoVisualizacao] = useState<'ajustar' | 'real'>('ajustar');
   const [zoomNivel, setZoomNivel] = useState<number>(100);
+
+  const [formatoPaginaPdf, setFormatoPaginaPdf] = useState<'a4' | 'letter'>(() => {
+    try {
+      const saved = localStorage.getItem('sge_pdf_page_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.formato === 'letter' || parsed?.formato === 'a4') return parsed.formato;
+      }
+    } catch {}
+    return 'a4';
+  });
+
+  const [margemPdfPreset, setMargemPdfPreset] = useState<'estreita' | 'padrao' | 'larga' | 'personalizada'>(() => {
+    try {
+      const saved = localStorage.getItem('sge_pdf_page_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (['estreita', 'padrao', 'larga', 'personalizada'].includes(parsed?.preset)) {
+          return parsed.preset;
+        }
+      }
+    } catch {}
+    return 'padrao';
+  });
+
+  const [margensPdfMm, setMargensPdfMm] = useState<PdfMarginsMm>(() => {
+    try {
+      const saved = localStorage.getItem('sge_pdf_page_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.margens && typeof parsed.margens.top === 'number') {
+          return {
+            top: Math.max(2, Math.min(35, Number(parsed.margens.top) || 8)),
+            right: Math.max(2, Math.min(35, Number(parsed.margens.right) || 8)),
+            bottom: Math.max(2, Math.min(35, Number(parsed.margens.bottom) || 8)),
+            left: Math.max(2, Math.min(35, Number(parsed.margens.left) || 8))
+          };
+        }
+      }
+    } catch {}
+    return { top: 8, right: 8, bottom: 8, left: 8 };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'sge_pdf_page_config',
+        JSON.stringify({
+          formato: formatoPaginaPdf,
+          preset: margemPdfPreset,
+          margens: margensPdfMm
+        })
+      );
+    } catch {}
+  }, [formatoPaginaPdf, margemPdfPreset, margensPdfMm]);
+
+  const handleAlterarPresetMargem = (preset: 'estreita' | 'padrao' | 'larga' | 'personalizada') => {
+    setMargemPdfPreset(preset);
+    if (preset === 'estreita') {
+      setMargensPdfMm({ top: 5, right: 5, bottom: 5, left: 5 });
+    } else if (preset === 'padrao') {
+      setMargensPdfMm({ top: 8, right: 8, bottom: 8, left: 8 });
+    } else if (preset === 'larga') {
+      setMargensPdfMm({ top: 15, right: 15, bottom: 15, left: 15 });
+    }
+  };
+
+  const handleAtualizarMargemLado = (lado: keyof PdfMarginsMm, valorRaw: string) => {
+    const num = Number(valorRaw);
+    const clamped = Number.isNaN(num) ? 8 : Math.max(2, Math.min(35, Math.round(num * 10) / 10));
+    setMargemPdfPreset('personalizada');
+    setMargensPdfMm(prev => ({ ...prev, [lado]: clamped }));
+  };
 
   const recarregarConfiguracoes = () => {
     setConfiguracoesDoc(dbService.getConfiguracoesDocumentos(escola.id));
@@ -512,6 +590,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return 'portrait';
   }, [orientacaoPdfOverride, configAtual, docType]);
 
+  const geometriaPdfAtual = useMemo(
+    () =>
+      resolvePdfPageGeometry({
+        format: formatoPaginaPdf,
+        orientation: orientacaoRecomendada,
+        margins: margensPdfMm
+      }),
+    [formatoPaginaPdf, orientacaoRecomendada, margensPdfMm]
+  );
+
   const nomeDocumentoCurto = useMemo(() => {
     switch (docType) {
       case 'boletim_oficial': return 'Boletim Trimestral';
@@ -529,7 +617,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   }, [docType]);
 
   const handleBaixarPDF = async () => {
-    const el = document.getElementById('documento-para-impressao');
+    const el =
+      document.getElementById('documento-para-impressao') ||
+      document.getElementById('documento-lista-nominal-alunos');
     if (!el) {
       alert('Não foi possível localizar o documento visualizado para gerar o PDF.');
       return;
@@ -569,11 +659,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
       const ok = await downloadElementAsPdf(el, nomeBase, {
         orientation: orientacao,
-        scale: qualidadePdf === 'ultra' ? 2.8 : 2.0,
-        marginMm: 8
+        format: formatoPaginaPdf,
+        margins: margensPdfMm,
+        scale: qualidadePdf === 'ultra' ? 2.8 : 2.0
       });
       if (ok) {
-        setPdfSuccessToast(`Ficheiro PDF "${nomeBase}.pdf" gerado e descarregado com sucesso conforme as normas oficiais do MED!`);
+        const rotuloFmt = formatoPaginaPdf === 'letter' ? 'Carta' : 'A4';
+        setPdfSuccessToast(
+          `Ficheiro PDF (${rotuloFmt} • Margens ${margensPdfMm.top}/${margensPdfMm.right}/${margensPdfMm.bottom}/${margensPdfMm.left}mm) "${nomeBase}.pdf" gerado com sucesso!`
+        );
         setTimeout(() => setPdfSuccessToast(null), 5000);
       }
     } catch (err: any) {
@@ -585,9 +679,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   };
 
   const handlePrint = () => {
-    const el = document.getElementById('documento-para-impressao');
+    const el =
+      document.getElementById('documento-para-impressao') ||
+      document.getElementById('documento-lista-nominal-alunos');
     if (el) {
-      imprimirElementoDiretamente(el, `${docType.toUpperCase()} - ${escola.nomeOficial}`);
+      imprimirElementoDiretamente(el, `${docType.toUpperCase()} - ${escola.nomeOficial}`, {
+        format: formatoPaginaPdf,
+        orientation: orientacaoRecomendada,
+        margins: margensPdfMm
+      });
     } else {
       handleBaixarPDF();
     }
@@ -680,6 +780,36 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Seletor de Formato de Página (A4 / Carta) */}
+            <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase px-1">Página:</span>
+              <select
+                value={formatoPaginaPdf}
+                onChange={(e) => setFormatoPaginaPdf(e.target.value as 'a4' | 'letter')}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Formato de página para geração e impressão PDF"
+              >
+                <option value="a4">A4 (210 × 297 mm)</option>
+                <option value="letter">Carta / Letter (215,9 × 279,4 mm)</option>
+              </select>
+            </div>
+
+            {/* Seletor de Margens PDF */}
+            <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase px-1">Margens:</span>
+              <select
+                value={margemPdfPreset}
+                onChange={(e) => handleAlterarPresetMargem(e.target.value as any)}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Margens da folha PDF em milímetros"
+              >
+                <option value="estreita">Estreita (5 mm)</option>
+                <option value="padrao">Padrão MED (8 mm)</option>
+                <option value="larga">Larga (15 mm)</option>
+                <option value="personalizada">Personalizada ({margensPdfMm.top}/{margensPdfMm.right}/{margensPdfMm.bottom}/{margensPdfMm.left} mm)</option>
+              </select>
+            </div>
+
             {/* Seletor de Orientação da Folha */}
             <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
               <span className="text-[10px] font-bold text-slate-500 uppercase px-1">Orientação:</span>
@@ -690,8 +820,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 title="Orientação da folha para PDF"
               >
                 <option value="auto">Auto ({orientacaoRecomendada === 'landscape' ? 'Paisagem' : 'Retrato'})</option>
-                <option value="portrait">Retrato (A4 Vertical)</option>
-                <option value="landscape">Paisagem (A4 Horizontal)</option>
+                <option value="portrait">Retrato ({formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'} Vertical)</option>
+                <option value="landscape">Paisagem ({formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'} Horizontal)</option>
               </select>
             </div>
 
@@ -771,8 +901,80 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               title="Configurar dizeres oficiais, cabeçalhos e disposição visual dos documentos com pré-visualização ao vivo"
             >
               <Settings className="h-4 w-4 text-amber-700" />
-              <span>Dizeres & Disposição A4</span>
+              <span>Dizeres & Disposição {formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Barra de Ajuste Fino de Margens (mm) & Área Útil com Cabeçalho Fixo */}
+        <div className="bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-3 text-[11px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-bold text-slate-700">Margens da Folha (mm):</span>
+            <label className="inline-flex items-center space-x-1 bg-white px-2 py-1 rounded border border-slate-300">
+              <span className="text-slate-500 font-semibold">Sup:</span>
+              <input
+                type="number"
+                min={2}
+                max={35}
+                step={1}
+                value={margensPdfMm.top}
+                onChange={(e) => handleAtualizarMargemLado('top', e.target.value)}
+                className="w-11 text-center font-mono font-bold text-slate-900 focus:outline-none"
+              />
+            </label>
+            <label className="inline-flex items-center space-x-1 bg-white px-2 py-1 rounded border border-slate-300">
+              <span className="text-slate-500 font-semibold">Dir:</span>
+              <input
+                type="number"
+                min={2}
+                max={35}
+                step={1}
+                value={margensPdfMm.right}
+                onChange={(e) => handleAtualizarMargemLado('right', e.target.value)}
+                className="w-11 text-center font-mono font-bold text-slate-900 focus:outline-none"
+              />
+            </label>
+            <label className="inline-flex items-center space-x-1 bg-white px-2 py-1 rounded border border-slate-300">
+              <span className="text-slate-500 font-semibold">Inf:</span>
+              <input
+                type="number"
+                min={2}
+                max={35}
+                step={1}
+                value={margensPdfMm.bottom}
+                onChange={(e) => handleAtualizarMargemLado('bottom', e.target.value)}
+                className="w-11 text-center font-mono font-bold text-slate-900 focus:outline-none"
+              />
+            </label>
+            <label className="inline-flex items-center space-x-1 bg-white px-2 py-1 rounded border border-slate-300">
+              <span className="text-slate-500 font-semibold">Esq:</span>
+              <input
+                type="number"
+                min={2}
+                max={35}
+                step={1}
+                value={margensPdfMm.left}
+                onChange={(e) => handleAtualizarMargemLado('left', e.target.value)}
+                className="w-11 text-center font-mono font-bold text-slate-900 focus:outline-none"
+              />
+            </label>
+            {margemPdfPreset !== 'padrao' && (
+              <button
+                type="button"
+                onClick={() => handleAlterarPresetMargem('padrao')}
+                className="text-[10px] font-bold text-blue-700 hover:underline px-1.5 cursor-pointer"
+              >
+                Repor Padrão (8mm)
+              </button>
+            )}
+          </div>
+          <div className="flex items-center space-x-2 text-[11px] text-slate-600">
+            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 font-bold">
+              Área Útil: {geometriaPdfAtual.printableWidthMm.toFixed(0)} × {geometriaPdfAtual.printableHeightMm.toFixed(0)} mm
+            </span>
+            <span className="hidden md:inline text-emerald-700 font-bold">
+              ✓ Insígnia e Dados do Aluno Fixos
+            </span>
           </div>
         </div>
 
@@ -1309,10 +1511,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all flex items-center space-x-1 cursor-pointer ${
                   modoVisualizacao === 'real' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
-                title="Visualizar em tamanho real de impressão A4 com rolagem horizontal livre"
+                title="Visualizar em tamanho real de impressão com rolagem horizontal livre"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
-                <span>100% Tamanho Real (A4)</span>
+                <span>100% Tamanho Real ({formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'})</span>
               </button>
             </div>
           </div>
@@ -1349,11 +1551,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </button>
             </div>
 
-            {/* Badge de Orientação Recomendada */}
+            {/* Badge de Página & Margem Selecionada */}
             <span className="inline-flex items-center space-x-1 text-[11px] px-2.5 py-1 bg-slate-800 rounded-lg text-slate-300 border border-slate-700">
-              <span>Norma MED:</span>
+              <span>Folha:</span>
               <strong className="text-amber-400">
-                {orientacaoRecomendada === 'landscape' ? 'A4 Paisagem (Horizontal)' : 'A4 Retrato (Vertical)'}
+                {formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'} {orientacaoRecomendada === 'landscape' ? 'Paisagem' : 'Retrato'} · {margensPdfMm.top}/{margensPdfMm.right}/{margensPdfMm.bottom}/{margensPdfMm.left}mm
               </strong>
             </span>
 
@@ -1372,21 +1574,28 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
         <div className="text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-800 pt-2">
           <span>
-            📋 <strong>{nomeDocumentoCurto}</strong> · Formatado conforme o Decreto Executivo n.º 250/18 e matriz curricular nacional de Angola.
+            📋 <strong>{nomeDocumentoCurto}</strong> · Formatado conforme o Decreto Executivo n.º 250/18 ({geometriaPdfAtual.pageWidthMm}×{geometriaPdfAtual.pageHeightMm} mm).
           </span>
           <span className="hidden sm:inline text-emerald-400 font-semibold">
-            ✓ Exportação PDF com preservação de carimbos e insígnia
+            ✓ Insígnia, carimbos e dados do aluno com posicionamento fixo
           </span>
         </div>
       </div>
 
-      {/* Container Responsivo de Pré-visualização com rolagem horizontal e zoom */}
+      {/* Container Responsivo de Pré-visualização com simulação real de folha (A4/Carta) e margens externas */}
       <div className="w-full overflow-x-auto pb-6 transition-all duration-300">
-        <div 
+        <div
+          data-pdf-paper-preview="true"
           style={{
             zoom: modoVisualizacao === 'real' ? `${zoomNivel}%` : undefined,
+            width: modoVisualizacao === 'real' && docType !== 'recibos' ? `${geometriaPdfAtual.pageWidthMm}mm` : undefined,
+            padding: docType !== 'recibos'
+              ? `${margensPdfMm.top}mm ${margensPdfMm.right}mm ${margensPdfMm.bottom}mm ${margensPdfMm.left}mm`
+              : undefined,
           }}
           className={`transition-all duration-200 ${
+            docType !== 'recibos' ? 'bg-slate-100/90 border border-dashed border-slate-300 rounded-2xl mx-auto shadow-inner ' : ''
+          }${
             modoVisualizacao === 'ajustar'
               ? 'w-full max-w-full overflow-x-auto'
               : 'inline-block min-w-full'
@@ -1406,10 +1615,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
         ) : (
         <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-4 print:border-2 print:border-gray-900">
-          {/* Cabeçalho Oficial MED Angola */}
-          <div className="relative border-b-2 border-black pb-3">
+          {/* Cabeçalho Oficial MED Angola com Posicionamento Fixo da Insígnia */}
+          <div data-pdf-fixed-header="true" className="relative border-b-2 border-black pb-3 min-h-[128px]">
             {/* VISTO DO DIRECTOR GERAL na parte superior esquerda */}
-            <div className="absolute left-0 top-0 text-left border border-black p-1.5 rounded bg-white w-36 print:w-32 z-10 block print:block shadow-2xs">
+            <div data-pdf-corner-left="true" className="absolute left-0 top-0 text-left border border-black p-1.5 rounded bg-white w-36 print:w-32 z-10 block print:block shadow-2xs">
               <div className="flex items-center justify-between">
                 <p className="font-black uppercase tracking-wider text-[8px] text-gray-900">VISTO</p>
                 <button
@@ -1442,7 +1651,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
             {/* Logotipo da Escola na parte superior direita */}
             {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) && (
-              <div className="absolute right-0 top-0 block print:block">
+              <div data-pdf-corner-right="true" className="absolute right-0 top-0 block print:block z-10">
                 <img 
                   src={escola.logotipoUrl || escola.logotipo} 
                   alt={`Logotipo ${escola.nomeOficial}`} 
@@ -1453,7 +1662,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             )}
 
             {/* Insígnia Nacional da República de Angola Centralizada antes de REPÚBLICA DE ANGOLA */}
-            <div className="text-center space-y-0.5">
+            <div data-pdf-center-insignia="true" className="text-center space-y-0.5 px-36 sm:px-40">
               <div className="flex justify-center mb-1">
                 {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                   <img 
@@ -1484,8 +1693,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          {/* Dados Pessoais e Académicos do Aluno */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] sm:text-[11px] py-3 border-b border-black">
+          {/* Dados Pessoais e Académicos do Aluno (Posicionamento Fixo 4 Colunas) */}
+          <div data-pdf-fixed-student="true" data-pdf-student-grid="4" className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] sm:text-[11px] py-3 border-b border-black">
             <div>
               <span className="text-gray-600 block">Ano Lectivo:</span>
               <strong className="text-blue-900 font-bold">{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
@@ -1658,8 +1867,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
         ) : (
         <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-5 sm:p-8 rounded-xl shadow-md max-w-6xl mx-auto text-black print:shadow-none print:p-4 print:border-2 print:border-gray-900 space-y-6">
-          {/* Cabeçalho Oficial com Insígnia Centralizada */}
-          <div className="text-center space-y-1 border-b-2 border-black pb-3">
+          {/* Cabeçalho Oficial com Insígnia Centralizada Fixa */}
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
               {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img 
@@ -1713,8 +1922,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          {/* Dados da Turma & Classe */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs py-2 border-b border-black">
+          {/* Dados da Turma & Classe Fixos */}
+          <div data-pdf-fixed-student="true" data-pdf-student-grid="6" className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs py-2 border-b border-black">
             <div>
               <span className="text-gray-600 block text-[10px]">Ano Lectivo:</span>
               <strong className="text-sm text-blue-900">{turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
@@ -2196,8 +2405,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
         ) : (
         <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-6 print:border-2 print:border-gray-900 space-y-6">
-          {/* Cabeçalho Oficial com Insígnia Centralizada */}
-          <div className="text-center space-y-1">
+          {/* Cabeçalho Oficial com Insígnia Centralizada Fixa */}
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
             <div className="flex justify-center mb-1">
               {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img 
@@ -2230,7 +2439,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Texto Legal e Identificação Completa do Aluno */}
-          <div className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
+          <div data-pdf-fixed-student="true" className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
             <p>
               {nomeDiretorGeral}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da <strong>{escola.artigoLegal || 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Bases do Sistema de Educação e Ensino)'}</strong>:
             </p>
@@ -2383,8 +2592,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
         ) : (
         <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-4 border-double border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:shadow-none print:p-6 print:border-4 print:border-double print:border-gray-900 space-y-6">
-          {/* Cabeçalho Oficial com Insígnia Centralizada */}
-          <div className="text-center space-y-1">
+          {/* Cabeçalho Oficial com Insígnia Centralizada Fixa */}
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
             <div className="flex justify-center mb-1">
               {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img 
@@ -2423,7 +2632,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Texto de Certificação */}
-          <div className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
+          <div data-pdf-fixed-student="true" className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
             <p>
               {nomeDiretorGeral}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Lei de Bases do Sistema de Educação e Ensino):
             </p>
@@ -2749,9 +2958,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
         >
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 no-print flex items-center justify-between">
             <div>
-              <strong>Passes Escolares Oficiais:</strong> Otimizados para impressão em papel cartão A4 (grade de 8 passes por página com marcações de corte).
+              <strong>Passes Escolares Oficiais:</strong> Otimizados para impressão em papel cartão {formatoPaginaPdf === 'letter' ? 'Carta (Letter)' : 'A4'} (grade de 8 passes por página com marcações de corte).
             </div>
-            <span className="font-bold bg-blue-200 px-2 py-0.5 rounded text-[11px]">8 passes por folha A4</span>
+            <span className="font-bold bg-blue-200 px-2 py-0.5 rounded text-[11px]">8 passes por folha {formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 print:grid-cols-2 print:gap-2">
@@ -2762,9 +2971,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   key={aluno.id}
                   className="bg-white border-2 border-blue-700 rounded-xl p-3 shadow-2xs relative flex flex-col justify-between min-h-[235px] print:min-h-[235px] print:border-black"
                 >
-                  {/* Cabeçalho do Cartão com Logotipo da Escola */}
+                  {/* Cabeçalho do Cartão com Insígnia Nacional + Logotipo da Escola Fixos */}
                   <div>
-                    <div className="text-center border-b pb-1 border-blue-200 print:border-gray-400">
+                    <div data-pdf-fixed-header="true" className="text-center border-b pb-1 border-blue-200 print:border-gray-400">
                       <div className="flex items-center justify-between px-1">
                         <div className="h-6 w-6 flex items-center justify-center shrink-0">
                           {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
@@ -2797,8 +3006,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       </span>
                     </div>
 
-                    {/* Foto & Dados do Aluno */}
-                    <div className="flex items-center space-x-2.5 mt-2">
+                    {/* Foto & Dados do Aluno Fixos */}
+                    <div data-pdf-fixed-student="true" className="flex items-center space-x-2.5 mt-2">
                       {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
                         <img 
                           src={aluno.fotoUrl} 
@@ -2876,7 +3085,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
         ) : (
         <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 md:p-10 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-6 print:border-2 print:border-gray-900 space-y-6">
-          <div className="text-center space-y-1 border-b-2 border-black pb-3">
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1 border-b-2 border-black pb-3">
             <div className="flex justify-center mb-1">
               {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                 <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
@@ -2895,8 +3104,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          {/* Destaque Matrícula e Processo */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono">
+          {/* Destaque Matrícula e Processo Fixo */}
+          <div data-pdf-fixed-student="true" data-pdf-student-grid="3" className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono">
             <div>
               <span className="text-gray-500 block text-[10px] font-sans">N.º DE MATRÍCULA:</span>
               <strong className="text-sm font-black text-blue-900">{alunoSelecionado.codigoMatricula}</strong>
@@ -2911,8 +3120,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </div>
           </div>
 
-          {/* Foto e Dados Pessoais */}
-          <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
+          {/* Foto e Dados Pessoais Fixos */}
+          <div data-pdf-fixed-student="true" data-pdf-student-row="true" className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
             {alunoSelecionado.fotoUrl && alunoSelecionado.fotoUrl.trim() !== '' ? (
               <img 
                 src={alunoSelecionado.fotoUrl} 
@@ -2925,7 +3134,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <span className="text-[8px] font-bold">FOTO 3x4</span>
               </div>
             )}
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
+            <div data-pdf-student-grid="2" className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
               <div><span className="text-gray-600">Nome Completo:</span> <strong className="uppercase">{alunoSelecionado.nomeCompleto}</strong></div>
               <div><span className="text-gray-600">Gênero:</span> <strong>{alunoSelecionado.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
               <div><span className="text-gray-600">Documento de Identificação:</span> <strong className="font-mono">{alunoSelecionado.tipoDocumento || 'BI'} nº {alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—'}</strong></div>
@@ -2937,9 +3146,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Filiação & Encarregado */}
-          <div className="border-b border-black pb-4 text-xs space-y-1">
+          <div data-pdf-fixed-student="true" className="border-b border-black pb-4 text-xs space-y-1">
             <h4 className="font-black uppercase text-[11px] text-gray-800">Filiação & Encarregado de Educação</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div data-pdf-student-grid="2" className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div><span className="text-gray-600">Nome do Pai:</span> <strong>{alunoSelecionado.nomePai || '—'}</strong></div>
               <div><span className="text-gray-600">Nome da Mãe:</span> <strong>{alunoSelecionado.nomeMae || '—'}</strong></div>
               <div><span className="text-gray-600">Encarregado de Educação:</span> <strong>{alunoSelecionado.nomeEncarregado || alunoSelecionado.encarregadoNome || '—'}</strong></div>
@@ -2948,9 +3157,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Dados Académicos */}
-          <div className="border-b border-black pb-4 text-xs space-y-1">
+          <div data-pdf-fixed-student="true" className="border-b border-black pb-4 text-xs space-y-1">
             <h4 className="font-black uppercase text-[11px] text-gray-800">Enquadramento Pedagógico</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded">
+            <div data-pdf-student-grid="4" className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded">
               <div><span className="text-gray-600 block">Classe:</span><strong>{alunoSelecionado.classeId || turmaDoAluno?.classe || '—'}</strong></div>
               <div><span className="text-gray-600 block">Turma:</span><strong>{turmaDoAluno?.nome || '—'}</strong></div>
               <div><span className="text-gray-600 block">Turno:</span><strong>{turmaDoAluno?.turno || '—'}</strong></div>
@@ -3040,7 +3249,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {funcionarioSelecionado ? (
             <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 md:p-10 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-6 print:border-2 print:border-gray-900 space-y-5">
-              <div className="text-center space-y-1 border-b-2 border-black pb-3">
+              <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1 border-b-2 border-black pb-3">
                 <div className="flex justify-center mb-1">
                   {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                     <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
@@ -3059,8 +3268,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </div>
               </div>
 
-              {/* Foto e Identificação */}
-              <div className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
+              {/* Foto e Identificação Fixa */}
+              <div data-pdf-fixed-student="true" data-pdf-student-row="true" className="flex flex-col sm:flex-row gap-5 items-start border-b border-black pb-4 text-xs">
                 {funcionarioSelecionado.fotoUrl && funcionarioSelecionado.fotoUrl.trim() !== '' ? (
                   <img 
                     src={funcionarioSelecionado.fotoUrl} 
@@ -3073,7 +3282,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     <span className="text-[8px] font-bold">FOTO 3x4</span>
                   </div>
                 )}
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
+                <div data-pdf-student-grid="2" className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
                   <div><span className="text-gray-600">Nome Completo:</span> <strong className="uppercase">{funcionarioSelecionado.nomeCompleto}</strong></div>
                   <div><span className="text-gray-600">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{funcionarioSelecionado.numeroBI || '—'}</strong></div>
                   <div><span className="text-gray-600">Gênero:</span> <strong>{funcionarioSelecionado.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
@@ -3193,7 +3402,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 md:p-10 rounded-xl shadow-md max-w-5xl mx-auto text-black print:shadow-none print:p-6 print:border-2 print:border-gray-900 space-y-5">
-            <div className="text-center space-y-1 border-b-2 border-black pb-3">
+            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1 border-b-2 border-black pb-3">
               <div className="flex justify-center mb-1">
                 {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                   <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-16 w-16 object-contain mx-auto" />
@@ -3212,7 +3421,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
             </div>
 
-            <div className="flex justify-between items-center text-xs font-bold bg-gray-50 p-2.5 rounded border border-gray-300">
+            <div data-pdf-fixed-student="true" className="flex justify-between items-center text-xs font-bold bg-gray-50 p-2.5 rounded border border-gray-300">
               <div>Turma: <span className="text-blue-900 font-extrabold">{turmaSelecionada?.nome}</span> ({turmaSelecionada?.classe})</div>
               <div>Turno: <span>{turmaSelecionada?.turno || 'Manhã'}</span> • Sala: <span>{turmaSelecionada?.sala || '01'}</span></div>
               <div>Ano Lectivo: <span>{turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</span></div>
@@ -3306,7 +3515,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               larguraTermica === '58mm' ? 'w-[280px]' : 'w-[360px]'
             }`}
           >
-            <div className="text-center space-y-0.5 border-b border-dashed border-gray-400 pb-2">
+            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-0.5 border-b border-dashed border-gray-400 pb-2">
               <div className="flex justify-center mb-1">
                 {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                   <img 
@@ -3325,7 +3534,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <p className="font-bold text-[10px] mt-1">COMPROVATIVO DE PAGAMENTO</p>
             </div>
 
-            <div className="space-y-1 text-[10px]">
+            <div data-pdf-fixed-student="true" className="space-y-1 text-[10px]">
               <div className="flex justify-between">
                 <span>Data:</span>
                 <span>{new Date().toLocaleDateString('pt-AO')} {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -3405,8 +3614,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             data-doc-root="true"
             className="documento-oficial-print bg-white border border-gray-400 p-8 shadow-lg max-w-[950px] w-full text-black space-y-5 print:border-none print:shadow-none print:p-0 print:max-w-none"
           >
-            {/* Topo Oficial com Brasão Oficial da República de Angola */}
-            <div className="text-center space-y-1">
+            {/* Topo Oficial com Brasão Oficial da República de Angola Fixo */}
+            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
               <div className="flex justify-center mb-1">
                 {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
                   <img 
@@ -3438,8 +3647,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
             </div>
 
-            {/* Metadados Oficiais */}
-            <div className="bg-gray-50 border border-black p-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2 font-medium">
+            {/* Metadados Oficiais Fixos */}
+            <div data-pdf-fixed-student="true" data-pdf-student-grid="4" className="bg-gray-50 border border-black p-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2 font-medium">
               <div>
                 <span className="text-gray-600 block text-[10px]">Classe / Curso:</span>
                 <strong className="text-gray-900">{turmaSelecionada.classe} • {turmaSelecionada.curso || 'Geral'}</strong>
@@ -3564,6 +3773,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           escola={escola}
           turma={turmaSelecionada || turmasDoAnoDocumento[0]}
           alunos={alunosDaTurma}
+          pdfFormat={formatoPaginaPdf}
+          pdfOrientation={orientacaoRecomendada}
+          pdfMargins={margensPdfMm}
         />
       )}
         </div>

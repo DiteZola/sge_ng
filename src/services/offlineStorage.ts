@@ -1,8 +1,10 @@
 /**
  * SGE-NG Angola - Motor de Persistência Offline Blindado (IndexedDB + LocalStorage Dual Mirror)
  * Garante 100% de disponibilidade contínua sem internet, prevenção absoluta de perda de dados,
- * diário de mutações atómicas (Offline Journal), fila coalescida de sincronização e espelhamento em IndexedDB.
+ * armazenamento dedicado de fotografias (Base64 + Blob) em IndexedDB, diário de mutações atómicas
+ * (Offline Journal), fila coalescida de sincronização e hidratação automática no arranque.
  */
+import { comprimirImagemBase64 } from '../utils/imageOptimizer';
 
 export interface OfflineJournalEntry {
   id: string;
@@ -38,11 +40,57 @@ export interface PendingSyncItem {
   autorRole?: string;
 }
 
+export interface StoredMediaEntry {
+  id: string; // `${entityType}:${entityId}`
+  entityType: 'funcionario' | 'aluno' | 'escola' | 'config';
+  entityId: string;
+  base64: string;
+  blob?: Blob | null;
+  mimeType: string;
+  updatedAt: string;
+}
+
 const DB_NAME = 'SGE_NG_ANGOLA_OFFLINE_DB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_ENTITIES = 'entities';
 const STORE_JOURNAL = 'journal';
 const STORE_SNAPSHOTS = 'snapshots';
+const STORE_MEDIA = 'media_blobs';
+const STORE_FUNCIONARIOS = 'funcionarios';
+
+export function base64ToBlob(dataUrl: string): Blob | null {
+  try {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
+    const [header, data] = dataUrl.split(',');
+    if (!data) return null;
+    const mimeMatch = header.match(/data:([^;]+);base64/i);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const binary = atob(data);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+export function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve(typeof reader.result === 'string' ? reader.result : '');
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve('');
+    }
+  });
+}
 
 class OfflineStorageEngine {
   private db: IDBDatabase | null = null;
@@ -51,6 +99,8 @@ class OfflineStorageEngine {
   private journalListeners: Array<(journal: OfflineJournalEntry[]) => void> = [];
   private mirrorQueue = new Set<string>();
   private mirrorTimer: ReturnType<typeof setTimeout> | null = null;
+  private mediaCache = new Map<string, string>();
+  private hydrationPromise: Promise<boolean> | null = null;
 
   constructor() {
     this.dbReadyPromise = this.initIndexedDB();
@@ -79,12 +129,23 @@ class OfflineStorageEngine {
           if (!db.objectStoreNames.contains(STORE_SNAPSHOTS)) {
             db.createObjectStore(STORE_SNAPSHOTS, { keyPath: 'id' });
           }
+          if (!db.objectStoreNames.contains(STORE_MEDIA)) {
+            const mStore = db.createObjectStore(STORE_MEDIA, { keyPath: 'id' });
+            mStore.createIndex('entityType', 'entityType', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(STORE_FUNCIONARIOS)) {
+            db.createObjectStore(STORE_FUNCIONARIOS, { keyPath: 'id' });
+          }
         };
 
         request.onsuccess = (event) => {
           this.db = (event.target as IDBOpenDBRequest).result;
-          // Espelhar após inicializar sem bloquear o thread principal
-          setTimeout(() => this.syncLocalStorageToIndexedDB(), 500);
+          // Primeiro hidratar cache de mídia / funcionários do IndexedDB, depois espelhar localStorage
+          setTimeout(() => {
+            this.hidratarArmazenamentoDoIndexedDB().finally(() => {
+              this.syncLocalStorageToIndexedDB();
+            });
+          }, 50);
           resolve(true);
         };
 
@@ -198,6 +259,392 @@ class OfflineStorageEngine {
         resolve(false);
       }
     });
+  }
+
+  private eliminarDoIndexedDB(storeName: string, key: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!this.db) return resolve(false);
+      try {
+        const tx = this.db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        store.delete(key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
+  private lerTodosDoIndexedDB<T = any>(storeName: string): Promise<T[]> {
+    return new Promise((resolve) => {
+      if (!this.db || !this.db.objectStoreNames.contains(storeName)) return resolve([]);
+      try {
+        const tx = this.db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+        req.onerror = () => resolve([]);
+      } catch {
+        resolve([]);
+      }
+    });
+  }
+
+  private lerUmDoIndexedDB<T = any>(storeName: string, key: string): Promise<T | null> {
+    return new Promise((resolve) => {
+      if (!this.db || !this.db.objectStoreNames.contains(storeName)) return resolve(null);
+      try {
+        const tx = this.db.transaction(storeName, 'readonly');
+        const store = tx.objectStore(storeName);
+        const req = store.get(key);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  public obterMidiaEmCache(entityType: StoredMediaEntry['entityType'], entityId: string): string | undefined {
+    if (!entityId) return undefined;
+    return this.mediaCache.get(`${entityType}:${entityId}`);
+  }
+
+  public definirMidiaEmCache(entityType: StoredMediaEntry['entityType'], entityId: string, base64: string): void {
+    if (!entityId) return;
+    const key = `${entityType}:${entityId}`;
+    if (!base64 || base64 === '__idb_media__') {
+      if (base64 === '') this.mediaCache.set(key, '');
+      return;
+    }
+    this.mediaCache.set(key, base64);
+  }
+
+  /**
+   * Converte qualquer fonte de fotografia (Blob, File, blob: URL ou Base64 pesada)
+   * em Data URL Base64 portátil e otimizada para IndexedDB + Firebase (< 140KB).
+   */
+  public async converterFonteParaBase64Portatil(
+    fonte: unknown,
+    maxDim: number = 460,
+    qualidade: number = 0.80
+  ): Promise<string> {
+    if (fonte === undefined || fonte === null) return '';
+
+    if (typeof Blob !== 'undefined' && fonte instanceof Blob) {
+      const b64 = await blobToBase64(fonte);
+      if (!b64) return '';
+      return comprimirImagemBase64(b64, maxDim, qualidade);
+    }
+
+    if (typeof fonte !== 'string') return '';
+    const trimmed = fonte.trim();
+    if (!trimmed || trimmed === '__idb_media__') return '';
+
+    if (trimmed.startsWith('blob:')) {
+      try {
+        const resp = await fetch(trimmed);
+        const blob = await resp.blob();
+        const b64 = await blobToBase64(blob);
+        if (!b64) return '';
+        return comprimirImagemBase64(b64, maxDim, qualidade);
+      } catch {
+        return '';
+      }
+    }
+
+    if (trimmed.startsWith('data:image/') || trimmed.includes(';base64,')) {
+      if (trimmed.length > 130000) {
+        try {
+          return await comprimirImagemBase64(trimmed, maxDim, qualidade);
+        } catch {
+          return trimmed;
+        }
+      }
+      return trimmed;
+    }
+
+    return trimmed;
+  }
+
+  /**
+   * Persiste imediatamente a fotografia (Base64 + Blob binário) no IndexedDB (store media_blobs).
+   */
+  public async salvarMidia(
+    entityType: StoredMediaEntry['entityType'],
+    entityId: string,
+    valor: string | Blob | null | undefined,
+    updatedAt: string = new Date().toISOString()
+  ): Promise<string> {
+    if (!entityId) return '';
+    const cacheKey = `${entityType}:${entityId}`;
+
+    if (valor === '' || valor === null) {
+      this.mediaCache.set(cacheKey, '');
+      await this.dbReadyPromise;
+      await this.eliminarDoIndexedDB(STORE_MEDIA, cacheKey);
+      return '';
+    }
+
+    let base64 = '';
+    let blob: Blob | null = null;
+
+    if (typeof Blob !== 'undefined' && valor instanceof Blob) {
+      blob = valor;
+      base64 = await this.converterFonteParaBase64Portatil(valor);
+      if (base64) {
+        blob = base64ToBlob(base64) || valor;
+      }
+    } else if (typeof valor === 'string') {
+      const trimmed = valor.trim();
+      if (!trimmed || trimmed === '__idb_media__') return this.mediaCache.get(cacheKey) || '';
+      if (trimmed.startsWith('blob:')) {
+        try {
+          const resp = await fetch(trimmed);
+          blob = await resp.blob();
+        } catch {}
+        base64 = await this.converterFonteParaBase64Portatil(trimmed);
+        if (base64) blob = base64ToBlob(base64) || blob;
+      } else {
+        base64 = await this.converterFonteParaBase64Portatil(trimmed);
+        if (base64.startsWith('data:')) {
+          blob = base64ToBlob(base64);
+        }
+      }
+    }
+
+    if (base64) {
+      this.mediaCache.set(cacheKey, base64);
+      await this.dbReadyPromise;
+      const entry: StoredMediaEntry = {
+        id: cacheKey,
+        entityType,
+        entityId,
+        base64,
+        blob,
+        mimeType: blob?.type || 'image/jpeg',
+        updatedAt
+      };
+      await this.gravarNoIndexedDB(STORE_MEDIA, entry);
+    }
+
+    return base64;
+  }
+
+  public async obterMidia(entityType: StoredMediaEntry['entityType'], entityId: string): Promise<string> {
+    if (!entityId) return '';
+    const cacheKey = `${entityType}:${entityId}`;
+    const cached = this.mediaCache.get(cacheKey);
+    if (cached !== undefined && cached !== '__idb_media__') return cached;
+
+    await this.dbReadyPromise;
+    const entry = await this.lerUmDoIndexedDB<StoredMediaEntry>(STORE_MEDIA, cacheKey);
+    if (!entry) return '';
+    let base64 = entry.base64 || '';
+    if (!base64 && entry.blob) {
+      base64 = await blobToBase64(entry.blob);
+    }
+    if (base64) {
+      this.mediaCache.set(cacheKey, base64);
+    }
+    return base64;
+  }
+
+  public async gravarChaveNoIndexedDB(key: string, value: string): Promise<boolean> {
+    await this.dbReadyPromise;
+    return this.gravarNoIndexedDB(STORE_ENTITIES, {
+      key,
+      value,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  public async lerChaveNoIndexedDB(key: string): Promise<string | null> {
+    await this.dbReadyPromise;
+    const rec = await this.lerUmDoIndexedDB<{ key: string; value: string }>(STORE_ENTITIES, key);
+    return rec?.value ?? null;
+  }
+
+  /**
+   * Persiste imediatamente um funcionário e a sua fotoUrl (Base64 + Blob) no IndexedDB.
+   */
+  public async salvarFuncionarioNoIndexedDB(func: any): Promise<void> {
+    if (!func || !func.id) return;
+    if (typeof func.fotoUrl === 'string' && func.fotoUrl && func.fotoUrl !== '__idb_media__' && !func.fotoUrl.startsWith('blob:')) {
+      this.definirMidiaEmCache('funcionario', func.id, func.fotoUrl);
+    }
+    await this.dbReadyPromise;
+    const updatedAt = func.atualizadoEm || new Date().toISOString();
+    let fotoPortatil = func.fotoUrl;
+    if (func.fotoUrl !== undefined) {
+      if (func.fotoUrl === '' || func.fotoUrl === null) {
+        fotoPortatil = await this.salvarMidia('funcionario', func.id, '', updatedAt);
+      } else if (func.fotoUrl !== '__idb_media__') {
+        fotoPortatil = await this.salvarMidia('funcionario', func.id, func.fotoUrl, updatedAt);
+      } else {
+        fotoPortatil = await this.obterMidia('funcionario', func.id);
+      }
+    }
+    const registroIndexedDB = {
+      ...func,
+      fotoUrl: fotoPortatil !== undefined ? fotoPortatil : (func.fotoUrl || ''),
+      atualizadoEm: updatedAt
+    };
+    await this.gravarNoIndexedDB(STORE_FUNCIONARIOS, registroIndexedDB);
+  }
+
+  public async salvarFuncionariosLoteNoIndexedDB(funcs: any[]): Promise<void> {
+    if (!Array.isArray(funcs) || funcs.length === 0) return;
+    for (const f of funcs) {
+      if (f?.id && typeof f.fotoUrl === 'string' && f.fotoUrl && f.fotoUrl !== '__idb_media__' && !f.fotoUrl.startsWith('blob:')) {
+        this.definirMidiaEmCache('funcionario', f.id, f.fotoUrl);
+      }
+    }
+    await this.dbReadyPromise;
+    if (!this.db) return;
+    const now = new Date().toISOString();
+    try {
+      const tx = this.db.transaction([STORE_FUNCIONARIOS, STORE_MEDIA], 'readwrite');
+      const fStore = tx.objectStore(STORE_FUNCIONARIOS);
+      const mStore = tx.objectStore(STORE_MEDIA);
+      for (const f of funcs) {
+        if (!f || !f.id) continue;
+        const updatedAt = f.atualizadoEm || now;
+        fStore.put({ ...f, atualizadoEm: updatedAt });
+        if (typeof f.fotoUrl === 'string' && f.fotoUrl && f.fotoUrl !== '__idb_media__' && !f.fotoUrl.startsWith('blob:')) {
+          const blob = f.fotoUrl.startsWith('data:') ? base64ToBlob(f.fotoUrl) : null;
+          mStore.put({
+            id: `funcionario:${f.id}`,
+            entityType: 'funcionario',
+            entityId: f.id,
+            base64: f.fotoUrl,
+            blob,
+            mimeType: blob?.type || 'image/jpeg',
+            updatedAt
+          });
+        }
+      }
+    } catch {}
+  }
+
+  /**
+   * Hidrata fotos e funcionários guardados no IndexedDB para a memória e localStorage no arranque.
+   */
+  public hidratarArmazenamentoDoIndexedDB(): Promise<boolean> {
+    if (this.hydrationPromise) return this.hydrationPromise;
+    this.hydrationPromise = (async () => {
+      try {
+        const ready = await this.dbReadyPromise;
+        if (!ready || !this.db) return false;
+
+        let mudouAlgumDado = false;
+        const medias = await this.lerTodosDoIndexedDB<StoredMediaEntry>(STORE_MEDIA);
+        for (const m of medias) {
+          let b64 = m.base64 || '';
+          if (!b64 && m.blob) {
+            b64 = await blobToBase64(m.blob);
+          }
+          if (b64 && m.entityType && m.entityId) {
+            this.mediaCache.set(`${m.entityType}:${m.entityId}`, b64);
+          }
+        }
+
+        const funcsIdb = await this.lerTodosDoIndexedDB<any>(STORE_FUNCIONARIOS);
+        if (funcsIdb.length > 0 && typeof localStorage !== 'undefined') {
+          let funcsLocal: any[] = [];
+          try {
+            const raw = localStorage.getItem('sge_funcionarios');
+            if (raw && raw !== 'undefined' && raw !== 'null') {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) funcsLocal = parsed;
+            }
+          } catch {}
+
+          const mapLocal = new Map<string, any>(funcsLocal.filter(Boolean).map(f => [f.id, f]));
+          for (const fIdb of funcsIdb) {
+            if (!fIdb?.id) continue;
+            const fotoCache = this.mediaCache.get(`funcionario:${fIdb.id}`);
+            const fotoIdb = (fIdb.fotoUrl && fIdb.fotoUrl !== '__idb_media__') ? fIdb.fotoUrl : (fotoCache || '');
+            const existing = mapLocal.get(fIdb.id);
+
+            if (!existing) {
+              mapLocal.set(fIdb.id, { ...fIdb, fotoUrl: fotoIdb });
+              mudouAlgumDado = true;
+            } else {
+              const tLocal = existing.atualizadoEm ? Date.parse(String(existing.atualizadoEm)) : 0;
+              const tIdb = fIdb.atualizadoEm ? Date.parse(String(fIdb.atualizadoEm)) : 0;
+              if (tIdb > tLocal) {
+                mapLocal.set(fIdb.id, { ...existing, ...fIdb, fotoUrl: fotoIdb || existing.fotoUrl || '' });
+                mudouAlgumDado = true;
+              } else if ((!existing.fotoUrl || existing.fotoUrl === '__idb_media__' || existing.fotoUrl.startsWith('blob:')) && fotoIdb) {
+                mapLocal.set(fIdb.id, { ...existing, fotoUrl: fotoIdb });
+                mudouAlgumDado = true;
+              }
+            }
+          }
+
+          if (mudouAlgumDado) {
+            try {
+              localStorage.setItem('sge_funcionarios', JSON.stringify(Array.from(mapLocal.values())));
+            } catch {}
+          }
+
+          // Garantir que sge_current_user também recupera fotoUrl se perdida
+          try {
+            const curRaw = localStorage.getItem('sge_current_user');
+            if (curRaw && curRaw !== 'undefined' && curRaw !== 'null') {
+              const cur = JSON.parse(curRaw);
+              if (cur?.id) {
+                const fotoRestaurada = this.mediaCache.get(`funcionario:${cur.id}`) || mapLocal.get(cur.id)?.fotoUrl;
+                if ((!cur.fotoUrl || cur.fotoUrl === '__idb_media__' || cur.fotoUrl.startsWith('blob:')) && fotoRestaurada) {
+                  cur.fotoUrl = fotoRestaurada;
+                  localStorage.setItem('sge_current_user', JSON.stringify(cur));
+                  localStorage.setItem('sge_user', JSON.stringify(cur));
+                  mudouAlgumDado = true;
+                }
+              }
+            }
+          } catch {}
+        }
+
+        // Hidratar fotos de alunos caso localStorage tenha placeholder __idb_media__
+        if (typeof localStorage !== 'undefined') {
+          try {
+            const alRaw = localStorage.getItem('sge_alunos');
+            if (alRaw && alRaw !== 'undefined' && alRaw !== 'null') {
+              const alParsed = JSON.parse(alRaw);
+              if (Array.isArray(alParsed)) {
+                let alChanged = false;
+                const alHydrated = alParsed.map((a: any) => {
+                  const fotoCache = a?.id ? this.mediaCache.get(`aluno:${a.id}`) : undefined;
+                  if (a && (!a.fotoUrl || a.fotoUrl === '__idb_media__' || a.fotoUrl.startsWith('blob:')) && fotoCache) {
+                    alChanged = true;
+                    return { ...a, fotoUrl: fotoCache };
+                  }
+                  return a;
+                });
+                if (alChanged) {
+                  try {
+                    localStorage.setItem('sge_alunos', JSON.stringify(alHydrated));
+                  } catch {}
+                  mudouAlgumDado = true;
+                }
+              }
+            }
+          } catch {}
+        }
+
+        if (mudouAlgumDado && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+        }
+        return mudouAlgumDado;
+      } catch (e) {
+        console.warn('[SGE Offline] Aviso na hidratação do IndexedDB:', e);
+        return false;
+      }
+    })();
+    return this.hydrationPromise;
   }
 
   /**

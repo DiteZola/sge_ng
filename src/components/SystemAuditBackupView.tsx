@@ -38,10 +38,13 @@ import {
   GraduationCap,
   Sparkles,
   Award,
-  Info
+  Info,
+  Clock,
+  Layers,
+  RotateCcw
 } from 'lucide-react';
 import { LogAuditoria, Escola, Funcionario, Aluno, ConfiguracaoSistema, UserRole, RegraCalculoMAC, NivelEnsino } from '../types';
-import { dbService } from '../services/storage';
+import { dbService, IncrementalBackupSummary } from '../services/storage';
 import { locationService } from '../services/locationService';
 import { InsigniaAngola } from '../constants/insignia';
 import { DocumentTemplateConfigModal } from './DocumentTemplateConfigModal';
@@ -89,6 +92,15 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   }, [initialTab]);
   const [filtroAcao, setFiltroAcao] = useState('TODAS');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [resumoIncremental, setResumoIncremental] = useState<IncrementalBackupSummary>(() =>
+    dbService.obterResumoBackupIncremental(escola.id)
+  );
+
+  useEffect(() => {
+    if (activeTab === 'backup_restauracao') {
+      setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+    }
+  }, [activeTab, escola.id, logs.length, alunos.length, funcionarios.length]);
 
   // Configuração Global do Sistema
   const [configSistema, setConfigSistema] = useState<ConfiguracaoSistema>(() => dbService.getConfiguracaoSistema());
@@ -609,7 +621,27 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   // Exportar Backup JSON Completo
   const handleExportBackup = () => {
     dbService.gerarBackupJSON(escola.id);
-    notificar('Ficheiro de backup JSON gerado e transferido para o seu dispositivo.');
+    setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+    notificar('Ficheiro de backup JSON completo gerado e ponto de verificação incremental atualizado.');
+  };
+
+  // Atualizar pré-visualização de alterações pendentes para Backup Incremental
+  const handleAtualizarResumoIncremental = () => {
+    setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+  };
+
+  // Exportar Backup Incremental (.json apenas com alterações/deltas)
+  const handleExportBackupIncremental = () => {
+    const res = dbService.gerarBackupIncrementalJSON(escola.id);
+    setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+    notificar(res.mensagem);
+  };
+
+  // Reiniciar ponto de base para Backup Incremental
+  const handleReiniciarBaseIncremental = () => {
+    dbService.limparCheckpointBackupIncremental(escola.id);
+    setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+    notificar('Linha de base incremental reiniciada. O próximo backup capturará todos os registos como ponto inicial.');
   };
 
   // Exportações Específicas em Excel e JSON
@@ -653,7 +685,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     notificar('Cópia de segurança JSON de todo o Sistema Nacional transferida com sucesso.');
   };
 
-  // Importar / Restaurar Backup JSON
+  // Importar / Restaurar Backup JSON (Suporta Completo e Incremental)
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -662,16 +694,28 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     reader.onload = (event) => {
       const content = event.target?.result as string;
       if (content) {
+        let ehIncremental = false;
+        try {
+          const parsed = JSON.parse(content);
+          ehIncremental = parsed?.tipoBackup === 'INCREMENTAL';
+        } catch {}
+
         const sucesso = dbService.restaurarBackupJSON(content);
         if (sucesso) {
-          if (onRestaurarBackup) onRestaurarBackup(content);
-          notificar('Cópia de segurança restaurada com sucesso!');
+          if (onRestaurarBackup) onRestaurarBackup('__REFRESH_ONLY__');
+          setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+          notificar(
+            ehIncremental
+              ? 'Backup incremental aplicado com sucesso (registos mesclados sem perda dos dados existentes)!'
+              : 'Cópia de segurança completa restaurada com sucesso!'
+          );
         } else {
           notificar('Erro ao restaurar cópia de segurança. O ficheiro não possui um formato JSON válido do SGE-NG.');
         }
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   // Forçar Sincronização Nuvem / Offline
@@ -680,6 +724,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     const res = await dbService.sincronizarComFirebase();
     notificar(res.mensagem);
     setConfigSistema(dbService.getConfiguracaoSistema());
+    setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
   };
 
   // Alternar interruptores de configuração do Administrador Geral
@@ -947,59 +992,180 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
             </div>
           </div>
 
-          {/* Cartões de Ação de Backup & Restauração */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Criar Backup */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-4">
-              <div className="flex items-center space-x-3 text-blue-700">
-                <Download className="h-6 w-6" />
-                <h3 className="text-base font-bold text-gray-900">Gerar Cópia de Segurança Completa</h3>
-              </div>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                Exporta um arquivo snapshot seguro em formato <strong>.JSON</strong> contendo a totalidade dos dados da instituição:
-                escolas, estudantes, turmas, notas consolidadas, lançamentos da MAC, transações financeiras, despesas e património.
-              </p>
-              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
-                <p className="font-bold">Conteúdo do Arquivo:</p>
-                <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                  <li>{alunos.length} Estudantes com dados biográficos e notas</li>
-                  <li>{funcionarios.length} Funcionários e respetivas credenciais</li>
-                  <li>Registo patrimonial e livros de caixa</li>
-                </ul>
+          {/* Cartões de Ação de Backup Completo, Incremental & Restauração */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* 1. Criar Backup Completo */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3 text-blue-700">
+                  <Download className="h-6 w-6 shrink-0" />
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Backup Completo (Snapshot)</h3>
+                    <span className="text-[10px] font-bold uppercase text-blue-700">Cópia Integral + Define Linha de Base</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Exporta a totalidade dos dados da instituição em <strong>.JSON</strong> (escolas, estudantes, turmas, notas, finanças e configurações) e grava o ponto inicial para os backups incrementais.
+                </p>
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
+                  <p className="font-bold">Conteúdo do Arquivo:</p>
+                  <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
+                    <li>{alunos.length} Estudantes com biografia e notas</li>
+                    <li>{funcionarios.length} Funcionários e credenciais</li>
+                    <li>Registos financeiros, biblioteca e património</li>
+                  </ul>
+                </div>
               </div>
               <button
                 onClick={handleExportBackup}
                 className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition-all cursor-pointer"
               >
                 <Download className="h-4 w-4" />
-                <span>Descarregar Snapshot JSON (.json)</span>
+                <span>Descarregar Snapshot Completo (.json)</span>
               </button>
             </div>
 
-            {/* Restaurar Backup */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-4">
-              <div className="flex items-center space-x-3 text-emerald-700">
-                <Upload className="h-6 w-6" />
-                <h3 className="text-base font-bold text-gray-900">Restaurar Cópia de Segurança</h3>
-              </div>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                Restaura o estado completo da base de dados a partir de um arquivo gerado anteriormente.
-                Útil para recuperação de desastres, transferências de servidor ou encerramento do ano letivo.
-              </p>
-
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
-                <div className="flex items-center space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0" />
-                  <span className="font-bold">Aviso Importante:</span>
+            {/* 2. Backup Incremental (Delta) */}
+            <div className="bg-white rounded-2xl border-2 border-indigo-200 shadow-xs p-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center space-x-2.5 text-indigo-700">
+                    <Layers className="h-6 w-6 shrink-0" />
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900">Backup Incremental (Delta)</h3>
+                      <span className="text-[10px] font-bold uppercase text-indigo-700">
+                        Apenas Alterações · Sequência #{resumoIncremental.sequenciaAtual + 1}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      type="button"
+                      onClick={handleAtualizarResumoIncremental}
+                      className="p-1.5 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                      title="Recalcular alterações pendentes"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    </button>
+                    {resumoIncremental.temCheckpointBase && (
+                      <button
+                        type="button"
+                        onClick={handleReiniciarBaseIncremental}
+                        className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Reiniciar linha de base incremental"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="text-[11px] mt-1">
-                  A restauração substituirá os registos atuais pelos dados contidos no ficheiro. Garanta que o ficheiro pertence à sua instituição.
+
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Gera um ficheiro leve contendo <strong>exclusivamente os registos adicionados, alterados ou eliminados</strong> desde o último backup.
                 </p>
+
+                <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-indigo-950">
+                    <span className="inline-flex items-center space-x-1 font-semibold">
+                      <Clock className="h-3.5 w-3.5 text-indigo-600" />
+                      <span>Último Ponto Base:</span>
+                    </span>
+                    <span className="font-bold">
+                      {resumoIncremental.ultimoBackupEm
+                        ? `${new Date(resumoIncremental.ultimoBackupEm).toLocaleString('pt-AO')} (${resumoIncremental.tipoUltimoBackup === 'COMPLETO' ? 'Completo' : 'Incremental'})`
+                        : 'Sem base anterior'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-indigo-200/70 text-center">
+                    <div className="bg-white rounded-lg p-1.5 border border-indigo-100">
+                      <span className="block text-[10px] text-slate-500 font-semibold">Novos/Alterados</span>
+                      <strong className="text-sm font-black text-indigo-800">{resumoIncremental.totalAdicionadosOuAlterados}</strong>
+                    </div>
+                    <div className="bg-white rounded-lg p-1.5 border border-indigo-100">
+                      <span className="block text-[10px] text-slate-500 font-semibold">Eliminados</span>
+                      <strong className="text-sm font-black text-rose-700">{resumoIncremental.totalEliminados}</strong>
+                    </div>
+                    <div className="bg-white rounded-lg p-1.5 border border-indigo-100">
+                      <span className="block text-[10px] text-slate-500 font-semibold">Tam. Estimado</span>
+                      <strong className="text-sm font-black text-emerald-700">{resumoIncremental.estimativaTamanhoKB} KB</strong>
+                    </div>
+                  </div>
+
+                  {resumoIncremental.detalhesPorColecao.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {resumoIncremental.detalhesPorColecao.slice(0, 6).map((det) => (
+                        <span
+                          key={det.colecao}
+                          className="px-2 py-0.5 bg-white border border-indigo-200 rounded text-[10px] font-bold text-indigo-900"
+                        >
+                          {det.rotulo}: {det.alterados > 0 ? `+${det.alterados}` : ''}{det.alterados > 0 && det.eliminados > 0 ? ' / ' : ''}{det.eliminados > 0 ? `-${det.eliminados}` : ''}
+                        </span>
+                      ))}
+                      {resumoIncremental.detalhesPorColecao.length > 6 && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                          +{resumoIncremental.detalhesPorColecao.length - 6} módulos
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] font-bold text-emerald-800 flex items-center space-x-1 pt-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <span>Nenhuma alteração pendente desde o último backup.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportBackupIncremental}
+                disabled={
+                  resumoIncremental.temCheckpointBase &&
+                  resumoIncremental.totalAdicionadosOuAlterados === 0 &&
+                  resumoIncremental.totalEliminados === 0
+                }
+                className="w-full py-3 bg-indigo-700 hover:bg-indigo-800 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition-all cursor-pointer"
+              >
+                <Layers className="h-4 w-4" />
+                <span>
+                  {resumoIncremental.temCheckpointBase &&
+                  resumoIncremental.totalAdicionadosOuAlterados === 0 &&
+                  resumoIncremental.totalEliminados === 0
+                    ? 'Sem Alterações Pendentes'
+                    : `Descarregar Backup Incremental (#${resumoIncremental.sequenciaAtual + 1})`}
+                </span>
+              </button>
+            </div>
+
+            {/* 3. Restaurar Backup (Completo ou Incremental) */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center space-x-3 text-emerald-700">
+                  <Upload className="h-6 w-6 shrink-0" />
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">Restaurar Cópia de Segurança</h3>
+                    <span className="text-[10px] font-bold uppercase text-emerald-700">Deteta Completo ou Incremental</span>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Importe um ficheiro <strong>Completo</strong> (substitui o estado integral) ou um ficheiro <strong>Incremental</strong> (aplica apenas as atualizações e eliminações mantendo os restantes dados intactos).
+                </p>
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-700 shrink-0" />
+                    <span className="font-bold">Ordem Recomendada:</span>
+                  </div>
+                  <p className="text-[11px] mt-1">
+                    Para recuperação total a partir de backups incrementais, restaure primeiro o último Backup Completo e depois os incrementais pela ordem da sequência (#001, #002...).
+                  </p>
+                </div>
               </div>
 
               <label className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 border-2 border-dashed border-emerald-600 text-emerald-800 rounded-xl text-xs font-bold flex items-center justify-center space-x-2 transition-all cursor-pointer">
                 <Upload className="h-4 w-4" />
-                <span>Selecionar Ficheiro de Backup (.json) no Dispositivo</span>
+                <span>Selecionar Backup Completo ou Incremental (.json)</span>
                 <input
                   type="file"
                   accept=".json"
