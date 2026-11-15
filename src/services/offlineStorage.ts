@@ -101,6 +101,7 @@ class OfflineStorageEngine {
   private mirrorTimer: ReturnType<typeof setTimeout> | null = null;
   private mediaCache = new Map<string, string>();
   private hydrationPromise: Promise<boolean> | null = null;
+  private pendingQueueMemory: PendingSyncItem[] | null = null;
 
   constructor() {
     this.dbReadyPromise = this.initIndexedDB();
@@ -529,7 +530,7 @@ class OfflineStorageEngine {
   }
 
   /**
-   * Hidrata fotos e funcionários guardados no IndexedDB para a memória e localStorage no arranque.
+   * Hidrata fotos, entidades críticas e fila de pendências guardadas no IndexedDB para a memória e localStorage no arranque.
    */
   public hidratarArmazenamentoDoIndexedDB(): Promise<boolean> {
     if (this.hydrationPromise) return this.hydrationPromise;
@@ -548,6 +549,72 @@ class OfflineStorageEngine {
           if (b64 && m.entityType && m.entityId) {
             this.mediaCache.set(`${m.entityType}:${m.entityId}`, b64);
           }
+        }
+
+        // Restaurar chaves críticas espelhadas no IndexedDB caso o localStorage esteja vazio
+        if (typeof localStorage !== 'undefined') {
+          const chavesCriticas = [
+            'sge_configuracao_sistema',
+            'sge_escolas',
+            'sge_funcionarios',
+            'sge_alunos',
+            'sge_turmas',
+            'sge_disciplinas',
+            'sge_atribuicoes',
+            'sge_notas_consolidadas',
+            'sge_notas',
+            'sge_avaliacoes'
+          ];
+          for (const k of chavesCriticas) {
+            try {
+              const curVal = localStorage.getItem(k);
+              const isEmptyLocal = !curVal || curVal === '[]' || curVal === '{}' || curVal === 'undefined' || curVal === 'null';
+              if (isEmptyLocal) {
+                const rec = await this.lerUmDoIndexedDB<{ key: string; value: string }>(STORE_ENTITIES, k);
+                if (rec?.value && rec.value !== '[]' && rec.value !== '{}') {
+                  try {
+                    localStorage.setItem(k, rec.value);
+                    mudouAlgumDado = true;
+                  } catch {}
+                }
+              }
+            } catch {}
+          }
+
+          // Restaurar e mesclar fila de pendências de sincronização guardada no IndexedDB
+          try {
+            const pendRec = await this.lerUmDoIndexedDB<{ key: string; value: string }>(STORE_ENTITIES, 'sge_pending_sync_queue');
+            if (pendRec?.value) {
+              const idbQueue = JSON.parse(pendRec.value);
+              if (Array.isArray(idbQueue) && idbQueue.length > 0) {
+                const lsRaw = localStorage.getItem('sge_pending_sync_queue');
+                const lsQueue: PendingSyncItem[] = lsRaw ? JSON.parse(lsRaw) : [];
+                const merged = new Map<string, PendingSyncItem>();
+                for (const p of idbQueue) {
+                  if (p && p.entidade) {
+                    const key = `${p.entidade.toLowerCase()}::${p.docId || p.dados?.id || p.id}`;
+                    merged.set(key, p);
+                  }
+                }
+                if (Array.isArray(lsQueue)) {
+                  for (const p of lsQueue) {
+                    if (p && p.entidade) {
+                      const key = `${p.entidade.toLowerCase()}::${p.docId || p.dados?.id || p.id}`;
+                      const prev = merged.get(key);
+                      if (!prev || (p.timestamp && (!prev.timestamp || p.timestamp >= prev.timestamp))) {
+                        merged.set(key, p);
+                      }
+                    }
+                  }
+                }
+                const mergedList = Array.from(merged.values());
+                this.pendingQueueMemory = mergedList;
+                try {
+                  localStorage.setItem('sge_pending_sync_queue', JSON.stringify(mergedList));
+                } catch {}
+              }
+            }
+          } catch {}
         }
 
         const funcsIdb = await this.lerTodosDoIndexedDB<any>(STORE_FUNCIONARIOS);
@@ -930,17 +997,85 @@ class OfflineStorageEngine {
   }
 
   /**
-   * Gestão de Fila de Informações Pendentes para Sincronizar com o Firebase (com coalescência por coleção + docId)
+   * Compacta campos Base64 pesados ao guardar item na fila de pendências para evitar QuotaExceededError no localStorage,
+   * assegurando que a mídia real permanece salva no IndexedDB (store media_blobs).
+   */
+  private slimDadosParaFila(entidade: string, docId: string | undefined, dados: any): any {
+    if (!dados || typeof dados !== 'object') return dados;
+    const entNorm = entidade.toLowerCase();
+    const entityType: StoredMediaEntry['entityType'] =
+      entNorm === 'funcionarios' || entNorm === 'users'
+        ? 'funcionario'
+        : entNorm === 'alunos' || entNorm === 'students'
+        ? 'aluno'
+        : entNorm === 'escolas' || entNorm === 'schools'
+        ? 'escola'
+        : 'config';
+    const mediaEntityId = docId || dados.id || 'global';
+    const imageKeys = ['fotoUrl', 'foto', 'logotipo', 'logotipoUrl', 'assinaturaDiretorUrl', 'insigniaNacionalUrl'];
+    let cloned: Record<string, any> | null = null;
+
+    for (const k of imageKeys) {
+      const val = dados[k];
+      if (typeof val === 'string' && val.length > 4096 && val !== '__idb_media__' && !val.startsWith('http')) {
+        const target = cloned ?? (cloned = { ...dados });
+        this.definirMidiaEmCache(entityType, mediaEntityId, val);
+        this.salvarMidia(entityType, mediaEntityId, val, dados.atualizadoEm);
+        target[k] = '__idb_media__';
+      }
+    }
+    return cloned ?? dados;
+  }
+
+  private persistirPendencias(list: PendingSyncItem[], lastAddedItem?: PendingSyncItem): void {
+    this.pendingQueueMemory = list;
+    const serialized = JSON.stringify(list);
+    this.gravarChaveNoIndexedDB('sge_pending_sync_queue', serialized);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        if (list.length === 0) {
+          localStorage.removeItem('sge_pending_sync_queue');
+        } else {
+          localStorage.setItem('sge_pending_sync_queue', serialized);
+        }
+      }
+    } catch {
+      // Fallback caso QuotaExceededError no localStorage: compactar agressivamente todos os itens
+      try {
+        const ultraSlim = list.map(p => ({
+          ...p,
+          dados: this.slimDadosParaFila(p.entidade, p.docId || p.dados?.id, p.dados)
+        }));
+        this.pendingQueueMemory = ultraSlim;
+        const slimJson = JSON.stringify(ultraSlim);
+        this.gravarChaveNoIndexedDB('sge_pending_sync_queue', slimJson);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('sge_pending_sync_queue', slimJson);
+        }
+      } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: list.length, item: lastAddedItem } }));
+    }
+  }
+
+  /**
+   * Gestão de Fila de Informações Pendentes para Sincronizar com o Firebase (com coalescência por coleção + docId e espelho no IndexedDB)
    */
   public obterPendencias(): PendingSyncItem[] {
     try {
-      const raw = localStorage.getItem('sge_pending_sync_queue');
-      if (!raw) return [];
-      const list = JSON.parse(raw);
-      return Array.isArray(list) ? list : [];
-    } catch {
-      return [];
-    }
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('sge_pending_sync_queue');
+        if (raw && raw !== 'undefined' && raw !== 'null') {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            this.pendingQueueMemory = list;
+            return list;
+          }
+        }
+      }
+    } catch {}
+    return this.pendingQueueMemory ? [...this.pendingQueueMemory] : [];
   }
 
   public obterPendenciasVisiveis(isAdminGeral: boolean): PendingSyncItem[] {
@@ -991,6 +1126,8 @@ class OfflineStorageEngine {
         list = list.filter(p => !(p.entidade.toLowerCase() === entidadeNorm && (p.docId || p.dados?.id) === resolvedDocId));
       }
 
+      const dadosCompactados = this.slimDadosParaFila(entidadeNorm, resolvedDocId, dados);
+
       const item: PendingSyncItem = {
         id: `pend-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         entidade: entidadeNorm,
@@ -998,15 +1135,12 @@ class OfflineStorageEngine {
         acao,
         timestamp: new Date().toISOString(),
         descricao,
-        dados,
+        dados: dadosCompactados,
         extraColecoes,
         autorRole: resolvedRole
       };
       list.push(item);
-      localStorage.setItem('sge_pending_sync_queue', JSON.stringify(list));
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: list.length, item } }));
-      }
+      this.persistirPendencias(list, item);
     } catch (e) {
       console.warn('[SGE Offline] Erro ao adicionar pendência de sincronização:', e);
     }
@@ -1018,10 +1152,7 @@ class OfflineStorageEngine {
       const atual = this.obterPendencias();
       const filtrada = atual.filter(p => !(p.entidade.toLowerCase() === entidadeNorm && (p.docId || p.dados?.id) === docId));
       if (filtrada.length !== atual.length) {
-        localStorage.setItem('sge_pending_sync_queue', JSON.stringify(filtrada));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: filtrada.length } }));
-        }
+        this.persistirPendencias(filtrada);
       }
     } catch {}
   }
@@ -1029,19 +1160,13 @@ class OfflineStorageEngine {
   public removerPendencia(id: string): void {
     try {
       const list = this.obterPendencias().filter(p => p.id !== id);
-      localStorage.setItem('sge_pending_sync_queue', JSON.stringify(list));
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: list.length } }));
-      }
+      this.persistirPendencias(list);
     } catch {}
   }
 
   public limparPendencias(): void {
     try {
-      localStorage.removeItem('sge_pending_sync_queue');
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: 0 } }));
-      }
+      this.persistirPendencias([]);
     } catch {}
   }
 }

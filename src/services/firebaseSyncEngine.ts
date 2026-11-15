@@ -105,14 +105,41 @@ function safeParseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
-function sanitizarParaFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
-  const clean: Record<string, any> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined || typeof v === 'function') continue;
-    if (typeof Blob !== 'undefined' && v instanceof Blob) continue;
-    clean[k] = v;
+function sanitizarValorFirestore(val: any, depth: number = 0): any {
+  if (val === undefined || typeof val === 'function' || typeof val === 'symbol') return undefined;
+  if (val === null) return null;
+  if (typeof val === 'number') return Number.isFinite(val) ? val : null;
+  if (typeof Blob !== 'undefined' && val instanceof Blob) return undefined;
+  if (typeof File !== 'undefined' && val instanceof File) return undefined;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val.toISOString();
+  if (depth > 8) return undefined;
+
+  if (Array.isArray(val)) {
+    const arr: any[] = [];
+    for (const item of val) {
+      const cleaned = sanitizarValorFirestore(item, depth + 1);
+      if (cleaned !== undefined) arr.push(cleaned);
+    }
+    return arr;
   }
-  return clean;
+
+  if (typeof val === 'object') {
+    const clean: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      const cleaned = sanitizarValorFirestore(v, depth + 1);
+      if (cleaned !== undefined) {
+        clean[k] = cleaned;
+      }
+    }
+    return clean;
+  }
+
+  return val;
+}
+
+function sanitizarParaFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const res = sanitizarValorFirestore(obj, 0);
+  return (res && typeof res === 'object' && !Array.isArray(res)) ? res : {};
 }
 
 class FirebaseSyncEngine {
@@ -125,11 +152,13 @@ class FirebaseSyncEngine {
 
   private pullPromise: Promise<{ sucesso: boolean; mensagem: string }> | null = null;
   private syncPromise: Promise<{ sucesso: boolean; mensagem: string }> | null = null;
+  private bootstrapLevePromise: Promise<void> | null = null;
   private cicloInicialPromise: Promise<void> | null = null;
   private escutasAtivas = false;
   private unsubRealtime: Unsubscribe[] = [];
   private remoteNotifyTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  private processingQueuePromise: Promise<void> | null = null;
 
   constructor() {
     this.iniciarObservadoresDeRede();
@@ -173,11 +202,13 @@ class FirebaseSyncEngine {
 
   private agendarNotificacaoRemota() {
     if (typeof window === 'undefined') return;
-    if (this.remoteNotifyTimer) return;
+    if (this.remoteNotifyTimer) {
+      clearTimeout(this.remoteNotifyTimer);
+    }
     this.remoteNotifyTimer = setTimeout(() => {
       this.remoteNotifyTimer = null;
       window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
-    }, 120);
+    }, 300);
   }
 
   private agendarProcessamentoPendencias() {
@@ -186,10 +217,32 @@ class FirebaseSyncEngine {
     this.pendingSyncTimer = setTimeout(() => {
       this.pendingSyncTimer = null;
       this.processarPendenciasOffline();
-    }, 2000);
+    }, 1500);
   }
 
-  private async prepararPayloadComLimiteDeTamanho(dados: Record<string, any>): Promise<Record<string, any>> {
+  private obterIdsSincronizados(colecao: string): Set<string> {
+    if (typeof localStorage === 'undefined') return new Set();
+    const list = safeParseJson<string[]>(localStorage.getItem(`sge_synced_ids_${colecao}`), []);
+    return new Set(Array.isArray(list) ? list.filter(Boolean) : []);
+  }
+
+  private registrarIdsSincronizados(colecao: string, idsAdicionar: string[], idsRemover?: string[]) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const set = this.obterIdsSincronizados(colecao);
+      for (const id of idsAdicionar) {
+        if (id) set.add(id);
+      }
+      if (idsRemover) {
+        for (const id of idsRemover) {
+          if (id) set.delete(id);
+        }
+      }
+      localStorage.setItem(`sge_synced_ids_${colecao}`, JSON.stringify(Array.from(set)));
+    } catch {}
+  }
+
+  private async prepararPayloadComLimiteDeTamanho(dados: Record<string, any>, colecaoHint?: string): Promise<Record<string, any>> {
     const payload = sanitizarParaFirestore({
       ...dados,
       atualizadoEm: dados.atualizadoEm || new Date().toISOString()
@@ -202,11 +255,29 @@ class FirebaseSyncEngine {
         const b64 = await offlineStorage.converterFonteParaBase64Portatil(rawBlobFoto, 420, 0.78);
         if (b64) payload.fotoUrl = b64;
       } catch {}
-    } else if (payload.fotoUrl === '__idb_media__' && payload.id) {
-      const recuperada =
-        (await offlineStorage.obterMidia('funcionario', payload.id)) ||
-        (await offlineStorage.obterMidia('aluno', payload.id));
-      payload.fotoUrl = recuperada || '';
+    }
+
+    const mediaId = payload.id || payload.escolaId || 'global';
+    const mediaKeys = ['fotoUrl', 'foto', 'logotipo', 'logotipoUrl', 'assinaturaDiretorUrl', 'insigniaNacionalUrl'];
+    for (const mk of mediaKeys) {
+      if (payload[mk] === '__idb_media__' && mediaId) {
+        const col = (colecaoHint || '').toLowerCase();
+        const ordemTipos: Array<'funcionario' | 'aluno' | 'escola' | 'config'> =
+          col === 'funcionarios' || col === 'users'
+            ? ['funcionario', 'aluno', 'escola', 'config']
+            : col === 'alunos' || col === 'students'
+            ? ['aluno', 'funcionario', 'escola', 'config']
+            : col === 'escolas' || col === 'schools'
+            ? ['escola', 'config', 'funcionario', 'aluno']
+            : ['config', 'escola', 'funcionario', 'aluno'];
+
+        let recuperada = '';
+        for (const tipo of ordemTipos) {
+          recuperada = await offlineStorage.obterMidia(tipo, mediaId);
+          if (recuperada) break;
+        }
+        payload[mk] = recuperada || '';
+      }
     }
     delete payload.fotoBlob;
 
@@ -263,8 +334,8 @@ class FirebaseSyncEngine {
 
   /**
    * Persistência Imediata e Garantida:
-   * Quando ONLINE -> grava diretamente no Firebase Firestore no momento da ação (e limpa pendência).
-   * Se OFFLINE ou houver falha de rede -> coloca na fila de pendências para sincronizar automaticamente assim que voltar online.
+   * Enfileira de imediato no dispositivo antes de tentar gravar no Firebase Firestore.
+   * Quando ONLINE e gravação confirmada -> remove a pendência; se falhar ou offline -> fica segura para retry automático.
    */
   public async gravarDocumentoDireto(
     colecao: string,
@@ -274,7 +345,19 @@ class FirebaseSyncEngine {
     descricao?: string
   ): Promise<boolean> {
     if (!docId) return false;
-    const payload = await this.prepararPayloadComLimiteDeTamanho({ ...dados, id: dados.id || docId });
+
+    const dadosComId = { ...dados, id: dados.id || docId };
+    // Enfileira sincronamente ANTES de qualquer await (protege contra fecho imediato do separador)
+    offlineStorage.adicionarPendencia(
+      colecao,
+      'ATUALIZAR',
+      descricao || `Alteração em ${colecao} (${docId})`,
+      dadosComId,
+      docId,
+      extraColecoes
+    );
+
+    const payload = await this.prepararPayloadComLimiteDeTamanho(dadosComId, colecao);
 
     if (this.canUseFirestore() && firestoreDb) {
       try {
@@ -292,34 +375,27 @@ class FirebaseSyncEngine {
 
         if (primaryResult.status === 'fulfilled') {
           offlineStorage.removerPendenciaPorDocumento(colecao, docId);
+          this.registrarIdsSincronizados(colecao, [docId]);
           this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
           this.notificarStatus();
           return true;
         }
 
         this.registrarErroPermissao(primaryResult.reason);
-        console.warn(`[SGE Firebase Sync] Erro ao gravar '${colecao}/${docId}', movido para fila de retry:`, primaryResult.reason);
+        console.warn(`[SGE Firebase Sync] Erro ao gravar '${colecao}/${docId}', mantido na fila de retry:`, primaryResult.reason);
       } catch (err) {
         this.registrarErroPermissao(err);
-        console.warn(`[SGE Firebase Sync] Exceção ao gravar '${colecao}/${docId}', movido para fila de retry:`, err);
+        console.warn(`[SGE Firebase Sync] Exceção ao gravar '${colecao}/${docId}', mantido na fila de retry:`, err);
       }
     }
 
-    // Garantia offline / retry automático: enfileira para envio imediato ao restabelecer ligação
-    offlineStorage.adicionarPendencia(
-      colecao,
-      'ATUALIZAR',
-      descricao || `Alteração em ${colecao} (${docId})`,
-      payload,
-      docId,
-      extraColecoes
-    );
     this.agendarProcessamentoPendencias();
     return false;
   }
 
   /**
-   * Gravação em Lote (writeBatch) no Firestore com fallback para fila offline
+   * Gravação em Lote (writeBatch) respeitando os limites do Firestore (<= 400 ops e <= 2.5MB por lote)
+   * com fallback automático por documento em caso de erro no lote.
    */
   public async gravarLoteDireto(
     colecao: string,
@@ -328,54 +404,124 @@ class FirebaseSyncEngine {
   ): Promise<boolean> {
     if (!itens || itens.length === 0) return true;
 
-    if (this.canUseFirestore() && firestoreDb) {
-      try {
-        const payloads = await Promise.all(
-          itens.map(async (item) => ({
-            id: item.id,
-            payload: await this.prepararPayloadComLimiteDeTamanho({ ...item.dados, id: item.dados.id || item.id })
-          }))
+    if (!this.canUseFirestore() || !firestoreDb) {
+      for (const item of itens) {
+        offlineStorage.adicionarPendencia(
+          colecao,
+          'ATUALIZAR',
+          `Lote ${colecao} (${item.id})`,
+          sanitizarParaFirestore({ ...item.dados, id: item.dados.id || item.id }),
+          item.id,
+          extraColecoes
         );
+      }
+      this.agendarProcessamentoPendencias();
+      return false;
+    }
 
-        const CHUNK = 350;
-        for (let i = 0; i < payloads.length; i += CHUNK) {
-          const slice = payloads.slice(i, i + CHUNK);
-          const batch = writeBatch(firestoreDb);
-          for (const entry of slice) {
-            batch.set(doc(firestoreDb, colecao, entry.id), entry.payload, { merge: true });
-            if (extraColecoes) {
-              for (const extraCol of extraColecoes) {
-                batch.set(doc(firestoreDb, extraCol, entry.id), entry.payload, { merge: true });
-              }
+    const payloads = await Promise.all(
+      itens.map(async (item) => ({
+        id: item.id,
+        dadosOriginais: item.dados,
+        payload: await this.prepararPayloadComLimiteDeTamanho({ ...item.dados, id: item.dados.id || item.id }, colecao)
+      }))
+    );
+
+    const opsPorItem = 1 + (extraColecoes?.length || 0);
+    const MAX_OPS_PER_BATCH = 400;
+    const MAX_BYTES_PER_BATCH = 2_500_000;
+
+    // Agrupar dinamicamente por limite de operações e bytes
+    const batches: Array<typeof payloads> = [];
+    let currentSlice: typeof payloads = [];
+    let currentOps = 0;
+    let currentBytes = 0;
+
+    for (const entry of payloads) {
+      const approxBytes = JSON.stringify(entry.payload).length * opsPorItem;
+      if (
+        currentSlice.length > 0 &&
+        (currentOps + opsPorItem > MAX_OPS_PER_BATCH || currentBytes + approxBytes > MAX_BYTES_PER_BATCH)
+      ) {
+        batches.push(currentSlice);
+        currentSlice = [];
+        currentOps = 0;
+        currentBytes = 0;
+      }
+      currentSlice.push(entry);
+      currentOps += opsPorItem;
+      currentBytes += approxBytes;
+    }
+    if (currentSlice.length > 0) batches.push(currentSlice);
+
+    let allOk = true;
+    const syncedIds: string[] = [];
+
+    for (const slice of batches) {
+      try {
+        const batch = writeBatch(firestoreDb);
+        for (const entry of slice) {
+          batch.set(doc(firestoreDb, colecao, entry.id), entry.payload, { merge: true });
+          if (extraColecoes) {
+            for (const extraCol of extraColecoes) {
+              batch.set(doc(firestoreDb, extraCol, entry.id), entry.payload, { merge: true });
             }
           }
-          await batch.commit();
-          for (const entry of slice) {
-            offlineStorage.removerPendenciaPorDocumento(colecao, entry.id);
-          }
         }
-
-        this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
-        this.notificarStatus();
-        return true;
+        await batch.commit();
+        for (const entry of slice) {
+          offlineStorage.removerPendenciaPorDocumento(colecao, entry.id);
+          syncedIds.push(entry.id);
+        }
       } catch (err) {
         this.registrarErroPermissao(err);
-        console.warn(`[SGE Firebase Sync] Erro no lote '${colecao}', enfileirando individualmente:`, err);
+        console.warn(`[SGE Firebase Sync] Batch falhou em '${colecao}' (${slice.length} itens), tentando por documento:`, err);
+        // Fallback individual para não perder documentos válidos do lote
+        const individualResults = await Promise.allSettled(
+          slice.map(async (entry) => {
+            const tasks = [setDoc(doc(firestoreDb!, colecao, entry.id), entry.payload, { merge: true })];
+            if (extraColecoes) {
+              for (const ec of extraColecoes) {
+                tasks.push(setDoc(doc(firestoreDb!, ec, entry.id), entry.payload, { merge: true }));
+              }
+            }
+            const res = await Promise.allSettled(tasks);
+            if (res[0].status === 'fulfilled') {
+              offlineStorage.removerPendenciaPorDocumento(colecao, entry.id);
+              syncedIds.push(entry.id);
+              return true;
+            }
+            throw res[0].reason;
+          })
+        );
+
+        individualResults.forEach((r, idx) => {
+          if (r.status === 'rejected') {
+            allOk = false;
+            const entry = slice[idx];
+            offlineStorage.adicionarPendencia(
+              colecao,
+              'ATUALIZAR',
+              `Lote ${colecao} (${entry.id})`,
+              entry.dadosOriginais,
+              entry.id,
+              extraColecoes
+            );
+          }
+        });
       }
     }
 
-    for (const item of itens) {
-      offlineStorage.adicionarPendencia(
-        colecao,
-        'ATUALIZAR',
-        `Lote ${colecao} (${item.id})`,
-        sanitizarParaFirestore({ ...item.dados, id: item.dados.id || item.id }),
-        item.id,
-        extraColecoes
-      );
+    if (syncedIds.length > 0) {
+      this.registrarIdsSincronizados(colecao, syncedIds);
+      this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+      this.notificarStatus();
     }
-    this.agendarProcessamentoPendencias();
-    return false;
+
+    if (!allOk) {
+      this.agendarProcessamentoPendencias();
+    }
+    return allOk;
   }
 
   /**
@@ -389,6 +535,15 @@ class FirebaseSyncEngine {
   ): Promise<boolean> {
     if (!docId) return false;
 
+    offlineStorage.adicionarPendencia(
+      colecao,
+      'ELIMINAR',
+      descricao || `Eliminação em ${colecao} (${docId})`,
+      { id: docId },
+      docId,
+      extraColecoes
+    );
+
     if (this.canUseFirestore() && firestoreDb) {
       try {
         const tasks = [deleteDoc(doc(firestoreDb, colecao, docId))];
@@ -400,6 +555,7 @@ class FirebaseSyncEngine {
         const results = await Promise.allSettled(tasks);
         if (results[0].status === 'fulfilled') {
           offlineStorage.removerPendenciaPorDocumento(colecao, docId);
+          this.registrarIdsSincronizados(colecao, [], [docId]);
           this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
           this.notificarStatus();
           return true;
@@ -411,14 +567,6 @@ class FirebaseSyncEngine {
       }
     }
 
-    offlineStorage.adicionarPendencia(
-      colecao,
-      'ELIMINAR',
-      descricao || `Eliminação em ${colecao} (${docId})`,
-      { id: docId },
-      docId,
-      extraColecoes
-    );
     this.agendarProcessamentoPendencias();
     return false;
   }
@@ -427,57 +575,81 @@ class FirebaseSyncEngine {
    * Processa em paralelo todas as pendências acumuladas offline (criações, atualizações e eliminações)
    */
   public async processarPendenciasOffline(): Promise<void> {
+    if (this.processingQueuePromise) return this.processingQueuePromise;
     if (!this.canUseFirestore() || !firestoreDb) return;
-    const pendentes = offlineStorage.obterPendencias();
-    if (pendentes.length === 0) return;
 
-    console.log(`[SGE Firebase Sync] Processando ${pendentes.length} pendências em paralelo para o Firebase...`);
-    const CONCURRENCY = 10;
-    for (let i = 0; i < pendentes.length; i += CONCURRENCY) {
-      const fatia = pendentes.slice(i, i + CONCURRENCY);
-      await Promise.allSettled(
-        fatia.map(async (p) => {
-          try {
-            const col = (p.entidade || '').toLowerCase();
-            const docId = p.docId || p.dados?.id || p.id;
-            if (!col || !docId) {
-              offlineStorage.removerPendencia(p.id);
-              return;
-            }
+    this.processingQueuePromise = (async () => {
+      try {
+        await offlineStorage.hidratarArmazenamentoDoIndexedDB();
+        const pendentes = offlineStorage.obterPendencias();
+        if (pendentes.length === 0) return;
 
-            if (p.acao === 'ELIMINAR') {
-              const delTasks = [deleteDoc(doc(firestoreDb!, col, docId))];
-              if (p.extraColecoes) {
-                for (const ec of p.extraColecoes) {
-                  delTasks.push(deleteDoc(doc(firestoreDb!, ec, docId)));
+        console.log(`[SGE Firebase Sync] Processando ${pendentes.length} pendências em paralelo para o Firebase...`);
+        const CONCURRENCY = 10;
+        for (let i = 0; i < pendentes.length; i += CONCURRENCY) {
+          const fatia = pendentes.slice(i, i + CONCURRENCY);
+          await Promise.allSettled(
+            fatia.map(async (p) => {
+              try {
+                const col = (p.entidade || '').toLowerCase();
+                const docId = p.docId || p.dados?.id || p.id;
+                if (!col || !docId) {
+                  offlineStorage.removerPendencia(p.id);
+                  return;
                 }
-              }
-              await Promise.allSettled(delTasks);
-              offlineStorage.removerPendencia(p.id);
-            } else if (p.dados) {
-              const payload = await this.prepararPayloadComLimiteDeTamanho({
-                ...p.dados,
-                sincronizadoEm: new Date().toISOString()
-              });
-              const setTasks = [setDoc(doc(firestoreDb!, col, docId), payload, { merge: true })];
-              if (p.extraColecoes) {
-                for (const ec of p.extraColecoes) {
-                  setTasks.push(setDoc(doc(firestoreDb!, ec, docId), payload, { merge: true }));
+
+                if (p.acao === 'ELIMINAR') {
+                  const delTasks = [deleteDoc(doc(firestoreDb!, col, docId))];
+                  if (p.extraColecoes) {
+                    for (const ec of p.extraColecoes) {
+                      delTasks.push(deleteDoc(doc(firestoreDb!, ec, docId)));
+                    }
+                  }
+                  const delRes = await Promise.allSettled(delTasks);
+                  if (delRes[0].status === 'fulfilled') {
+                    offlineStorage.removerPendencia(p.id);
+                    this.registrarIdsSincronizados(col, [], [docId]);
+                  }
+                } else if (p.dados) {
+                  if (col === 'configuracao_sistema' && docId === 'global') {
+                    const okCfg = await this.gravarConfiguracaoNoFirestore(p.dados);
+                    if (okCfg) offlineStorage.removerPendencia(p.id);
+                    return;
+                  }
+                  const payload = await this.prepararPayloadComLimiteDeTamanho(
+                    {
+                      ...p.dados,
+                      id: p.dados.id || docId,
+                      sincronizadoEm: new Date().toISOString()
+                    },
+                    col
+                  );
+                  const setTasks = [setDoc(doc(firestoreDb!, col, docId), payload, { merge: true })];
+                  if (p.extraColecoes) {
+                    for (const ec of p.extraColecoes) {
+                      setTasks.push(setDoc(doc(firestoreDb!, ec, docId), payload, { merge: true }));
+                    }
+                  }
+                  const res = await Promise.allSettled(setTasks);
+                  if (res[0].status === 'fulfilled') {
+                    offlineStorage.removerPendencia(p.id);
+                    this.registrarIdsSincronizados(col, [docId]);
+                  }
+                } else {
+                  offlineStorage.removerPendencia(p.id);
                 }
+              } catch (err) {
+                console.warn(`[SGE Firebase Sync] Falha ao processar pendência ${p.id}:`, err);
               }
-              const res = await Promise.allSettled(setTasks);
-              if (res[0].status === 'fulfilled') {
-                offlineStorage.removerPendencia(p.id);
-              }
-            } else {
-              offlineStorage.removerPendencia(p.id);
-            }
-          } catch (err) {
-            console.warn(`[SGE Firebase Sync] Falha ao processar pendência ${p.id}:`, err);
-          }
-        })
-      );
-    }
+            })
+          );
+        }
+      } finally {
+        this.processingQueuePromise = null;
+      }
+    })();
+
+    return this.processingQueuePromise;
   }
 
   private iniciarObservadoresDeRede() {
@@ -486,9 +658,14 @@ class FirebaseSyncEngine {
     window.addEventListener('online', () => {
       console.log('[SGE Firebase Sync] Rede online restabelecida. A processar pendências e sincronizar...');
       this.notificarStatus();
+      const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
       this.processarPendenciasOffline().then(() => {
-        this.puxarTudoDoFirebase(true);
-        this.iniciarEscutasEmTempoReal();
+        if (isAuth) {
+          this.puxarTudoDoFirebase(true);
+          this.iniciarEscutasEmTempoReal();
+        } else {
+          this.iniciarCicloBootstrapLeve();
+        }
       });
     });
 
@@ -496,10 +673,72 @@ class FirebaseSyncEngine {
       console.log('[SGE Firebase Sync] Modo offline ativado. Dados guardados localmente com fila automática.');
       this.notificarStatus();
     });
+
+    // Retry periódico em segundo plano para garantir que nenhuma alteração local fica por subir ao Firebase
+    setInterval(() => {
+      if (this.canUseFirestore() && offlineStorage.obterTotalPendentes() > 0) {
+        this.processarPendenciasOffline();
+      }
+    }, 25000);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this.canUseFirestore() && offlineStorage.obterTotalPendentes() > 0) {
+          this.processarPendenciasOffline();
+        }
+      });
+    }
   }
 
   /**
-   * Ciclo Único de Inicialização Online (chamado no arranque da app sem duplicações)
+   * Fase 1 (Ultra-Leve para Ecrã de Login / Dispositivo Novo):
+   * Descarrega apenas o estritamente necessário antes da autenticação (configuração, escolas e anos letivos),
+   * sem disparar 40 leituras nem abrir 40 listeners pesados no primeiro segundo de vida da página.
+   */
+  public iniciarCicloBootstrapLeve(): Promise<void> {
+    if (this.bootstrapLevePromise) return this.bootstrapLevePromise;
+
+    this.bootstrapLevePromise = (async () => {
+      if (!this.canUseFirestore() || !firestoreDb) return;
+      try {
+        await offlineStorage.hidratarArmazenamentoDoIndexedDB();
+        await this.processarPendenciasOffline();
+        await Promise.allSettled([
+          this.buscarConfiguracaoSistema(),
+          this.puxarColecaoArray<Escola>("escolas", STORAGE_KEYS.ESCOLAS, {
+            filterValid: (esc) => Boolean(esc && esc.id && !isDemoEscola(esc)),
+            preserveFieldFn: (existing, esc) => ({
+              ...existing,
+              ...esc,
+              nomeOficial: esc.nomeOficial || (esc as any).nome || existing?.nomeOficial || 'Escola',
+              nome: (esc as any).nome || esc.nomeOficial || existing?.nome
+            }),
+            uploadLocalIfRemoteEmpty: true,
+            extraColecoes: ["schools"]
+          }),
+          (async () => {
+            if (!firestoreDb) return;
+            const snap = await getDoc(doc(firestoreDb, "configuracao_sistema", "anos_lectivos"));
+            if (snap.exists() && Array.isArray(snap.data().anos)) {
+              localStorage.setItem(STORAGE_KEYS.ANOS_LECTIVOS, JSON.stringify(snap.data().anos));
+            }
+          })()
+        ]);
+        this.agendarNotificacaoRemota();
+      } catch (err) {
+        console.warn('[SGE Firebase Sync] Aviso no bootstrap leve:', err);
+      } finally {
+        this.bootstrapLevePromise = null;
+      }
+    })();
+
+    return this.bootstrapLevePromise;
+  }
+
+  /**
+   * Fase 2 (Completa Pós-Autenticação):
+   * Hidrata o IndexedDB, envia quaisquer pendências e registos locais em falta no Firebase,
+   * descarrega a base em 3 ondas paralelas e ativa as escutas em tempo real.
    */
   public iniciarCicloInicialOnline(): Promise<void> {
     if (this.cicloInicialPromise) return this.cicloInicialPromise;
@@ -507,11 +746,9 @@ class FirebaseSyncEngine {
     this.cicloInicialPromise = (async () => {
       if (!this.canUseFirestore()) return;
       try {
-        // 1. Primeiro enviar quaisquer pendências que ficaram presas offline
+        await offlineStorage.hidratarArmazenamentoDoIndexedDB();
         await this.processarPendenciasOffline();
-        // 2. Descarregar base remota em ondas paralelas
         await this.puxarTudoDoFirebase();
-        // 3. Ligar escutas em tempo real (apenas uma vez)
         this.iniciarEscutasEmTempoReal();
       } catch (err) {
         console.warn('[SGE Firebase Sync] Erro no ciclo inicial:', err);
@@ -522,8 +759,10 @@ class FirebaseSyncEngine {
   }
 
   /**
-   * Helper para mesclar coleção tipo Array entre Firestore e Dispositivo
-   * respeitando itens pendentes locais e remoções autoritativas do servidor.
+   * Helper para mesclar coleção tipo Array entre Firestore e Dispositivo:
+   * - Preserva itens locais pendentes ou recém-criados no dispositivo (que ainda não foram confirmados no Firebase),
+   * - Respeita timestamps `atualizadoEm` mais recentes localmente,
+   * - Identifica e devolve os itens locais em falta/mais recentes para subida imediata ao Firebase.
    */
   private aplicarSnapshotArray<T extends Record<string, any>>(
     storageKey: string,
@@ -532,7 +771,8 @@ class FirebaseSyncEngine {
     fromCache: boolean,
     filterValid?: (item: T) => boolean,
     preserveFieldFn?: (local: T | undefined, remote: T) => T,
-    getIdFn: (item: T) => string = (item) => item.id
+    getIdFn: (item: T) => string = (item) => item.id,
+    onLocalToPush?: (itensParaSubir: T[]) => void
   ): T[] {
     const pendentes = offlineStorage.obterPendencias().filter(p => p.entidade === colecao);
     const pendingDeleteIds = new Set(pendentes.filter(p => p.acao === 'ELIMINAR').map(p => p.docId || p.dados?.id).filter(Boolean));
@@ -548,8 +788,16 @@ class FirebaseSyncEngine {
       if (id) mapLocal.set(id, l);
     }
 
+    const mapRemote = new Map<string, T>();
+    for (const r of remotosValidos) {
+      const id = getIdFn(r);
+      if (id) mapRemote.set(id, r);
+    }
+
     const jaSincronizouAntes = localStorage.getItem(`sge_remote_synced_${colecao}`) === 'true';
+    const previouslySyncedIds = this.obterIdsSincronizados(colecao);
     const resultMap = new Map<string, T>();
+    const localToPush: T[] = [];
 
     const isLocalNewer = (localItem: T | undefined, remoteItem: T): boolean => {
       if (!localItem) return false;
@@ -558,46 +806,36 @@ class FirebaseSyncEngine {
       return !isNaN(tLocal) && !isNaN(tRemote) && tLocal > tRemote + 500;
     };
 
-    // Se servidor já era fonte autoritativa e devolveu snapshot atualizado (não apenas cache vazio local),
-    // remover itens apagados remotamente — exceto os que têm alteração local pendente!
-    if (jaSincronizouAntes && !fromCache) {
-      for (const id of pendingUpsertIds) {
-        const localItem = mapLocal.get(id);
-        if (localItem) resultMap.set(id, localItem);
-      }
-      for (const r of remotosValidos) {
-        const id = getIdFn(r);
-        if (!id || pendingDeleteIds.has(id)) continue;
-        const existing = mapLocal.get(id);
-        if (pendingUpsertIds.has(id) && existing) {
-          resultMap.set(id, existing);
-        } else if (existing && isLocalNewer(existing, r)) {
-          resultMap.set(id, existing);
-        } else {
-          resultMap.set(id, preserveFieldFn ? preserveFieldFn(existing, r) : { ...existing, ...r });
-        }
-      }
-    } else {
-      // Primeira sincronização ou leitura em cache: fundir sem perder dados locais ainda não enviados
-      for (const [id, l] of mapLocal.entries()) {
-        if (!pendingDeleteIds.has(id)) {
+    // 1. Avaliar registos existentes localmente neste dispositivo
+    for (const [id, l] of mapLocal.entries()) {
+      if (pendingDeleteIds.has(id)) continue;
+      const r = mapRemote.get(id);
+      if (!r) {
+        // Se este ID já tinha sido confirmado na nuvem e já houve sync anterior, foi removido remotamente por outro dispositivo — exceto se há pendente local
+        const removidoRemotamente = jaSincronizouAntes && !fromCache && previouslySyncedIds.has(id) && !pendingUpsertIds.has(id);
+        if (!removidoRemotamente) {
           resultMap.set(id, l);
+          localToPush.push(l);
         }
-      }
-      for (const r of remotosValidos) {
-        const id = getIdFn(r);
-        if (!id || pendingDeleteIds.has(id)) continue;
-        const existing = resultMap.get(id);
-        if (pendingUpsertIds.has(id) && existing) continue;
-        if (existing && isLocalNewer(existing, r)) continue;
-        resultMap.set(id, preserveFieldFn ? preserveFieldFn(existing, r) : { ...existing, ...r });
+      } else if (pendingUpsertIds.has(id) || isLocalNewer(l, r)) {
+        resultMap.set(id, l);
+        localToPush.push(l);
       }
     }
 
+    // 2. Mesclar registos remotos do Firestore
+    for (const r of remotosValidos) {
+      const id = getIdFn(r);
+      if (!id || pendingDeleteIds.has(id)) continue;
+      if (resultMap.has(id)) continue; // local mais recente ou pendente preservado acima
+      const existing = mapLocal.get(id);
+      resultMap.set(id, preserveFieldFn ? preserveFieldFn(existing, r) : { ...existing, ...r });
+    }
+
     const finalArray = Array.from(resultMap.values());
-    if (remotosValidos.length > 0 || jaSincronizouAntes) {
+    if (remotosValidos.length > 0 || finalArray.length > 0 || jaSincronizouAntes) {
       const serialized = JSON.stringify(finalArray);
-      if (colecao === 'funcionarios' || colecao === 'alunos') {
+      if (colecao === 'funcionarios' || colecao === 'alunos' || colecao === 'escolas') {
         offlineStorage.gravarChaveNoIndexedDB(storageKey, serialized);
       }
       try {
@@ -621,7 +859,12 @@ class FirebaseSyncEngine {
       }
       if (!fromCache && remotosValidos.length > 0) {
         localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+        this.registrarIdsSincronizados(colecao, Array.from(mapRemote.keys()));
       }
+    }
+
+    if (onLocalToPush && localToPush.length > 0) {
+      onLocalToPush(localToPush);
     }
     return finalArray;
   }
@@ -1178,7 +1421,7 @@ class FirebaseSyncEngine {
   }
 
   /**
-   * Helper genérico para descarregar e reconciliar uma coleção tipo Array no puxarTudoDoFirebase
+   * Helper genérico para descarregar e reconciliar bidirecionalmente uma coleção tipo Array no Firebase
    */
   private async puxarColecaoArray<T extends Record<string, any>>(
     colecao: string,
@@ -1201,57 +1444,94 @@ class FirebaseSyncEngine {
       }
     });
 
+    const getId = options?.getIdFn || ((i: T) => i.id);
+    const deveSubirLocais = options?.uploadLocalIfRemoteEmpty !== false;
+
     if (remotos.length > 0) {
-      return this.aplicarSnapshotArray(
+      let itensParaSubir: T[] = [];
+      const aplicados = this.aplicarSnapshotArray(
         storageKey,
         colecao,
         remotos,
         snap.metadata.fromCache,
         options?.filterValid,
         options?.preserveFieldFn,
-        options?.getIdFn
+        getId,
+        (lista) => {
+          itensParaSubir = lista;
+        }
       );
-    } else if (options?.uploadLocalIfRemoteEmpty) {
+      if (deveSubirLocais && itensParaSubir.length > 0 && !snap.metadata.fromCache) {
+        const lote = itensParaSubir
+          .map(v => ({ id: getId(v), dados: v }))
+          .filter(entry => Boolean(entry.id));
+        if (lote.length > 0) {
+          await this.gravarLoteDireto(colecao, lote, options?.extraColecoes);
+        }
+      }
+      return aplicados;
+    } else if (deveSubirLocais) {
       const locais = safeParseJson<T[]>(localStorage.getItem(storageKey), []);
       const validos = options?.filterValid ? locais.filter(options.filterValid) : locais;
       if (validos.length > 0) {
-        const getId = options?.getIdFn || ((i: T) => i.id);
-        this.gravarLoteDireto(
-          colecao,
-          validos.filter(v => Boolean(getId(v))).map(v => ({ id: getId(v), dados: v })),
-          options?.extraColecoes
-        );
+        const lote = validos
+          .map(v => ({ id: getId(v), dados: v }))
+          .filter(entry => Boolean(entry.id));
+        if (lote.length > 0) {
+          await this.gravarLoteDireto(colecao, lote, options?.extraColecoes);
+        }
+        return validos;
       }
     }
     return [];
   }
 
   /**
-   * Helper genérico para descarregar e reconciliar coleções tipo Record<string, any> (Map por chave)
+   * Helper genérico para descarregar e reconciliar bidirecionalmente coleções tipo Record<string, any> (Map por chave)
    */
   private async puxarColecaoMapa(
     colecao: string,
     storageKey: string,
     docToKeyFn?: (docId: string, data: any) => string,
-    unwrapFn?: (data: any) => any
+    unwrapFn?: (data: any) => any,
+    wrapForUploadFn?: (k: string, val: any) => Record<string, any>
   ): Promise<void> {
     if (!firestoreDb) return;
     const snap = await getDocs(collection(firestoreDb, colecao));
-    if (snap.empty) return;
     const localMap = safeParseJson<Record<string, any>>(localStorage.getItem(storageKey), {});
     const pendentes = offlineStorage.obterPendencias().filter(p => p.entidade === colecao);
     const pendingMap = new Map(pendentes.map(p => [p.docId || p.dados?.id, p]));
+    const remoteKeys = new Set<string>();
 
     snap.forEach(d => {
       const rawData = d.data();
       const mapKey = docToKeyFn ? docToKeyFn(d.id, rawData) : d.id;
+      remoteKeys.add(mapKey);
       const pend = pendingMap.get(d.id) || pendingMap.get(mapKey);
       if (pend && pend.acao !== 'ELIMINAR') return; // preserva alteração local pendente
       localMap[mapKey] = unwrapFn ? unwrapFn(rawData) : rawData;
     });
 
-    localStorage.setItem(storageKey, JSON.stringify(localMap));
-    localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+    // Subir chaves que só existem localmente no dispositivo e ainda não estão no Firestore
+    if (!snap.metadata.fromCache) {
+      const faltandoNoFirebase = Object.entries(localMap).filter(([k]) => !remoteKeys.has(k));
+      if (faltandoNoFirebase.length > 0) {
+        const lote = faltandoNoFirebase.map(([k, v]) => ({
+          id: k,
+          dados: wrapForUploadFn ? wrapForUploadFn(k, v) : (typeof v === 'object' && v !== null ? { ...v, id: v.id || k } : { id: k, valor: v })
+        }));
+        await this.gravarLoteDireto(colecao, lote);
+      }
+    }
+
+    if (Object.keys(localMap).length > 0) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(localMap));
+        if (!snap.empty) {
+          localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+        }
+      } catch {}
+    }
   }
 
   /**
@@ -1402,16 +1682,16 @@ class FirebaseSyncEngine {
           this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
           this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
           this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
-          this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id) }),
+          this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("sessoes_ativas", STORAGE_KEYS.SESSOES_ATIVAS, {
             filterValid: (s) => Boolean(s && (s.userId || s.id)),
             getIdFn: (s) => s.userId || s.id
           }),
           this.puxarColecaoMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId),
           this.puxarColecaoMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId),
-          this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId),
+          this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId, undefined, (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
           this.puxarColecaoMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId),
-          this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d)
+          this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista }))
         ]);
 
         this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
@@ -1456,15 +1736,23 @@ class FirebaseSyncEngine {
       this.notificarStatus();
 
       try {
+        await offlineStorage.hidratarArmazenamentoDoIndexedDB();
+
         if (this.canUseFirestore() && firestoreDb) {
           // 1. Primeiro envia pendências offline (inclui eliminações)
           await this.processarPendenciasOffline();
 
-          // 2. Preparar todos os lotes locais para envio paralelo
-          const uploadArray = async (storageKey: string, colecao: string, extraColecoes?: string[], getIdFn: (item: any) => string = (i) => i.id) => {
+          // 2. Ler configuração LOCAL primeiro antes de puxar do remoto (evita sobrescrever insígnia local ainda não sincronizada)
+          const configLocalAtual = typeof window !== 'undefined'
+            ? safeParseJson<ConfiguracaoSistema | null>(localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA), null)
+            : null;
+
+          // 3. Preparar todos os lotes locais para envio paralelo
+          const uploadArray = async (storageKey: string, colecao: string, extraColecoes?: string[], getIdFn: (item: any) => string = (i) => i.id, filterFn?: (item: any) => boolean) => {
             const list = safeParseJson<any[]>(localStorage.getItem(storageKey), []);
             if (!Array.isArray(list) || list.length === 0) return;
-            const itens = list
+            const validList = filterFn ? list.filter(filterFn) : list;
+            const itens = validList
               .map(item => ({ id: getIdFn(item), dados: item }))
               .filter(entry => Boolean(entry.id));
             if (itens.length > 0) {
@@ -1478,18 +1766,28 @@ class FirebaseSyncEngine {
             if (entries.length === 0) return;
             const itens = entries.map(([k, v]) => ({
               id: k,
-              dados: wrapFn ? wrapFn(k, v) : (typeof v === 'object' && v !== null ? v : { id: k, valor: v })
+              dados: wrapFn ? wrapFn(k, v) : (typeof v === 'object' && v !== null ? { ...v, id: v.id || k } : { id: k, valor: v })
             }));
             await this.gravarLoteDireto(colecao, itens);
           };
 
-          const configLocal = await this.buscarConfiguracaoSistema();
+          const uploadConfigIfNeeded = async () => {
+            if (!configLocalAtual) return;
+            const remoteSnap = await getDoc(doc(firestoreDb!, "configuracao_sistema", "global"));
+            const remoteCfg = remoteSnap.exists() ? (remoteSnap.data() as ConfiguracaoSistema) : null;
+            const tLocal = configLocalAtual.atualizadoEm ? Date.parse(String(configLocalAtual.atualizadoEm)) : 0;
+            const tRemote = remoteCfg?.atualizadoEm ? Date.parse(String(remoteCfg.atualizadoEm)) : 0;
+            const temDadosCustomLocal = Boolean(configLocalAtual.insigniaNacionalUrl || configLocalAtual.criadoPorAdminEmail);
+            if (!remoteCfg || tLocal > tRemote || (temDadosCustomLocal && !remoteCfg.insigniaNacionalUrl)) {
+              await this.gravarConfiguracaoNoFirestore(configLocalAtual);
+            }
+          };
 
           await Promise.allSettled([
-            configLocal ? this.gravarConfiguracaoNoFirestore(configLocal) : Promise.resolve(true),
-            uploadArray(STORAGE_KEYS.FUNCIONARIOS, "funcionarios", ["users"]),
-            uploadArray(STORAGE_KEYS.ESCOLAS, "escolas", ["schools"]),
-            uploadArray(STORAGE_KEYS.ALUNOS, "alunos"),
+            uploadConfigIfNeeded(),
+            uploadArray(STORAGE_KEYS.FUNCIONARIOS, "funcionarios", ["users"], (f) => f.id, (f) => Boolean(f && f.id && f.nomeCompleto && !isDemoFunc(f))),
+            uploadArray(STORAGE_KEYS.ESCOLAS, "escolas", ["schools"], (e) => e.id, (e) => Boolean(e && e.id && !isDemoEscola(e))),
+            uploadArray(STORAGE_KEYS.ALUNOS, "alunos", undefined, (a) => a.id, (a) => Boolean(a && a.id && !isDemoAluno(a))),
             uploadArray(STORAGE_KEYS.TURMAS, "turmas"),
             uploadArray(STORAGE_KEYS.DISCIPLINAS, "disciplinas"),
             uploadArray(STORAGE_KEYS.AVALIACOES, "avaliacoes"),
@@ -1524,6 +1822,7 @@ class FirebaseSyncEngine {
             uploadArray(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, "alteracoes_notas_direcao"),
             uploadArray(STORAGE_KEYS.DELEGACOES_PODERES, "delegacoes_poderes"),
             uploadArray(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, "acoes_delegadas_logs"),
+            uploadArray(STORAGE_KEYS.AUDITORIA, "auditoria"),
             uploadMap(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, "configuracoes_financeiras"),
             uploadMap(STORAGE_KEYS.HISTORICO_COMPLETO, "historico_completo"),
             uploadMap(STORAGE_KEYS.CONFIGURACOES_PASSES, "configuracoes_passes", (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
@@ -1531,7 +1830,7 @@ class FirebaseSyncEngine {
             uploadMap(STORAGE_KEYS.DELEGACOES_COBRANCA, "delegacoes_cobranca", (escolaId, lista) => ({ id: escolaId, escolaId, lista }))
           ]);
 
-          // 3. Descarregar estado reconciliado do Firestore
+          // 4. Descarregar estado reconciliado do Firestore
           await this.puxarTudoDoFirebase(true);
         }
 
@@ -1542,8 +1841,10 @@ class FirebaseSyncEngine {
         this.notificarStatus();
 
         return {
-          sucesso: true,
-          mensagem: 'Sincronização imediata concluída com sucesso entre o Firebase e o dispositivo!'
+          sucesso: this.canUseFirestore(),
+          mensagem: this.canUseFirestore()
+            ? 'Sincronização imediata concluída com sucesso entre o Firebase e o dispositivo!'
+            : 'Sem ligação à internet. Os dados permanecem salvos no dispositivo e subirão automaticamente assim que ficar online.'
         };
       } catch (e: any) {
         console.error('[SGE Firebase Sync] Erro global na sincronização:', e);

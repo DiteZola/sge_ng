@@ -131,22 +131,22 @@ class SelfHealingService {
     try {
       // Restaurar entidades seguras
       if (snapshotRestaurar.dados.escolas) {
-        localStorage.setItem('sge_schools_ng', JSON.stringify(snapshotRestaurar.dados.escolas));
+        localStorage.setItem('sge_escolas', JSON.stringify(snapshotRestaurar.dados.escolas));
       }
       if (snapshotRestaurar.dados.turmas) {
         localStorage.setItem('sge_turmas', JSON.stringify(snapshotRestaurar.dados.turmas));
       }
       if (snapshotRestaurar.dados.alunos) {
-        localStorage.setItem('sge_students_ng', JSON.stringify(snapshotRestaurar.dados.alunos));
+        localStorage.setItem('sge_alunos', JSON.stringify(snapshotRestaurar.dados.alunos));
       }
       if (snapshotRestaurar.dados.notasConsolidadas) {
         localStorage.setItem('sge_notas_consolidadas', JSON.stringify(snapshotRestaurar.dados.notasConsolidadas));
       }
       if (snapshotRestaurar.dados.funcionarios) {
-        localStorage.setItem('sge_employees_ng', JSON.stringify(snapshotRestaurar.dados.funcionarios));
+        localStorage.setItem('sge_funcionarios', JSON.stringify(snapshotRestaurar.dados.funcionarios));
       }
       if (snapshotRestaurar.dados.comissoesJuri) {
-        localStorage.setItem('sge_comissoes_juri', JSON.stringify(snapshotRestaurar.dados.comissoesJuri));
+        localStorage.setItem('sge_juris', JSON.stringify(snapshotRestaurar.dados.comissoesJuri));
       }
 
       const incidente: RegistroAutoRecuperacao = {
@@ -185,10 +185,13 @@ class SelfHealingService {
    * Monitor Contínuo de Integridade
    */
   private iniciarMonitorContinuo() {
-    // Tirar snapshot inicial se não existir
-    if (this.obterSnapshots().length === 0) {
-      this.tirarSnapshot('Ponto de Restauração Inicial do Sistema');
-    }
+    if (typeof window === 'undefined') return;
+    // Adiar snapshot inicial para não competir com o arranque da interface
+    setTimeout(() => {
+      if (this.obterSnapshots().length === 0) {
+        this.tirarSnapshot('Ponto de Restauração Inicial do Sistema');
+      }
+    }, 3000);
 
     // Monitor a cada 60 segundos
     setInterval(() => {
@@ -202,7 +205,7 @@ class SelfHealingService {
   public verificarIntegridadeESelfHeal(): boolean {
     try {
       // 1. Verificar corrupção nas tabelas vitais
-      const rawAlunos = localStorage.getItem('sge_students_ng');
+      const rawAlunos = localStorage.getItem('sge_alunos');
       if (rawAlunos) {
         try {
           const parsed = JSON.parse(rawAlunos);

@@ -24,41 +24,42 @@ import {
 
 import { Header } from './components/Header';
 import { Sidebar, NavTab } from './components/Sidebar';
-import { DashboardView } from './components/DashboardView';
-import { AcademicManagementView } from './components/AcademicManagementView';
-import { EvaluationMacView } from './components/EvaluationMacView';
-import { StudentsView } from './components/StudentsView';
-import { HumanResourcesView } from './components/HumanResourcesView';
-import { PrintingDocumentsView } from './components/PrintingDocumentsView';
-import { CommunicationLibraryView } from './components/CommunicationLibraryView';
-import { SystemAuditBackupView } from './components/SystemAuditBackupView';
-import { ArchitectureDocsView } from './components/ArchitectureDocsView';
-import { AdminGlobalSchoolsView } from './components/AdminGlobalSchoolsView';
-import { AdministrativeFinanceView } from './components/AdministrativeFinanceView';
-import { InitialSetupModal } from './components/InitialSetupModal';
-import { SystemInitialSetupView } from './components/SystemInitialSetupView';
-import { RealtimeSecurityModal } from './components/RealtimeSecurityModal';
 import { securityEngine } from './services/securityEngine';
 import { cryptoService } from './services/cryptoService';
 import { firebaseSyncEngine } from './services/firebaseSyncEngine';
 import { LoginView } from './components/LoginView';
-import { UserProfileView } from './components/UserProfileView';
-import { TechnicalSupportView } from './components/TechnicalSupportView';
-import { PatrimonyView } from './components/PatrimonyView';
-import { JuryCommissionView } from './components/JuryCommissionView';
-import { ScheduleTimetableView } from './components/ScheduleTimetableView';
-import { StudentAttendanceReportView } from './components/StudentAttendanceReportView';
-import { StudentPassesView } from './components/StudentPassesView';
-import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
-import { SchoolCalendarView } from './components/SchoolCalendarView';
-import { ReportsView } from './components/ReportsView';
-import { StatisticsView } from './components/StatisticsView';
 import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
-import { GuidedTourModal } from './components/GuidedTourModal';
 import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { notificationService } from './services/notificationService';
 import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
+
+const DashboardView = React.lazy(() => import('./components/DashboardView').then(m => ({ default: m.DashboardView })));
+const AcademicManagementView = React.lazy(() => import('./components/AcademicManagementView').then(m => ({ default: m.AcademicManagementView })));
+const EvaluationMacView = React.lazy(() => import('./components/EvaluationMacView').then(m => ({ default: m.EvaluationMacView })));
+const StudentsView = React.lazy(() => import('./components/StudentsView').then(m => ({ default: m.StudentsView })));
+const HumanResourcesView = React.lazy(() => import('./components/HumanResourcesView').then(m => ({ default: m.HumanResourcesView })));
+const PrintingDocumentsView = React.lazy(() => import('./components/PrintingDocumentsView').then(m => ({ default: m.PrintingDocumentsView })));
+const CommunicationLibraryView = React.lazy(() => import('./components/CommunicationLibraryView').then(m => ({ default: m.CommunicationLibraryView })));
+const SystemAuditBackupView = React.lazy(() => import('./components/SystemAuditBackupView').then(m => ({ default: m.SystemAuditBackupView })));
+const ArchitectureDocsView = React.lazy(() => import('./components/ArchitectureDocsView').then(m => ({ default: m.ArchitectureDocsView })));
+const AdminGlobalSchoolsView = React.lazy(() => import('./components/AdminGlobalSchoolsView').then(m => ({ default: m.AdminGlobalSchoolsView })));
+const AdministrativeFinanceView = React.lazy(() => import('./components/AdministrativeFinanceView').then(m => ({ default: m.AdministrativeFinanceView })));
+const InitialSetupModal = React.lazy(() => import('./components/InitialSetupModal').then(m => ({ default: m.InitialSetupModal })));
+const SystemInitialSetupView = React.lazy(() => import('./components/SystemInitialSetupView').then(m => ({ default: m.SystemInitialSetupView })));
+const RealtimeSecurityModal = React.lazy(() => import('./components/RealtimeSecurityModal').then(m => ({ default: m.RealtimeSecurityModal })));
+const UserProfileView = React.lazy(() => import('./components/UserProfileView').then(m => ({ default: m.UserProfileView })));
+const TechnicalSupportView = React.lazy(() => import('./components/TechnicalSupportView').then(m => ({ default: m.TechnicalSupportView })));
+const PatrimonyView = React.lazy(() => import('./components/PatrimonyView').then(m => ({ default: m.PatrimonyView })));
+const JuryCommissionView = React.lazy(() => import('./components/JuryCommissionView').then(m => ({ default: m.JuryCommissionView })));
+const ScheduleTimetableView = React.lazy(() => import('./components/ScheduleTimetableView').then(m => ({ default: m.ScheduleTimetableView })));
+const StudentAttendanceReportView = React.lazy(() => import('./components/StudentAttendanceReportView').then(m => ({ default: m.StudentAttendanceReportView })));
+const StudentPassesView = React.lazy(() => import('./components/StudentPassesView').then(m => ({ default: m.StudentPassesView })));
+const ExecutiveDirectionView = React.lazy(() => import('./components/ExecutiveDirectionView').then(m => ({ default: m.ExecutiveDirectionView })));
+const SchoolCalendarView = React.lazy(() => import('./components/SchoolCalendarView').then(m => ({ default: m.SchoolCalendarView })));
+const ReportsView = React.lazy(() => import('./components/ReportsView').then(m => ({ default: m.ReportsView })));
+const StatisticsView = React.lazy(() => import('./components/StatisticsView').then(m => ({ default: m.StatisticsView })));
+const GuidedTourModal = React.lazy(() => import('./components/GuidedTourModal').then(m => ({ default: m.GuidedTourModal })));
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -95,19 +96,7 @@ export default function App() {
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
   const [showTourModal, setShowTourModal] = useState<boolean>(false);
   const [temAdminGeral, setTemAdminGeral] = useState<boolean>(() => dbService.temAdminGeral());
-  const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(() => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        if (localStorage.getItem('sge_authenticated') === 'true') return false;
-        if (localStorage.getItem('sge_admin_configured') === 'true') return false;
-      }
-      if (dbService.temAdminGeral()) return false;
-    } catch {}
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return false;
-    }
-    return true;
-  });
+  const [verificandoAdminOnline, setVerificandoAdminOnline] = useState<boolean>(false);
   const [mostrarSetupInicial, setMostrarSetupInicial] = useState<boolean>(false);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [firebasePermissaoNegada, setFirebasePermissaoNegada] = useState<boolean>(() => firebaseSyncEngine.isPermissaoNegada());
@@ -271,9 +260,16 @@ export default function App() {
       }
     }, 1500);
 
-    // Ciclo único de arranque online (evita downloads duplicados em novos dispositivos)
+    // Arranque em duas fases: bootstrap leve no ecrã de login e sincronização completa quando autenticado
     if (typeof navigator !== 'undefined' && navigator.onLine) {
-      firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
+      const jaAutenticado =
+        typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+
+      const promessaSync = jaAutenticado
+        ? firebaseSyncEngine.iniciarCicloInicialOnline()
+        : firebaseSyncEngine.iniciarCicloBootstrapLeve();
+
+      promessaSync.then(() => {
         if (ativo) {
           recarregarDados();
           if (!dbService.temAdminGeral()) {
@@ -988,6 +984,12 @@ export default function App() {
     setActiveTab('dashboard');
     setLogs(dbService.obterLogs());
 
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
+        recarregarDados();
+      });
+    }
+
     try {
       notificationService.inicializarBaselineRemoto(escolaSelecionada.id);
       const jaViuTour = localStorage.getItem(`sge_tour_completed_${user.id || user.role}`);
@@ -1346,19 +1348,32 @@ export default function App() {
     return (
       <>
         <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
-        <SystemInitialSetupView
-          onSetupConcluido={(novoAdmin) => {
-            setMostrarSetupInicial(false);
-            setTemAdminGeral(true);
-            setAuthenticatedUser(novoAdmin);
-            setIsAuthenticated(true);
-            localStorage.setItem('sge_authenticated', 'true');
-            setFuncionarios(dbService.obterFuncionarios());
-            setEscolas(dbService.getEscolas());
-            setEscola(dbService.getEscolaAtiva());
-            setActiveTab('dashboard');
-          }}
-        />
+        <React.Suspense
+          fallback={
+            <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+              <div className="w-7 h-7 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          }
+        >
+          <SystemInitialSetupView
+            onSetupConcluido={(novoAdmin) => {
+              setMostrarSetupInicial(false);
+              setTemAdminGeral(true);
+              setAuthenticatedUser(novoAdmin);
+              setIsAuthenticated(true);
+              localStorage.setItem('sge_authenticated', 'true');
+              setFuncionarios(dbService.obterFuncionarios());
+              setEscolas(dbService.getEscolas());
+              setEscola(dbService.getEscolaAtiva());
+              setActiveTab('dashboard');
+              if (typeof navigator !== 'undefined' && navigator.onLine) {
+                firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
+                  recarregarDados();
+                });
+              }
+            }}
+          />
+        </React.Suspense>
       </>
     );
   }
@@ -1518,7 +1533,15 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <>
+            <React.Suspense
+              fallback={
+                <div className="flex flex-col items-center justify-center py-20 space-y-3 text-slate-500">
+                  <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-medium">A carregar módulo...</span>
+                </div>
+              }
+            >
+              <>
               {/* 1. PRINCIPAL */}
               {activeTab === 'dashboard' && (
                 <DashboardView
@@ -1868,7 +1891,8 @@ export default function App() {
               {activeTab === 'arquitetura' && (
                 <ArchitectureDocsView />
               )}
-            </>
+              </>
+            </React.Suspense>
           )}
         </main>
       </div>
@@ -1877,34 +1901,44 @@ export default function App() {
       <Footer variant="light" />
 
       {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
-      <InitialSetupModal
-        isOpen={showSetupModal}
-        onClose={() => setShowSetupModal(false)}
-        onSaveSetup={handleSaveSetup}
-        escolasExistentes={escolas}
-      />
+      {showSetupModal && (
+        <React.Suspense fallback={null}>
+          <InitialSetupModal
+            isOpen={showSetupModal}
+            onClose={() => setShowSetupModal(false)}
+            onSaveSetup={handleSaveSetup}
+            escolasExistentes={escolas}
+          />
+        </React.Suspense>
+      )}
 
       {/* Motor de Segurança & Criptografia AES-256 em Tempo Real (Exclusivo Admin Geral) */}
-      {currentUser.role === 'AdminGeral' && (
-        <RealtimeSecurityModal
-          isOpen={showSecurityModal}
-          onClose={() => setShowSecurityModal(false)}
-          onAbrirSetupInicial={() => setTemAdminGeral(false)}
-          currentUserRole={currentUser.role}
-        />
+      {currentUser.role === 'AdminGeral' && showSecurityModal && (
+        <React.Suspense fallback={null}>
+          <RealtimeSecurityModal
+            isOpen={showSecurityModal}
+            onClose={() => setShowSecurityModal(false)}
+            onAbrirSetupInicial={() => setTemAdminGeral(false)}
+            currentUserRole={currentUser.role}
+          />
+        </React.Suspense>
       )}
 
       {/* Tour Guiado Oficial da Dashboard e Plataforma */}
-      <GuidedTourModal
-        isOpen={showTourModal}
-        onClose={() => setShowTourModal(false)}
-        currentUser={effectiveUser}
-        escola={escola}
-        onNavigateTab={(tab) => {
-          setActiveTab(tab);
-          setShowTourModal(false);
-        }}
-      />
+      {showTourModal && (
+        <React.Suspense fallback={null}>
+          <GuidedTourModal
+            isOpen={showTourModal}
+            onClose={() => setShowTourModal(false)}
+            currentUser={effectiveUser}
+            escola={escola}
+            onNavigateTab={(tab) => {
+              setActiveTab(tab);
+              setShowTourModal(false);
+            }}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 }

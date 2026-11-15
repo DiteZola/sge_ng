@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { offlineStorage } from './offlineStorage';
 import { cryptoService } from './cryptoService';
 import { securityEngine } from './securityEngine';
@@ -691,92 +690,11 @@ export function inicializarArmazenamento(): void {
     localStorage.setItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, 'true');
   }
 
-  if (!localStorage.getItem(STORAGE_KEYS.ESCOLAS)) {
-    setLocal(STORAGE_KEYS.ESCOLAS, []);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.ALUNOS)) {
-    setLocal(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.TURMAS)) {
-    setLocal(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.DISCIPLINAS)) {
-    setLocal(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.ATRIBUICOES)) {
-    setLocal(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS)) {
-    setLocal(STORAGE_KEYS.FUNCIONARIOS, []);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.TIPOS_AVALIACAO)) {
-    setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, DEFAULT_TIPOS_AVALIACAO);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.REGRAS_MAC)) {
-    setLocal(STORAGE_KEYS.REGRAS_MAC, DEFAULT_REGRAS_MAC);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.AVALIACOES)) {
-    setLocal(STORAGE_KEYS.AVALIACOES, DEFAULT_AVALIACOES);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.NOTAS)) {
-    setLocal(STORAGE_KEYS.NOTAS, DEFAULT_NOTAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.NOTAS_CONSOLIDADAS)) {
-    setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, DEFAULT_NOTAS_CONSOLIDADAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.SOLICITACOES_NOTA)) {
-    setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, DEFAULT_SOLICITACOES_NOTA);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.JURIS)) {
-    setLocal(STORAGE_KEYS.JURIS, DEFAULT_JURIS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.PRESENCAS)) {
-    setLocal(STORAGE_KEYS.PRESENCAS, DEFAULT_PRESENCAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.AUDITORIA)) {
-    setLocal(STORAGE_KEYS.AUDITORIA, DEFAULT_AUDITORIA);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.MENSAGENS)) {
-    setLocal(STORAGE_KEYS.MENSAGENS, DEFAULT_MENSAGENS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.BIBLIOTECA)) {
-    setLocal(STORAGE_KEYS.BIBLIOTECA, DEFAULT_BIBLIOTECA);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.BIBLIOTECA_ACESSOS)) {
-    setLocal(STORAGE_KEYS.BIBLIOTECA_ACESSOS, []);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.RECIBOS)) {
-    setLocal(STORAGE_KEYS.RECIBOS, DEFAULT_RECIBOS);
-  }
+  // Apenas inicializar configuração base se inexistente (getLocal já devolve DEFAULT_* para listas vazias, evitando 30 escritas e eventos no arranque)
   if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA)) {
-    setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, DEFAULT_CONFIGURACAO_SISTEMA);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS)) {
-    setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.TRANSACOES_FINANCEIRAS)) {
-    setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.DESPESAS_ESCOLARES)) {
-    setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.PATRIMONIO)) {
-    setLocal(STORAGE_KEYS.PATRIMONIO, DEFAULT_PATRIMONIO);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.HISTORICO_COMPLETO)) {
-    setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.HORARIOS)) {
-    setLocal(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.PRESENCAS_ALUNOS)) {
-    setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACOES_PASSES)) {
-    setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, {});
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.ACTIVE_ESCOLA_ID)) {
-    setLocal(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
+    try {
+      localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(DEFAULT_CONFIGURACAO_SISTEMA));
+    } catch {}
   }
   
   // Limpar chaves corrompidas ou strings "undefined" / "null"
@@ -917,11 +835,13 @@ export function inicializarArmazenamento(): void {
   }
 }
 
-// Auto-inicialização de armazenamento, hidratação IndexedDB e verificação de integridade no navegador
+// Auto-inicialização leve do armazenamento e hidratação IndexedDB sem bloquear o primeiro frame
 if (typeof window !== 'undefined') {
   try {
     inicializarArmazenamento();
-    offlineStorage.hidratarArmazenamentoDoIndexedDB();
+    setTimeout(() => {
+      offlineStorage.hidratarArmazenamentoDoIndexedDB();
+    }, 80);
   } catch (err) {
     console.warn('[Storage] Inicialização de contingência:', err);
   }
@@ -3639,7 +3559,8 @@ export const dbService = {
   },
 
   // Exportar Todos os Dados da Escola em Excel (.xlsx) com Identificação Escolar e Todas as Notas
-  exportarExcelCompleto: () => {
+  exportarExcelCompleto: async () => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const escola = dbService.getEscolaAtiva();
     const alunos = dbService.getAlunos();
@@ -3944,7 +3865,8 @@ export const dbService = {
   },
 
   // 1. Exportar Alunos com Todas as Notas em Excel (.xlsx)
-  exportarAlunosComNotasExcel: (escolaId?: string) => {
+  exportarAlunosComNotasExcel: async (escolaId?: string) => {
+    const XLSX = await import('xlsx');
     const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
     const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
@@ -4124,7 +4046,8 @@ export const dbService = {
   },
 
   // 3. Exportar Quadro Completo de Funcionários em Excel (.xlsx)
-  exportarFuncionariosCompletosExcel: (escolaId?: string) => {
+  exportarFuncionariosCompletosExcel: async (escolaId?: string) => {
+    const XLSX = await import('xlsx');
     const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
     const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
@@ -4214,7 +4137,8 @@ export const dbService = {
   },
 
   // 5. Exportar Escola Completa em Excel (.xlsx) com Múltiplas Abas Oficiais
-  exportarEscolaCompletaExcel: (escolaId?: string) => {
+  exportarEscolaCompletaExcel: async (escolaId?: string) => {
+    const XLSX = await import('xlsx');
     const todasEscolas = dbService.getEscolas();
     const escolaAlvoId = escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva()?.id;
     const escola = todasEscolas.find(e => e.id === escolaAlvoId) || dbService.getEscolaAtiva() || todasEscolas[0];
@@ -4395,11 +4319,12 @@ export const dbService = {
   },
 
   // 7. Exportar Todo o Sistema Completo em Excel (.xlsx)
-  exportarSistemaCompletoExcel: () => {
+  exportarSistemaCompletoExcel: async () => {
     if (isSessaoAutenticadaNaoAdminGeral()) {
-      dbService.exportarEscolaCompletaExcel(dbService.getEscolaAtiva().id);
+      await dbService.exportarEscolaCompletaExcel(dbService.getEscolaAtiva().id);
       return;
     }
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const escolas = dbService.getEscolas();
     const alunos = dbService.getAlunos();
@@ -4511,6 +4436,7 @@ export const dbService = {
   // Importar Dados do Excel
   importarExcel: async (file: File): Promise<{ sucesso: boolean; mensagem: string; contadores?: any }> => {
     try {
+      const XLSX = await import('xlsx');
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(buffer, { type: 'array' });
 
@@ -5190,8 +5116,9 @@ export const dbService = {
       alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
     }, null, 2);
   },
-  exportarParaExcel: () => dbService.exportarExcelCompleto(),
-  descarregarRelatorioEstatisticoNacionalExcel: () => {
+  exportarParaExcel: async () => dbService.exportarExcelCompleto(),
+  descarregarRelatorioEstatisticoNacionalExcel: async () => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const escolas = dbService.getEscolas();
     const alunos = dbService.getAlunos();

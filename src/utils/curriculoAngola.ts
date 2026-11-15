@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import { Disciplina } from '../types';
 
 /**
@@ -198,8 +197,9 @@ export function downloadHtmlDocument(filename: string, title: string, htmlConten
   URL.revokeObjectURL(url);
 }
 
-export function downloadExcelFile(sheetName: string, rows: Record<string, any>[], filename: string) {
+export async function downloadExcelFile(sheetName: string, rows: Record<string, any>[], filename: string): Promise<void> {
   if (!rows || rows.length === 0) return;
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31));

@@ -69,6 +69,7 @@ if (!self.define) {
 }
 define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
 
+  importScripts("./sw-notifications.js");
   self.skipWaiting();
   workbox.clientsClaim();
   /**
@@ -77,8 +78,8 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
    * See https://goo.gl/S9QRab
    */
   workbox.precacheAndRoute([{
-    "url": "registerSW.js",
-    "revision": "402b66900e731ca748771b6fc5e7a068"
+    "url": "sw-notifications.js",
+    "revision": "97d9956d063ce7c77cc5c11217ae40ca"
   }, {
     "url": "pwa-maskable-512x512.png",
     "revision": "c7972da76b104ae95a78489402274a55"
@@ -93,7 +94,7 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "revision": "1004cdacc50c5738838c08083d01058d"
   }, {
     "url": "index.html",
-    "revision": "affaa9d1b8f4dfb58d9a6646045ec306"
+    "revision": "7c55ff4babece5843b2a14461f242793"
   }, {
     "url": "icon.svg",
     "revision": "293309fdc038c89ab9bbbe70fd91b917"
@@ -107,16 +108,154 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "url": "404.html",
     "revision": "df01c1b5b38f4151e55bfb95329ffe2a"
   }, {
+    "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-xlsx-iJMskejc.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-react-Dg0ur_gx.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-qr-fR3kqfDd.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-pdf-Sn3ZASOC.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-firebase-Dd8ZQi0_.js",
+    "revision": null
+  }, {
+    "url": "assets/vendor-charts-7UFzEllA.js",
+    "revision": null
+  }, {
+    "url": "assets/rolldown-runtime-hePW80VL.js",
+    "revision": null
+  }, {
+    "url": "assets/qrCodeUtils-BMcUOLHb.js",
+    "revision": null
+  }, {
     "url": "assets/purify.es-Bvo9QlJ8.js",
     "revision": null
   }, {
-    "url": "assets/index.es-Dl-xfDr4.js",
+    "url": "assets/pdfGenerator-CSnDGJu3.js",
     "revision": null
   }, {
-    "url": "assets/index-DVYYshtS.js",
+    "url": "assets/index.es-CCVB7FyY.js",
     "revision": null
   }, {
-    "url": "assets/index-8LltM0IR.css",
+    "url": "assets/index-CHz8vPkP.js",
+    "revision": null
+  }, {
+    "url": "assets/index-BTyrNJe4.css",
+    "revision": null
+  }, {
+    "url": "assets/imageCompressor-BY9DaNCq.js",
+    "revision": null
+  }, {
+    "url": "assets/directorHelper-CAOWYizn.js",
+    "revision": null
+  }, {
+    "url": "assets/curriculoAngola-BsuHwveT.js",
+    "revision": null
+  }, {
+    "url": "assets/academicHierarchyService-C5mDLpi3.js",
+    "revision": null
+  }, {
+    "url": "assets/UserProfileView-BQCNIfad.js",
+    "revision": null
+  }, {
+    "url": "assets/TechnicalSupportView-DEGThRP_.js",
+    "revision": null
+  }, {
+    "url": "assets/SystemInitialSetupView-BGCf-T-Y.js",
+    "revision": null
+  }, {
+    "url": "assets/SystemAuditBackupView-suTSiDvV.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentsView-C0C6wws_.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentRankingSection-dDfBBc02.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentPassesView-2qZCuC4K.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentClassListPdfDocument-CdEka2_7.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentAttendanceReportView-JY1GD10C.js",
+    "revision": null
+  }, {
+    "url": "assets/StatisticsView-D_aoY3vx.js",
+    "revision": null
+  }, {
+    "url": "assets/SchoolCalendarView-u5cpqrw_.js",
+    "revision": null
+  }, {
+    "url": "assets/ScheduleTimetableView-wN5NdBG6.js",
+    "revision": null
+  }, {
+    "url": "assets/ReportsView-D-pcyg7q.js",
+    "revision": null
+  }, {
+    "url": "assets/RealtimeSecurityModal-DIb_GtVd.js",
+    "revision": null
+  }, {
+    "url": "assets/QrScannerModal-CLfQIcoW.js",
+    "revision": null
+  }, {
+    "url": "assets/PrintingDocumentsView-Cjde3IXM.js",
+    "revision": null
+  }, {
+    "url": "assets/PatrimonyView-CeTTikdB.js",
+    "revision": null
+  }, {
+    "url": "assets/ParentStudentReportView-12_jJKmv.js",
+    "revision": null
+  }, {
+    "url": "assets/JuryCommissionView-CUNvr_NN.js",
+    "revision": null
+  }, {
+    "url": "assets/InitialSetupModal-CwuwFOp5.js",
+    "revision": null
+  }, {
+    "url": "assets/HumanResourcesView-BYf77VYG.js",
+    "revision": null
+  }, {
+    "url": "assets/GuidedTourModal-X_lcVZG4.js",
+    "revision": null
+  }, {
+    "url": "assets/ExecutiveDirectionView-DnLaetOv.js",
+    "revision": null
+  }, {
+    "url": "assets/EvaluationMacView-HziDILCk.js",
+    "revision": null
+  }, {
+    "url": "assets/DocumentTemplateConfigModal-DGeWPN5z.js",
+    "revision": null
+  }, {
+    "url": "assets/DashboardView-C-4jsYyy.js",
+    "revision": null
+  }, {
+    "url": "assets/CommunicationLibraryView-_OlDdulT.js",
+    "revision": null
+  }, {
+    "url": "assets/ArchitectureDocsView-D-K3Fq84.js",
+    "revision": null
+  }, {
+    "url": "assets/AngolaDateInput-DO_gpgfD.js",
+    "revision": null
+  }, {
+    "url": "assets/AdministrativeFinanceView-DQWQLPQk.js",
+    "revision": null
+  }, {
+    "url": "assets/AdminGlobalSchoolsView-Dd211k_d.js",
+    "revision": null
+  }, {
+    "url": "assets/AcademicManagementView-B7b8xJk7.js",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",
@@ -136,6 +275,9 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
   }, {
     "url": "pwa-maskable-512x512.png",
     "revision": "c7972da76b104ae95a78489402274a55"
+  }, {
+    "url": "sw-notifications.js",
+    "revision": "97d9956d063ce7c77cc5c11217ae40ca"
   }, {
     "url": "manifest.webmanifest",
     "revision": "2ecd418ae8f0d668a169a01baff4d66f"

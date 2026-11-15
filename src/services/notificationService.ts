@@ -115,19 +115,32 @@ class NotificationService {
 
     if (!('serviceWorker' in navigator)) return;
 
-    try {
-      registerSW({
-        immediate: true,
-        onRegisteredSW: (_swUrl, reg) => {
-          if (reg) {
-            this.swRegistration = reg;
-          }
-        },
-        onRegisterError: () => {
-          // Fallback silencioso em ambientes sem suporte a SW
+    const isDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+
+    window.setTimeout(() => {
+      try {
+        if (isDev) {
+          navigator.serviceWorker
+            .register('/sw-notifications.js')
+            .then((reg) => {
+              this.swRegistration = reg;
+            })
+            .catch(() => {});
+        } else {
+          registerSW({
+            immediate: false,
+            onRegisteredSW: (_swUrl, reg) => {
+              if (reg) {
+                this.swRegistration = reg;
+              }
+            },
+            onRegisterError: () => {
+              // Fallback silencioso em ambientes sem suporte a SW
+            }
+          });
         }
-      });
-    } catch {}
+      } catch {}
+    }, 1500);
 
     navigator.serviceWorker.ready
       .then((reg) => {
