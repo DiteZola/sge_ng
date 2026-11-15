@@ -30,6 +30,7 @@ import {
 import { Escola, Funcionario, Genero, Aluno, Turma, SolicitacaoApoioTecnico } from '../types';
 import { dbService } from '../services/storage';
 import { securityEngine } from '../services/securityEngine';
+import { LocationPicker } from './LocationPicker';
 
 interface AdminGlobalSchoolsViewProps {
   escolas: Escola[];
@@ -897,27 +898,12 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="font-bold text-gray-700 block mb-1">Província *</label>
-                  <select
-                    value={novaEscolaProvincia}
-                    onChange={(e) => setNovaEscolaProvincia(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                  >
-                    {['Luanda', 'Benguela', 'Huíla', 'Zaire', 'Cabinda', 'Uíge', 'Cuanza Sul', 'Huambo', 'Bié', 'Moxico', 'Lunda Norte', 'Lunda Sul', 'Malanje', 'Namibe', 'Cunene', 'Cuando Cubango', 'Bengo', 'Cuanza Norte'].map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-bold text-gray-700 block mb-1">Município *</label>
-                  <input
-                    type="text"
-                    required
-                    value={novaEscolaMunicipio}
-                    onChange={(e) => setNovaEscolaMunicipio(e.target.value)}
-                    placeholder="Ex: Belas, Viana, Mbanza Kongo"
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                <div className="sm:col-span-2">
+                  <LocationPicker
+                    provinciaSelecionada={novaEscolaProvincia}
+                    onProvinciaChange={setNovaEscolaProvincia}
+                    municipioSelecionado={novaEscolaMunicipio}
+                    onMunicipioChange={setNovaEscolaMunicipio}
                   />
                 </div>
               </div>
@@ -1474,23 +1460,12 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                   />
                 </div>
 
-                <div>
-                  <label className="font-bold text-gray-800 block mb-1">Província</label>
-                  <input
-                    type="text"
-                    value={editProvincia}
-                    onChange={(e) => setEditProvincia(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="font-bold text-gray-800 block mb-1">Município</label>
-                  <input
-                    type="text"
-                    value={editMunicipio}
-                    onChange={(e) => setEditMunicipio(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600"
+                <div className="md:col-span-2">
+                  <LocationPicker
+                    provinciaSelecionada={editProvincia}
+                    onProvinciaChange={setEditProvincia}
+                    municipioSelecionado={editMunicipio}
+                    onMunicipioChange={setEditMunicipio}
                   />
                 </div>
 

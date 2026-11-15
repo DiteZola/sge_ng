@@ -55,7 +55,7 @@ export function formatarAngolaParaIso(dataAo?: string): string {
 /**
  * Validação rigorosa de datas no formato normal de Angola (DD/MM/AAAA)
  */
-export function validarDataAngolana(dataStr: string, minYear = 1920, maxYear = 2050): { valida: boolean; erro?: string } {
+export function validarDataAngolana(dataStr: string, minYear = 1900, maxYear = 2099): { valida: boolean; erro?: string } {
   if (!dataStr || dataStr.trim() === '') {
     return { valida: false, erro: 'Data não informada' };
   }
@@ -97,8 +97,8 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
   onChange,
   label,
   required = false,
-  minYear = 1920,
-  maxYear = 2050,
+  minYear = 1900,
+  maxYear = 2099,
   placeholder = 'DD/MM/AAAA',
   className = '',
   disabled = false,
@@ -122,28 +122,38 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
     }
   }, [value, minYear, maxYear]);
 
-  // Manipulador de digitação manual fluida com suporte a backspace e colar
+  // Manipulador de digitação manual fluida com suporte a dígitos corridos, barras, traços, backspace e colar
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let raw = e.target.value;
-    
+
     // Se o utilizador estiver colando ou digitando formato ISO (AAAA-MM-DD)
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
-      const ao = formatarParaDataAngola(raw.trim());
+    if (/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(raw.trim())) {
+      const isoNorm = raw.trim().replace(/\//g, '-');
+      const ao = formatarParaDataAngola(isoNorm);
       setTextoManual(ao);
       const val = validarDataAngolana(ao, minYear, maxYear);
       if (val.valida) {
         setErroValidacao(null);
-        onChange(raw.trim());
+        onChange(isoNorm);
+      } else {
+        setErroValidacao(val.erro || 'Data inválida');
       }
       return;
     }
 
-    // Apenas dígitos e barras
-    raw = raw.replace(/[^\d/]/g, '');
+    // Permitir separadores '-' convertendo para '/'
+    raw = raw.replace(/-/g, '/').replace(/[^\d/]/g, '');
 
-    // Formatação automática amigável ao digitar (apenas quando o tamanho aumenta)
-    if (raw.length > textoManual.length) {
-      if ((raw.length === 2 || raw.length === 5) && !raw.endsWith('/')) {
+    const aumentando = raw.length > textoManual.length;
+    if (aumentando) {
+      // Se o utilizador digitou/colou vários dígitos sem barras (ex.: 14051998)
+      const semBarras = raw.replace(/\//g, '');
+      if (!raw.includes('/') && semBarras.length >= 3) {
+        const d = semBarras.slice(0, 2);
+        const m = semBarras.slice(2, 4);
+        const a = semBarras.slice(4, 8);
+        raw = a.length > 0 ? `${d}/${m}/${a}` : `${d}/${m}`;
+      } else if ((raw.length === 2 || raw.length === 5) && !raw.endsWith('/')) {
         raw = raw + '/';
       }
     }
@@ -154,11 +164,14 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
 
     setTextoManual(raw);
 
-    if (raw.length === 10) {
-      const val = validarDataAngolana(raw, minYear, maxYear);
+    // Aceita data completa mesmo se dia/mês tiverem 1 ou 2 dígitos (ex: 5/3/2010 ou 05/03/2010)
+    const matchCompleta = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (matchCompleta) {
+      const normalizada = `${matchCompleta[1].padStart(2, '0')}/${matchCompleta[2].padStart(2, '0')}/${matchCompleta[3]}`;
+      const val = validarDataAngolana(normalizada, minYear, maxYear);
       if (val.valida) {
         setErroValidacao(null);
-        const iso = formatarAngolaParaIso(raw);
+        const iso = formatarAngolaParaIso(normalizada);
         onChange(iso);
       } else {
         setErroValidacao(val.erro || 'Data inválida');
@@ -172,13 +185,20 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
   };
 
   const handleBlur = () => {
-    if (textoManual.trim().length > 0) {
-      const val = validarDataAngolana(textoManual, minYear, maxYear);
+    const trimmed = textoManual.trim();
+    if (trimmed.length > 0) {
+      // Auto-completar zeros caso tenha digitado 5/3/2010
+      const m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      const candidato = m
+        ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`
+        : trimmed;
+      const val = validarDataAngolana(candidato, minYear, maxYear);
       if (!val.valida) {
         setErroValidacao(val.erro || 'Data inválida no formato de Angola (DD/MM/AAAA)');
       } else {
+        if (candidato !== textoManual) setTextoManual(candidato);
         setErroValidacao(null);
-        onChange(formatarAngolaParaIso(textoManual));
+        onChange(formatarAngolaParaIso(candidato));
       }
     } else if (required) {
       setErroValidacao('Por favor, indique uma data válida.');

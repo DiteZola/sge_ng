@@ -42,6 +42,8 @@ import { downloadElementAsPdf } from '../utils/pdfGenerator';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import * as XLSX from 'xlsx';
 import { ModalJustificarFaltaFuncionario } from './ModalJustificarFaltaFuncionario';
+import { AngolaDateInput } from './AngolaDateInput';
+import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
 
 interface HumanResourcesViewProps {
   escola: Escola;
@@ -66,10 +68,12 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   onRedefinirSenhaFuncionario,
   onEliminarFuncionario
 }) => {
+  const hojeIso = new Date().toISOString().split('T')[0];
   const [subTab, setSubTab] = useState<'colaboradores' | 'ponto'>('colaboradores');
   const [tipoPeriodoPonto, setTipoPeriodoPonto] = useState<'dia' | 'intervalo'>('dia');
-  const [dataSelecionada, setDataSelecionada] = useState(new Date().toISOString().split('T')[0]);
-  const [dataFimSelecionada, setDataFimSelecionada] = useState(new Date().toISOString().split('T')[0]);
+  const [dataSelecionada, setDataSelecionada] = useState(hojeIso);
+  const [dataFimSelecionada, setDataFimSelecionada] = useState(hojeIso);
+  const [categoriaPontoFiltro, setCategoriaPontoFiltro] = useState<'todos' | 'docentes' | 'administrativos'>('todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [showModalPdfPresencas, setShowModalPdfPresencas] = useState(false);
   const [gerandoPdfPresencas, setGerandoPdfPresencas] = useState(false);
@@ -96,6 +100,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const [naturalidade, setNaturalidade] = useState('');
   const [provincia, setProvincia] = useState('Luanda');
   const [municipio, setMunicipio] = useState('Luanda');
+  const [pais, setPais] = useState('Angola');
   const [nacionalidade, setNacionalidade] = useState('Angolana');
   const [estadoCivil, setEstadoCivil] = useState('Solteiro(a)');
   const [endereco, setEndereco] = useState('');
@@ -147,7 +152,14 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   // Permissão da Direção
   const ehDiretor = currentUser.role === 'DiretorGeral' || currentUser.role === 'AdminGeral';
   const podeCadastrarFuncionarios = ehDiretor || (currentUser.role === 'SubdiretorPedagogico' && Boolean(escola.permitirSubdiretorCadastrarFuncionarios));
-  const temPermissaoAssiduidade = ['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral'].includes(currentUser.role);
+  const temPermissaoAssiduidade = [
+    'DiretorGeral',
+    'SubdiretorPedagogico',
+    'AdminGeral',
+    'CoordenadorPedagogico',
+    'CoordenadorTurno',
+    'ChefeSecretaria'
+  ].includes(currentUser.role);
 
   // Apenas funcionários desta escola (ou todos se AdminGeral)
   const funcionariosDaEscola = funcionarios.filter(f => 
@@ -254,6 +266,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setNaturalidade('');
     setProvincia('Luanda');
     setMunicipio('Luanda');
+    setPais('Angola');
     setNacionalidade('Angolana');
     setEstadoCivil('Solteiro(a)');
     setNomePai('');
@@ -300,9 +313,10 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setDataValidadeBI(func.dataValidadeBI || '');
     setLocalEmissaoBI(func.localEmissaoBI || func.arquivoIdentificacao || '');
     setDataNascimento(func.dataNascimento || '');
-    setNaturalidade(func.naturalidadeMunicipio || func.provincia || '');
+    setNaturalidade(func.naturalidadeMunicipio || func.municipio || func.provincia || '');
     setProvincia(func.provincia || func.naturalidadeProvincia || 'Luanda');
     setMunicipio(func.municipio || func.naturalidadeMunicipio || 'Luanda');
+    setPais(func.pais || 'Angola');
     setNacionalidade(func.nacionalidade || 'Angolana');
     setEstadoCivil(func.estadoCivil || 'Solteiro(a)');
     setNomePai(func.nomePai || '');
@@ -360,7 +374,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       arquivoIdentificacao: localEmissaoBI,
       dataNascimento,
       naturalidadeProvincia: provincia,
-      naturalidadeMunicipio: municipio,
+      naturalidadeMunicipio: (naturalidade || municipio).trim(),
       nacionalidade,
       estadoCivil,
       nomePai: nomePai.trim(),
@@ -369,6 +383,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       bairro: endereco.trim(),
       municipio,
       provincia,
+      pais: pais.trim() || 'Angola',
       numeroAgente: numeroMecanografico.trim(),
       nif: (nif || numeroBI).trim(),
       categoriaProfissional,
@@ -950,78 +965,168 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
           {/* Livro de Ponto Diário Interativo */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
-            <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center space-x-2">
-                <Clock className="h-5 w-5 text-blue-600" />
-                <h3 className="font-bold text-gray-900 text-sm">Livro de Ponto & Folha de Presenças</h3>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                {/* Alternador Modo Dia Único vs Intervalo */}
-                <div className="flex items-center space-x-1 bg-gray-200/80 p-0.5 rounded-lg border border-gray-300">
-                  <button
-                    type="button"
-                    onClick={() => setTipoPeriodoPonto('dia')}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                      tipoPeriodoPonto === 'dia' ? 'bg-white text-blue-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Dia Único
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTipoPeriodoPonto('intervalo')}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                      tipoPeriodoPonto === 'intervalo' ? 'bg-white text-blue-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Intervalo de Datas
-                  </button>
+            <div className="p-4 bg-gray-50 border-b border-gray-200 space-y-3">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="flex items-center space-x-2">
+                  <Clock className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-sm">Livro de Ponto & Folha de Presenças (Manual Diário)</h3>
+                    <p className="text-[11px] text-gray-500">Marque manualmente a presença ou falta de professores e funcionários para o dia selecionado.</p>
+                  </div>
                 </div>
 
-                {tipoPeriodoPonto === 'dia' ? (
-                  <div className="flex items-center space-x-2">
-                    <label className="text-xs font-bold text-gray-700">Data:</label>
-                    <input
-                      type="date"
-                      value={dataSelecionada}
-                      onChange={(e) => setDataSelecionada(e.target.value)}
-                      className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1.5 focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
-                    />
+                <div className="flex flex-wrap items-end gap-2.5">
+                  {/* Alternador Modo Dia Único vs Intervalo */}
+                  <div className="flex items-center space-x-1 bg-gray-200/80 p-0.5 rounded-lg border border-gray-300">
+                    <button
+                      type="button"
+                      onClick={() => setTipoPeriodoPonto('dia')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        tipoPeriodoPonto === 'dia' ? 'bg-white text-blue-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Dia Único
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTipoPeriodoPonto('intervalo')}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                        tipoPeriodoPonto === 'intervalo' ? 'bg-white text-blue-900 shadow-2xs' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Intervalo de Datas
+                    </button>
                   </div>
-                ) : (
-                  <div className="flex items-center space-x-2 bg-blue-50/60 p-1 rounded-lg border border-blue-200">
-                    <div className="flex items-center space-x-1">
-                      <label className="text-[11px] font-bold text-blue-950">Início:</label>
-                      <input
-                        type="date"
-                        value={dataSelecionada}
-                        onChange={(e) => setDataSelecionada(e.target.value)}
-                        className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1 focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
-                      />
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <label className="text-[11px] font-bold text-blue-950">Fim:</label>
-                      <input
-                        type="date"
-                        value={dataFimSelecionada}
-                        onChange={(e) => setDataFimSelecionada(e.target.value)}
-                        className="text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded p-1 focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
-                      />
-                    </div>
-                  </div>
-                )}
 
-                <button
-                  type="button"
-                  onClick={() => setShowModalPdfPresencas(true)}
-                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
-                  title="Baixar Folha de Assiduidade / Livro de Ponto em formato PDF institucional"
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  <span>Baixar Livro de Ponto (PDF)</span>
-                </button>
+                  {tipoPeriodoPonto === 'dia' ? (
+                    <div className="flex items-end space-x-2">
+                      <div className="w-44">
+                        <AngolaDateInput
+                          label="Data do Ponto"
+                          value={dataSelecionada}
+                          onChange={setDataSelecionada}
+                          placeholder="DD/MM/AAAA"
+                        />
+                      </div>
+                      {dataSelecionada !== hojeIso && (
+                        <button
+                          type="button"
+                          onClick={() => setDataSelecionada(hojeIso)}
+                          className="px-2.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          Hoje
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-end gap-2 bg-blue-50/60 p-2 rounded-lg border border-blue-200">
+                      <div className="w-40">
+                        <AngolaDateInput
+                          label="Data Início"
+                          value={dataSelecionada}
+                          onChange={setDataSelecionada}
+                        />
+                      </div>
+                      <div className="w-40">
+                        <AngolaDateInput
+                          label="Data Fim"
+                          value={dataFimSelecionada}
+                          onChange={setDataFimSelecionada}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowModalPdfPresencas(true)}
+                    className="flex items-center space-x-1.5 px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                    title="Baixar Folha de Assiduidade / Livro de Ponto em formato PDF institucional"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    <span>Baixar Livro de Ponto (PDF)</span>
+                  </button>
+                </div>
               </div>
+
+              {/* Filtros de Categoria + Acção em Lote */}
+              {(() => {
+                const funcionariosPonto = filteredFuncionarios.filter(f => {
+                  if (categoriaPontoFiltro === 'docentes') return f.ehProfessor || f.ehAdministrativoQueLeciona || f.role === 'Professor';
+                  if (categoriaPontoFiltro === 'administrativos') return !f.ehProfessor && f.role !== 'Professor';
+                  return true;
+                });
+                const totalPresentesDia = funcionariosPonto.filter(f => assiduidade.find(a => a.funcionarioId === f.id && a.data === dataSelecionada)?.estado === 'Presente').length;
+                const totalFaltasDia = funcionariosPonto.filter(f => {
+                  const st = assiduidade.find(a => a.funcionarioId === f.id && a.data === dataSelecionada)?.estado;
+                  return st === 'Falta_Injustificada' || st === 'Falta_Justificada';
+                }).length;
+                const totalPorMarcar = funcionariosPonto.length - totalPresentesDia - totalFaltasDia;
+
+                return (
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pt-2 border-t border-gray-200">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCategoriaPontoFiltro('todos')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+                          categoriaPontoFiltro === 'todos' ? 'bg-blue-700 text-white border-blue-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                        }`}
+                      >
+                        Todos ({filteredFuncionarios.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCategoriaPontoFiltro('docentes')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+                          categoriaPontoFiltro === 'docentes' ? 'bg-indigo-700 text-white border-indigo-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                        }`}
+                      >
+                        Professores
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCategoriaPontoFiltro('administrativos')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+                          categoriaPontoFiltro === 'administrativos' ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                        }`}
+                      >
+                        Direcção / Administrativos
+                      </button>
+                      <span className="text-[11px] font-semibold text-gray-600 ml-2">
+                        Presentes: <strong className="text-green-700">{totalPresentesDia}</strong> • Faltas: <strong className="text-red-700">{totalFaltasDia}</strong> • Por Marcar: <strong className="text-amber-700">{totalPorMarcar}</strong>
+                      </span>
+                    </div>
+
+                    {temPermissaoAssiduidade && funcionariosPonto.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const lote: RegistoAssiduidade[] = funcionariosPonto.map(func => ({
+                            id: `assid-${func.id}-${dataSelecionada}`,
+                            funcionarioId: func.id,
+                            funcionarioNome: func.nomeCompleto,
+                            cargo: func.cargo || '',
+                            escolaId: escola.id,
+                            data: dataSelecionada,
+                            estado: 'Presente',
+                            observacao: 'Presença marcada em lote',
+                            justificativa: '',
+                            registadoPor: currentUser.nomeCompleto
+                          }));
+                          dbService.salvarPresencasLote(lote);
+                          window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+                          emitirFeedback(`${lote.length} colaborador(es) marcados como Presentes em ${dataSelecionada}.`);
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                      >
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        <span>Marcar Todos Presentes</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="overflow-x-auto">
@@ -1036,9 +1141,15 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredFuncionarios.map((func) => {
+                  {filteredFuncionarios
+                    .filter(f => {
+                      if (categoriaPontoFiltro === 'docentes') return f.ehProfessor || f.ehAdministrativoQueLeciona || f.role === 'Professor';
+                      if (categoriaPontoFiltro === 'administrativos') return !f.ehProfessor && f.role !== 'Professor';
+                      return true;
+                    })
+                    .map((func) => {
                     const regHoje = assiduidade.find(a => a.funcionarioId === func.id && a.data === dataSelecionada);
-                    const presente = regHoje ? regHoje.estado === 'Presente' : true;
+                    const estadoPonto = regHoje?.estado;
 
                     return (
                       <tr key={`${func.id}-${func.escolaId || ''}-${func.numeroBI || ''}`} className="hover:bg-gray-50/70">
@@ -1062,15 +1173,25 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                         </td>
                         <td className="p-3 font-mono text-gray-600">{func.telefone}</td>
                         <td className="p-3">
-                          {presente ? (
+                          {estadoPonto === 'Presente' ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-800 border border-green-300 inline-flex items-center">
                               <CheckCircle className="h-3 w-3 mr-1 text-green-600" />
                               Presente
                             </span>
-                          ) : (
+                          ) : estadoPonto === 'Falta_Justificada' ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 inline-flex items-center">
+                              <Clock className="h-3 w-3 mr-1 text-blue-600" />
+                              Falta Justificada
+                            </span>
+                          ) : estadoPonto === 'Falta_Injustificada' ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800 border border-red-300 inline-flex items-center">
                               <XCircle className="h-3 w-3 mr-1 text-red-600" />
-                              Ausente
+                              Falta Injustificada
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300 inline-flex items-center">
+                              <AlertTriangle className="h-3 w-3 mr-1 text-amber-600" />
+                              Por Marcar
                             </span>
                           )}
                         </td>
@@ -1080,21 +1201,33 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleMarcarPresenca(func.id, true)}
-                                className="px-2.5 py-1 text-[11px] font-bold text-green-800 bg-green-50 border border-green-600 rounded hover:bg-green-100 cursor-pointer"
+                                className={`px-2.5 py-1 text-[11px] font-bold rounded border cursor-pointer transition-colors ${
+                                  estadoPonto === 'Presente'
+                                    ? 'bg-green-600 text-white border-green-700 shadow-xs'
+                                    : 'text-green-800 bg-green-50 border-green-600 hover:bg-green-100'
+                                }`}
                               >
                                 Presente
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleMarcarPresenca(func.id, false, false, 'Falta injustificada')}
-                                className="px-2.5 py-1 text-[11px] font-bold text-red-800 bg-red-50 border border-red-600 rounded hover:bg-red-100 cursor-pointer"
+                                className={`px-2.5 py-1 text-[11px] font-bold rounded border cursor-pointer transition-colors ${
+                                  estadoPonto === 'Falta_Injustificada'
+                                    ? 'bg-red-600 text-white border-red-700 shadow-xs'
+                                    : 'text-red-800 bg-red-50 border-red-600 hover:bg-red-100'
+                                }`}
                               >
                                 Marcar Falta
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setFuncionarioParaJustificar(func)}
-                                className="px-2.5 py-1 text-[11px] font-bold text-blue-800 bg-blue-50 border border-blue-600 rounded hover:bg-blue-100 cursor-pointer"
+                                className={`px-2.5 py-1 text-[11px] font-bold rounded border cursor-pointer transition-colors ${
+                                  estadoPonto === 'Falta_Justificada'
+                                    ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                                    : 'text-blue-800 bg-blue-50 border-blue-600 hover:bg-blue-100'
+                                }`}
                                 title="Averbar justificação oficial de falta com atestado médico ou comprovativo legal"
                               >
                                 Justificar Falta
@@ -1103,10 +1236,9 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    if (confirm(`Anular/limpar o registo de ponto de ${func.nomeCompleto} na data ${dataSelecionada}?`)) {
-                                      dbService.removerPresenca(func.id, dataSelecionada);
-                                      emitirFeedback(`Registo de ponto de ${func.nomeCompleto} em ${dataSelecionada} foi removido com sucesso.`);
-                                    }
+                                    dbService.removerPresenca(func.id, dataSelecionada);
+                                    window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+                                    emitirFeedback(`Registo de ponto de ${func.nomeCompleto} em ${dataSelecionada} foi limpo com sucesso.`);
                                   }}
                                   className="px-2 py-1 text-[11px] font-semibold text-gray-600 bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 cursor-pointer"
                                   title="Anular registo de ponto lançado por descuido"
@@ -1258,22 +1390,20 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Data de Emissão do BI</label>
-                    <input
-                      type="date"
+                    <AngolaDateInput
+                      label="Data de Emissão do BI"
                       value={dataEmissaoBI}
-                      onChange={(e) => setDataEmissaoBI(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={setDataEmissaoBI}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Data de Validade do BI</label>
-                    <input
-                      type="date"
+                    <AngolaDateInput
+                      label="Data de Validade do BI"
                       value={dataValidadeBI}
-                      onChange={(e) => setDataValidadeBI(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={setDataValidadeBI}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
@@ -1289,12 +1419,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Data de Nascimento</label>
-                    <input
-                      type="date"
+                    <AngolaDateInput
+                      label="Data de Nascimento"
                       value={dataNascimento}
-                      onChange={(e) => setDataNascimento(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={setDataNascimento}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
@@ -1313,35 +1442,32 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Nacionalidade</label>
-                    <input
-                      type="text"
+                    <NacionalidadeInput
+                      label="Nacionalidade"
                       value={nacionalidade}
-                      onChange={(e) => setNacionalidade(e.target.value)}
-                      placeholder="Angolana"
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={setNacionalidade}
                     />
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Naturalidade (Município)</label>
-                    <input
-                      type="text"
-                      value={municipio}
-                      onChange={(e) => setMunicipio(e.target.value)}
-                      placeholder="Ex: Luanda, Cazenga, Mbanza Kongo"
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                    <NaturalidadeInput
+                      label="Naturalidade (Município / Província)"
+                      value={naturalidade || municipio}
+                      onChange={(val) => {
+                        setNaturalidade(val);
+                        if (val) setMunicipio(val);
+                      }}
                     />
                   </div>
 
-                  <div>
-                    <label className="font-bold text-gray-700 block mb-1">Província de Origem</label>
-                    <input
-                      type="text"
-                      value={provincia}
-                      onChange={(e) => setProvincia(e.target.value)}
-                      placeholder="Ex: Luanda, Zaire, Benguela"
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  <div className="sm:col-span-2">
+                    <LocationPicker
+                      provinciaSelecionada={provincia}
+                      onProvinciaChange={setProvincia}
+                      municipioSelecionado={municipio}
+                      onMunicipioChange={setMunicipio}
+                      paisSelecionado={pais}
+                      onPaisChange={setPais}
                     />
                   </div>
 
@@ -1553,12 +1679,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Data de Admissão</label>
-                    <input
-                      type="date"
+                    <AngolaDateInput
+                      label="Data de Admissão"
                       value={dataAdmissao}
-                      onChange={(e) => setDataAdmissao(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={setDataAdmissao}
+                      placeholder="DD/MM/AAAA"
                     />
                   </div>
 
@@ -1734,13 +1859,14 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div className="sm:col-span-3">
-                    <label className="font-bold text-gray-700 block mb-1">Data do Atestado Médico de Aptidão / Junta Médica</label>
-                    <input
-                      type="date"
-                      value={atestadoMedicoData}
-                      onChange={(e) => setAtestadoMedicoData(e.target.value)}
-                      className="w-full sm:w-1/3 p-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-red-600 focus:outline-none"
-                    />
+                    <div className="sm:w-1/3">
+                      <AngolaDateInput
+                        label="Data do Atestado Médico de Aptidão / Junta Médica"
+                        value={atestadoMedicoData}
+                        onChange={setAtestadoMedicoData}
+                        placeholder="DD/MM/AAAA"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

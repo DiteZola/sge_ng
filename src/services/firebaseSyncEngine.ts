@@ -2103,8 +2103,18 @@ class FirebaseSyncEngine {
     return this.gravarDocumentoDireto("presencas", id, { ...p, id }, undefined, `Presença funcionário ${id}`);
   }
 
-  public async eliminarPresencaFuncionario(funcionarioId: string, data: string): Promise<boolean> {
-    const id = `${funcionarioId}_${data}`;
+  public async salvarPresencasFuncionariosLote(items: any[]): Promise<boolean> {
+    return this.gravarLoteDireto(
+      "presencas",
+      items.map(p => {
+        const id = p.id || `${p.funcionarioId}_${p.data}`;
+        return { id, dados: { ...p, id } };
+      })
+    );
+  }
+
+  public async eliminarPresencaFuncionario(funcionarioId: string, data: string, docId?: string): Promise<boolean> {
+    const id = docId || `${funcionarioId}_${data}`;
     return this.eliminarDocumentoDireto("presencas", id, undefined, `Remoção presença ${id}`);
   }
 

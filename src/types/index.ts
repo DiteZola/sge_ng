@@ -201,6 +201,7 @@ export interface Aluno {
   naturalidade: string;
   municipioNascimento?: string;
   provinciaOrigem: string;
+  paisOrigem?: string;
   numeroBI: string;
   arquivoIdentificacao?: string; // ex: "arquivo de identificação de Luanda" ou "Mbanza Kongo"
   dataEmissaoBI?: string; // ex: "15/02/2022"
@@ -328,6 +329,7 @@ export interface Funcionario {
   bairro?: string;
   municipio?: string;
   provincia?: string;
+  pais?: string;
   numeroAgente?: string; // Número de Agente do Ministério / Função Pública
   nif?: string; // Número de Identificação Fiscal
   categoriaProfissional?: string; // ex: "Professor do IIº Ciclo do Ensino Secundário - 6º Grau"

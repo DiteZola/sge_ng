@@ -59,7 +59,7 @@ import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '.
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { AngolaDateInput } from './AngolaDateInput';
 import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
-import { LocationPicker } from './LocationPicker';
+import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
 import { InsigniaAngola } from '../constants/insignia';
 import { OfficialQrCode, gerarPayloadQrDocumento, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
 import { downloadElementAsPdf as downloadExactPdf } from '../utils/pdfGenerator';
@@ -405,11 +405,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [numeroDocumento, setNumeroDocumento] = useState('');
   const [tipoDocumento, setTipoDocumento] = useState<'BI' | 'Cédula' | 'Passaporte'>('BI');
   const [dataEmissaoBI, setDataEmissaoBI] = useState('');
+  const [dataValidadeBI, setDataValidadeBI] = useState('');
   const [arquivoIdentificacao, setArquivoIdentificacao] = useState('Arquivo de Identificação de Luanda');
   const [dataNascimento, setDataNascimento] = useState('2010-05-14');
   const [naturalidade, setNaturalidade] = useState('Luanda');
   const [municipioNascimento, setMunicipioNascimento] = useState('Luanda');
   const [provinciaOrigem, setProvinciaOrigem] = useState('Luanda');
+  const [paisOrigem, setPaisOrigem] = useState('Angola');
+  const [nacionalidade, setNacionalidade] = useState('Angolana');
   const [turmaId, setTurmaId] = useState(turmas[0]?.id || '');
   const [numeroProcesso, setNumeroProcesso] = useState('');
   const [nomePai, setNomePai] = useState('');
@@ -742,11 +745,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setNumeroDocumento('');
     setTipoDocumento('BI');
     setDataEmissaoBI('2021-06-15');
+    setDataValidadeBI('');
     setArquivoIdentificacao('Arquivo de Identificação de Luanda');
     setDataNascimento('2010-01-01');
     setNaturalidade('Luanda');
     setMunicipioNascimento('Luanda');
     setProvinciaOrigem('Luanda');
+    setPaisOrigem('Angola');
+    setNacionalidade('Angolana');
     const anoPadrao = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '2025/2026');
     setModalAnoLectivo(anoPadrao);
     const turmasDoAnoPadrao = turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoPadrao);
@@ -785,11 +791,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setNumeroDocumento(aluno.numeroDocumento || aluno.numeroBI || '');
     setTipoDocumento(aluno.tipoDocumento || 'BI');
     setDataEmissaoBI(aluno.dataEmissaoBI || '');
+    setDataValidadeBI(aluno.dataValidadeBI || '');
     setArquivoIdentificacao(aluno.arquivoIdentificacao || 'Arquivo de Identificação de Luanda');
     setDataNascimento(aluno.dataNascimento);
     setNaturalidade(aluno.naturalidade);
     setMunicipioNascimento(aluno.municipioNascimento || aluno.naturalidade || 'Luanda');
     setProvinciaOrigem(aluno.provinciaOrigem);
+    setPaisOrigem(aluno.paisOrigem || 'Angola');
+    setNacionalidade(aluno.nacionalidade || 'Angolana');
     const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
     const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
     setModalAnoLectivo(anoDoAluno);
@@ -849,11 +858,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       tipoDocumento,
       numeroDocumento,
       dataEmissaoBI,
+      dataValidadeBI,
       arquivoIdentificacao,
       dataNascimento,
       naturalidade,
       municipioNascimento,
       provinciaOrigem,
+      paisOrigem: paisOrigem || 'Angola',
+      nacionalidade: nacionalidade || 'Angolana',
       telefone: telefoneEncarregado,
       turmaId: turmaId || turmaSelecionada?.id || turmas[0]?.id || '',
       classeId: classeFinal,
@@ -2727,13 +2739,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                 </select>
                               </div>
                               <div>
-                                <label className="font-bold text-gray-700 block mb-1">Data *</label>
-                                <input
-                                  type="date"
+                                <AngolaDateInput
+                                  label="Data *"
                                   required
                                   value={novaOcorrData}
-                                  onChange={(e) => setNovaOcorrData(e.target.value)}
-                                  className="w-full p-2 border rounded-lg bg-white font-mono"
+                                  onChange={setNovaOcorrData}
                                 />
                               </div>
                               <div>
@@ -3380,7 +3390,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div>
+                    <AngolaDateInput
+                      label="Data de Validade do BI"
+                      value={dataValidadeBI}
+                      onChange={setDataValidadeBI}
+                      placeholder="DD/MM/AAAA"
+                    />
+                  </div>
+
+                  <div>
                     <label className="font-semibold text-gray-700 block mb-1">Arquivo / Conservatória de Identificação</label>
                     <input
                       type="text"
@@ -3402,22 +3421,29 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Naturalidade</label>
-                    <input
-                      type="text"
+                    <NaturalidadeInput
+                      label="Naturalidade"
                       value={naturalidade}
-                      onChange={(e) => setNaturalidade(e.target.value)}
-                      placeholder="Ex: Mbanza Kongo"
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={setNaturalidade}
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div>
+                    <NacionalidadeInput
+                      label="Nacionalidade"
+                      value={nacionalidade}
+                      onChange={setNacionalidade}
+                    />
+                  </div>
+
+                  <div className="sm:col-span-3">
                     <LocationPicker
                       provinciaSelecionada={provinciaOrigem || 'Luanda'}
                       onProvinciaChange={setProvinciaOrigem}
                       municipioSelecionado={municipioNascimento || 'Luanda'}
                       onMunicipioChange={setMunicipioNascimento}
+                      paisSelecionado={paisOrigem || 'Angola'}
+                      onPaisChange={setPaisOrigem}
                     />
                   </div>
                 </div>
@@ -4731,13 +4757,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
                           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                             <div>
-                              <label className="block font-bold text-gray-700 mb-1">Data da Ocorrência *</label>
-                              <input
-                                type="date"
+                              <AngolaDateInput
+                                label="Data da Ocorrência *"
                                 required
                                 value={novaOcorrData}
-                                onChange={(e) => setNovaOcorrData(e.target.value)}
-                                className="w-full p-2 border rounded-lg bg-slate-50 font-bold text-gray-900"
+                                onChange={setNovaOcorrData}
                               />
                             </div>
 
@@ -5555,8 +5579,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   <strong className="text-gray-900">{alunoDossieModal.genero === 'M' ? 'Masculino' : 'Feminino'}</strong>
                 </div>
                 <div>
-                  <span className="text-[10px] text-gray-500 font-bold block">Naturalidade:</span>
-                  <strong className="text-gray-900">{alunoDossieModal.naturalidade || 'Luanda'} ({alunoDossieModal.municipioNascimento || 'Luanda'})</strong>
+                  <span className="text-[10px] text-gray-500 font-bold block">Naturalidade / Província / País:</span>
+                  <strong className="text-gray-900">
+                    {alunoDossieModal.naturalidade || 'Luanda'} ({alunoDossieModal.municipioNascimento || 'Luanda'}) • {alunoDossieModal.provinciaOrigem || 'Luanda'} • {alunoDossieModal.paisOrigem || 'Angola'}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold block">Nacionalidade:</span>
+                  <strong className="text-gray-900">{alunoDossieModal.nacionalidade || 'Angolana'}</strong>
                 </div>
               </div>
             </div>
@@ -5684,15 +5714,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     </div>
 
                     <div>
-                      <label className="font-semibold text-gray-700 block mb-1">Data do Registo *</label>
-                      <input
-                        type="date"
+                      <AngolaDateInput
+                        label="Data do Registo *"
                         required
                         value={novaOcorrData}
-                        onChange={(e) => setNovaOcorrData(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-lg bg-white font-mono"
-                      >
-                      </input>
+                        onChange={setNovaOcorrData}
+                      />
                     </div>
 
                     <div>

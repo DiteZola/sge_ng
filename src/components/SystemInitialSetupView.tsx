@@ -21,6 +21,7 @@ import { Funcionario } from '../types';
 import { dbService } from '../services/storage';
 import { cryptoService } from '../services/cryptoService';
 import { securityEngine } from '../services/securityEngine';
+import { LocationPicker } from './LocationPicker';
 
 interface SystemInitialSetupViewProps {
   onSetupConcluido: (admin: Funcionario) => void;
@@ -402,8 +403,8 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                 </div>
 
                 {cadastrarEscolaAgora && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200">
-                    <div className="sm:col-span-2">
+                  <div className="space-y-3 pt-2 border-t border-slate-200">
+                    <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
                         Nome Oficial da Instituição Escolar *
                       </label>
@@ -415,20 +416,12 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                         className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Província
-                      </label>
-                      <select
-                        value={escolaProvincia}
-                        onChange={e => setEscolaProvincia(e.target.value)}
-                        className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
-                      >
-                        {['Bengo', 'Benguela', 'Bié', 'Cabinda', 'Cuando Cubango', 'Cuanza Norte', 'Cuanza Sul', 'Cunene', 'Huambo', 'Huíla', 'Luanda', 'Lunda Norte', 'Lunda Sul', 'Malanje', 'Moxico', 'Namibe', 'Uíge', 'Zaire'].map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
+                    <LocationPicker
+                      provinciaSelecionada={escolaProvincia}
+                      onProvinciaChange={setEscolaProvincia}
+                      municipioSelecionado={escolaMunicipio || 'Luanda'}
+                      onMunicipioChange={setEscolaMunicipio}
+                    />
                   </div>
                 )}
               </div>

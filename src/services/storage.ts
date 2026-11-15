@@ -3351,11 +3351,23 @@ export const dbService = {
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
     firebaseSyncEngine.salvarPresencaFuncionario(p);
   },
-  removerPresenca: (funcionarioId: string, data: string) => {
-    let pres = dbService.getPresencas();
-    pres = pres.filter(item => !(item.funcionarioId === funcionarioId && item.data === data));
+  salvarPresencasLote: (items: PresencaFuncionario[]) => {
+    if (!items || items.length === 0) return;
+    const pres = dbService.getPresencas();
+    for (const p of items) {
+      const idx = pres.findIndex(item => item.funcionarioId === p.funcionarioId && item.data === p.data);
+      if (idx >= 0) pres[idx] = p;
+      else pres.push(p);
+    }
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
-    firebaseSyncEngine.eliminarPresencaFuncionario(funcionarioId, data);
+    firebaseSyncEngine.salvarPresencasFuncionariosLote(items);
+  },
+  removerPresenca: (funcionarioId: string, data: string) => {
+    const presAtuais = dbService.getPresencas();
+    const existente = presAtuais.find(item => item.funcionarioId === funcionarioId && item.data === data);
+    const pres = presAtuais.filter(item => !(item.funcionarioId === funcionarioId && item.data === data));
+    setLocal(STORAGE_KEYS.PRESENCAS, pres);
+    firebaseSyncEngine.eliminarPresencaFuncionario(funcionarioId, data, existente?.id);
     dbService.registarLog('Assiduidade', `Registo de ponto do funcionário ${funcionarioId} na data ${data} removido por retificação.`);
   },
 
@@ -5712,7 +5724,9 @@ export const dbService = {
 
   salvarPresencasAlunosLote: (items: PresencaAlunoItem[]): void => {
     const presencas = getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
-    for (const item of items) {
+    const agora = new Date().toISOString();
+    const normalizados = items.map(item => ({ ...item, atualizadoEm: agora }));
+    for (const item of normalizados) {
       const index = presencas.findIndex(p => p.id === item.id || (p.alunoId === item.alunoId && p.data === item.data && p.tempoLectivo === item.tempoLectivo));
       if (index >= 0) {
         presencas[index] = item;
@@ -5721,7 +5735,17 @@ export const dbService = {
       }
     }
     setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, presencas);
-    firebaseSyncEngine.salvarPresencasAlunosLote(items);
+    firebaseSyncEngine.salvarPresencasAlunosLote(normalizados);
+  },
+
+  removerPresencaAluno: (alunoId: string, data: string, turmaId?: string): void => {
+    const presencas = getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
+    const removido = presencas.find(p => p.alunoId === alunoId && p.data === data && (!turmaId || p.turmaId === turmaId));
+    const filtradas = presencas.filter(p => !(p.alunoId === alunoId && p.data === data && (!turmaId || p.turmaId === turmaId)));
+    setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, filtradas);
+    if (removido?.id) {
+      firebaseSyncEngine.eliminarDocumentoDireto('presencas_alunos', removido.id, undefined, `Remoção presença aluno ${removido.id}`);
+    }
   },
 
   verificarIntegridadeBanco: () => {

@@ -84,6 +84,32 @@ const PAISES_PADRAO: string[] = [
   'Outro País'
 ];
 
+const STORAGE_KEY_NACIONALIDADES = 'sgeng_nacionalidades_personalizadas';
+
+const NACIONALIDADES_PADRAO: string[] = [
+  'Angolana',
+  'Portuguesa',
+  'Brasileira',
+  'Moçambicana',
+  'Cabo-verdiana',
+  'São-tomense',
+  'Guineense',
+  'Congolesa (RDC)',
+  'Congolesa (RC)',
+  'Namibiana',
+  'Sul-Africana',
+  'Zambiana',
+  'Zimbabueana',
+  'Cubana',
+  'Chinesa',
+  'Francesa',
+  'Espanhola',
+  'Italiana',
+  'Alemã',
+  'Britânica',
+  'Americana'
+];
+
 class LocationService {
   /**
    * Obtém todas as províncias (padrão + adicionadas pelo utilizador)
@@ -93,9 +119,9 @@ class LocationService {
       const salvas = localStorage.getItem(STORAGE_KEY_PROVINCIAS);
       const personalizadas: string[] = salvas ? JSON.parse(salvas) : [];
       const todas = Array.from(new Set([...PROVINCIAS_PADRAO, ...personalizadas]));
-      return todas.sort((a, b) => a.localeCompare('pt-AO'));
+      return todas.sort((a, b) => a.localeCompare(b, 'pt-AO'));
     } catch {
-      return [...PROVINCIAS_PADRAO].sort((a, b) => a.localeCompare('pt-AO'));
+      return [...PROVINCIAS_PADRAO].sort((a, b) => a.localeCompare(b, 'pt-AO'));
     }
   }
 
@@ -120,7 +146,7 @@ class LocationService {
       personalizadas.push(limpo);
       localStorage.setItem(STORAGE_KEY_PROVINCIAS, JSON.stringify(personalizadas));
       return { sucesso: true, mensagem: `Província "${limpo}" adicionada com sucesso!`, provincia: limpo };
-    } catch (err) {
+    } catch {
       return { sucesso: false, mensagem: 'Erro ao guardar nova província no armazenamento local.' };
     }
   }
@@ -144,11 +170,11 @@ class LocationService {
       } else if (!provincia) {
         base = [...base, ...Object.values(personalizadas).flat()];
       }
-    } catch (err) {
+    } catch {
       // Ignorar e retornar base
     }
 
-    return Array.from(new Set(base)).sort((a, b) => a.localeCompare('pt-AO'));
+    return Array.from(new Set(base)).sort((a, b) => a.localeCompare(b, 'pt-AO'));
   }
 
   /**
@@ -176,9 +202,17 @@ class LocationService {
       personalizadas[prov].push(limpo);
       localStorage.setItem(STORAGE_KEY_MUNICIPIOS, JSON.stringify(personalizadas));
       return { sucesso: true, mensagem: `Município "${limpo}" adicionado com sucesso!`, municipio: limpo };
-    } catch (err) {
+    } catch {
       return { sucesso: false, mensagem: 'Erro ao guardar novo município no armazenamento local.' };
     }
+  }
+
+  /**
+   * Obtém a lista completa de naturalidades (províncias e municípios de Angola)
+   */
+  getTodasNaturalidades(): string[] {
+    const todas = Array.from(new Set([...this.getProvincias(), ...this.getMunicipios()]));
+    return todas.sort((a, b) => a.localeCompare(b, 'pt-AO'));
   }
 
   /**
@@ -188,14 +222,16 @@ class LocationService {
     try {
       const salvas = localStorage.getItem(STORAGE_KEY_PAISES);
       const personalizadas: string[] = salvas ? JSON.parse(salvas) : [];
-      const todos = Array.from(new Set([...PAISES_PADRAO, ...personalizadas]));
+      const todos = Array.from(
+        new Set([...PAISES_PADRAO.filter(p => p !== 'Outro País'), ...personalizadas])
+      );
       return todos.sort((a, b) => {
         if (a === 'Angola') return -1;
         if (b === 'Angola') return 1;
-        return a.localeCompare('pt-AO');
+        return a.localeCompare(b, 'pt-AO');
       });
     } catch {
-      return [...PAISES_PADRAO];
+      return [...PAISES_PADRAO.filter(p => p !== 'Outro País')];
     }
   }
 
@@ -220,8 +256,52 @@ class LocationService {
       personalizadas.push(limpo);
       localStorage.setItem(STORAGE_KEY_PAISES, JSON.stringify(personalizadas));
       return { sucesso: true, mensagem: `País "${limpo}" adicionado com sucesso!`, pais: limpo };
-    } catch (err) {
+    } catch {
       return { sucesso: false, mensagem: 'Erro ao guardar novo país no armazenamento local.' };
+    }
+  }
+
+  /**
+   * Obtém a lista de nacionalidades
+   */
+  getNacionalidades(): string[] {
+    try {
+      const salvas = localStorage.getItem(STORAGE_KEY_NACIONALIDADES);
+      const personalizadas: string[] = salvas ? JSON.parse(salvas) : [];
+      const todas = Array.from(new Set([...NACIONALIDADES_PADRAO, ...personalizadas]));
+      return todas.sort((a, b) => {
+        if (a === 'Angolana') return -1;
+        if (b === 'Angolana') return 1;
+        return a.localeCompare(b, 'pt-AO');
+      });
+    } catch {
+      return [...NACIONALIDADES_PADRAO];
+    }
+  }
+
+  /**
+   * Adiciona uma nova nacionalidade personalizada
+   */
+  adicionarNacionalidade(nome: string): { sucesso: boolean; mensagem: string; nacionalidade?: string } {
+    const limpo = (nome || '').trim();
+    if (!limpo) {
+      return { sucesso: false, mensagem: 'A nacionalidade não pode estar vazia.' };
+    }
+
+    const lista = this.getNacionalidades();
+    const encontrada = lista.find(n => n.toLowerCase() === limpo.toLowerCase());
+    if (encontrada) {
+      return { sucesso: true, mensagem: 'Nacionalidade já existente.', nacionalidade: encontrada };
+    }
+
+    try {
+      const salvas = localStorage.getItem(STORAGE_KEY_NACIONALIDADES);
+      const personalizadas: string[] = salvas ? JSON.parse(salvas) : [];
+      personalizadas.push(limpo);
+      localStorage.setItem(STORAGE_KEY_NACIONALIDADES, JSON.stringify(personalizadas));
+      return { sucesso: true, mensagem: `Nacionalidade "${limpo}" adicionada.`, nacionalidade: limpo };
+    } catch {
+      return { sucesso: false, mensagem: 'Erro ao guardar nacionalidade.' };
     }
   }
 }

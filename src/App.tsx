@@ -1607,7 +1607,7 @@ export default function App() {
                 />
               )}
 
-              {/* FICHAS DE PRESENÇAS DOS ALUNOS (DOWNLOAD & IMPRESSÃO OFICIAL) */}
+              {/* FICHAS DE PRESENÇAS DOS ALUNOS E PROFESSORES (MANUAL & QR + IMPRESSÃO OFICIAL) */}
               {activeTab === 'presencas' && (
                 <StudentAttendanceReportView
                   escola={escola}
@@ -1616,6 +1616,10 @@ export default function App() {
                   alunos={alunosDoAnoActivo}
                   disciplinas={disciplinas}
                   funcionarios={funcionarios}
+                  atribuicoes={atribuicoesDoAnoActivo}
+                  assiduidadeFuncionarios={assiduidade}
+                  onSalvarRegistoAssiduidade={handleSalvarRegistoAssiduidade}
+                  onAtualizarAssiduidade={() => setAssiduidade(dbService.obterAssiduidade())}
                 />
               )}
 
