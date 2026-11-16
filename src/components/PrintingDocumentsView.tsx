@@ -45,6 +45,7 @@ import {
   CLASSES_ENSINO_PRIMARIO,
   CLASSES_PRIMEIRO_CICLO,
   CLASSES_SEGUNDO_CICLO,
+  CURSOS_SEGUNDO_CICLO,
   getSalaDaTurma,
   getCursoDaTurma,
   filtrarDisciplinasDaClasse
@@ -56,6 +57,11 @@ import { converterNotaParaExtensoMED, numeroParaExtenso, converterNotaParaCertif
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
+import {
+  exportarBoletimAlunoExcel,
+  exportarPautaGeralExcel,
+  exportarPautaDisciplinaAnualExcel
+} from '../utils/pautaExcelExporter';
 import {
   downloadElementAsPdf,
   imprimirElementoDiretamente,
@@ -182,30 +188,31 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return alunos.filter(a => ids.has(a.turmaId));
   }, [alunos, isProfessor, turmasPermitidas]);
 
-  const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(), [escola.id]);
+  const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(escola.id), [escola.id]);
   const anosLectivosDisponiveis = useMemo(() => {
     const list = new Set<string>();
     if (escola.anoLectivoActivo) list.add(escola.anoLectivoActivo);
-    anosLectivosConfigs.forEach((c: any) => { if (c?.ano) list.add(c.ano); });
+    anosLectivosConfigs.forEach((c: any) => { if (c?.rotulo || c?.ano) list.add(c.rotulo || c.ano); });
     turmasPermitidas.forEach(t => { if (t.anoLectivo) list.add(t.anoLectivo); });
     alunosPermitidos.forEach(a => { 
       if (a.anoLectivo) list.add(a.anoLectivo); 
       if (a.anoMatricula) list.add(a.anoMatricula);
     });
-    list.add('2025/2026');
-    list.add('2024/2025');
-    list.add('2023/2024');
     return Array.from(list).sort().reverse();
   }, [escola.anoLectivoActivo, anosLectivosConfigs, turmasPermitidas, alunosPermitidos]);
 
   const [selectedAnoLectivo, setSelectedAnoLectivo] = useState<string>(
-    escola.anoLectivoActivo || '2025/2026'
+    escola.anoLectivoActivo || ''
   );
-  const [selectedAlunoId, setSelectedAlunoId] = useState<string>(alunosPermitidos[0]?.id || 'aluno-ndilu');
+  useEffect(() => {
+    setSelectedAnoLectivo(escola.anoLectivoActivo || anosLectivosDisponiveis[0] || '');
+  }, [escola.id, escola.anoLectivoActivo, anosLectivosDisponiveis]);
+  const [selectedAlunoId, setSelectedAlunoId] = useState<string>(alunosPermitidos[0]?.id || '');
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmasPermitidas[0]?.id || '');
   const [selectedClasse, setSelectedClasse] = useState<string>(() => {
     return turmasPermitidas[0]?.classe ? normalizarClasse(turmasPermitidas[0].classe) : '9ª';
   });
+  const [selectedCurso, setSelectedCurso] = useState<string>('TODOS');
   const [buscaAlunoDocumento, setBuscaAlunoDocumento] = useState<string>('');
 
   const todasClasses = useMemo(() => {
@@ -230,21 +237,46 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
   // Turmas filtradas estritamente pelo ano lectivo selecionado
   const turmasDoAnoDocumento = useMemo(() => {
-    return turmasPermitidas.filter(t => !t.anoLectivo || t.anoLectivo === selectedAnoLectivo);
+    return turmasPermitidas.filter(t => !t.anoLectivo || !selectedAnoLectivo || t.anoLectivo === selectedAnoLectivo);
   }, [turmasPermitidas, selectedAnoLectivo]);
 
-  // Turmas da classe selecionada: se uma classe for escolhida, retorna estritamente as suas turmas
-  const turmasDaClasseSelecionada = useMemo(() => {
-    if (!selectedClasse || selectedClasse === 'TODAS') {
-      return turmasDoAnoDocumento;
+  // Garantir que a classe inicial existe nas turmas da escola quando aplicável
+  useEffect(() => {
+    if (turmasDoAnoDocumento.length > 0 && selectedClasse !== 'TODAS') {
+      const temNaClasse = getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse).length > 0;
+      if (!temNaClasse) {
+        const primeiraClasse = normalizarClasse(turmasDoAnoDocumento[0].classe);
+        if (primeiraClasse) setSelectedClasse(primeiraClasse);
+      }
     }
-    return getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse);
   }, [turmasDoAnoDocumento, selectedClasse]);
+
+  // Cursos disponíveis para a classe/ano selecionados
+  const cursosDisponiveisDocumento = useMemo(() => {
+    const set = new Set<string>();
+    turmasDoAnoDocumento.forEach(t => {
+      if (selectedClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(selectedClasse)) return;
+      if (t.curso && t.curso.trim()) set.add(t.curso.trim());
+    });
+    if (selectedClasse === 'TODAS' || isSegundoCiclo(selectedClasse)) {
+      CURSOS_SEGUNDO_CICLO.forEach(c => set.add(c));
+    }
+    return Array.from(set).sort();
+  }, [turmasDoAnoDocumento, selectedClasse]);
+
+  // Turmas da classe e curso selecionados
+  const turmasDaClasseSelecionada = useMemo(() => {
+    const base = (!selectedClasse || selectedClasse === 'TODAS')
+      ? turmasDoAnoDocumento
+      : getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse);
+    if (!selectedCurso || selectedCurso === 'TODOS') return base;
+    return base.filter(t => (t.curso || '').trim().toLowerCase() === selectedCurso.trim().toLowerCase());
+  }, [turmasDoAnoDocumento, selectedClasse, selectedCurso]);
 
   const alunosFiltradosIndividual = useMemo(() => {
     let list = alunosPermitidos.filter(a => {
       const t = turmasPermitidas.find(tm => tm.id === a.turmaId);
-      const anoDoAluno = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
+      const anoDoAluno = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo || '';
       return !selectedAnoLectivo || anoDoAluno === selectedAnoLectivo;
     });
 
@@ -342,8 +374,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     () =>
       dbService
         .obterFuncionarios()
-        .filter(f => f.role !== 'AdminGeral' && (currentUser?.role === 'AdminGeral' || f.escolaId === escola.id)),
-    [escola.id, currentUser?.role]
+        .filter(f => f.role !== 'AdminGeral' && (escola.id === 'todas' || f.escolaId === escola.id)),
+    [escola.id]
   );
   const [selectedFuncionarioId, setSelectedFuncionarioId] = useState<string>(funcionariosLista[0]?.id || '');
   const funcionarioSelecionado = funcionariosLista.find(f => f.id === selectedFuncionarioId) || funcionariosLista[0];
@@ -354,16 +386,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   const alunoSelecionado = alunosFiltradosIndividual.find(a => a.id === selectedAlunoId) || alunosFiltradosIndividual[0] || alunos[0];
   const turmaDoAluno = turmas.find(t => t.id === alunoSelecionado?.turmaId) || turmas[0];
 
-  // Sincronizar turma selecionada sempre que o filtro de classe mudar
+  // Sincronizar turma selecionada sempre que o filtro de classe/curso mudar
   useEffect(() => {
     if (turmasDaClasseSelecionada.length > 0) {
-      if (!turmasDaClasseSelecionada.some(t => t.id === selectedTurmaId)) {
-        setSelectedTurmaId(turmasDaClasseSelecionada[0].id);
+      if (selectedTurmaId !== 'TODAS' && !turmasDaClasseSelecionada.some(t => t.id === selectedTurmaId)) {
+        setSelectedTurmaId(docType === 'lista_nominal' ? 'TODAS' : turmasDaClasseSelecionada[0].id);
       }
     } else {
-      setSelectedTurmaId('');
+      setSelectedTurmaId(docType === 'lista_nominal' ? 'TODAS' : '');
     }
-  }, [turmasDaClasseSelecionada, selectedTurmaId]);
+  }, [turmasDaClasseSelecionada, selectedTurmaId, docType]);
 
   // Turma selecionada estritamente dentro da classe do documento
   const turmaSelecionada: Turma = useMemo(() => {
@@ -407,6 +439,27 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       return !selectedAnoLectivo || ano === selectedAnoLectivo;
     });
   }, [alunos, turmaSelecionada, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
+
+  // Alunos para a Lista Nominal (suporta turma específica OU todas as turmas da classe/curso)
+  const alunosListaNominal = useMemo(() => {
+    return alunosPermitidos.filter(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
+      if (selectedAnoLectivo && ano && ano !== selectedAnoLectivo) return false;
+      if (selectedTurmaId && selectedTurmaId !== 'TODAS') {
+        return a.turmaId === selectedTurmaId;
+      }
+      const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
+      if (selectedClasse && selectedClasse !== 'TODAS' && cl !== normalizarClasse(selectedClasse)) {
+        return false;
+      }
+      if (selectedCurso && selectedCurso !== 'TODOS') {
+        const cur = (t?.curso || a.curso || '').trim().toLowerCase();
+        if (cur !== selectedCurso.trim().toLowerCase()) return false;
+      }
+      return true;
+    });
+  }, [alunosPermitidos, turmas, selectedAnoLectivo, escola.anoLectivoActivo, selectedTurmaId, selectedClasse, selectedCurso]);
 
   const alunosDaClasse = useMemo(() => {
     if (!selectedClasse || selectedClasse === 'TODAS') return [];
@@ -705,26 +758,51 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
   const handleBaixarExcel = () => {
     if (docType === 'boletim_oficial') {
-      const linhas = (notasOficiaisAluno.length > 0 ? notasOficiaisAluno : notasDoAluno).map((n: any) => ({
-        'Disciplina': n.disciplinaNome,
-        'MAC': n.mac || '—',
-        'NPP': n.npp || '—',
-        'NPT': n.npt || '—',
-        'Média Trimestral': n.notaFinal || n.mediaTrimestral || '—',
-        'Classificação': (n.notaFinal || n.mediaTrimestral || 0) >= 10 ? 'Aprovado' : 'Não Transita'
-      }));
-      downloadExcelFile('Boletim_Notas', linhas, `Boletim_${alunoSelecionado?.codigoMatricula?.replace(/[\/\\]/g, '_') || 'Aluno'}.xlsx`);
+      if (!alunoSelecionado) return;
+      const listaNotas = notasOficiaisAluno.length > 0 ? notasOficiaisAluno : notasDoAluno;
+      exportarBoletimAlunoExcel({
+        escola,
+        aluno: alunoSelecionado,
+        turma: turmaDoAluno || turmaSelecionada,
+        trimestreLabel: `${escola.trimestreActivo || '1'}º Trimestre`,
+        linhas: listaNotas.map((n: any) => ({
+          disciplinaNome: n.disciplinaNome || 'Disciplina',
+          mac: typeof n.mac === 'number' ? n.mac : undefined,
+          npp: typeof n.npp === 'number' ? n.npp : undefined,
+          npt: typeof (n.npt ?? n.provaTrimestral) === 'number' ? Number(n.npt ?? n.provaTrimestral) : undefined,
+          mediaTrimestral: typeof (n.notaFinal ?? n.mediaTrimestral) === 'number' ? Number(n.notaFinal ?? n.mediaTrimestral) : undefined
+        }))
+      });
+      setPdfSuccessToast('Boletim em Excel (.xlsx) com fórmulas de média e aprovação gerado com sucesso!');
+      setTimeout(() => setPdfSuccessToast(null), 5000);
     } else if (docType === 'pautas') {
-      const linhas = alunosDaTurma.map((al, idx) => ({
-        'Nº': al.numeroOrdem || idx + 1,
-        'Nº Matrícula': al.codigoMatricula,
-        'Nome do Aluno': al.nomeCompleto,
-        'Gênero': al.genero === 'M' ? 'Masculino' : 'Feminino',
-        'Turma': turmaSelecionada?.nome || '',
-        'Classe': turmaSelecionada?.classe || '',
-        'Resultado': 'Aprovado'
-      }));
-      downloadExcelFile('Pauta_Oficial', linhas, `Pauta_${turmaSelecionada?.nome || 'Turma'}.xlsx`);
+      if (!turmaSelecionada) return;
+      const anoDoc = turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '';
+      if (pautaSubTipo === 'disciplina') {
+        const discAtual = disciplinasDaClasseDocumento.find(d => d.id === pautaDisciplinaId) || disciplinasDaClasseDocumento[0];
+        exportarPautaDisciplinaAnualExcel({
+          escola,
+          turma: turmaSelecionada,
+          disciplina: discAtual,
+          alunos: alunosDaTurma,
+          notasConsolidadas,
+          anoLectivo: anoDoc,
+          provaProfessorAtiva
+        });
+      } else {
+        exportarPautaGeralExcel({
+          escola,
+          turma: turmaSelecionada,
+          alunos: alunosDaTurma,
+          disciplinas: disciplinasDaClasseDocumento,
+          notasConsolidadas,
+          pautaSubTipo: pautaSubTipo === 'trimestral' ? 'trimestral' : 'geral_final',
+          pautaTrimestre,
+          anoLectivo: anoDoc
+        });
+      }
+      setPdfSuccessToast('Pauta Oficial em Excel (.xlsx) com fórmulas de médias, percentagens e observações gerada com sucesso!');
+      setTimeout(() => setPdfSuccessToast(null), 5000);
     } else if (docType === 'ficha_individual_funcionario') {
       const func = funcionarioSelecionado;
       if (!func) return;
@@ -1301,13 +1379,23 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 onChange={(e) => {
                   const novaCl = e.target.value;
                   setSelectedClasse(novaCl);
-                  const validas = getTurmasPorClasse(turmasDoAnoDocumento, novaCl);
+                  if (novaCl !== 'TODAS' && !isSegundoCiclo(novaCl)) {
+                    setSelectedCurso('TODOS');
+                  }
+                  const validas = novaCl === 'TODAS'
+                    ? turmasDoAnoDocumento
+                    : getTurmasPorClasse(turmasDoAnoDocumento, novaCl);
                   if (validas.length > 0) {
-                    setSelectedTurmaId(validas[0].id);
+                    setSelectedTurmaId(docType === 'lista_nominal' ? 'TODAS' : validas[0].id);
+                  } else if (docType === 'lista_nominal') {
+                    setSelectedTurmaId('TODAS');
                   }
                 }}
                 className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
               >
+                {docType === 'lista_nominal' && (
+                  <option value="TODAS">Todas as Classes</option>
+                )}
                 {todasClasses.map(cls => (
                   <option key={`doc-cl-${cls}`} value={cls}>{cls} {cls !== 'Iniciação' ? 'Classe' : ''}</option>
                 ))}
@@ -1324,6 +1412,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 onChange={(e) => setSelectedTurmaId(e.target.value)}
                 className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
               >
+                {docType === 'lista_nominal' && (
+                  <option value="TODAS">Todas as Turmas ({turmasDaClasseSelecionada.length})</option>
+                )}
                 {turmasDaClasseSelecionada.map(t => (
                   <option key={t.id} value={t.id}>
                     {t.nome} • {t.sala || 'Sala'} {isSegundoCiclo(t.classe) && t.curso ? `• ${t.curso}` : ''}
@@ -1332,8 +1423,36 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </select>
             </div>
 
-            {/* 4. Seletor de Pauta (quando docType === 'pautas') OU Aluno / Modo de Emissão */}
-            {docType === 'pautas' ? (
+            {/* 4. Seletor específico por tipo de documento: Pautas / Lista Nominal (Curso) / Aluno */}
+            {docType === 'lista_nominal' ? (
+              <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">
+                    4. Curso / Especialidade {selectedClasse !== 'TODAS' && !isSegundoCiclo(selectedClasse) ? '(2º Ciclo)' : ''}
+                  </label>
+                  <select
+                    value={selectedCurso}
+                    onChange={(e) => setSelectedCurso(e.target.value)}
+                    disabled={selectedClasse !== 'TODAS' && !isSegundoCiclo(selectedClasse) && cursosDisponiveisDocumento.length === 0}
+                    className="w-full p-2 border border-gray-300 rounded-lg font-bold text-purple-900 bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none disabled:opacity-50"
+                  >
+                    <option value="TODOS">
+                      {selectedClasse !== 'TODAS' && !isSegundoCiclo(selectedClasse)
+                        ? 'Ensino Geral (Sem Curso)'
+                        : 'Todos os Cursos'}
+                    </option>
+                    {cursosDisponiveisDocumento.map(cur => (
+                      <option key={`doc-cur-${cur}`} value={cur}>{cur}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <div className="p-2 bg-blue-100/70 border border-blue-200 rounded-lg text-blue-900 w-full font-bold text-[11px]">
+                    Lista Nominal: <strong>{alunosListaNominal.length} estudantes</strong> selecionados
+                  </div>
+                </div>
+              </div>
+            ) : docType === 'pautas' ? (
               <div className="sm:col-span-2 space-y-2 bg-blue-50/80 p-2.5 rounded-xl border border-blue-200">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
@@ -1440,8 +1559,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             )}
           </div>
 
-          {/* Pesquisa rápida de aluno sanitizada no modo individual (exceto em pautas) */}
-          {docType !== 'pautas' && modoEmissao === 'individual' && (
+          {/* Pesquisa rápida de aluno sanitizada no modo individual (exceto em pautas e lista nominal) */}
+          {docType !== 'pautas' && docType !== 'lista_nominal' && modoEmissao === 'individual' && (
             <div className="relative pt-1">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3.5" />
               <input
@@ -2643,16 +2762,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
             <p>
               {tipoCertificadoEfetivo === 'primario_6' && (
-                <>Concluiu a <strong>6.ª Classe do Ensino Primário</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, nos termos da matriz curricular nacional do Ensino Primário, tendo obtido as seguintes classificações:</>
+                <>Concluiu a <strong>6.ª Classe do Ensino Primário</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, nos termos da matriz curricular nacional do Ensino Primário, tendo obtido as seguintes classificações:</>
               )}
               {tipoCertificadoEfetivo === 'iciclo_9' && (
-                <>Concluiu a <strong>9.ª Classe do Iº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, tendo obtido aproveitamento no Exame de Saída e as seguintes classificações:</>
+                <>Concluiu a <strong>9.ª Classe do Iº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, tendo obtido aproveitamento no Exame de Saída e as seguintes classificações:</>
               )}
               {tipoCertificadoEfetivo === 'iiciclo_12' && (
-                <>Concluiu a <strong>12.ª Classe do IIº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, na Área de <strong>{alunoSelecionado.curso || 'Ciências Económicas e Jurídicas'}</strong>, tendo obtido as seguintes classificações:</>
+                <>Concluiu a <strong>12.ª Classe do IIº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, na Área de <strong>{alunoSelecionado.curso || 'Ciências Económicas e Jurídicas'}</strong>, tendo obtido as seguintes classificações:</>
               )}
               {tipoCertificadoEfetivo === 'tecnico_12_13' && (
-                <>Concluiu a Formação Técnico-Profissional (<strong>{alunoSelecionado.classeId || '12.ª / 13.ª classe'}</strong>), no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026'}</strong>, no Curso de Técnico Médio de <strong>{alunoSelecionado.curso || 'Técnico de Informática'}</strong>, tendo obtido as seguintes classificações:</>
+                <>Concluiu a Formação Técnico-Profissional (<strong>{alunoSelecionado.classeId || '12.ª / 13.ª classe'}</strong>), no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, no Curso de Técnico Médio de <strong>{alunoSelecionado.curso || 'Técnico de Informática'}</strong>, tendo obtido as seguintes classificações:</>
               )}
             </p>
           </div>
@@ -3029,7 +3148,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                           <p className="text-gray-600 truncate">Curso: <strong>{aluno.curso || turma?.curso || 'Geral'}</strong></p>
                         )}
                         <p className="text-gray-500 text-[8px] font-semibold pt-0.5">
-                          Validade: 31/07/{(aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '2025/2026').split('/')[1] || '2026'}
+                          Validade: 31/07/{(aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '').split('/')[1] || '—'}
                         </p>
                       </div>
                     </div>
@@ -3302,7 +3421,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcionarioSelecionado.especialidade || funcionarioSelecionado.habilitacoes || '—'}</strong></div>
                   <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcionarioSelecionado.categoriaProfissional || '—'}</strong></div>
                   <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcionarioSelecionado.cargo || '—'}</strong></div>
-                  <div><span className="text-gray-600">Perfil de Acesso no Sistema:</span> <strong className="text-blue-900">{funcionarioSelecionado.role}</strong></div>
+                  <div><span className="text-gray-600">Perfil / Categoria Funcional:</span> <strong className="text-blue-900">{funcionarioSelecionado.role}</strong></div>
                   <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcionarioSelecionado.numeroAgente || (funcionarioSelecionado as any).numeroMecanografico || '—'}</strong></div>
                   <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcionarioSelecionado.tipoContrato || '—'}</strong></div>
                   <div><span className="text-gray-600">Situação Funcional:</span> <strong className="text-emerald-800">{funcionarioSelecionado.situacaoFuncional || 'Ativo no Efetivo'}</strong></div>
@@ -3771,8 +3890,19 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       {docType === 'lista_nominal' && (
         <StudentClassListPdfDocument
           escola={escola}
-          turma={turmaSelecionada || turmasDoAnoDocumento[0]}
-          alunos={alunosDaTurma}
+          turma={selectedTurmaId !== 'TODAS' ? turmaSelecionada : undefined}
+          alunos={alunosListaNominal}
+          turmasDisponiveis={turmasDoAnoDocumento}
+          todosAlunos={alunosPermitidos}
+          selectedAnoLectivo={selectedAnoLectivo}
+          initialClasse={selectedClasse}
+          initialCurso={selectedCurso}
+          initialTurmaId={selectedTurmaId || 'TODAS'}
+          onFilterChange={({ classe, curso, turmaId }) => {
+            setSelectedClasse(classe);
+            setSelectedCurso(curso);
+            setSelectedTurmaId(turmaId);
+          }}
           pdfFormat={formatoPaginaPdf}
           pdfOrientation={orientacaoRecomendada}
           pdfMargins={margensPdfMm}

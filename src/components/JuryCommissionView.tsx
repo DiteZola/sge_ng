@@ -53,6 +53,7 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import { JuryEngine, AnaliseAlunoJuri } from '../services/juryEngine';
+import { exportarPautaJuriExcel, PautaJuriExcelItem } from '../utils/pautaExcelExporter';
 import { InsigniaAngola } from '../constants/insignia';
 import { obterInformacaoEscala } from '../services/macEngine';
 import { downloadExcelFile } from '../utils/curriculoAngola';
@@ -115,20 +116,18 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
     return Array.from(setCls);
   }, [turmas]);
 
-  const [filtroAnoJuri, setFiltroAnoJuri] = useState<string>(escola.anoLectivoActivo || '2025/2026');
+  const [filtroAnoJuri, setFiltroAnoJuri] = useState<string>(escola.anoLectivoActivo || '');
 
   useEffect(() => {
-    if (escola.anoLectivoActivo) {
-      setFiltroAnoJuri(escola.anoLectivoActivo);
-    }
-  }, [escola.anoLectivoActivo]);
+    setFiltroAnoJuri(escola.anoLectivoActivo || '');
+  }, [escola.id, escola.anoLectivoActivo]);
 
   // Filtro Estrito MED: Direção Geral e Subdireção visualizam as comissões do ano letivo selecionado.
   // As comissões de anos letivos anteriores permanecem isoladas no seu ano original.
   const comissoesVisiveis = useMemo(() => {
     const daEscola = comissoes.filter(c => 
-      (!c.escolaId || c.escolaId === escola.id || escola.id === 'todas') &&
-      ((c.anoLectivo || '2025/2026') === filtroAnoJuri)
+      (c.escolaId === escola.id || escola.id === 'todas') &&
+      (!filtroAnoJuri || c.anoLectivo === filtroAnoJuri)
     );
     const ehDirecao = ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo'].includes(currentUser.role);
     if (ehDirecao) return daEscola;
@@ -360,29 +359,29 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
     return encontradas.length > 0 ? encontradas.join(', ') : 'Turmas da Comissão';
   }, [comissaoAtiva, turmas]);
 
-  // Exportar Pauta Geral de Todos os Alunos em Excel
+  // Exportar Pauta Geral de Todos os Alunos em Excel com fórmulas reais
   const handleExportarPautaGeralExcel = () => {
-    const linhas = analisesAlunos.map((item, idx) => {
+    const itens: PautaJuriExcelItem[] = analisesAlunos.map((item) => {
       const escala = obterInformacaoEscala(item.turma?.classe, item.turma?.nivelEnsino);
       const delib = comissaoAtiva?.deliberacoes?.[item.aluno.id];
       const ehAprovadoAntes = item.dados.disciplinasNegativas === 0 && item.dados.mediaGeral >= escala.notaAprovacao && item.dados.totalDisciplinas > 0;
       return {
-        'Nº': idx + 1,
-        'Nº Processo': item.aluno.numeroProcesso || item.aluno.codigoMatricula,
-        'Nome Completo': item.aluno.nomeCompleto,
-        'Gênero': item.aluno.genero,
-        'Classe': item.turma?.classe || comissaoAtiva?.classe || '',
-        'Turma': item.turma?.nome || '',
-        'Curso': item.turma?.curso || comissaoAtiva?.curso || 'Geral',
-        'Média Geral': item.dados.mediaGeral,
-        'Disciplinas Positivas': item.dados.disciplinasPositivas,
-        'Disciplinas Negativas': item.dados.disciplinasNegativas,
-        'Situação Preliminar': ehAprovadoAntes ? 'Aprovado Directo' : (item.dados.disciplinasNegativas <= 2 ? 'Elegível a Deliberação / Recurso' : 'Não Aprovado'),
-        'Deliberação Final do Júri': delib?.decisao || (ehAprovadoAntes ? 'Aprovado (Homologado)' : 'Pendente')
+        aluno: item.aluno,
+        turma: item.turma,
+        mediaGeral: item.dados.mediaGeral,
+        disciplinasPositivas: item.dados.disciplinasPositivas,
+        disciplinasNegativas: item.dados.disciplinasNegativas,
+        totalDisciplinas: item.dados.totalDisciplinas,
+        decisaoFinal: delib?.decisao || (ehAprovadoAntes ? 'Aprovado (Homologado)' : 'Pendente')
       };
     });
-    downloadExcelFile('Pauta_Geral_Juri', linhas, `Pauta_Geral_Juri_${comissaoAtiva?.classe || 'Escola'}_${escola.sigla || 'MED'}.xlsx`);
-    notificar('Pauta geral completa de todos os alunos descarregada em formato Excel (.xlsx)!');
+    exportarPautaJuriExcel({
+      escola,
+      classe: comissaoAtiva?.classe || 'Geral',
+      anoLectivo: comissaoAtiva?.anoLectivo || escola.anoLectivoActivo || '',
+      itens
+    });
+    notificar('Pauta geral em Excel (.xlsx) com fórmulas de médias, percentagens e aprovação descarregada!');
   };
 
   // Aluno Selecionado Atual
@@ -964,11 +963,21 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   onChange={(e) => setFiltroAnoJuri(e.target.value)}
                   className="bg-transparent text-white font-black text-xs focus:outline-none cursor-pointer"
                 >
-                  {dbService.getAnosLectivos().map(ano => (
-                    <option key={ano} value={ano} className="text-slate-900 bg-white">
-                      {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
-                    </option>
-                  ))}
+                  {(() => {
+                    const anosEscola = dbService.getAnosLectivos(escola.id);
+                    if (anosEscola.length === 0) {
+                      return (
+                        <option value="" className="text-slate-900 bg-white">
+                          Sem ano registado
+                        </option>
+                      );
+                    }
+                    return anosEscola.map(ano => (
+                      <option key={ano} value={ano} className="text-slate-900 bg-white">
+                        {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                      </option>
+                    ));
+                  })()}
                 </select>
               </span>
               <span>•</span>

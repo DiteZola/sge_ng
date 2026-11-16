@@ -256,7 +256,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
       });
 
       // 2. Toques Gerais da Escola baseados nos Turnos configurados (caso não haja grelha individual no horário exato)
-      const turnosAtivos = dbService.getTurnosConfigs().filter((t) => t.ativo !== false);
+      const turnosAtivos = dbService.getTurnosConfigs(escola.id).filter((t) => t.ativo !== false);
       const slotsGerais: SlotTempoCalculado[] = [];
 
       turnosAtivos.forEach((turno) => {

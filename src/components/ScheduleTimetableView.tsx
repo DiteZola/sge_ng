@@ -238,7 +238,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
       professorId: professorIdInput,
       professorNome: profObj.nomeCompleto,
       sala: salaInput,
-      anoLectivo: escola.anoLectivoActivo || '2025/2026'
+      anoLectivo: escola.anoLectivoActivo || ''
     };
 
     const validacao = dbService.validarConflitoHorario(testeItem);
@@ -273,7 +273,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
       professorId: professorIdInput,
       professorNome: profObj.nomeCompleto,
       sala: salaInput,
-      anoLectivo: escola.anoLectivoActivo || '2025/2026'
+      anoLectivo: escola.anoLectivoActivo || ''
     };
 
     const res = dbService.salvarHorario(novoItem);
@@ -328,7 +328,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
             <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
               Sistema Anti-Choque de Aulas
             </span>
-            <span className="text-xs text-gray-500">Ano Letivo {escola.anoLectivoActivo || '2025/2026'}</span>
+            <span className="text-xs text-gray-500">Ano Letivo {escola.anoLectivoActivo || 'Sem Ano Ativo'}</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1 flex items-center space-x-2">
             <Clock className="h-6 w-6 text-blue-600" />

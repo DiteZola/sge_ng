@@ -53,6 +53,7 @@ interface AdminGlobalSchoolsViewProps {
   }) => void;
   onRedefinirSenhaDiretor: (funcionarioId: string, novaSenha: string) => void;
   onSelecionarEscolaParaInspecao: (escolaId: string) => void;
+  onEncerrarApoioEscola?: (escolaId: string) => void;
   onEliminarFuncionario?: (funcionarioId: string) => void;
 }
 
@@ -69,6 +70,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   onCriarOuAtualizarDiretor,
   onRedefinirSenhaDiretor,
   onSelecionarEscolaParaInspecao,
+  onEncerrarApoioEscola,
   onEliminarFuncionario
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -108,7 +110,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const [editDecreto, setEditDecreto] = useState('');
   const [editGovernoProvincial, setEditGovernoProvincial] = useState('');
   const [editGabineteEducacao, setEditGabineteEducacao] = useState('');
-  const [editAnoLectivo, setEditAnoLectivo] = useState('2025/2026');
+  const [editAnoLectivo, setEditAnoLectivo] = useState('');
   const [editEnsinoPrimario, setEditEnsinoPrimario] = useState(true);
   const [editTemIniciacao, setEditTemIniciacao] = useState(true);
   const [editNiveis, setEditNiveis] = useState<string[]>(['Primario']);
@@ -166,7 +168,11 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const totalEscolas = escolas.length;
   const escolasSuspensasCount = escolas.filter(e => e.ativo === false || e.estadoEscola === 'Suspensa').length;
   const escolasAtivasCount = totalEscolas - escolasSuspensasCount;
-  const totalDiretores = funcionarios.filter(f => f.role === 'DiretorGeral').length;
+  const totalDiretores = escolas.filter(esc => {
+    const dirFunc = dbService.encontrarDiretorDaEscola(esc, funcionarios);
+    const nomeEsc = (esc.diretorGeralNome || '').trim().toLowerCase();
+    return Boolean(dirFunc || (nomeEsc && nomeEsc !== 'não atribuído' && nomeEsc !== 'nao atribuido' && nomeEsc !== 'pendente de nomeação'));
+  }).length || funcionarios.filter(f => f.role === 'DiretorGeral' && f.ativo !== false).length;
   const totalAlunosRede = alunos.length;
 
   // Handlers
@@ -187,9 +193,9 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
       decretoCriacao: novaEscolaDecreto,
       governoProvincial: `GOVERNO PROVINCIAL DE ${novaEscolaProvincia.toUpperCase()}`,
       gabineteEducacao: 'GABINETE PROVINCIAL DA EDUCAÇÃO',
-      anoLectivoActivo: '2025/2026',
+      anoLectivoActivo: '',
       trimestreActivo: '1',
-      estadoAno: 'Aberto',
+      estadoAno: 'Planeamento',
       ativo: true,
       estadoEscola: 'Ativa',
       ensinoPrimario: novaEscolaEnsinoPrimario,
@@ -207,7 +213,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
 
   const abrirModalCriarDiretor = (esc: Escola) => {
     setEscolaSelecionada(esc);
-    const diretorAtual = funcionarios.find(f => f.escolaId === esc.id && f.role === 'DiretorGeral');
+    const diretorAtual = dbService.encontrarDiretorDaEscola(esc, funcionarios);
     if (diretorAtual) {
       setDirNome(diretorAtual.nomeCompleto);
       setDirBI(diretorAtual.numeroBI);
@@ -290,7 +296,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
     setEditDecreto(esc.decretoCriacao || '');
     setEditGovernoProvincial(esc.governoProvincial || '');
     setEditGabineteEducacao(esc.gabineteEducacao || '');
-    setEditAnoLectivo(esc.anoLectivoActivo || '2025/2026');
+    setEditAnoLectivo(esc.anoLectivoActivo || '');
     const isPrim = esc.ensinoPrimario !== false;
     setEditEnsinoPrimario(isPrim);
     setEditTemIniciacao(esc.temIniciacao !== false);
@@ -372,16 +378,21 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
     } else {
       dbService.eliminarFuncionario(diretorSelecionado.id);
     }
-    // Desvincular o diretor da escola
-    const escAtualizada: Escola = {
-      ...escolaSelecionada,
-      diretorGeralNome: 'Não Atribuído',
-      diretorGeralId: undefined
-    };
-    if (onAtualizarEscola) {
-      onAtualizarEscola(escAtualizada);
-    } else {
-      dbService.salvarEscola(escAtualizada);
+    // Se por algum motivo a escola ainda apontar para o diretor eliminado, força limpeza completa sem sobrescrever remoção atómica
+    const escAtualNoBanco = dbService.getEscolaPorId(escolaSelecionada.id);
+    if (escAtualNoBanco && escAtualNoBanco.diretorGeralId === diretorSelecionado.id) {
+      const escAtualizada: Escola = {
+        ...escAtualNoBanco,
+        diretorGeralNome: 'Não Atribuído',
+        diretorGeralId: undefined,
+        diretorGeralEmail: undefined,
+        diretorGeralTelefone: undefined
+      };
+      if (onAtualizarEscola) {
+        onAtualizarEscola(escAtualizada);
+      } else {
+        dbService.salvarEscola(escAtualizada);
+      }
     }
     setModalEliminarDiretorOpen(false);
     mostrarSucesso(`Diretor Geral "${nomeDir}" foi eliminado com sucesso do sistema e do Firebase.`);
@@ -408,7 +419,10 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
 
     // 2. Verificar se existe solicitação de apoio técnico aberta pelo Diretor Geral da escola
     const chamados = dbService.getSolicitacoesApoioTecnico();
-    const pendente = chamados.find(s => s.escolaId === esc.id && (s.estado === 'Aberto' || s.estado === 'Em_Atendimento'));
+    const pendente = chamados.find(s => {
+      const est = String(s.estado || s.status || '').toLowerCase();
+      return s.escolaId === esc.id && (est === 'aberto' || est === 'pendente' || est === 'em_atendimento' || est === 'em atendimento');
+    });
 
     if (pendente) {
       setEscolaAlvoApoio(esc);
@@ -437,19 +451,28 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
 
   const handleCriarChamadoTeste = () => {
     if (!escolaAlvoApoio) return;
-    const diretor = funcionarios.find(f => f.id === escolaAlvoApoio.diretorGeralId || (f.escolaId === escolaAlvoApoio.id && f.role === 'DiretorGeral'));
+    const diretor = dbService.encontrarDiretorDaEscola(escolaAlvoApoio, funcionarios);
+    const agora = new Date().toISOString();
     const novoChamado: SolicitacaoApoioTecnico = {
       id: `ap-${Date.now()}`,
       escolaId: escolaAlvoApoio.id,
       escolaNome: escolaAlvoApoio.nomeOficial,
+      nomeEscola: escolaAlvoApoio.nomeOficial,
       diretorId: diretor?.id || 'dir-auto',
       diretorNome: diretor?.nomeCompleto || escolaAlvoApoio.diretorGeralNome || 'Diretor Geral',
-      dataSolicitacao: new Date().toISOString(),
+      solicitadoPorNome: diretor?.nomeCompleto || escolaAlvoApoio.diretorGeralNome || 'Diretor Geral',
+      dataSolicitacao: agora,
+      atualizadoEm: agora,
       categoria: 'Suporte Operacional & Pautas',
       prioridade: 'Alta',
-      estado: 'Aberto',
+      urgencia: 'Alta',
+      estado: 'Pendente',
+      status: 'Pendente',
+      autorizacaoAcessoConcedida: true,
+      autorizacaoAcessoValida: true,
       assunto: 'Apoio Técnico Solicitado pelo Diretor Geral para Intervenção no SGE',
       descricao: 'Solicitação de apoio técnico emitida pelo Gabinete do Diretor Geral para resolução de configurações operacionais e homologação.',
+      descricaoProblema: 'Solicitação de apoio técnico emitida pelo Gabinete do Diretor Geral para resolução de configurações operacionais e homologação.',
       motivo: 'Apoio à Direção Geral na parametrização escolar'
     };
     dbService.adicionarSolicitacaoApoioTecnico(novoChamado);
@@ -581,11 +604,12 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
         ) : (
           escolasFiltradas.map(esc => {
             const isSuspensa = esc.ativo === false || esc.estadoEscola === 'Suspensa';
-            const diretorFunc = funcionarios.find(f => 
-              (esc.diretorGeralId && f.id === esc.diretorGeralId) || 
-              (f.escolaId === esc.id && f.role === 'DiretorGeral') || 
-              (esc.diretorGeralNome && esc.diretorGeralNome !== 'Não Atribuído' && f.nomeCompleto.toLowerCase() === esc.diretorGeralNome.toLowerCase())
-            );
+            const diretorFunc = dbService.encontrarDiretorDaEscola(esc, funcionarios);
+            const nomeDiretorRegistadoNaEscola =
+              esc.diretorGeralNome &&
+              !['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', ''].includes(esc.diretorGeralNome.trim().toLowerCase())
+                ? esc.diretorGeralNome
+                : null;
             const totalAlunosEscola = alunos.filter(a => a.escolaId === esc.id).length;
             const totalTurmasEscola = turmas.filter(t => t.escolaId === esc.id).length;
 
@@ -660,18 +684,37 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                     </div>
 
                     {/* Botões de Ação do Admin Geral sobre a Escola */}
-                    <div className="flex items-center space-x-2 shrink-0 pt-2 lg:pt-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 lg:pt-0">
                       {esc.sessaoApoioTecnicoAtiva ? (
-                        <button
-                          type="button"
-                          onClick={() => handleTentarInspecionarEscola(esc)}
-                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
-                          title="Sessão de apoio técnico ativa - Acesso total autorizado"
-                        >
-                          <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
-                          <span>Aceder (Apoio Ativo)</span>
-                        </button>
-                      ) : dbService.getSolicitacoesApoioTecnico().some(s => s.escolaId === esc.id && (s.estado === 'Aberto' || s.estado === 'Em_Atendimento')) ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleTentarInspecionarEscola(esc)}
+                            className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
+                            title="Sessão de apoio técnico ativa - Acesso total autorizado"
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
+                            <span>Aceder (Apoio Ativo)</span>
+                          </button>
+                          {onEncerrarApoioEscola && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onEncerrarApoioEscola(esc.id);
+                                mostrarSucesso(`Sessão de apoio técnico de "${esc.nomeOficial}" encerrada com sucesso.`);
+                              }}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+                              title="Encerrar sessão de apoio técnico ativa desta escola"
+                            >
+                              <XCircle className="h-3.5 w-3.5 text-red-600" />
+                              <span>Encerrar Apoio</span>
+                            </button>
+                          )}
+                        </>
+                      ) : dbService.getSolicitacoesApoioTecnico().some(s => {
+                        const est = String(s.estado || s.status || '').toLowerCase();
+                        return s.escolaId === esc.id && (est === 'aberto' || est === 'pendente' || est === 'em_atendimento' || est === 'em atendimento');
+                      }) ? (
                         <button
                           type="button"
                           onClick={() => handleTentarInspecionarEscola(esc)}
@@ -772,6 +815,16 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                               <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Credenciais Ativas</span>
                             )}
                           </div>
+                        ) : nomeDiretorRegistadoNaEscola ? (
+                          <div className="mt-1 flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span className="text-sm font-black text-gray-900">
+                              {nomeDiretorRegistadoNaEscola}
+                            </span>
+                            {esc.diretorGeralEmail && (
+                              <span className="text-xs text-gray-500">• Login/Email: <strong className="text-blue-700">{esc.diretorGeralEmail}</strong></span>
+                            )}
+                            <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Titular Registado</span>
+                          </div>
                         ) : (
                           <div className="mt-1 text-xs text-amber-700 font-semibold flex items-center space-x-1.5">
                             <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
@@ -819,7 +872,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
                             className="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors cursor-pointer"
                           >
                             <Plus className="h-4 w-4" />
-                            <span>Criar Diretor Geral & Credenciais</span>
+                            <span>{nomeDiretorRegistadoNaEscola ? 'Atualizar / Gerir Diretor Geral' : 'Criar Diretor Geral & Credenciais'}</span>
                           </button>
                         )}
                       </div>

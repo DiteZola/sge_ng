@@ -131,10 +131,10 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const currentUser = dbService.getCurrentUser();
   const isAdminGeral = currentUser?.role === 'AdminGeral';
 
-  // Lista de anos letivos configurados
-  const [anosConfigs, setAnosConfigs] = useState<AnoLectivoConfig[]>(() => dbService.getAnosLectivosConfigs());
-  const [turnosConfigs, setTurnosConfigs] = useState<TurnoConfig[]>(() => dbService.getTurnosConfigs());
-  const [classesConfigs, setClassesConfigs] = useState<ClasseConfig[]>(() => dbService.getClassesConfigs());
+  // Lista de anos letivos, turnos e classes configurados estritamente para esta escola
+  const [anosConfigs, setAnosConfigs] = useState<AnoLectivoConfig[]>(() => dbService.getAnosLectivosConfigs(escola.id));
+  const [turnosConfigs, setTurnosConfigs] = useState<TurnoConfig[]>(() => dbService.getTurnosConfigs(escola.id));
+  const [classesConfigs, setClassesConfigs] = useState<ClasseConfig[]>(() => dbService.getClassesConfigs(escola.id));
 
   // Mensagens de feedback
   const [feedbackMsg, setFeedbackMsg] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
@@ -247,9 +247,23 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const [editCursoNome, setEditCursoNome] = useState('');
   const [editCursoArea, setEditCursoArea] = useState('');
   const [editCursoDuracao, setEditCursoDuracao] = useState('3 Anos');
-  const [cursosList, setCursosList] = useState<{ id: string; nome: string; area: string; duracao: string }[]>(() => {
-    return dbService.getCursos();
+  const [cursosList, setCursosList] = useState<{ id: string; nome: string; area: string; duracao: string; escolaId?: string }[]>(() => {
+    return dbService.getCursos(escola.id);
   });
+
+  // Modal Novo Turno
+  const [showNovoTurnoModal, setShowNovoTurnoModal] = useState(false);
+  const [novoTurnoNome, setNovoTurnoNome] = useState<'Manhã' | 'Tarde' | 'Noite' | string>('Manhã');
+  const [novoTurnoInicio, setNovoTurnoInicio] = useState('07:30');
+  const [novoTurnoFim, setNovoTurnoFim] = useState('12:30');
+  const [novoTurnoTolerancia, setNovoTurnoTolerancia] = useState(15);
+
+  useEffect(() => {
+    setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
+    setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
+    setClassesConfigs(dbService.getClassesConfigs(escola.id));
+    setCursosList(dbService.getCursos(escola.id));
+  }, [escola.id]);
 
   // Modal Atribuição Docente
   const [showAtribuicaoModal, setShowAtribuicaoModal] = useState(false);
@@ -266,18 +280,22 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const [juriVogal1Id, setJuriVogal1Id] = useState('');
   const [juriVogal2Id, setJuriVogal2Id] = useState('');
 
-  const professoresDisponiveis = funcionarios.filter(f => f.ehProfessor || f.ehAdministrativoQueLeciona);
+  const professoresDisponiveis = funcionarios.filter(
+    f => (!escola.id || escola.id === 'todas' || f.escolaId === escola.id) && (f.ehProfessor || f.ehAdministrativoQueLeciona)
+  );
 
-  // Turmas e Atribuições Estritamente Isoladas pelo Ano Letivo Ativo
-  // Novos anos letivos iniciam em estado virgem sem vazar turmas de anos anteriores
+  // Turmas e Atribuições Estritamente Isoladas pelo Ano Letivo Ativo da escola
+  // Novos anos letivos e novas escolas iniciam em estado virgem sem vazar turmas de anos anteriores
   const turmasDoAnoActivo = useMemo(() => {
     const ano = escola.anoLectivoActivo;
-    return turmas.filter(t => t.anoLectivo === ano || (!t.anoLectivo && ano === '2025/2026'));
+    if (!ano) return turmas;
+    return turmas.filter(t => t.anoLectivo === ano);
   }, [turmas, escola.anoLectivoActivo]);
 
   const atribuicoesDoAnoActivo = useMemo(() => {
     const ano = escola.anoLectivoActivo;
-    return atribuicoes.filter(at => at.anoLectivo === ano || (!at.anoLectivo && ano === '2025/2026'));
+    if (!ano) return atribuicoes;
+    return atribuicoes.filter(at => at.anoLectivo === ano);
   }, [atribuicoes, escola.anoLectivoActivo]);
 
   // 1. GESTÃO DE ANOS LETIVOS
@@ -294,12 +312,16 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         novoAnoDataFim || undefined
       );
 
-      setAnosConfigs(dbService.getAnosLectivosConfigs());
+      setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
+      if (!escola.anoLectivoActivo && novoAnoEstado === 'Aberto') {
+        onSalvarEscola({ ...escola, anoLectivoActivo: criado.rotulo, estadoAno: 'Aberto' });
+        if (onAnoLectivoAlterado) onAnoLectivoAlterado(criado.rotulo);
+      }
       setShowNovoAnoModal(false);
       setNovoAnoNome('');
       setFeedbackMsg({
         tipo: 'sucesso',
-        texto: `Ano letivo ${criado.ano} criado com sucesso! Como estipulado, a nova instância foi gerada virgem e isolada, mantendo o património escolar disponível para revisão.`
+        texto: `Ano letivo ${criado.ano} criado com sucesso para esta escola! A nova instância foi gerada virgem e isolada.`
       });
     } catch (err: any) {
       setFeedbackMsg({ tipo: 'erro', texto: err.message || 'Erro ao criar ano letivo.' });
@@ -307,16 +329,17 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   };
 
   const handleAtivarAno = (ano: string) => {
-    dbService.setAnoLectivoActivo(ano);
-    onSalvarEscola({ ...escola, anoLectivoActivo: ano });
+    dbService.setAnoLectivoActivo(ano, escola.id);
+    onSalvarEscola({ ...escola, anoLectivoActivo: ano, estadoAno: 'Aberto' });
     if (onAnoLectivoAlterado) onAnoLectivoAlterado(ano);
-    setAnosConfigs(dbService.getAnosLectivosConfigs());
+    setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
     setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${ano} definido como ativo no sistema.` });
   };
 
   const handleAlterarEstadoAno = (ano: string, novoEstado: EstadoAno) => {
-    dbService.definirEstadoAnoLectivo(ano, novoEstado);
-    setAnosConfigs(dbService.getAnosLectivosConfigs());
+    if (!ano) return;
+    dbService.definirEstadoAnoLectivo(ano, novoEstado, escola.id);
+    setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
     if (escola.anoLectivoActivo === ano) {
       onSalvarEscola({ ...escola, estadoAno: novoEstado });
     }
@@ -344,6 +367,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
     const anoAtualizado: AnoLectivoConfig = {
       ...anoSendoEditado,
+      escolaId: anoSendoEditado.escolaId || escola.id,
       rotulo: editAnoRotulo.trim(),
       ano: editAnoRotulo.trim(),
       estado: editAnoEstado,
@@ -353,7 +377,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     };
 
     dbService.salvarAnoLectivoConfig(anoAtualizado);
-    setAnosConfigs(dbService.getAnosLectivosConfigs());
+    setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
     if (escola.anoLectivoActivo === anoSendoEditado.rotulo) {
       onSalvarEscola({ ...escola, anoLectivoActivo: anoAtualizado.rotulo, estadoAno: anoAtualizado.estado });
     }
@@ -382,18 +406,22 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       return;
     }
 
-    const sucesso = dbService.eliminarAnoLectivoConfig(anoParaEliminarSeguro.id || anoNome);
+    const sucesso = dbService.eliminarAnoLectivoConfig(anoParaEliminarSeguro.id || anoNome, escola.id);
     if (sucesso) {
-      setAnosConfigs(dbService.getAnosLectivosConfigs());
+      setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
       setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${anoNome} eliminado com segurança!` });
       setAnoParaEliminarSeguro(null);
       setConfirmacaoTextoEliminarAno('');
     } else {
-      setFeedbackMsg({ tipo: 'erro', texto: 'Não foi possível eliminar o único ano letivo configurado no sistema.' });
+      setFeedbackMsg({ tipo: 'erro', texto: 'Não foi possível eliminar o único ano letivo ativo da escola.' });
     }
   };
 
   const handleReplicarAtribuicoesAnoAnterior = () => {
+    if (!escola.anoLectivoActivo) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Defina ou crie primeiro um ano letivo ativo para esta instituição.' });
+      return;
+    }
     if (!confirm(`Deseja replicar as classes, turmas, disciplinas, atribuições docentes e coordenações do ano lectivo anterior para o ano letivo ativo (${escola.anoLectivoActivo})?\n\nAs turmas e os professores manterão a mesma estrutura organizada do ano anterior.`)) {
       return;
     }
@@ -419,10 +447,10 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   };
 
   const handleLimparTodasDisciplinas = () => {
-    if (!confirm('Tem a certeza de que deseja limpar todas as disciplinas existentes para que a Direção crie as suas próprias disciplinas para cada classe e ano letivo? Esta ação não pode ser revertida.')) {
+    if (!confirm('Tem a certeza de que deseja limpar todas as disciplinas existentes desta instituição para cadastrar novas disciplinas? Esta ação não pode ser revertida.')) {
       return;
     }
-    dbService.limparTodasDisciplinas();
+    dbService.limparTodasDisciplinas(escola.id);
     if (onLimparDisciplinas) {
       onLimparDisciplinas();
     } else if (onEliminarDisciplina) {
@@ -430,7 +458,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     }
     setFeedbackMsg({
       tipo: 'sucesso',
-      texto: 'Todas as disciplinas foram limpas com sucesso. A Direção tem agora a grelha livre para cadastrar e parametrizar as disciplinas classe a classe.'
+      texto: 'Todas as disciplinas desta instituição foram limpas com sucesso. A Direção tem agora a grelha livre para cadastrar as disciplinas classe a classe.'
     });
   };
 
@@ -448,7 +476,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     if (!novaClasseNome.trim()) return;
 
     const nova: ClasseConfig = {
-      id: `cls-${Date.now()}`,
+      id: `cls-${escola.id}-${Date.now()}`,
+      escolaId: escola.id,
       nome: novaClasseNome.trim(),
       nivelEnsino: novaClasseNivel,
       ciclo: novaClasseCiclo,
@@ -459,7 +488,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     };
 
     dbService.salvarClasseConfig(nova);
-    setClassesConfigs(dbService.getClassesConfigs());
+    setClassesConfigs(dbService.getClassesConfigs(escola.id));
     setShowNovaClasseModal(false);
     setNovaClasseNome('');
     setNovaClasseDescricao('');
@@ -483,6 +512,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
     const atualizada: ClasseConfig = {
       ...classeSendoEditada,
+      escolaId: classeSendoEditada.escolaId || escola.id,
       nome: editClasseNome.trim(),
       nivelEnsino: editClasseNivel,
       ciclo: editClasseCiclo.trim(),
@@ -492,7 +522,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     };
 
     dbService.salvarClasseConfig(atualizada);
-    setClassesConfigs(dbService.getClassesConfigs());
+    setClassesConfigs(dbService.getClassesConfigs(escola.id));
     setShowEditarClasseModal(false);
     setFeedbackMsg({ tipo: 'sucesso', texto: `Classe "${atualizada.nome}" atualizada com sucesso.` });
   };
@@ -502,7 +532,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
     const ok = dbService.eliminarClasseConfig(id);
     if (ok) {
-      setClassesConfigs(dbService.getClassesConfigs());
+      setClassesConfigs(dbService.getClassesConfigs(escola.id));
       setFeedbackMsg({ tipo: 'sucesso', texto: `Classe "${nome}" eliminada com sucesso.` });
     } else {
       setFeedbackMsg({ tipo: 'erro', texto: 'Erro ao eliminar a classe.' });
@@ -593,6 +623,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
     const atualizada: Disciplina = {
       ...disciplinaSendoEditada,
+      escolaId: disciplinaSendoEditada.escolaId || escola.id,
       nome: editDiscNome.trim(),
       sigla: editDiscCodigo.trim().substring(0, 4).toUpperCase() || editDiscNome.trim().substring(0, 3).toUpperCase(),
       codigo: editDiscCodigo.trim() || `DISC-${Math.floor(100 + Math.random() * 900)}`,
@@ -737,30 +768,59 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
   // 5. TURNOS
   const handleAtualizarTurno = (turno: TurnoConfig) => {
-    dbService.salvarTurnoConfig(turno);
-    setTurnosConfigs(dbService.getTurnosConfigs());
+    dbService.salvarTurnoConfig({ ...turno, escolaId: turno.escolaId || escola.id });
+    setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
     setFeedbackMsg({ tipo: 'sucesso', texto: `Horário do turno ${turno.nome} atualizado.` });
+  };
+
+  const handleCreateTurno = (e: React.FormEvent) => {
+    e.preventDefault();
+    const novoTurno: TurnoConfig = {
+      id: `turno-${escola.id}-${Date.now()}`,
+      escolaId: escola.id,
+      nome: novoTurnoNome,
+      horaInicio: novoTurnoInicio,
+      horaFim: novoTurnoFim,
+      toleranciaMinutos: novoTurnoTolerancia,
+      temposLectivos: 5,
+      intervaloMinutos: 15,
+      diasSemana: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'],
+      ativo: true
+    };
+    dbService.salvarTurnoConfig(novoTurno);
+    setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
+    setShowNovoTurnoModal(false);
+    setFeedbackMsg({ tipo: 'sucesso', texto: `Turno ${novoTurno.nome} cadastrado com sucesso.` });
+  };
+
+  const handleEliminarTurno = (id: string, nome: string) => {
+    if (!confirm(`Deseja eliminar o turno "${nome}"?`)) return;
+    if (dbService.eliminarTurnoConfig(id)) {
+      setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
+      setFeedbackMsg({ tipo: 'sucesso', texto: `Turno "${nome}" eliminado com sucesso.` });
+    }
   };
 
   // 6. CLASSES
   const handleToggleClasse = (classe: ClasseConfig) => {
-    const atualizada = { ...classe, ativa: !classe.ativa };
+    const atualizada = { ...classe, escolaId: classe.escolaId || escola.id, ativa: !classe.ativa };
     dbService.salvarClasseConfig(atualizada);
-    setClassesConfigs(dbService.getClassesConfigs());
+    setClassesConfigs(dbService.getClassesConfigs(escola.id));
   };
 
   // 7. CURSOS
   const handleCreateCurso = (e: React.FormEvent) => {
     e.preventDefault();
     if (!novoCursoNome.trim()) return;
-    const novo = {
-      id: `curso-${Date.now()}`,
+    const novo: CursoConfig = {
+      id: `curso-${escola.id}-${Date.now()}`,
+      escolaId: escola.id,
       nome: novoCursoNome.trim(),
       area: novoCursoArea,
       duracao: '3 Anos'
     };
     dbService.salvarCurso(novo);
-    setCursosList(dbService.getCursos());
+    setCursosList(dbService.getCursos(escola.id));
     setShowNovoCursoModal(false);
     setNovoCursoNome('');
     setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${novo.nome}" cadastrado com sucesso.` });
@@ -777,14 +837,15 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const handleSalvarEditarCurso = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cursoSendoEditado || !editCursoNome.trim()) return;
-    const atualizado = {
+    const atualizado: CursoConfig = {
       ...cursoSendoEditado,
+      escolaId: (cursoSendoEditado as any).escolaId || escola.id,
       nome: editCursoNome.trim(),
       area: editCursoArea,
       duracao: editCursoDuracao
     };
     dbService.salvarCurso(atualizado);
-    setCursosList(dbService.getCursos());
+    setCursosList(dbService.getCursos(escola.id));
     setShowEditarCursoModal(false);
     setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${editCursoNome}" atualizado com sucesso.` });
   };
@@ -792,7 +853,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const handleEliminarCurso = (id: string, nome: string) => {
     if (confirm(`Tem certeza que deseja remover o curso "${nome}"?`)) {
       dbService.eliminarCurso(id);
-      setCursosList(dbService.getCursos());
+      setCursosList(dbService.getCursos(escola.id));
       setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${nome}" eliminado.` });
     }
   };
@@ -812,6 +873,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
     const nova: Disciplina = {
       id: `disc-${Date.now()}`,
+      escolaId: escola.id,
       nome: novaDiscNome.trim(),
       sigla: novaDiscCodigo ? novaDiscCodigo.toUpperCase() : novaDiscNome.substring(0, 3).toUpperCase(),
       codigo: novaDiscCodigo || `DISC-${Math.floor(100 + Math.random() * 900)}`,
@@ -823,8 +885,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       ciclo: novaDiscCiclo || formatarCicloPorClasse(primeiraClasse)
     };
 
-    dbService.salvarDisciplina(nova);
     if (onSalvarDisciplina) onSalvarDisciplina(nova);
+    else dbService.salvarDisciplina(nova);
     setShowNovaDisciplinaModal(false);
     setNovaDiscNome('');
     setNovaDiscCodigo('');
@@ -1065,7 +1127,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">Configuração do Período Letivo em Vigor</h3>
-                <p className="text-xs text-gray-500">Ano letivo ativo: <strong>{escola.anoLectivoActivo}</strong> • Trimestre: <strong>{escola.trimestreActivo}º Trimestre</strong></p>
+                <p className="text-xs text-gray-500">Ano letivo ativo: <strong>{escola.anoLectivoActivo || 'Nenhum ano letivo ativo'}</strong> • Trimestre: <strong>{escola.trimestreActivo || '1'}º Trimestre</strong></p>
               </div>
               <button
                 type="button"
@@ -1080,8 +1142,10 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
               <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
                 <span className="text-[11px] font-bold text-gray-500 block uppercase">Ano Letivo Ativo</span>
-                <div className="text-lg font-black text-gray-900">{escola.anoLectivoActivo}</div>
-                <span className="text-[10px] text-gray-500 block">Determina o contexto de matrículas e pautas</span>
+                <div className="text-lg font-black text-gray-900">{escola.anoLectivoActivo || 'Sem Ano Ativo'}</div>
+                <span className="text-[10px] text-gray-500 block">
+                  {escola.anoLectivoActivo ? 'Determina o contexto de matrículas e pautas' : 'Crie o primeiro ano letivo desta instituição para iniciar'}
+                </span>
               </div>
 
               <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
@@ -1112,8 +1176,9 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     <button
                       key={est}
                       type="button"
+                      disabled={!escola.anoLectivoActivo}
                       onClick={() => handleAlterarEstadoAno(escola.anoLectivoActivo, est)}
-                      className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
+                      className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         escola.estadoAno === est
                           ? est === 'Aberto' 
                             ? 'bg-emerald-600 text-white border-emerald-600'
@@ -1142,11 +1207,24 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
               <span className="text-xs text-gray-500">Histórico e instâncias independentes</span>
             </div>
 
+            {anosConfigs.length === 0 ? (
+              <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-300 rounded-2xl space-y-2">
+                <Calendar className="w-8 h-8 text-gray-400 mx-auto" />
+                <p className="text-xs font-bold text-gray-700">Nenhum ano letivo registado nesta instituição.</p>
+                <p className="text-[11px] text-gray-500">Clique em "Criar Novo Ano Letivo" acima para cadastrar o primeiro período letivo desta escola.</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {anosConfigs.map((anoCfg, idx) => {
                 const anoNome = anoCfg.ano || anoCfg.rotulo;
-                const isAtivo = anoNome === escola.anoLectivoActivo;
+                const isAtivo = Boolean(escola.anoLectivoActivo && anoNome === escola.anoLectivoActivo);
                 const anoKey = anoCfg.id || anoNome || `ano-${idx}`;
+                const alunosDoAnoCount = dbService.getAlunos(escola.id).filter(
+                  a => (a.anoLectivo || a.anoMatricula || '') === anoNome
+                ).length;
+                const turmasDoAnoCount = turmas.filter(
+                  t => t.escolaId === escola.id && t.anoLectivo === anoNome
+                ).length;
                 return (
                   <div 
                     key={anoKey}
@@ -1178,11 +1256,11 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     <div className="mt-3 pt-3 border-t border-gray-100 space-y-2 text-xs">
                       <div className="flex justify-between text-gray-600">
                         <span>Alunos Matriculados:</span>
-                        <strong className="text-gray-900">{isAtivo ? dbService.getAlunos().length : 0}</strong>
+                        <strong className="text-gray-900">{alunosDoAnoCount}</strong>
                       </div>
                       <div className="flex justify-between text-gray-600">
                         <span>Turmas Cadastradas:</span>
-                        <strong className="text-gray-900">{isAtivo ? turmas.length : 0}</strong>
+                        <strong className="text-gray-900">{turmasDoAnoCount}</strong>
                       </div>
                       <div className="flex justify-between text-gray-600">
                         <span>Base de Dados:</span>
@@ -1240,6 +1318,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 );
               })}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1268,6 +1347,13 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
               </div>
             </div>
 
+            {classesConfigs.length === 0 ? (
+              <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-300 rounded-2xl space-y-2">
+                <Layers className="w-8 h-8 text-gray-400 mx-auto" />
+                <p className="text-xs font-bold text-gray-700">Nenhuma classe configurada para esta instituição.</p>
+                <p className="text-[11px] text-gray-500">Utilize o botão "Nova Classe" para cadastrar as classes lecionadas nesta escola.</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {classesConfigs.map((cls, idx) => (
                 <div 
@@ -1315,6 +1401,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1338,6 +1425,13 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
               </button>
             </div>
 
+            {cursosList.length === 0 ? (
+              <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-300 rounded-2xl space-y-2">
+                <GraduationCap className="w-8 h-8 text-gray-400 mx-auto" />
+                <p className="text-xs font-bold text-gray-700">Nenhum curso registado nesta instituição.</p>
+                <p className="text-[11px] text-gray-500">Clique em "Adicionar Curso" para registar as opções ou cursos técnicos desta escola.</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {cursosList.map((curso, idx) => (
                 <div key={`curso-item-${curso.id || idx}-${idx}`} className="p-4 rounded-xl border border-gray-200 bg-white shadow-2xs space-y-2">
@@ -1369,6 +1463,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1546,7 +1641,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-bold text-gray-900">Turmas do Ano Lectivo {escola.anoLectivoActivo} ({turmasDoAnoActivo.length})</h3>
+              <h3 className="text-sm font-bold text-gray-900">Turmas do Ano Lectivo {escola.anoLectivoActivo || 'Atual'} ({turmasDoAnoActivo.length})</h3>
               <p className="text-xs text-gray-500">Criação, gestão de salas, turnos e capacidade máxima</p>
             </div>
             <button
@@ -1643,11 +1738,28 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       {activeSubTab === 'turnos' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
-            <div className="border-b border-gray-100 pb-3">
-              <h3 className="text-sm font-bold text-gray-900">Turnos de Funcionamento da Instituição</h3>
-              <p className="text-xs text-gray-500">Horários oficiais de entrada, saída, tolerância e dias de funcionamento</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-gray-100 pb-3 gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Turnos de Funcionamento da Instituição</h3>
+                <p className="text-xs text-gray-500">Horários oficiais de entrada, saída, tolerância e dias de funcionamento</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNovoTurnoModal(true)}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Adicionar Turno</span>
+              </button>
             </div>
 
+            {turnosConfigs.length === 0 ? (
+              <div className="p-8 text-center bg-gray-50 border border-dashed border-gray-300 rounded-2xl space-y-2">
+                <Clock className="w-8 h-8 text-gray-400 mx-auto" />
+                <p className="text-xs font-bold text-gray-700">Nenhum turno configurado para esta instituição.</p>
+                <p className="text-[11px] text-gray-500">Clique em "Adicionar Turno" para definir os turnos de funcionamento (Manhã, Tarde ou Noite).</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {turnosConfigs.map((turno, idx) => (
                 <div key={`turno-item-${turno.id || turno.nome || idx}-${idx}`} className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 space-y-3">
@@ -1656,9 +1768,19 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                       <Clock className="w-4 h-4 text-blue-600" />
                       <h4 className="text-sm font-bold text-gray-900">{turno.nome}</h4>
                     </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
-                      Tolerância: {turno.toleranciaMinutos || 15}m
-                    </span>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full">
+                        Tolerância: {turno.toleranciaMinutos || 15}m
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleEliminarTurno(turno.id, turno.nome)}
+                        className="p-1 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                        title="Eliminar Turno"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-2 text-xs">
@@ -1688,6 +1810,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1698,7 +1821,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-sm font-bold text-gray-900">Atribuições Docentes & Coordenações ({atribuicoesDoAnoActivo.length})</h3>
-              <p className="text-xs text-gray-500">Vinculação de professores, disciplinas e turmas para o ano {escola.anoLectivoActivo}</p>
+              <p className="text-xs text-gray-500">Vinculação de professores, disciplinas e turmas para o ano {escola.anoLectivoActivo || 'Atual'}</p>
             </div>
             <div className="flex items-center space-x-2">
               <button
@@ -2199,7 +2322,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         escola={escola}
         onImportacaoConcluida={(msg) => {
           setFeedbackMsg({ tipo: 'sucesso', texto: msg });
-          setAnosConfigs(dbService.getAnosLectivosConfigs());
+          setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
         }}
       />
 
@@ -2305,7 +2428,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">Cadastrar Nova Turma ({escola.anoLectivoActivo})</h3>
+              <h3 className="text-base font-bold text-gray-900">Cadastrar Nova Turma ({escola.anoLectivoActivo || 'Atual'})</h3>
               <button onClick={() => setShowNovaTurmaModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
 
@@ -2330,9 +2453,14 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     onChange={(e) => setNovaTurmaClasse(e.target.value)}
                     className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
                   >
-                    {classesConfigs.filter(c => c.ativa !== false).map((c, idx) => (
-                      <option key={`opt-cls-${c.id || c.nome}-${idx}`} value={c.nome}>{c.nome}</option>
-                    ))}
+                    {(classesConfigs.filter(c => c.ativa !== false).length > 0
+                      ? classesConfigs.filter(c => c.ativa !== false).map((c, idx) => (
+                          <option key={`opt-cls-${c.id || c.nome}-${idx}`} value={c.nome}>{c.nome}</option>
+                        ))
+                      : todasClasses.map((c) => (
+                          <option key={`opt-cls-std-${c}`} value={c}>{c}</option>
+                        ))
+                    )}
                   </select>
                 </div>
                 <div>
@@ -3140,9 +3268,14 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     onChange={(e) => setEditTurmaClasse(e.target.value)}
                     className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
                   >
-                    {classesConfigs.map((c, idx) => (
-                      <option key={`edit-opt-cls-${c.id || c.nome}-${idx}`} value={c.nome}>{c.nome}</option>
-                    ))}
+                    {(classesConfigs.length > 0
+                      ? classesConfigs.map((c, idx) => (
+                          <option key={`edit-opt-cls-${c.id || c.nome}-${idx}`} value={c.nome}>{c.nome}</option>
+                        ))
+                      : todasClasses.map((c) => (
+                          <option key={`edit-opt-cls-std-${c}`} value={c}>{c}</option>
+                        ))
+                    )}
                   </select>
                 </div>
                 <div>
@@ -3445,6 +3578,80 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NOVO TURNO */}
+      {showNovoTurnoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h3 className="text-base font-bold text-gray-900">Adicionar Novo Turno</h3>
+              <button onClick={() => setShowNovoTurnoModal(false)} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
+            </div>
+            <form onSubmit={handleCreateTurno} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Nome do Turno</label>
+                <select
+                  value={novoTurnoNome}
+                  onChange={(e) => setNovoTurnoNome(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                >
+                  <option value="Manhã">Manhã</option>
+                  <option value="Tarde">Tarde</option>
+                  <option value="Noite">Noite</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Horário de Início</label>
+                  <input
+                    type="time"
+                    value={novoTurnoInicio}
+                    onChange={(e) => setNovoTurnoInicio(e.target.value)}
+                    required
+                    className="w-full p-2.5 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Horário de Término</label>
+                  <input
+                    type="time"
+                    value={novoTurnoFim}
+                    onChange={(e) => setNovoTurnoFim(e.target.value)}
+                    required
+                    className="w-full p-2.5 border border-gray-300 rounded-lg"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Tolerância de Entrada (minutos)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={novoTurnoTolerancia}
+                  onChange={(e) => setNovoTurnoTolerancia(Number(e.target.value))}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNovoTurnoModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold cursor-pointer"
+                >
+                  Registar Turno
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

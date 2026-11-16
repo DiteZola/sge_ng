@@ -61,12 +61,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSecurityEngine,
   onOpenTour
 }) => {
-  // O Administrador Geral não vê escolas a não ser quando há autorização formal de apoio técnico
+  // O Administrador Geral não vê escolas no topo a não ser quando há sessão de apoio técnico efetivamente ativa
   const isAdminGeral = currentUser.role === 'AdminGeral';
-  const temApoioAtivo = dbService.temAutorizacaoApoioTecnico(escola.id);
 
-  // Escolas com autorização de apoio técnico
-  const escolasComApoioAutorizado = escolas.filter(e => dbService.temAutorizacaoApoioTecnico(e.id));
+  // Escolas com sessão de apoio técnico efetivamente ativa
+  const escolasComApoioAutorizado = escolas.filter(e => Boolean(e.sessaoApoioTecnicoAtiva && e.sessaoApoioTecnicoAtiva.dataInicio));
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs no-print">
@@ -156,10 +155,13 @@ export const Header: React.FC<HeaderProps> = ({
                 <Calendar className="h-3.5 w-3.5 text-blue-600 shrink-0" />
                 <span className="font-medium text-gray-500">Ano:</span>
                 <select
-                  value={escola.anoLectivoActivo}
+                  value={escola.anoLectivoActivo || ''}
                   onChange={(e) => onSelectAnoLectivo(e.target.value)}
                   className="bg-transparent font-extrabold text-gray-900 border-0 p-0 text-xs focus:ring-0 cursor-pointer hover:text-blue-700"
                 >
+                  {(!escola.anoLectivoActivo || anosLectivos.length === 0) && (
+                    <option value="">Sem ano ativo</option>
+                  )}
                   {anosLectivos.map(ano => (
                     <option key={ano} value={ano}>{ano}</option>
                   ))}
@@ -172,7 +174,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <Layers className="h-3.5 w-3.5 text-green-600 shrink-0" />
                 <span className="font-medium text-gray-500">Trimestre:</span>
                 <select
-                  value={escola.trimestreActivo}
+                  value={escola.trimestreActivo || '1'}
                   onChange={(e) => onSelectTrimestre(e.target.value as '1' | '2' | '3')}
                   className="bg-transparent font-extrabold text-gray-900 border-0 p-0 text-xs focus:ring-0 cursor-pointer hover:text-green-700"
                 >
@@ -186,7 +188,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                 escola.estadoAno === 'Aberto' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
               }`}>
-                {escola.estadoAno}
+                {escola.estadoAno || 'Planeamento'}
               </span>
             </div>
           )}

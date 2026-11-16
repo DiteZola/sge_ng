@@ -328,14 +328,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Relatórios Oficiais MED',
           icon: FileSpreadsheet,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'TecnicoTI'],
-          badge: 'Balanços'
+          badge: userRole === 'AdminGeral' ? 'Todas Escolas' : 'Balanços'
         },
         {
           id: 'estatisticas',
           label: 'Estatísticas & Rendimento',
           icon: TrendingUp,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'TecnicoTI'],
-          badge: 'Analytics'
+          badge: userRole === 'AdminGeral' ? 'Todas Escolas' : 'Analytics'
         }
       ]
     },

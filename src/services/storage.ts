@@ -204,9 +204,9 @@ export const DEFAULT_ESCOLA_VAZIA: Escola = {
   diretorGeralNome: '',
   subdiretorPedagogicoNome: '',
   chefeSecretariaNome: '',
-  anoLectivoActivo: '2025/2026',
+  anoLectivoActivo: '',
   trimestreActivo: '1',
-  estadoAno: 'Aberto',
+  estadoAno: 'Planeamento',
   ativo: true,
   estadoEscola: 'Ativa'
 };
@@ -503,7 +503,8 @@ function hidratarFotoDeLista<T extends { id?: string; fotoUrl?: string }>(
 
 async function normalizarEPersistirFuncionarioAsync(
   funcInicial: Funcionario,
-  rawFotoInput: unknown
+  rawFotoInput: unknown,
+  pularSyncPerfilSeNaoAlterouFoto: boolean = false
 ): Promise<void> {
   try {
     let fotoFinal: string = typeof funcInicial.fotoUrl === 'string' ? funcInicial.fotoUrl : '';
@@ -534,7 +535,8 @@ async function normalizarEPersistirFuncionarioAsync(
     await offlineStorage.salvarFuncionarioNoIndexedDB(funcFinal);
 
     // 2. Atualizar localStorage e sessão ativa caso a foto tenha sido convertida/comprimida
-    if (fotoFinal !== funcInicial.fotoUrl) {
+    const fotoMudou = fotoFinal !== funcInicial.fotoUrl;
+    if (fotoMudou) {
       const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
       const idx = funcs.findIndex(f => f.id === funcFinal.id);
       if (idx >= 0) {
@@ -555,8 +557,10 @@ async function normalizarEPersistirFuncionarioAsync(
       }
     }
 
-    // 3. Enviar diretamente para o Firebase Firestore para visibilidade imediata em outros dispositivos
-    await firebaseSyncEngine.salvarPerfilUsuario(funcFinal);
+    // 3. Enviar diretamente para o Firebase Firestore (evita duplicação quando já foi sincronizado em batch atómico e a foto não mudou)
+    if (!pularSyncPerfilSeNaoAlterouFoto || fotoMudou) {
+      await firebaseSyncEngine.salvarPerfilUsuario(funcFinal);
+    }
   } catch (err) {
     console.warn('[Storage] Falha ao normalizar/sincronizar foto do funcionário:', err);
   }
@@ -1173,6 +1177,130 @@ export const dbService = {
   getSolicitacoesApoioBrutas: (): SolicitacaoApoioTecnico[] => getLocal<SolicitacaoApoioTecnico[]>(STORAGE_KEYS.SOLICITACOES_APOIO, DEFAULT_SOLICITACOES_APOIO),
   getSessoesAtivasBrutas: (): SessaoAtivaUsuario[] => getLocal<SessaoAtivaUsuario[]>(STORAGE_KEYS.SESSOES_ATIVAS, []),
 
+  // Helpers centralizados para reconhecimento de Diretor Geral numa Escola
+  encontrarDiretorDaEscola: (esc: Escola, listaFuncs?: Funcionario[]): Funcionario | undefined => {
+    const funcs = listaFuncs || dbService.getFuncionariosBruto();
+    const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', ''];
+    const nomeEscDir = (esc.diretorGeralNome || '').trim().toLowerCase();
+    const emailEscDir = (esc.diretorGeralEmail || '').trim().toLowerCase();
+    const isDiretorCargo = (f: Funcionario) =>
+      !isAdminGeralUserObj(f) &&
+      f.ativo !== false &&
+      f.statusConta !== 'Suspensa' &&
+      (f.role === 'DiretorGeral' ||
+        (f.cargo || '').toLowerCase().includes('diretor geral') ||
+        (f.cargo || '').toLowerCase().includes('director geral'));
+    const pertenceAEscolaOuSemVinculo = (f: Funcionario) =>
+      !f.escolaId ||
+      f.escolaId === esc.id ||
+      (Boolean(esc.codigoEscola) && f.escolaId === esc.codigoEscola);
+
+    // 1. Prioriza diretores explicitamente vinculados a esta escola (ordenados pelo mais recente)
+    const candidatosDaEscola = funcs
+      .filter(f => isDiretorCargo(f) && (f.escolaId === esc.id || (Boolean(esc.codigoEscola) && f.escolaId === esc.codigoEscola)))
+      .sort((a, b) => {
+        const ta = a.atualizadoEm ? Date.parse(a.atualizadoEm) || 0 : 0;
+        const tb = b.atualizadoEm ? Date.parse(b.atualizadoEm) || 0 : 0;
+        return tb - ta;
+      });
+    if (candidatosDaEscola.length > 0) {
+      if (esc.diretorGeralId) {
+        const matchId = candidatosDaEscola.find(f => f.id === esc.diretorGeralId);
+        if (matchId) return matchId;
+      }
+      return candidatosDaEscola[0];
+    }
+
+    // 2. Fallback por diretorGeralId se ativo e não reatribuído a outra escola
+    if (esc.diretorGeralId) {
+      const porId = funcs.find(f =>
+        !isAdminGeralUserObj(f) &&
+        f.id === esc.diretorGeralId &&
+        f.ativo !== false &&
+        f.statusConta !== 'Suspensa' &&
+        pertenceAEscolaOuSemVinculo(f)
+      );
+      if (porId) return porId;
+    }
+
+    // 3. Fallback por e-mail ou nome caso pertença à escola ou ainda não tenha escolaId atribuída
+    if (emailEscDir) {
+      const porEmail = funcs.find(f =>
+        isDiretorCargo(f) &&
+        f.email &&
+        f.email.trim().toLowerCase() === emailEscDir &&
+        pertenceAEscolaOuSemVinculo(f)
+      );
+      if (porEmail) return porEmail;
+    }
+
+    if (nomeEscDir && !placeholders.includes(nomeEscDir)) {
+      return funcs.find(f =>
+        isDiretorCargo(f) &&
+        f.nomeCompleto &&
+        f.nomeCompleto.trim().toLowerCase() === nomeEscDir &&
+        pertenceAEscolaOuSemVinculo(f)
+      );
+    }
+
+    return undefined;
+  },
+
+  reconciliarDiretoresEscolas: (): boolean => {
+    const escolas = dbService.getEscolasBrutas();
+    const funcs = dbService.getFuncionariosBruto();
+    const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', ''];
+    const funcsJaSincronizados = typeof localStorage !== 'undefined' && localStorage.getItem('sge_remote_synced_funcionarios') === 'true';
+    let alterou = false;
+
+    const atualizadas = escolas.map(esc => {
+      const dir = dbService.encontrarDiretorDaEscola(esc, funcs);
+      if (!dir) {
+        if (funcsJaSincronizados && esc.diretorGeralId) {
+          alterou = true;
+          return {
+            ...esc,
+            diretorGeralId: undefined,
+            diretorGeralNome: 'Não Atribuído',
+            diretorGeralEmail: undefined,
+            diretorGeralTelefone: undefined,
+            atualizadoEm: esc.atualizadoEm || new Date().toISOString()
+          };
+        }
+        return esc;
+      }
+
+      const nomeAtual = (esc.diretorGeralNome || '').trim().toLowerCase();
+      const precisaAtualizar =
+        esc.diretorGeralId !== dir.id ||
+        !esc.diretorGeralNome ||
+        placeholders.includes(nomeAtual) ||
+        esc.diretorGeralNome !== dir.nomeCompleto ||
+        (Boolean(dir.email) && esc.diretorGeralEmail !== dir.email) ||
+        (Boolean(dir.telefone) && esc.diretorGeralTelefone !== dir.telefone);
+
+      if (!precisaAtualizar) return esc;
+      alterou = true;
+      return {
+        ...esc,
+        diretorGeralId: dir.id,
+        diretorGeralNome: dir.nomeCompleto,
+        diretorGeralGenero: dir.genero || esc.diretorGeralGenero || 'M',
+        diretorGeralEmail: dir.email || esc.diretorGeralEmail,
+        diretorGeralTelefone: dir.telefone || esc.diretorGeralTelefone,
+        atualizadoEm: esc.atualizadoEm || dir.atualizadoEm || new Date().toISOString()
+      };
+    });
+
+    if (alterou) {
+      setLocal(STORAGE_KEYS.ESCOLAS, atualizadas);
+      try {
+        offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(atualizadas));
+      } catch {}
+    }
+    return alterou;
+  },
+
   // Escolas
   getEscolas: (): Escola[] => {
     const escolas = dbService.getEscolasBrutas();
@@ -1182,26 +1310,28 @@ export const dbService = {
 
     return escolas.map(e => {
       const mod = { ...e };
-      if (ocultarAdmin) {
+      if (
+        ocultarAdmin ||
+        !mod.sessaoApoioTecnicoAtiva ||
+        typeof mod.sessaoApoioTecnicoAtiva !== 'object' ||
+        !mod.sessaoApoioTecnicoAtiva.dataInicio
+      ) {
         delete mod.sessaoApoioTecnicoAtiva;
       }
-      // 1. Diretor Geral
-      if (!mod.diretorGeralNome || placeholders.includes(mod.diretorGeralNome.trim().toLowerCase())) {
-        const dir = funcs.find(f => 
-          !isAdminGeralUserObj(f) &&
-          (!f.escolaId || f.escolaId === e.id || e.id === 'todas') && 
-          (f.role === 'DiretorGeral' || f.cargo?.toLowerCase().includes('diretor geral') || f.cargo?.toLowerCase().includes('director geral'))
-        );
-        if (dir && dir.nomeCompleto) {
-          mod.diretorGeralNome = dir.nomeCompleto;
-          mod.diretorGeralGenero = dir.genero || mod.diretorGeralGenero || 'M';
-        }
+      // 1. Diretor Geral (projeção viva do perfil ativo vinculado à escola)
+      const dir = dbService.encontrarDiretorDaEscola(e, funcs);
+      if (dir && dir.nomeCompleto) {
+        mod.diretorGeralId = dir.id;
+        mod.diretorGeralNome = dir.nomeCompleto;
+        mod.diretorGeralGenero = dir.genero || mod.diretorGeralGenero || 'M';
+        mod.diretorGeralEmail = dir.email || mod.diretorGeralEmail;
+        mod.diretorGeralTelefone = dir.telefone || mod.diretorGeralTelefone;
       }
       // 2. Subdiretor Pedagógico
       if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
         const sub = funcs.find(f =>
           !isAdminGeralUserObj(f) &&
-          (!f.escolaId || f.escolaId === e.id || e.id === 'todas') &&
+          (f.escolaId === e.id || e.id === 'todas') &&
           (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
         );
         if (sub && sub.nomeCompleto) {
@@ -1212,7 +1342,7 @@ export const dbService = {
       if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
         const sec = funcs.find(f =>
           !isAdminGeralUserObj(f) &&
-          (!f.escolaId || f.escolaId === e.id || e.id === 'todas') &&
+          (f.escolaId === e.id || e.id === 'todas') &&
           (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
         );
         if (sec && sec.nomeCompleto) {
@@ -1226,23 +1356,22 @@ export const dbService = {
     const escolas = dbService.getEscolas();
     const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
     const esc = escolas.find(e => e.id === idAtivo) || escolas[0] || DEFAULT_ESCOLA_VAZIA;
-    const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    const funcs = dbService.getFuncionariosBruto();
     const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', 'subdireção pedagógica', 'subdirecao pedagogica', 'chefe da secretaria', 'secretaria', ''];
     const mod = { ...esc };
 
-    if (!mod.diretorGeralNome || placeholders.includes(mod.diretorGeralNome.trim().toLowerCase())) {
-      const dir = funcs.find(f => 
-        (!f.escolaId || f.escolaId === esc.id || esc.id === 'todas') && 
-        (f.role === 'DiretorGeral' || f.cargo?.toLowerCase().includes('diretor geral') || f.cargo?.toLowerCase().includes('director geral'))
-      );
-      if (dir && dir.nomeCompleto) {
-        mod.diretorGeralNome = dir.nomeCompleto;
-        mod.diretorGeralGenero = dir.genero || esc.diretorGeralGenero || 'M';
-      }
+    const dir = dbService.encontrarDiretorDaEscola(esc, funcs);
+    if (dir && dir.nomeCompleto) {
+      mod.diretorGeralId = dir.id;
+      mod.diretorGeralNome = dir.nomeCompleto;
+      mod.diretorGeralGenero = dir.genero || mod.diretorGeralGenero || 'M';
+      mod.diretorGeralEmail = dir.email || mod.diretorGeralEmail;
+      mod.diretorGeralTelefone = dir.telefone || mod.diretorGeralTelefone;
     }
     if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
       const sub = funcs.find(f =>
-        (!f.escolaId || f.escolaId === esc.id || esc.id === 'todas') &&
+        !isAdminGeralUserObj(f) &&
+        (f.escolaId === esc.id || esc.id === 'todas') &&
         (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
       );
       if (sub && sub.nomeCompleto) {
@@ -1251,7 +1380,8 @@ export const dbService = {
     }
     if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
       const sec = funcs.find(f =>
-        (!f.escolaId || f.escolaId === esc.id || esc.id === 'todas') &&
+        !isAdminGeralUserObj(f) &&
+        (f.escolaId === esc.id || esc.id === 'todas') &&
         (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
       );
       if (sec && sec.nomeCompleto) {
@@ -1274,17 +1404,31 @@ export const dbService = {
     const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escola.id);
     const agora = new Date().toISOString();
-    const escolaFinal = idx >= 0
-      ? { ...escolas[idx], ...escola, atualizadoEm: agora, sessaoApoioTecnicoAtiva: escola.sessaoApoioTecnicoAtiva ?? escolas[idx].sessaoApoioTecnicoAtiva }
+    const temPropSessao = Object.prototype.hasOwnProperty.call(escola, 'sessaoApoioTecnicoAtiva');
+    const sessaoResolvida = temPropSessao
+      ? ((escola as any).sessaoApoioTecnicoAtiva || undefined)
+      : (idx >= 0 ? escolas[idx].sessaoApoioTecnicoAtiva : undefined);
+
+    const escolaFinal: Escola = idx >= 0
+      ? { ...escolas[idx], ...escola, atualizadoEm: agora }
       : { ...escola, atualizadoEm: agora };
+
+    if (sessaoResolvida) {
+      escolaFinal.sessaoApoioTecnicoAtiva = sessaoResolvida;
+    } else {
+      delete escolaFinal.sessaoApoioTecnicoAtiva;
+    }
+
     if (idx >= 0) escolas[idx] = escolaFinal;
     else escolas.push(escolaFinal);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
     firebaseSyncEngine.salvarEscola(escolaFinal);
     dbService.registarLog('Atualização da Instituição', `Dados da escola ${escola.nomeOficial} atualizados.`);
   },
   salvarEscolas: (escolas: Escola[]) => {
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
     firebaseSyncEngine.salvarEscolasLote(escolas);
   },
 
@@ -1315,9 +1459,9 @@ export const dbService = {
       diretorGeralNome: dados.diretorGeralNome || '',
       subdiretorPedagogicoNome: dados.subdiretorPedagogicoNome || '',
       chefeSecretariaNome: dados.chefeSecretariaNome || '',
-      anoLectivoActivo: dados.anoLectivoActivo || '2025/2026',
-      trimestreActivo: dados.trimestreActivo || '1',
-      estadoAno: 'Aberto',
+      anoLectivoActivo: dados.anoLectivoActivo ?? '',
+      trimestreActivo: dados.trimestreActivo ?? '1',
+      estadoAno: dados.anoLectivoActivo ? 'Aberto' : 'Planeamento',
       ativo: true,
       estadoEscola: 'Ativa'
     };
@@ -1374,14 +1518,24 @@ export const dbService = {
     const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === dadosEscola.id);
     if (idx < 0) throw new Error('Escola não encontrada para atualização');
+    const temPropSessao = Object.prototype.hasOwnProperty.call(dadosEscola, 'sessaoApoioTecnicoAtiva');
+    const sessaoResolvida = temPropSessao
+      ? ((dadosEscola as any).sessaoApoioTecnicoAtiva || undefined)
+      : escolas[idx].sessaoApoioTecnicoAtiva;
+
     const atualizada: Escola = {
       ...escolas[idx],
       ...dadosEscola,
-      atualizadoEm: new Date().toISOString(),
-      sessaoApoioTecnicoAtiva: dadosEscola.sessaoApoioTecnicoAtiva ?? escolas[idx].sessaoApoioTecnicoAtiva
+      atualizadoEm: new Date().toISOString()
     };
+    if (sessaoResolvida) {
+      atualizada.sessaoApoioTecnicoAtiva = sessaoResolvida;
+    } else {
+      delete atualizada.sessaoApoioTecnicoAtiva;
+    }
     escolas[idx] = atualizada;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
     firebaseSyncEngine.salvarEscola(atualizada);
 
     dbService.registarLog('Edição de Escola', `Dados institucionais da escola "${atualizada.nomeOficial}" atualizados.`);
@@ -1436,6 +1590,13 @@ export const dbService = {
     filterOutSchool(STORAGE_KEYS.DELEGACOES_PODERES);
     filterOutSchool(STORAGE_KEYS.ACOES_DELEGADAS_LOGS);
     filterOutSchool(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO);
+    filterOutSchool(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS);
+    filterOutSchool(STORAGE_KEYS.TURNOS_CONFIGS);
+    filterOutSchool(STORAGE_KEYS.CLASSES_CONFIGS);
+    filterOutSchool(STORAGE_KEYS.CURSOS);
+    filterOutSchool(STORAGE_KEYS.REGRAS_MAC);
+    filterOutSchool(STORAGE_KEYS.TIPOS_AVALIACAO);
+    filterOutSchool(STORAGE_KEYS.SOLICITACOES_APOIO);
 
     // Funcionários: remover apenas funcionários exclusivos desta escola (preservando o AdminGeral)
     try {
@@ -1472,6 +1633,7 @@ export const dbService = {
     telefone: string;
     password?: string;
     habilitacoes: string;
+    fotoUrl?: string;
   }): Funcionario => {
     if (isSessaoAutenticadaNaoAdminGeral()) {
       throw new Error('Acesso negado: operação exclusiva da Administração Central.');
@@ -1479,47 +1641,106 @@ export const dbService = {
     const funcs = dbService.getFuncionariosBruto();
     const escolas = dbService.getEscolasBrutas();
     const idxEsc = escolas.findIndex(e => e.id === escolaId);
+    const escolaAlvo = idxEsc >= 0 ? escolas[idxEsc] : undefined;
 
-    const diretorExistente = funcs.find(f => f.escolaId === escolaId && f.role === 'DiretorGeral');
+    const emailLimpo = (dadosDiretor.email || '').trim().toLowerCase();
+    const diretorExistente =
+      funcs.find(f => !isAdminGeralUserObj(f) && f.escolaId === escolaId && f.role === 'DiretorGeral') ||
+      (escolaAlvo?.diretorGeralId ? funcs.find(f => !isAdminGeralUserObj(f) && f.id === escolaAlvo.diretorGeralId) : undefined) ||
+      (emailLimpo ? funcs.find(f => !isAdminGeralUserObj(f) && f.email && f.email.trim().toLowerCase() === emailLimpo) : undefined);
+
     const funcId = diretorExistente?.id || `dir-${Date.now()}`;
+    const agora = new Date().toISOString();
 
     const novoDiretor: Funcionario = {
+      ...diretorExistente,
       id: funcId,
       escolaId,
-      nomeCompleto: dadosDiretor.nomeCompleto,
-      numeroBI: dadosDiretor.numeroBI,
-      genero: dadosDiretor.genero || 'M',
-      telefone: dadosDiretor.telefone,
-      email: dadosDiretor.email,
+      nomeCompleto: dadosDiretor.nomeCompleto.trim(),
+      numeroBI: (dadosDiretor.numeroBI || '').trim(),
+      genero: dadosDiretor.genero || diretorExistente?.genero || 'M',
+      telefone: (dadosDiretor.telefone || '').trim(),
+      email: (dadosDiretor.email || '').trim(),
       cargo: 'Diretor Geral',
       role: 'DiretorGeral',
-      password: dadosDiretor.password || '',
+      password: (dadosDiretor.password && dadosDiretor.password.trim()) ? dadosDiretor.password : (diretorExistente?.password || ''),
       statusConta: 'Ativa',
-      ehProfessor: false,
-      ehAdministrativoQueLeciona: false,
-      habilitacoes: dadosDiretor.habilitacoes,
-      fotoUrl: (dadosDiretor as any).fotoUrl || '',
-      dataAdmissao: new Date().toISOString().split('T')[0],
+      ehProfessor: diretorExistente?.ehProfessor ?? false,
+      ehAdministrativoQueLeciona: diretorExistente?.ehAdministrativoQueLeciona ?? false,
+      habilitacoes: dadosDiretor.habilitacoes || diretorExistente?.habilitacoes || '',
+      fotoUrl: dadosDiretor.fotoUrl !== undefined ? dadosDiretor.fotoUrl : (diretorExistente?.fotoUrl || ''),
+      dataAdmissao: diretorExistente?.dataAdmissao || agora.split('T')[0],
       ativo: true,
       criadoPorRole: 'AdminGeral',
       criadoPorNome: 'Administrador Geral',
-      dataCriacao: new Date().toLocaleDateString('pt-PT')
+      dataCriacao: diretorExistente?.dataCriacao || new Date().toLocaleDateString('pt-PT'),
+      atualizadoEm: agora
     };
+
+    // Identifica e desvincula quaisquer diretores anteriores ainda vinculados a esta escola
+    const diretoresSubstituidos: Funcionario[] = [];
+    for (let i = 0; i < funcs.length; i++) {
+      const f = funcs[i];
+      if (
+        f.id !== funcId &&
+        !isAdminGeralUserObj(f) &&
+        f.role === 'DiretorGeral' &&
+        f.escolaId === escolaId &&
+        f.ativo !== false
+      ) {
+        const desativado: Funcionario = {
+          ...f,
+          ativo: false,
+          statusConta: 'Suspensa',
+          escolaId: '',
+          atualizadoEm: agora
+        };
+        funcs[i] = desativado;
+        diretoresSubstituidos.push(desativado);
+        offlineStorage.salvarFuncionarioNoIndexedDB(desativado);
+      }
+    }
 
     const idxFunc = funcs.findIndex(f => f.id === funcId);
     if (idxFunc >= 0) funcs[idxFunc] = novoDiretor;
     else funcs.push(novoDiretor);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    // Persistência imediata no Firebase e no dispositivo
-    firebaseSyncEngine.salvarPerfilUsuario(novoDiretor);
+    offlineStorage.salvarFuncionarioNoIndexedDB(novoDiretor);
+
+    // Se este diretor pertencia anteriormente a outra escola, limpa a escola anterior
+    if (diretorExistente?.escolaId && diretorExistente.escolaId !== escolaId) {
+      const idxAntiga = escolas.findIndex(e => e.id === diretorExistente.escolaId || e.diretorGeralId === funcId);
+      if (idxAntiga >= 0) {
+        escolas[idxAntiga] = {
+          ...escolas[idxAntiga],
+          diretorGeralId: undefined,
+          diretorGeralNome: 'Não Atribuído',
+          diretorGeralEmail: undefined,
+          diretorGeralTelefone: undefined,
+          atualizadoEm: agora
+        };
+        firebaseSyncEngine.salvarEscola(escolas[idxAntiga]);
+      }
+    }
 
     if (idxEsc >= 0) {
-      escolas[idxEsc].diretorGeralNome = dadosDiretor.nomeCompleto;
-      escolas[idxEsc].diretorGeralId = novoDiretor.id;
-      escolas[idxEsc].diretorGeralEmail = dadosDiretor.email;
-      escolas[idxEsc].diretorGeralTelefone = dadosDiretor.telefone;
+      escolas[idxEsc] = {
+        ...escolas[idxEsc],
+        diretorGeralNome: novoDiretor.nomeCompleto,
+        diretorGeralId: novoDiretor.id,
+        diretorGeralGenero: novoDiretor.genero,
+        diretorGeralEmail: novoDiretor.email,
+        diretorGeralTelefone: novoDiretor.telefone,
+        atualizadoEm: agora
+      };
       setLocal(STORAGE_KEYS.ESCOLAS, escolas);
-      firebaseSyncEngine.salvarEscola(escolas[idxEsc]);
+      try {
+        offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+      } catch {}
+      // Sincronização atómica em batch (funcionarios + users + escolas + schools)
+      firebaseSyncEngine.sincronizarAtribuicaoDiretor(novoDiretor, escolas[idxEsc], diretoresSubstituidos);
+    } else {
+      firebaseSyncEngine.salvarPerfilUsuario(novoDiretor);
     }
 
     dbService.registarLog('Credenciais do Diretor Geral', `Diretor Geral ${novoDiretor.nomeCompleto} atribuído à escola com credenciais de acesso.`);
@@ -1540,6 +1761,7 @@ export const dbService = {
       throw new Error('Acesso negado: não possui permissão para criar perfil de Administrador Geral.');
     }
     const funcs = dbService.getFuncionariosBruto();
+    const agora = new Date().toISOString();
     const novoFunc: Funcionario = {
       id: dados.id || `func-${Date.now()}`,
       escolaId: dados.escolaId,
@@ -1556,17 +1778,69 @@ export const dbService = {
       ehAdministrativoQueLeciona: dados.ehAdministrativoQueLeciona ?? false,
       habilitacoes: dados.habilitacoes || '',
       fotoUrl: dados.fotoUrl || '',
-      dataAdmissao: dados.dataAdmissao || new Date().toISOString().split('T')[0],
+      dataAdmissao: dados.dataAdmissao || agora.split('T')[0],
       ativo: true,
       criadoPorRole: 'DiretorGeral',
       criadoPorNome: dados.criadoPorNome || 'Diretor Geral',
-      dataCriacao: new Date().toLocaleDateString('pt-PT')
+      dataCriacao: new Date().toLocaleDateString('pt-PT'),
+      atualizadoEm: agora
     };
+
+    const diretoresSubstituidos: Funcionario[] = [];
+    if (novoFunc.role === 'DiretorGeral' && novoFunc.escolaId && novoFunc.escolaId !== 'todas') {
+      for (let i = 0; i < funcs.length; i++) {
+        const f = funcs[i];
+        if (
+          f.id !== novoFunc.id &&
+          !isAdminGeralUserObj(f) &&
+          f.role === 'DiretorGeral' &&
+          f.escolaId === novoFunc.escolaId &&
+          f.ativo !== false
+        ) {
+          const desativado: Funcionario = {
+            ...f,
+            ativo: false,
+            statusConta: 'Suspensa',
+            escolaId: '',
+            atualizadoEm: agora
+          };
+          funcs[i] = desativado;
+          diretoresSubstituidos.push(desativado);
+          offlineStorage.salvarFuncionarioNoIndexedDB(desativado);
+        }
+      }
+    }
 
     funcs.push(novoFunc);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
-    // Persistência imediata no Firebase e no dispositivo
-    firebaseSyncEngine.salvarPerfilUsuario(novoFunc);
+    offlineStorage.salvarFuncionarioNoIndexedDB(novoFunc);
+
+    // Se o utilizador criado for DiretorGeral, vincular atomicamente à respetiva escola
+    if (novoFunc.role === 'DiretorGeral' && novoFunc.escolaId && novoFunc.escolaId !== 'todas') {
+      const escolas = dbService.getEscolasBrutas();
+      const idxEsc = escolas.findIndex(e => e.id === novoFunc.escolaId || e.codigoEscola === novoFunc.escolaId);
+      if (idxEsc >= 0) {
+        escolas[idxEsc] = {
+          ...escolas[idxEsc],
+          diretorGeralId: novoFunc.id,
+          diretorGeralNome: novoFunc.nomeCompleto,
+          diretorGeralGenero: novoFunc.genero || escolas[idxEsc].diretorGeralGenero || 'M',
+          diretorGeralEmail: novoFunc.email || escolas[idxEsc].diretorGeralEmail,
+          diretorGeralTelefone: novoFunc.telefone || escolas[idxEsc].diretorGeralTelefone,
+          atualizadoEm: agora
+        };
+        setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+        try {
+          offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+        } catch {}
+        firebaseSyncEngine.sincronizarAtribuicaoDiretor(novoFunc, escolas[idxEsc], diretoresSubstituidos);
+      } else {
+        firebaseSyncEngine.salvarPerfilUsuario(novoFunc);
+      }
+    } else {
+      firebaseSyncEngine.salvarPerfilUsuario(novoFunc);
+    }
+
     dbService.registarLog('Criação de Funcionário', `Funcionário ${novoFunc.nomeCompleto} (${novoFunc.cargo}) registado com credenciais.`);
     return novoFunc;
   },
@@ -1685,61 +1959,93 @@ export const dbService = {
     if (isAdminGeralUserObj(f)) {
       throw new Error('Acesso negado: o perfil do Administrador Geral não pode ser eliminado.');
     }
+    const agora = new Date().toISOString();
     funcs = funcs.filter(item => item.id !== funcionarioId);
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    try {
+      offlineStorage.salvarFuncionariosLoteNoIndexedDB(funcs);
+    } catch {}
 
-    // Se o funcionário for diretor de alguma escola, desvincula da instituição
+    // Se o funcionário for diretor de alguma escola, desvincula atomicamente da instituição
     const escolas = dbService.getEscolasBrutas();
-    let escolaAlterada = false;
+    let escolaDesvinculada: Escola | undefined;
     const escolasAtualizadas = escolas.map(esc => {
-      if (esc.diretorGeralId === funcionarioId) {
-        escolaAlterada = true;
+      const correspondeAEscola =
+        esc.diretorGeralId === funcionarioId ||
+        (f.role === 'DiretorGeral' && (esc.id === f.escolaId || (esc.codigoEscola && esc.codigoEscola === f.escolaId)));
+      if (correspondeAEscola) {
         const atualizada: Escola = {
           ...esc,
           diretorGeralId: undefined,
-          diretorGeralNome: 'Não Atribuído'
+          diretorGeralNome: 'Não Atribuído',
+          diretorGeralEmail: undefined,
+          diretorGeralTelefone: undefined,
+          atualizadoEm: agora
         };
-        firebaseSyncEngine.salvarEscola(atualizada);
+        escolaDesvinculada = atualizada;
         return atualizada;
       }
       return esc;
     });
-    if (escolaAlterada) {
+    if (escolaDesvinculada) {
       setLocal(STORAGE_KEYS.ESCOLAS, escolasAtualizadas);
+      try {
+        offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolasAtualizadas));
+      } catch {}
+      firebaseSyncEngine.desvincularDiretorEscola(funcionarioId, escolaDesvinculada);
+    } else if (f.role === 'DiretorGeral') {
+      firebaseSyncEngine.desvincularDiretorEscola(funcionarioId);
+    } else {
+      // Eliminação imediata no Firebase Firestore
+      firebaseSyncEngine.eliminarFuncionario(funcionarioId);
     }
 
-    // Eliminação imediata no Firebase Firestore
-    firebaseSyncEngine.eliminarFuncionario(funcionarioId);
     dbService.registarLog('Remoção de Funcionário', `Utilizador/Diretor ${f.nomeCompleto} (${f.cargo}) removido da instituição e do Firebase Firestore.`);
     return true;
   },
 
   // ==========================================
-  // GESTÃO DE ANOS LECTIVOS MULTI-CONTEXTO & VIRGENS
+  // GESTÃO DE ANOS LECTIVOS MULTI-CONTEXTO & VIRGENS (ISOLADOS POR ESCOLA)
   // ==========================================
-  getAnosLectivos: (): string[] => {
-    return getLocal<string[]>(STORAGE_KEYS.ANOS_LECTIVOS, [
-      '2024/2025',
-      '2025/2026',
-      '2026/2027'
-    ]);
+  getAnosLectivos: (escolaId?: string): string[] => {
+    const configs = dbService.getAnosLectivosConfigs(escolaId);
+    const daEscola = configs
+      .map(c => c.rotulo || c.ano || '')
+      .filter((x): x is string => Boolean(x));
+    if (escolaId && escolaId !== 'todas') {
+      return Array.from(new Set(daEscola));
+    }
+    const salvos = getLocal<string[]>(STORAGE_KEYS.ANOS_LECTIVOS, []).filter(Boolean);
+    return Array.from(new Set([...daEscola, ...salvos]));
   },
-  getAnosLectivosConfigs: (): AnoLectivoConfig[] => {
-    const list = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, DEFAULT_ANOS_CONFIGS);
-    return list.map(c => ({
+  getAnosLectivosConfigs: (escolaId?: string): AnoLectivoConfig[] => {
+    const list = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
+    const normalizados = list.map(c => ({
       ...c,
       ano: c.ano || c.rotulo
     }));
+    if (escolaId && escolaId !== 'todas') {
+      return normalizados.filter(c => c.escolaId === escolaId);
+    }
+    return normalizados;
   },
   salvarAnoLectivoConfig: (config: AnoLectivoConfig) => {
-    const configs = dbService.getAnosLectivosConfigs();
-    const idx = configs.findIndex(c => c.id === config.id || c.rotulo === config.rotulo);
-    if (idx >= 0) configs[idx] = config;
-    else configs.push(config);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = config.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const configFinal: AnoLectivoConfig = {
+      ...config,
+      escolaId: targetEscolaId
+    };
+    const configs = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
+    const idx = configs.findIndex(
+      c => c.id === configFinal.id || (c.rotulo === configFinal.rotulo && c.escolaId === configFinal.escolaId)
+    );
+    if (idx >= 0) configs[idx] = configFinal;
+    else configs.push(configFinal);
     setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, configs);
-    firebaseSyncEngine.salvarAnoLectivoConfig(config);
-    dbService.adicionarAnoLectivo(config.rotulo);
-    dbService.registarLog('Configuração de Ano Letivo', `Ano letivo ${config.rotulo} (${config.estado}) atualizado.`);
+    firebaseSyncEngine.salvarAnoLectivoConfig(configFinal);
+    dbService.adicionarAnoLectivo(configFinal.rotulo);
+    dbService.registarLog('Configuração de Ano Letivo', `Ano letivo ${configFinal.rotulo} (${configFinal.estado}) atualizado.`, configFinal.escolaId);
   },
   criarNovoAnoLetivo: (
     dadosOuRotulo: string | {
@@ -1761,28 +2067,38 @@ export const dbService = {
     let trimestres: PeriodoTrimestre[] | undefined;
     let statusAno: EstadoAno = 'Aberto';
 
+    const anoIniFallback = String(new Date().getFullYear());
+    const anoFimFallback = String(new Date().getFullYear() + 1);
+
     if (typeof dadosOuRotulo === 'string') {
       rotuloLimpo = dadosOuRotulo.trim();
       statusAno = (estado as EstadoAno) || 'Aberto';
-      inicio = dataInicio || `${rotuloLimpo.split('/')[0] || '2026'}-09-01`;
-      fim = dataFim || `${rotuloLimpo.split('/')[1] || '2027'}-07-15`;
+      inicio = dataInicio || `${rotuloLimpo.split('/')[0] || anoIniFallback}-09-01`;
+      fim = dataFim || `${rotuloLimpo.split('/')[1] || anoFimFallback}-07-15`;
     } else {
       rotuloLimpo = dadosOuRotulo.rotulo.trim();
-      inicio = dadosOuRotulo.dataInicio || `${rotuloLimpo.split('/')[0] || '2026'}-09-01`;
-      fim = dadosOuRotulo.dataFim || `${rotuloLimpo.split('/')[1] || '2027'}-07-15`;
+      inicio = dadosOuRotulo.dataInicio || `${rotuloLimpo.split('/')[0] || anoIniFallback}-09-01`;
+      fim = dadosOuRotulo.dataFim || `${rotuloLimpo.split('/')[1] || anoFimFallback}-07-15`;
       desc = dadosOuRotulo.descricao || '';
       trimestres = dadosOuRotulo.trimestres;
     }
 
-    const id = `ano-${rotuloLimpo.replace(/[^0-9a-zA-Z]/g, '-')}`;
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = escolaId && escolaId !== 'todas'
+      ? escolaId
+      : (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+
+    const slugRotulo = rotuloLimpo.replace(/[^0-9a-zA-Z]/g, '-');
+    const id = targetEscolaId ? `ano-${targetEscolaId}-${slugRotulo}` : `ano-${slugRotulo}`;
     const trimestresPadrao: PeriodoTrimestre[] = trimestres || [
-      { trimestre: '1', nome: 'Iº Trimestre', dataInicio: inicio, dataFim: `${rotuloLimpo.split('/')[0] || '2026'}-12-19`, estado: 'Aberto' },
-      { trimestre: '2', nome: 'IIº Trimestre', dataInicio: `${rotuloLimpo.split('/')[1] || '2027'}-01-05`, dataFim: `${rotuloLimpo.split('/')[1] || '2027'}-04-10`, estado: 'Fechado' },
-      { trimestre: '3', nome: 'IIIº Trimestre', dataInicio: `${rotuloLimpo.split('/')[1] || '2027'}-04-27`, dataFim: fim, estado: 'Fechado' }
+      { trimestre: '1', nome: 'Iº Trimestre', dataInicio: inicio, dataFim: `${rotuloLimpo.split('/')[0] || anoIniFallback}-12-19`, estado: 'Aberto' },
+      { trimestre: '2', nome: 'IIº Trimestre', dataInicio: `${rotuloLimpo.split('/')[1] || anoFimFallback}-01-05`, dataFim: `${rotuloLimpo.split('/')[1] || anoFimFallback}-04-10`, estado: 'Fechado' },
+      { trimestre: '3', nome: 'IIIº Trimestre', dataInicio: `${rotuloLimpo.split('/')[1] || anoFimFallback}-04-27`, dataFim: fim, estado: 'Fechado' }
     ];
 
     const novoAno: AnoLectivoConfig = {
       id,
+      escolaId: targetEscolaId,
       rotulo: rotuloLimpo,
       ano: rotuloLimpo,
       dataInicio: inicio,
@@ -1796,143 +2112,199 @@ export const dbService = {
     dbService.salvarAnoLectivoConfig(novoAno);
     dbService.adicionarAnoLectivo(rotuloLimpo);
 
-    // O novo ano letivo é virgem: não cria turmas automáticas, não copia alunos ou notas antigas,
-    // e área financeira inicia zerada para este ano letivo.
-    // O património existente na instituição permanece intacto e disponível para revisão e conservação.
+    // Se a escola ainda não tinha nenhum ano letivo ativo e o novo ano está Aberto, ativá-lo na escola
+    if (targetEscolaId && statusAno === 'Aberto') {
+      const escolas = dbService.getEscolasBrutas();
+      const idxEsc = escolas.findIndex(e => e.id === targetEscolaId);
+      if (idxEsc >= 0 && !escolas[idxEsc].anoLectivoActivo) {
+        const atualizada: Escola = {
+          ...escolas[idxEsc],
+          anoLectivoActivo: rotuloLimpo,
+          estadoAno: 'Aberto'
+        };
+        dbService.salvarEscola(atualizada);
+      }
+    }
+
     dbService.registarLog(
       'Criação de Novo Ano Letivo',
-      `Novo ano letivo ${rotuloLimpo} criado em estado virgem (sem alunos, notas ou turmas associadas). Património escolar preservado para vistoria.`
+      `Novo ano letivo ${rotuloLimpo} criado em estado virgem (sem alunos, notas ou turmas associadas).`,
+      targetEscolaId
     );
     return novoAno;
   },
   adicionarAnoLectivo: (novoAno: string) => {
-    const anos = dbService.getAnosLectivos();
-    if (!anos.includes(novoAno)) {
-      anos.push(novoAno);
+    const clean = (novoAno || '').trim();
+    if (!clean) return;
+    const anos = getLocal<string[]>(STORAGE_KEYS.ANOS_LECTIVOS, []).filter(Boolean);
+    if (!anos.includes(clean)) {
+      anos.push(clean);
       setLocal(STORAGE_KEYS.ANOS_LECTIVOS, anos);
       firebaseSyncEngine.salvarAnosLectivosLista(anos);
-      dbService.registarLog('Ano Lectivo Criado', `Novo ano letivo ${novoAno} adicionado ao sistema.`);
+      dbService.registarLog('Ano Lectivo Criado', `Novo ano letivo ${clean} adicionado ao sistema.`);
     }
   },
-  setAnoLectivoActivo: (ano: string) => {
-    const escola = dbService.getEscolaAtiva();
-    escola.anoLectivoActivo = ano;
-    dbService.salvarEscola(escola);
+  setAnoLectivoActivo: (ano: string, escolaId?: string) => {
+    const escolaAlvo = escolaId && escolaId !== 'todas'
+      ? (dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva())
+      : dbService.getEscolaAtiva();
+    if (!escolaAlvo || !escolaAlvo.id) return;
+    escolaAlvo.anoLectivoActivo = ano;
+    dbService.salvarEscola(escolaAlvo);
     if (typeof window !== 'undefined') {
       try {
-        window.dispatchEvent(new CustomEvent('sge_ano_lectivo_alterado', { detail: { ano, escolaId: escola.id } }));
+        window.dispatchEvent(new CustomEvent('sge_ano_lectivo_alterado', { detail: { ano, escolaId: escolaAlvo.id } }));
       } catch {}
     }
-    dbService.registarLog('Ano Lectivo Alterado', `Ano letivo ativo da escola alterado para ${ano}.`);
+    dbService.registarLog('Ano Lectivo Alterado', `Ano letivo ativo da escola alterado para ${ano}.`, escolaAlvo.id);
   },
-  definirEstadoAnoLectivo: (rotulo: string, estado: EstadoAno) => {
-    const configs = dbService.getAnosLectivosConfigs();
-    const target = configs.find(c => c.rotulo === rotulo);
+  definirEstadoAnoLectivo: (rotulo: string, estado: EstadoAno, escolaId?: string) => {
+    const configs = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
+    const escolaAtivaId = escolaId || dbService.getEscolaAtiva()?.id;
+    const target = configs.find(
+      c => c.rotulo === rotulo && (!escolaAtivaId || escolaAtivaId === 'todas' || c.escolaId === escolaAtivaId)
+    );
     if (target) {
       target.estado = estado;
       dbService.salvarAnoLectivoConfig(target);
     }
   },
-  eliminarAnoLectivoConfig: (idOuRotulo: string): boolean => {
-    let configs = dbService.getAnosLectivosConfigs();
-    const target = configs.find(c => c.id === idOuRotulo || c.rotulo === idOuRotulo);
+  eliminarAnoLectivoConfig: (idOuRotulo: string, escolaId?: string): boolean => {
+    let configs = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = escolaId && escolaId !== 'todas' ? escolaId : (escolaAtiva?.id || undefined);
+    const target = configs.find(
+      c => (c.id === idOuRotulo || c.rotulo === idOuRotulo) &&
+           (!targetEscolaId || targetEscolaId === 'todas' || c.escolaId === targetEscolaId)
+    ) || configs.find(c => c.id === idOuRotulo || c.rotulo === idOuRotulo);
     if (!target) return false;
-    
-    // Não permitir se for o único ano
-    if (configs.length <= 1) {
-      dbService.registarLog('Erro Exclusão Ano Letivo', `Impossível excluir o único ano letivo (${target.rotulo}) configurado no sistema.`);
+
+    const configsDaEscola = target.escolaId
+      ? configs.filter(c => c.escolaId === target.escolaId)
+      : configs;
+
+    if (configsDaEscola.length <= 1 && escolaAtiva.anoLectivoActivo === target.rotulo) {
+      dbService.registarLog('Erro Exclusão Ano Letivo', `Impossível excluir o único ano letivo ativo (${target.rotulo}) da escola.`);
       return false;
     }
 
-    configs = configs.filter(c => c.id !== target.id && c.rotulo !== target.rotulo);
+    configs = configs.filter(c => c.id !== target.id);
     setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, configs);
     firebaseSyncEngine.eliminarAnoLectivoConfig(target.id);
 
-    const anosStr = dbService.getAnosLectivos().filter(a => a !== target.rotulo);
-    setLocal(STORAGE_KEYS.ANOS_LECTIVOS, anosStr);
-    firebaseSyncEngine.salvarAnosLectivosLista(anosStr);
-
-    // Se era o ano ativo, troca para o primeiro restante
-    const escola = dbService.getEscolaAtiva();
-    if (escola.anoLectivoActivo === target.rotulo && configs.length > 0) {
-      escola.anoLectivoActivo = configs[0].rotulo;
-      dbService.salvarEscola(escola);
+    // Só remove da lista global de rótulos se nenhuma outra escola usar o mesmo rótulo
+    const aindaUsado = configs.some(c => c.rotulo === target.rotulo);
+    if (!aindaUsado) {
+      const anosStr = getLocal<string[]>(STORAGE_KEYS.ANOS_LECTIVOS, []).filter(a => a !== target.rotulo);
+      setLocal(STORAGE_KEYS.ANOS_LECTIVOS, anosStr);
+      firebaseSyncEngine.salvarAnosLectivosLista(anosStr);
     }
 
-    dbService.registarLog('Exclusão de Ano Letivo', `Ano letivo ${target.rotulo} eliminado do sistema.`);
+    // Se era o ano ativo desta escola, troca para o primeiro restante da mesma escola (ou vazio)
+    if (target.escolaId) {
+      const escAlvo = dbService.getEscolaPorId(target.escolaId);
+      if (escAlvo && escAlvo.anoLectivoActivo === target.rotulo) {
+        const restantesDaEscola = configs.filter(c => c.escolaId === target.escolaId);
+        escAlvo.anoLectivoActivo = restantesDaEscola[0]?.rotulo || '';
+        dbService.salvarEscola(escAlvo);
+      }
+    }
+
+    dbService.registarLog('Exclusão de Ano Letivo', `Ano letivo ${target.rotulo} eliminado da instituição.`, target.escolaId);
     return true;
   },
 
   // ==========================================
-  // TURNOS, CLASSES E CURSOS ESCOLARES
+  // TURNOS, CLASSES E CURSOS ESCOLARES (ISOLADOS POR ESCOLA)
   // ==========================================
-  getTurnosConfigs: (): TurnoConfig[] => {
-    return getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, DEFAULT_TURNOS);
+  getTurnosConfigs: (escolaId?: string): TurnoConfig[] => {
+    const list = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
+    if (escolaId && escolaId !== 'todas') {
+      return list.filter(t => t.escolaId === escolaId);
+    }
+    return list;
   },
   salvarTurnoConfig: (turno: TurnoConfig) => {
-    const turnos = dbService.getTurnosConfigs();
-    const idx = turnos.findIndex(t => t.id === turno.id);
-    if (idx >= 0) turnos[idx] = turno;
-    else turnos.push(turno);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = turno.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const turnoFinal: TurnoConfig = { ...turno, escolaId: targetEscolaId };
+    const turnos = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
+    const idx = turnos.findIndex(t => t.id === turnoFinal.id);
+    if (idx >= 0) turnos[idx] = turnoFinal;
+    else turnos.push(turnoFinal);
     setLocal(STORAGE_KEYS.TURNOS_CONFIGS, turnos);
-    firebaseSyncEngine.salvarTurnoConfig(turno);
-    dbService.registarLog('Turno Escolar', `Horário de funcionamento do turno ${turno.nome} atualizado.`);
+    firebaseSyncEngine.salvarTurnoConfig(turnoFinal);
+    dbService.registarLog('Turno Escolar', `Horário de funcionamento do turno ${turnoFinal.nome} atualizado.`, targetEscolaId);
   },
   eliminarTurnoConfig: (id: string): boolean => {
-    const turnos = dbService.getTurnosConfigs();
+    const turnos = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
     const target = turnos.find(t => t.id === id);
     if (!target) return false;
     const filtrados = turnos.filter(t => t.id !== id);
     setLocal(STORAGE_KEYS.TURNOS_CONFIGS, filtrados);
     firebaseSyncEngine.eliminarTurnoConfig(id);
-    dbService.registarLog('Exclusão de Turno', `Turno escolar ${target.nome} eliminado.`);
+    dbService.registarLog('Exclusão de Turno', `Turno escolar ${target.nome} eliminado.`, target.escolaId);
     return true;
   },
 
-  getClassesConfigs: (): ClasseEscolar[] => {
-    return getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, DEFAULT_CLASSES);
+  getClassesConfigs: (escolaId?: string): ClasseEscolar[] => {
+    const list = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
+    if (escolaId && escolaId !== 'todas') {
+      return list.filter(c => c.escolaId === escolaId);
+    }
+    return list;
   },
   salvarClasseConfig: (classe: ClasseEscolar) => {
-    const classes = dbService.getClassesConfigs();
-    const idx = classes.findIndex(c => c.id === classe.id);
-    if (idx >= 0) classes[idx] = classe;
-    else classes.push(classe);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = classe.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const classeFinal: ClasseEscolar = { ...classe, escolaId: targetEscolaId };
+    const classes = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
+    const idx = classes.findIndex(c => c.id === classeFinal.id);
+    if (idx >= 0) classes[idx] = classeFinal;
+    else classes.push(classeFinal);
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, classes);
-    firebaseSyncEngine.salvarClasseConfig(classe);
-    dbService.registarLog('Classe Escolar', `Nível de escolaridade ${classe.nome} atualizado.`);
+    firebaseSyncEngine.salvarClasseConfig(classeFinal);
+    dbService.registarLog('Classe Escolar', `Nível de escolaridade ${classeFinal.nome} atualizado.`, targetEscolaId);
   },
   eliminarClasseConfig: (id: string): boolean => {
-    const classes = dbService.getClassesConfigs();
+    const classes = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
     const target = classes.find(c => c.id === id);
     if (!target) return false;
     const filtradas = classes.filter(c => c.id !== id);
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, filtradas);
     firebaseSyncEngine.eliminarClasseConfig(id);
-    dbService.registarLog('Exclusão de Classe', `Classe escolar ${target.nome} eliminada.`);
+    dbService.registarLog('Exclusão de Classe', `Classe escolar ${target.nome} eliminada.`, target.escolaId);
     return true;
   },
 
   // Cursos Curriculares
-  getCursos: (): CursoConfig[] => {
-    return getLocal<CursoConfig[]>(STORAGE_KEYS.CURSOS, DEFAULT_CURSOS);
+  getCursos: (escolaId?: string): CursoConfig[] => {
+    const list = getLocal<CursoConfig[]>(STORAGE_KEYS.CURSOS, []);
+    if (escolaId && escolaId !== 'todas') {
+      return list.filter(c => c.escolaId === escolaId);
+    }
+    return list;
   },
   salvarCurso: (curso: CursoConfig) => {
-    const cursos = dbService.getCursos();
-    const idx = cursos.findIndex(c => c.id === curso.id);
-    if (idx >= 0) cursos[idx] = curso;
-    else cursos.push(curso);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = curso.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const cursoFinal: CursoConfig = { ...curso, escolaId: targetEscolaId };
+    const cursos = getLocal<CursoConfig[]>(STORAGE_KEYS.CURSOS, []);
+    const idx = cursos.findIndex(c => c.id === cursoFinal.id);
+    if (idx >= 0) cursos[idx] = cursoFinal;
+    else cursos.push(cursoFinal);
     setLocal(STORAGE_KEYS.CURSOS, cursos);
-    firebaseSyncEngine.salvarCurso(curso);
-    dbService.registarLog('Gestão de Cursos', `Curso "${curso.nome}" (${curso.area}) guardado com sucesso.`);
+    firebaseSyncEngine.salvarCurso(cursoFinal);
+    dbService.registarLog('Gestão de Cursos', `Curso "${cursoFinal.nome}" (${cursoFinal.area}) guardado com sucesso.`, targetEscolaId);
   },
   eliminarCurso: (id: string): boolean => {
-    const cursos = dbService.getCursos();
+    const cursos = getLocal<CursoConfig[]>(STORAGE_KEYS.CURSOS, []);
     const target = cursos.find(c => c.id === id);
     if (!target) return false;
     const filtrados = cursos.filter(c => c.id !== id);
     setLocal(STORAGE_KEYS.CURSOS, filtrados);
     firebaseSyncEngine.eliminarCurso(id);
-    dbService.registarLog('Exclusão de Curso', `Curso "${target.nome}" eliminado do catálogo.`);
+    dbService.registarLog('Exclusão de Curso', `Curso "${target.nome}" eliminado do catálogo.`, target.escolaId);
     return true;
   },
 
@@ -2188,15 +2560,22 @@ export const dbService = {
   },
   criarSolicitacaoApoioTecnico: (dados: any): SolicitacaoApoioTecnico => {
     const list = dbService.getSolicitacoesApoioBrutas();
+    const agora = new Date().toISOString();
     const nova: SolicitacaoApoioTecnico = {
       ...dados,
       id: `sol-${Date.now()}`,
       escolaNome: dados.escolaNome || dados.nomeEscola || 'Instituição',
+      nomeEscola: dados.nomeEscola || dados.escolaNome || 'Instituição',
       diretorNome: dados.diretorNome || dados.solicitadoPorNome || 'Direção',
+      solicitadoPorNome: dados.solicitadoPorNome || dados.diretorNome || 'Direção',
       assunto: dados.assunto || dados.motivo || 'Apoio Técnico',
+      motivo: dados.motivo || dados.assunto || 'Apoio Técnico',
       descricao: dados.descricao || dados.descricaoProblema || '',
-      prioridade: dados.prioridade || dados.urgencia || 'Média',
-      dataSolicitacao: new Date().toLocaleString('pt-AO'),
+      descricaoProblema: dados.descricaoProblema || dados.descricao || '',
+      prioridade: dados.prioridade || dados.urgencia || 'Media',
+      urgencia: dados.urgencia || dados.prioridade || 'Media',
+      dataSolicitacao: agora,
+      atualizadoEm: agora,
       estado: 'Pendente',
       status: 'Pendente',
       autorizacaoAcessoConcedida: true,
@@ -2204,6 +2583,7 @@ export const dbService = {
     };
     list.unshift(nova);
     setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, list);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.SOLICITACOES_APOIO, JSON.stringify(list));
     firebaseSyncEngine.salvarSolicitacaoApoio(nova);
     dbService.registarLog(
       'Solicitação de Apoio Técnico',
@@ -2213,11 +2593,20 @@ export const dbService = {
   },
   atualizarSolicitacaoApoioTecnico: (solicitacao: SolicitacaoApoioTecnico) => {
     const list = dbService.getSolicitacoesApoioBrutas();
-    const idx = list.findIndex(s => s.id === solicitacao.id);
-    if (idx >= 0) list[idx] = solicitacao;
-    else list.unshift(solicitacao);
+    const atualizada: SolicitacaoApoioTecnico = {
+      ...solicitacao,
+      status: solicitacao.status || solicitacao.estado || 'Pendente',
+      estado: solicitacao.estado || solicitacao.status || 'Pendente',
+      autorizacaoAcessoConcedida: solicitacao.autorizacaoAcessoConcedida ?? true,
+      autorizacaoAcessoValida: solicitacao.autorizacaoAcessoValida ?? true,
+      atualizadoEm: new Date().toISOString()
+    };
+    const idx = list.findIndex(s => s.id === atualizada.id);
+    if (idx >= 0) list[idx] = atualizada;
+    else list.unshift(atualizada);
     setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, list);
-    firebaseSyncEngine.salvarSolicitacaoApoio(solicitacao);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.SOLICITACOES_APOIO, JSON.stringify(list));
+    firebaseSyncEngine.salvarSolicitacaoApoio(atualizada);
   },
   adicionarSolicitacaoApoioTecnico: (solicitacao: SolicitacaoApoioTecnico) => {
     dbService.atualizarSolicitacaoApoioTecnico(solicitacao);
@@ -2229,28 +2618,77 @@ export const dbService = {
     const list = dbService.getSolicitacoesApoioBrutas();
     const target = list.find(s => s.id === id);
     if (target) {
-      if (respostaOuStatus === 'Em_Atendimento') {
+      const agora = new Date().toISOString();
+      const statusNorm = (respostaOuStatus || '').trim();
+      if (statusNorm === 'Em_Atendimento') {
         target.estado = 'Em_Atendimento';
         target.status = 'Em_Atendimento';
+        target.autorizacaoAcessoConcedida = true;
+        target.autorizacaoAcessoValida = true;
         target.respostaTecnica = notas || 'Atendimento técnico em curso.';
+      } else if (statusNorm === 'Recusado') {
+        target.estado = 'Recusado';
+        target.status = 'Recusado';
+        target.autorizacaoAcessoConcedida = false;
+        target.autorizacaoAcessoValida = false;
+        target.respostaTecnica = notas || 'Solicitação recusada pela Equipa Técnica DTI / MED.';
+        target.dataResolucao = new Date().toLocaleString('pt-AO');
       } else {
-        target.estado = 'Resolvido';
-        target.status = 'Resolvido';
-        target.respostaTecnica = notas || respostaOuStatus;
+        target.estado = 'Concluido';
+        target.status = 'Concluido';
+        target.autorizacaoAcessoConcedida = false;
+        target.autorizacaoAcessoValida = false;
+        target.respostaTecnica = notas || (statusNorm && statusNorm !== 'Concluido' && statusNorm !== 'Resolvido'
+          ? statusNorm
+          : 'Intervenção técnica concluída pela Equipa DTI / MED.');
         target.dataResolucao = new Date().toLocaleString('pt-AO');
       }
       target.atendidoPorAdminNome = adminNome;
+      target.atualizadoEm = agora;
       dbService.atualizarSolicitacaoApoioTecnico(target);
+
+      // Se o chamado foi encerrado/recusado, garantir encerramento de eventual sessão ativa ligada a ele
+      if (statusNorm !== 'Em_Atendimento') {
+        const escolas = dbService.getEscolasBrutas();
+        let alterouEscolas = false;
+        const escolasAtualizadas = escolas.map(esc => {
+          if (esc.sessaoApoioTecnicoAtiva && (esc.sessaoApoioTecnicoAtiva.solicitacaoId === id || esc.id === target.escolaId)) {
+            alterouEscolas = true;
+            const copia = { ...esc, atualizadoEm: agora };
+            delete copia.sessaoApoioTecnicoAtiva;
+            firebaseSyncEngine.encerrarSessaoApoioNoFirestore(copia.id, copia);
+            return copia;
+          }
+          return esc;
+        });
+        if (alterouEscolas) {
+          setLocal(STORAGE_KEYS.ESCOLAS, escolasAtualizadas);
+          offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolasAtualizadas));
+        }
+      }
+
       dbService.registarLog(
         'Apoio Técnico',
-        `Chamado ${id} de ${target.escolaNome || target.nomeEscola} atendido por ${adminNome}.`
+        `Chamado ${id} de ${target.escolaNome || target.nomeEscola} atualizado (${target.status}) por ${adminNome}.`
       );
     }
   },
   temAutorizacaoApoioTecnico: (escolaId: string): boolean => {
     const list = dbService.getSolicitacoesApoioBrutas();
     const chamados = (!escolaId || escolaId === 'todas') ? list : list.filter(s => s.escolaId === escolaId);
-    return chamados.some(c => (c.autorizacaoAcessoConcedida || c.autorizacaoAcessoValida) && c.estado !== 'Resolvido' && c.status !== 'Resolvido');
+    const estadosFechados = ['resolvido', 'concluido', 'concluído', 'encerrado', 'recusado'];
+    return chamados.some(c => {
+      const est = String(c.estado || c.status || '').toLowerCase();
+      return Boolean(c.autorizacaoAcessoConcedida || c.autorizacaoAcessoValida) && !estadosFechados.includes(est);
+    });
+  },
+  temSessaoApoioTecnicoAtiva: (escolaId?: string): boolean => {
+    const escolas = dbService.getEscolasBrutas();
+    if (escolaId && escolaId !== 'todas') {
+      const esc = escolas.find(e => e.id === escolaId);
+      return Boolean(esc?.sessaoApoioTecnicoAtiva && esc.sessaoApoioTecnicoAtiva.dataInicio);
+    }
+    return escolas.some(e => Boolean(e.sessaoApoioTecnicoAtiva && e.sessaoApoioTecnicoAtiva.dataInicio));
   },
 
   // ==========================================
@@ -2644,31 +3082,19 @@ export const dbService = {
     return securityEngine.obterMetricas();
   },
 
-  // Alunos
-  getAlunos: (): Aluno[] => {
+  // Alunos (isolamento estrito sem reescrever alunos para outras escolas)
+  getAlunos: (escolaId?: string): Aluno[] => {
     const raw = hidratarFotoDeLista(getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS), 'aluno');
-    const escolaAtiva = dbService.getEscolaAtiva();
-    if (escolaAtiva && escolaAtiva.id) {
-      let mudou = false;
-      const harmonizados = raw.map(a => {
-        if (!a.escolaId || a.escolaId === 'esc-001') {
-          mudou = true;
-          return { ...a, escolaId: escolaAtiva.id };
-        }
-        return a;
-      });
-      if (mudou) {
-        setLocal(STORAGE_KEYS.ALUNOS, harmonizados);
-        return harmonizados;
-      }
+    if (escolaId && escolaId !== 'todas') {
+      return raw.filter(a => a.escolaId === escolaId);
     }
     return raw;
   },
   salvarAluno: (aluno: Aluno) => {
     const escolaAtiva = dbService.getEscolaAtiva();
-    aluno.escolaId = escolaAtiva?.id || aluno.escolaId || 'esc-001';
+    aluno.escolaId = aluno.escolaId || escolaAtiva?.id || '';
     if (!aluno.anoLectivo) {
-      aluno.anoLectivo = aluno.anoMatricula || escolaAtiva?.anoLectivoActivo || '2025/2026';
+      aluno.anoLectivo = aluno.anoMatricula || escolaAtiva?.anoLectivoActivo || '';
     }
     if (!aluno.anoMatricula) {
       aluno.anoMatricula = aluno.anoLectivo;
@@ -2726,11 +3152,12 @@ export const dbService = {
   },
   salvarAlunos: (alunos: Aluno[]) => {
     const escolaAtiva = dbService.getEscolaAtiva();
+    const fallbackEscolaId = escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : '';
     const alunosComAno = alunos.map(a => ({
       ...a,
-      escolaId: escolaAtiva?.id || a.escolaId || 'esc-001',
-      anoLectivo: a.anoLectivo || a.anoMatricula || escolaAtiva?.anoLectivoActivo || '2025/2026',
-      anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || '2025/2026'
+      escolaId: a.escolaId || fallbackEscolaId,
+      anoLectivo: a.anoLectivo || a.anoMatricula || escolaAtiva?.anoLectivoActivo || '',
+      anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || ''
     }));
     setLocal(STORAGE_KEYS.ALUNOS, alunosComAno);
     firebaseSyncEngine.salvarAlunosLote(alunosComAno);
@@ -2790,7 +3217,7 @@ export const dbService = {
   salvarTurma: (turma: Turma) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     if (!turma.anoLectivo) {
-      turma.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+      turma.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
     const turmas = dbService.getTurmas();
     const idx = turmas.findIndex(t => t.id === turma.id);
@@ -2815,9 +3242,12 @@ export const dbService = {
     return true;
   },
 
-  // Disciplinas
-  getDisciplinas: (): Disciplina[] => {
-    const list = getLocal(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+  // Disciplinas (estritamente isoladas por escola)
+  getDisciplinas: (escolaId?: string): Disciplina[] => {
+    const raw = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    const list = (escolaId && escolaId !== 'todas')
+      ? raw.filter(d => d.escolaId === escolaId)
+      : raw;
     return [...list].sort((a, b) => {
       const ordemA = typeof a.ordem === 'number' && !isNaN(a.ordem) ? a.ordem : 999;
       const ordemB = typeof b.ordem === 'number' && !isNaN(b.ordem) ? b.ordem : 999;
@@ -2826,40 +3256,57 @@ export const dbService = {
     });
   },
   salvarDisciplina: (disc: Disciplina) => {
-    const discs = dbService.getDisciplinas();
-    const idx = discs.findIndex(d => d.id === disc.id);
-    if (idx >= 0) discs[idx] = disc;
-    else discs.push(disc);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const discFinal: Disciplina = {
+      ...disc,
+      escolaId: disc.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined)
+    };
+    const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    const idx = discs.findIndex(d => d.id === discFinal.id);
+    if (idx >= 0) discs[idx] = discFinal;
+    else discs.push(discFinal);
     setLocal(STORAGE_KEYS.DISCIPLINAS, discs);
-    firebaseSyncEngine.salvarDisciplina(disc);
-    dbService.registarLog('Disciplina', `Disciplina "${disc.nome}" (${disc.codigo}) guardada.`);
+    firebaseSyncEngine.salvarDisciplina(discFinal);
+    dbService.registarLog('Disciplina', `Disciplina "${discFinal.nome}" (${discFinal.codigo}) guardada.`, discFinal.escolaId);
   },
   salvarDisciplinas: (disciplinas: Disciplina[]) => {
     setLocal(STORAGE_KEYS.DISCIPLINAS, disciplinas);
     firebaseSyncEngine.salvarDisciplinasLote(disciplinas);
   },
   eliminarDisciplina: (id: string): boolean => {
-    const discs = dbService.getDisciplinas();
+    const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
     const target = discs.find(d => d.id === id);
     if (!target) return false;
     const filtradas = discs.filter(d => d.id !== id);
     setLocal(STORAGE_KEYS.DISCIPLINAS, filtradas);
     firebaseSyncEngine.eliminarDisciplina(id);
-    dbService.registarLog('Exclusão de Disciplina', `Disciplina "${target.nome}" (${target.codigo}) eliminada da grelha curricular.`);
+    dbService.registarLog('Exclusão de Disciplina', `Disciplina "${target.nome}" (${target.codigo}) eliminada da grelha curricular.`, target.escolaId);
     return true;
   },
-  limparTodasDisciplinas: () => {
-    const existentes = dbService.getDisciplinas();
+  limparTodasDisciplinas: (escolaId?: string) => {
+    const todas = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    if (escolaId && escolaId !== 'todas') {
+      const removidas = todas.filter(d => d.escolaId === escolaId);
+      const restantes = todas.filter(d => d.escolaId !== escolaId);
+      setLocal(STORAGE_KEYS.DISCIPLINAS, restantes);
+      removidas.forEach(d => {
+        if (d?.id) {
+          firebaseSyncEngine.eliminarDisciplina(d.id);
+        }
+      });
+      dbService.registarLog('Gestão Curricular', 'Disciplinas da escola limpas para permitir criação personalizada pela Direção.', escolaId);
+      return;
+    }
     setLocal(STORAGE_KEYS.DISCIPLINAS, []);
-    existentes.forEach(d => {
+    todas.forEach(d => {
       if (d?.id) {
         firebaseSyncEngine.eliminarDisciplina(d.id);
       }
     });
-    dbService.registarLog('Gestão Curricular', 'Todas as disciplinas padrão foram limpas para permitir criação personalizada pela Direção.');
+    dbService.registarLog('Gestão Curricular', 'Todas as disciplinas foram limpas para permitir criação personalizada pela Direção.');
   },
   replicarAtribuicoesAnoAnterior: (escolaId: string, anoActivo: string): { sucesso: boolean; totalReplicadas: number; novasAtribuicoes: AtribuicaoDocente[]; novasTurmas: Turma[]; mensagem: string } => {
-    const anosConfigs = dbService.getAnosLectivosConfigs();
+    const anosConfigs = dbService.getAnosLectivosConfigs(escolaId);
     const anosValidos: string[] = anosConfigs.map(a => a.rotulo || a.ano || '').filter((x): x is string => Boolean(x));
     const idxAnoAtual = anosValidos.indexOf(anoActivo);
     let anoAnterior = '';
@@ -2871,13 +3318,13 @@ export const dbService = {
 
     const todasAtribuicoes = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, []);
     const atribuicoesPassadas = todasAtribuicoes.filter(a => 
-      (!a.escolaId || a.escolaId === escolaId || escolaId === 'todas') &&
+      (a.escolaId === escolaId || escolaId === 'todas') &&
       (anoAnterior ? a.anoLectivo === anoAnterior : (a.anoLectivo && a.anoLectivo !== anoActivo))
     );
 
-    const turmas = dbService.getTurmas();
+    const turmas = dbService.getTurmas().filter(t => t.escolaId === escolaId || escolaId === 'todas');
     const turmasAnoActivo = turmas.filter(t => t.anoLectivo === anoActivo);
-    const turmasAnoAnterior = turmas.filter(t => t.anoLectivo === anoAnterior || (!t.anoLectivo && anoAnterior === '2025/2026'));
+    const turmasAnoAnterior = turmas.filter(t => t.anoLectivo === anoAnterior);
 
     if (atribuicoesPassadas.length === 0 && turmasAnoAnterior.length === 0) {
       return { sucesso: false, totalReplicadas: 0, novasAtribuicoes: [], novasTurmas: [], mensagem: 'Nenhuma turma ou atribuição docente encontrada em anos letivos anteriores para replicar.' };
@@ -2887,7 +3334,7 @@ export const dbService = {
     const novasAtribs = [...todasAtribuicoes];
     const recemCriadas: AtribuicaoDocente[] = [];
     const recemCriadasTurmas: Turma[] = [];
-    const todasTurmasAtualizadas = [...turmas];
+    const todasTurmasAtualizadas = [...dbService.getTurmas()];
     const mapaTurmaIdAntigoParaNovo = new Map<string, string>();
 
     // 1. Replicar Turmas e Coordenadores de Turma do Ano Anterior para o Novo Ano se ainda não existirem
@@ -2917,6 +3364,7 @@ export const dbService = {
       const turmaDestinoId = mapaTurmaIdAntigoParaNovo.get(atrib.turmaId) || atrib.turmaId;
 
       const jaExiste = novasAtribs.some(a => 
+        a.escolaId === escolaId &&
         a.professorId === atrib.professorId &&
         a.turmaId === turmaDestinoId &&
         a.disciplinaId === atrib.disciplinaId &&
@@ -2942,7 +3390,7 @@ export const dbService = {
       firebaseSyncEngine.salvarAtribuicoesLote(recemCriadas);
     }
 
-    dbService.registarLog('Gestão Académica', `${recemCriadasTurmas.length} turmas e ${count} atribuições docentes replicadas para o ano lectivo ${anoActivo}.`);
+    dbService.registarLog('Gestão Académica', `${recemCriadasTurmas.length} turmas e ${count} atribuições docentes replicadas para o ano lectivo ${anoActivo}.`, escolaId);
     return {
       sucesso: true,
       totalReplicadas: count,
@@ -2957,7 +3405,7 @@ export const dbService = {
     const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
     let filtradas = list;
     if (escolaId && escolaId !== 'todas') {
-      filtradas = filtradas.filter(a => !a.escolaId || a.escolaId === escolaId);
+      filtradas = filtradas.filter(a => a.escolaId === escolaId);
     }
     if (anoLectivo && anoLectivo !== 'todos') {
       filtradas = filtradas.filter(a => a.anoLectivo === anoLectivo);
@@ -2970,7 +3418,7 @@ export const dbService = {
       atrib.escolaId = escolaAtiva?.id || atrib.escolaId;
     }
     if (!atrib.anoLectivo) {
-      atrib.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+      atrib.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
     const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
     const idx = list.findIndex(a => a.id === atrib.id);
@@ -2980,7 +3428,7 @@ export const dbService = {
     firebaseSyncEngine.salvarAtribuicao(atrib);
   },
   removerAtribuicao: (id: string) => {
-    const list = dbService.getAtribuicoes().filter(a => a.id !== id);
+    const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES).filter(a => a.id !== id);
     setLocal(STORAGE_KEYS.ATRIBUICOES, list);
     firebaseSyncEngine.removerAtribuicao(id);
   },
@@ -3040,8 +3488,120 @@ export const dbService = {
       dbService.setCurrentUser(funcComTimestamp);
     }
 
+    const isCargoDiretor =
+      funcComTimestamp.role === 'DiretorGeral' ||
+      (funcComTimestamp.cargo || '').toLowerCase().includes('diretor geral') ||
+      (funcComTimestamp.cargo || '').toLowerCase().includes('director geral');
+
+    let sincronizadoAtomicoDiretor = false;
+
+    // Se o funcionário salvo for DiretorGeral ativo de uma escola, garante vinculação atómica (local + IndexedDB + Firebase)
+    if (isCargoDiretor && funcComTimestamp.escolaId && funcComTimestamp.escolaId !== 'todas' && funcComTimestamp.ativo !== false) {
+      const escolas = dbService.getEscolasBrutas();
+      let alterouEscolasLocal = false;
+
+      // Caso o diretor tenha sido transferido de outra escola, desvincular a escola anterior
+      if (existing?.escolaId && existing.escolaId !== funcComTimestamp.escolaId) {
+        const idxAntiga = escolas.findIndex(e => e.id === existing.escolaId || e.diretorGeralId === funcComTimestamp.id);
+        if (idxAntiga >= 0 && escolas[idxAntiga].id !== funcComTimestamp.escolaId) {
+          escolas[idxAntiga] = {
+            ...escolas[idxAntiga],
+            diretorGeralId: undefined,
+            diretorGeralNome: 'Não Atribuído',
+            diretorGeralEmail: undefined,
+            diretorGeralTelefone: undefined,
+            atualizadoEm: funcComTimestamp.atualizadoEm
+          };
+          alterouEscolasLocal = true;
+          firebaseSyncEngine.salvarEscola(escolas[idxAntiga]);
+        }
+      }
+
+      const idxEsc = escolas.findIndex(e => e.id === funcComTimestamp.escolaId || e.codigoEscola === funcComTimestamp.escolaId);
+      if (idxEsc >= 0) {
+        const esc = escolas[idxEsc];
+        const diretoresSubstituidos: Funcionario[] = [];
+        for (let i = 0; i < funcs.length; i++) {
+          const outro = funcs[i];
+          if (
+            outro.id !== funcComTimestamp.id &&
+            !isAdminGeralUserObj(outro) &&
+            outro.role === 'DiretorGeral' &&
+            outro.escolaId === esc.id &&
+            outro.ativo !== false
+          ) {
+            const desativado: Funcionario = {
+              ...outro,
+              ativo: false,
+              statusConta: 'Suspensa',
+              escolaId: '',
+              atualizadoEm: funcComTimestamp.atualizadoEm
+            };
+            funcs[i] = desativado;
+            diretoresSubstituidos.push(desativado);
+            offlineStorage.salvarFuncionarioNoIndexedDB(desativado);
+          }
+        }
+        if (diretoresSubstituidos.length > 0) {
+          setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+        }
+
+        escolas[idxEsc] = {
+          ...esc,
+          diretorGeralId: funcComTimestamp.id,
+          diretorGeralNome: funcComTimestamp.nomeCompleto,
+          diretorGeralGenero: funcComTimestamp.genero || esc.diretorGeralGenero || 'M',
+          diretorGeralEmail: funcComTimestamp.email || esc.diretorGeralEmail,
+          diretorGeralTelefone: funcComTimestamp.telefone || esc.diretorGeralTelefone,
+          atualizadoEm: funcComTimestamp.atualizadoEm
+        };
+        alterouEscolasLocal = true;
+        setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+        try {
+          offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+        } catch {}
+        firebaseSyncEngine.sincronizarAtribuicaoDiretor(funcComTimestamp, escolas[idxEsc], diretoresSubstituidos);
+        sincronizadoAtomicoDiretor = true;
+      } else if (alterouEscolasLocal) {
+        setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+        try {
+          offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+        } catch {}
+      }
+    } else if (existing?.role === 'DiretorGeral' && (!isCargoDiretor || funcComTimestamp.ativo === false)) {
+      // Diretor deixou o cargo ou foi suspenso/desativado -> desvincular das escolas que apontavam para ele
+      const escolas = dbService.getEscolasBrutas();
+      let alterou = false;
+      const atualizadas = escolas.map(esc => {
+        if (esc.diretorGeralId === funcComTimestamp.id) {
+          alterou = true;
+          const limpada: Escola = {
+            ...esc,
+            diretorGeralId: undefined,
+            diretorGeralNome: 'Não Atribuído',
+            diretorGeralEmail: undefined,
+            diretorGeralTelefone: undefined,
+            atualizadoEm: funcComTimestamp.atualizadoEm
+          };
+          firebaseSyncEngine.salvarEscola(limpada);
+          return limpada;
+        }
+        return esc;
+      });
+      if (alterou) {
+        setLocal(STORAGE_KEYS.ESCOLAS, atualizadas);
+        try {
+          offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(atualizadas));
+        } catch {}
+      }
+    }
+
     // Persistência imediata no IndexedDB (Base64 + Blob) e sincronização direta com o Firebase
-    normalizarEPersistirFuncionarioAsync(funcComTimestamp, rawFotoInput ?? fotoParaPersistenciaLocal);
+    normalizarEPersistirFuncionarioAsync(
+      funcComTimestamp,
+      rawFotoInput ?? fotoParaPersistenciaLocal,
+      sincronizadoAtomicoDiretor
+    );
 
     dbService.registarLog('Gestão de Funcionários', `Funcionário ${funcComTimestamp.nomeCompleto} atualizado no IndexedDB e sincronizado no Firestore.`);
   },
@@ -3380,7 +3940,7 @@ export const dbService = {
     const { ids, nomes } = getAdminGeralIdsAndNomes();
     return logs.filter(l => !isLogOuAcaoDoAdminGeral(l, ids, nomes));
   },
-  registarLog: (acao: string, detalhe: string) => {
+  registarLog: (acao: string, detalhe: string, escolaIdOverride?: string) => {
     const logs = dbService.getAuditoriaBruta();
     const user = dbService.getCurrentUser();
     const escolasBrutas = dbService.getEscolasBrutas();
@@ -3399,7 +3959,7 @@ export const dbService = {
 
     const newLog: LogAuditoria = {
       id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      escolaId: escolaAtiva.id,
+      escolaId: escolaIdOverride || escolaAtiva.id,
       utilizadorId: user.id,
       utilizadorNome: user.nomeCompleto,
       papel: papelFinal,
@@ -3575,12 +4135,13 @@ export const dbService = {
     const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const escola = dbService.getEscolaAtiva();
-    const alunos = dbService.getAlunos();
-    const turmas = dbService.getTurmas();
-    const disciplinas = dbService.getDisciplinas();
+    const escId = escola?.id && escola.id !== 'todas' ? escola.id : undefined;
+    const alunos = dbService.getAlunos(escId);
+    const turmas = escId ? dbService.getTurmas().filter(t => t.escolaId === escId) : dbService.getTurmas();
+    const disciplinas = dbService.getDisciplinas(escId);
     const notasConsolidadas = dbService.getNotasConsolidadas();
-    const funcs = dbService.getFuncionarios();
-    const logs = dbService.getAuditoria();
+    const funcs = dbService.getFuncionarios(escId).filter(f => f.role !== 'AdminGeral');
+    const logs = escId ? dbService.getAuditoria().filter(l => l.escolaId === escId) : dbService.getAuditoria();
 
     // 1. Instituição Info
     const escolaData = [{
@@ -3593,7 +4154,7 @@ export const dbService = {
       'Bairro': escola.bairro || 'Central',
       'Telefone Oficial': escola.telefone || '—',
       'Email Oficial': escola.email || '—',
-      'Ano Lectivo Activo': escola.anoLectivoActivo || '2024/2025',
+      'Ano Lectivo Activo': escola.anoLectivoActivo || '—',
       'Trimestre Activo': `${escola.trimestreActivo || 'II'}º Trimestre`,
       'Diretor Geral': escola.diretorGeralNome || 'Pendente de Nomeação',
       'Subdiretor Pedagógico': escola.subdiretorPedagogicoNome || 'Pendente',
@@ -3692,7 +4253,7 @@ export const dbService = {
         'Código SIGE': escola.codigoSIGE || escola.codigoMEC || escola.id,
         'Província da Escola': escola.provincia || 'Luanda',
         'Município da Escola': escola.municipio || 'Luanda',
-        'Ano Lectivo': a.anoLectivo || t?.anoLectivo || escola.anoLectivoActivo || '2024/2025',
+        'Ano Lectivo': a.anoLectivo || t?.anoLectivo || escola.anoLectivoActivo || '—',
 
         // --- 2. DADOS PESSOAIS E CIVIS DO ESTUDANTE ---
         'Nº de Processo / Matrícula': a.codigoMatricula || a.id,
@@ -3888,7 +4449,7 @@ export const dbService = {
       ? dbService.getAlunos().filter(a => a.escolaId === escolaId) 
       : dbService.getAlunos();
     const turmas = dbService.getTurmas();
-    const disciplinas = dbService.getDisciplinas();
+    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? escolaId : escola?.id);
     const notasConsolidadas = dbService.getNotasConsolidadas();
 
     const linhasAlunos: any[] = [];
@@ -3994,7 +4555,7 @@ export const dbService = {
     const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
     const alunos = isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === escolaId) : dbService.getAlunos();
     const turmas = isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === escolaId) : dbService.getTurmas();
-    const disciplinas = dbService.getDisciplinas();
+    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? escolaId : escola?.id);
     const notasConsolidadas = dbService.getNotasConsolidadas();
 
     const dadosExportacao = {
@@ -4158,8 +4719,8 @@ export const dbService = {
 
     const alunos = dbService.getAlunos().filter(a => a.escolaId === escola.id);
     const turmas = dbService.getTurmas().filter(t => t.escolaId === escola.id);
-    const disciplinas = dbService.getDisciplinas();
-    const funcs = dbService.getFuncionarios().filter(f => f.escolaId === escola.id);
+    const disciplinas = dbService.getDisciplinas(escola.id);
+    const funcs = dbService.getFuncionarios().filter(f => f.escolaId === escola.id && f.role !== 'AdminGeral');
     const notasConsolidadas = dbService.getNotasConsolidadas();
     const transacoes = dbService.getTransacoesFinanceiras().filter(t => t.escolaId === escola.id);
     const patrimonio = dbService.getPatrimonio().filter(p => p.escolaId === escola.id);
@@ -4177,7 +4738,7 @@ export const dbService = {
       'Bairro': escola.bairro || 'Central',
       'Telefone Oficial': escola.telefone || '—',
       'Email Oficial': escola.email || '—',
-      'Ano Lectivo Activo': escola.anoLectivoActivo || '2024/2025',
+      'Ano Lectivo Activo': escola.anoLectivoActivo || '—',
       'Trimestre Activo': `${escola.trimestreActivo || 'II'}º Trimestre`,
       'Diretor Geral': escola.diretorGeralNome || 'Pendente de Nomeação',
       'Subdiretor Pedagógico': escola.subdiretorPedagogicoNome || 'Pendente',
@@ -4511,7 +5072,7 @@ export const dbService = {
             nivelEnsino: row.nivelEnsino || row.NivelEnsino || 'Primario',
             turno: row.turno || row.Turno || 'Manhã',
             sala: row.sala || row.Sala || 'Sala 1',
-            anoLectivo: row.anoLectivo || row.AnoLectivo || '2025/2026'
+            anoLectivo: row.anoLectivo || row.AnoLectivo || dbService.getEscolaAtiva()?.anoLectivoActivo || ''
           };
           const idx = turmasExistentes.findIndex(t => t.id === novaTurma.id);
           if (idx >= 0) turmasExistentes[idx] = novaTurma;
@@ -4558,13 +5119,13 @@ export const dbService = {
       escolas: isEscolaEspecifica && escolaAlvo ? [escolaAlvo] : todasEscolas,
       alunos: isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAlunos(),
       turmas: isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas(),
-      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas().filter(d => !(d as any).escolaId || (d as any).escolaId === effectiveEscolaId) : dbService.getDisciplinas(),
+      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas(effectiveEscolaId) : dbService.getDisciplinas(),
       atribuicoes: isEscolaEspecifica ? dbService.getAtribuicoes().filter(at => at.escolaId === effectiveEscolaId) : dbService.getAtribuicoes(),
       funcionarios: isEscolaEspecifica ? funcsVisiveis.filter(f => f.escolaId === effectiveEscolaId) : (nonAdmin ? funcsVisiveis : dbService.getFuncionarios()),
       tiposAvaliacao: dbService.getTiposAvaliacao(),
       regrasMAC: dbService.getRegrasMAC(),
       avaliacoes: isEscolaEspecifica ? dbService.getAvaliacoes().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAvaliacoes(),
-      notas: isEscolaEspecifica ? dbService.getNotas().filter(n => !(n as any).escolaId || (n as any).escolaId === effectiveEscolaId) : dbService.getNotas(),
+      notas: isEscolaEspecifica ? dbService.getNotas().filter(n => (n as any).escolaId === effectiveEscolaId) : dbService.getNotas(),
       notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => (nc as any).escolaId === effectiveEscolaId) : dbService.getNotasConsolidadas(),
       solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === effectiveEscolaId) : dbService.getSolicitacoesNota(),
       juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === effectiveEscolaId) : dbService.getJuris(),
@@ -4573,14 +5134,14 @@ export const dbService = {
         ? getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS).filter(h => h.escolaId === effectiveEscolaId)
         : getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS),
       presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPresencas(),
-      auditoria: isEscolaEspecifica ? logsVisiveis.filter(a => !a.escolaId || a.escolaId === effectiveEscolaId) : logsVisiveis,
+      auditoria: isEscolaEspecifica ? logsVisiveis.filter(a => a.escolaId === effectiveEscolaId) : logsVisiveis,
       mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === effectiveEscolaId) : dbService.getMensagens(),
       biblioteca: isEscolaEspecifica ? dbService.getBiblioteca().filter(b => b.escolaId === effectiveEscolaId) : dbService.getBiblioteca(),
       bibliotecaAcessos: isEscolaEspecifica ? dbService.getAcessosBiblioteca(effectiveEscolaId) : dbService.getAcessosBiblioteca(),
       recibos: isEscolaEspecifica ? dbService.getRecibos().filter(r => r.escolaId === effectiveEscolaId) : dbService.getRecibos(),
       configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
-      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTransacoesFinanceiras(),
-      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares().filter(d => d.escolaId === effectiveEscolaId) : dbService.getDespesasEscolares(),
+      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras(effectiveEscolaId) : dbService.getTransacoesFinanceiras(),
+      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares(effectiveEscolaId) : dbService.getDespesasEscolares(),
       patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPatrimonio(),
       delegacoesPoderes: getLocal(STORAGE_KEYS.DELEGACOES_PODERES, []),
       acoesDelegadasLogs: getLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []),
@@ -4588,11 +5149,11 @@ export const dbService = {
       configuracoesPasses: getLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, {}),
       historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
       configuracaoSistema: nonAdmin ? undefined : dbService.getConfiguracaoSistema(),
-      anosLectivos: dbService.getAnosLectivos(),
-      anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
-      turnosConfigs: dbService.getTurnosConfigs(),
-      classesConfigs: dbService.getClassesConfigs(),
-      cursos: dbService.getCursos(),
+      anosLectivos: isEscolaEspecifica ? dbService.getAnosLectivos(effectiveEscolaId) : dbService.getAnosLectivos(),
+      anosLectivosConfigs: isEscolaEspecifica ? dbService.getAnosLectivosConfigs(effectiveEscolaId) : dbService.getAnosLectivosConfigs(),
+      turnosConfigs: isEscolaEspecifica ? dbService.getTurnosConfigs(effectiveEscolaId) : dbService.getTurnosConfigs(),
+      classesConfigs: isEscolaEspecifica ? dbService.getClassesConfigs(effectiveEscolaId) : dbService.getClassesConfigs(),
+      cursos: isEscolaEspecifica ? dbService.getCursos(effectiveEscolaId) : dbService.getCursos(),
       emolumentosPersonalizados: getLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
       delegacoesCobranca: getLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
       presencasAlunos: getLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
@@ -5305,10 +5866,10 @@ export const dbService = {
     const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
     let filtradas = todas;
     if (escolaId && escolaId !== 'todas') {
-      filtradas = filtradas.filter(t => !t.escolaId || t.escolaId === escolaId);
+      filtradas = filtradas.filter(t => t.escolaId === escolaId);
     }
     if (anoLectivo && anoLectivo !== 'todos') {
-      filtradas = filtradas.filter(t => !t.anoLectivo || t.anoLectivo === anoLectivo);
+      filtradas = filtradas.filter(t => t.anoLectivo === anoLectivo);
     }
     return filtradas;
   },
@@ -5318,7 +5879,7 @@ export const dbService = {
       transacao.escolaId = escolaAtiva?.id || transacao.escolaId;
     }
     if (!transacao.anoLectivo) {
-      transacao.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+      transacao.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
     const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
     const idx = todas.findIndex(t => t.id === transacao.id);
@@ -5398,10 +5959,10 @@ export const dbService = {
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
     let filtradas = todas;
     if (escolaId && escolaId !== 'todas') {
-      filtradas = filtradas.filter(d => !d.escolaId || d.escolaId === escolaId);
+      filtradas = filtradas.filter(d => d.escolaId === escolaId);
     }
     if (anoLectivo && anoLectivo !== 'todos') {
-      filtradas = filtradas.filter(d => !d.anoLectivo || d.anoLectivo === anoLectivo);
+      filtradas = filtradas.filter(d => d.anoLectivo === anoLectivo);
     }
     return filtradas;
   },
@@ -5411,7 +5972,7 @@ export const dbService = {
       despesa.escolaId = escolaAtiva?.id || despesa.escolaId;
     }
     if (!despesa.anoLectivo) {
-      despesa.anoLectivo = escolaAtiva?.anoLectivoActivo || '2025/2026';
+      despesa.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
     const idx = todas.findIndex(d => d.id === despesa.id);
@@ -5785,8 +6346,8 @@ export const dbService = {
       status: 'Operacional',
       online: typeof navigator !== 'undefined' ? navigator.onLine : true,
       tamanhoBytes: totalBytes,
-      tamanhoFormatado: totalBytes > 0 ? tamanhoFormatado : '184 KB',
-      totalRegistos: totalRegistos > 0 ? totalRegistos : 1420,
+      tamanhoFormatado: totalBytes > 0 ? tamanhoFormatado : '0 KB',
+      totalRegistos,
       integridadeOk: true,
       ultimaVerificacao: new Date().toLocaleTimeString('pt-AO')
     };
@@ -6416,34 +6977,57 @@ export const dbService = {
   // SESSÕES DE APOIO TÉCNICO AUTORIZADAS (ADMIN GERAL)
   // ==========================================
   iniciarSessaoApoioTecnico: (escolaId: string, solicitacaoId: string, admin: Funcionario, motivo?: string): boolean => {
-    if (admin.role !== 'AdminGeral' || isSessaoAutenticadaNaoAdminGeral()) {
+    const realUser = dbService.getCurrentUser();
+    const operador = isAdminGeralUserObj(realUser) ? realUser : admin;
+    if (isSessaoAutenticadaNaoAdminGeral() || !isAdminGeralUserObj(operador)) {
       return false;
     }
     const escolas = dbService.getEscolasBrutas();
     const idx = escolas.findIndex(e => e.id === escolaId);
     if (idx < 0) return false;
 
-    escolas[idx].sessaoApoioTecnicoAtiva = {
-      solicitacaoId,
-      adminGeralId: admin.id,
-      adminGeralNome: admin.nomeCompleto,
-      dataInicio: new Date().toISOString(),
-      motivo: motivo || 'Intervenção técnica sob pedido do Diretor da Escola'
+    const agora = new Date().toISOString();
+    const escolaAtualizada: Escola = {
+      ...escolas[idx],
+      atualizadoEm: agora,
+      sessaoApoioTecnicoAtiva: {
+        solicitacaoId,
+        adminGeralId: operador.id,
+        adminGeralNome: operador.nomeCompleto,
+        dataInicio: agora,
+        motivo: motivo || 'Intervenção técnica sob pedido do Diretor da Escola'
+      }
     };
-    dbService.salvarEscolas(escolas);
+    escolas[idx] = escolaAtualizada;
+    setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+    firebaseSyncEngine.salvarEscola(escolaAtualizada);
     dbService.setEscolaAtiva(escolaId);
+
+    if (solicitacaoId) {
+      try {
+        dbService.responderSolicitacaoApoioTecnico(
+          solicitacaoId,
+          'Em_Atendimento',
+          operador.nomeCompleto,
+          `Sessão de intervenção e apoio técnico iniciada pelo Administrador Geral às ${new Date().toLocaleTimeString('pt-AO')}.`
+        );
+      } catch {}
+    }
 
     // Registar no log da instituição que o Admin Geral entrou sob apoio técnico
     dbService.registarLog(
       'Acesso de Suporte Técnico Autorizado',
-      `O Administrador Geral "${admin.nomeCompleto}" acedeu aos sistemas internos da escola sob autorização formal do Diretor (Chamado #${solicitacaoId.slice(-6)}). Todas as ações subsequentes serão auditadas na íntegra.`
+      `O Administrador Geral "${operador.nomeCompleto}" acedeu aos sistemas internos da escola sob autorização formal do Diretor (Chamado #${(solicitacaoId || 'DTI').slice(-6)}). Todas as ações subsequentes serão auditadas na íntegra.`
     );
 
     return true;
   },
 
   encerrarSessaoApoioTecnico: (escolaId: string, admin: Funcionario): boolean => {
-    if (admin.role !== 'AdminGeral' || isSessaoAutenticadaNaoAdminGeral()) {
+    const realUser = dbService.getCurrentUser();
+    const operador = isAdminGeralUserObj(realUser) ? realUser : admin;
+    if (isSessaoAutenticadaNaoAdminGeral() || !isAdminGeralUserObj(operador)) {
       return false;
     }
     const escolas = dbService.getEscolasBrutas();
@@ -6451,16 +7035,50 @@ export const dbService = {
     if (idx < 0) return false;
 
     const solId = escolas[idx].sessaoApoioTecnicoAtiva?.solicitacaoId || '';
-    delete escolas[idx].sessaoApoioTecnicoAtiva;
-    dbService.salvarEscolas(escolas);
+    const agora = new Date().toISOString();
+    const copia: Escola = { ...escolas[idx], atualizadoEm: agora };
+    delete copia.sessaoApoioTecnicoAtiva;
+    escolas[idx] = copia;
+
+    setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+    firebaseSyncEngine.encerrarSessaoApoioNoFirestore(escolaId, copia);
 
     dbService.registarLog(
       'Encerramento de Suporte Técnico',
-      `Sessão de apoio técnico do Administrador Geral "${admin.nomeCompleto}" encerrada. Acesso da escola devolvido à governança interna exclusiva.`
+      `Sessão de apoio técnico do Administrador Geral "${operador.nomeCompleto}" encerrada. Acesso da escola devolvido à governança interna exclusiva.`
     );
 
-    if (solId) {
-      dbService.responderSolicitacaoApoioTecnico(solId, 'Concluido', admin.nomeCompleto, 'Intervenção técnica concluída com sucesso em ambiente seguro.');
+    // Concluir o chamado associado e quaisquer outros chamados em atendimento desta escola
+    const solicitacoes = dbService.getSolicitacoesApoioBrutas();
+    let alterouChamados = false;
+    const solicitacoesAtualizadas = solicitacoes.map(sol => {
+      const mesmoChamado = solId && sol.id === solId;
+      const emAtendimentoNaEscola =
+        sol.escolaId === escolaId &&
+        (sol.estado === 'Em_Atendimento' || sol.status === 'Em_Atendimento');
+      if (mesmoChamado || emAtendimentoNaEscola) {
+        alterouChamados = true;
+        const atualizado: SolicitacaoApoioTecnico = {
+          ...sol,
+          estado: 'Concluido',
+          status: 'Concluido',
+          autorizacaoAcessoConcedida: false,
+          autorizacaoAcessoValida: false,
+          atendidoPorAdminNome: operador.nomeCompleto,
+          respostaTecnica: `Intervenção técnica concluída com sucesso às ${new Date().toLocaleTimeString('pt-AO')}.`,
+          dataResolucao: new Date().toLocaleString('pt-AO'),
+          atualizadoEm: agora
+        };
+        firebaseSyncEngine.salvarSolicitacaoApoio(atualizado);
+        return atualizado;
+      }
+      return sol;
+    });
+
+    if (alterouChamados) {
+      setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, solicitacoesAtualizadas);
+      offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.SOLICITACOES_APOIO, JSON.stringify(solicitacoesAtualizadas));
     }
 
     return true;

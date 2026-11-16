@@ -1,19 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   LifeBuoy, 
-  ShieldAlert, 
   CheckCircle2, 
   Clock, 
   Building2, 
   Send, 
   AlertTriangle, 
   Lock, 
-  Unlock, 
   Eye, 
-  RotateCcw,
-  UserCheck,
-  FileText,
-  ShieldCheck
+  ShieldCheck,
+  LogOut,
+  X
 } from 'lucide-react';
 import { Escola, Funcionario, SolicitacaoApoioTecnico } from '../types';
 import { dbService } from '../services/storage';
@@ -25,7 +22,28 @@ interface TechnicalSupportViewProps {
   onSelecionarEscolaParaApoio?: (escolaId: string) => void;
   onEscolaInspecionada?: (escolaId: string) => void;
   onIniciarApoioTecnico?: (escolaId: string, solicitacaoId: string) => void;
+  onEncerrarApoioTecnico?: (escolaId?: string) => void;
 }
+
+const isStatusPendente = (sol: SolicitacaoApoioTecnico) => {
+  const s = String(sol.status || sol.estado || 'Pendente').toLowerCase();
+  return s === 'pendente' || s === 'aberto';
+};
+
+const isStatusEmAtendimento = (sol: SolicitacaoApoioTecnico) => {
+  const s = String(sol.status || sol.estado || '').toLowerCase();
+  return s === 'em_atendimento' || s === 'em atendimento';
+};
+
+const isStatusConcluido = (sol: SolicitacaoApoioTecnico) => {
+  const s = String(sol.status || sol.estado || '').toLowerCase();
+  return s === 'concluido' || s === 'concluído' || s === 'resolvido' || s === 'encerrado';
+};
+
+const isStatusRecusado = (sol: SolicitacaoApoioTecnico) => {
+  const s = String(sol.status || sol.estado || '').toLowerCase();
+  return s === 'recusado';
+};
 
 export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
   currentUser,
@@ -33,25 +51,55 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
   escolas = [],
   onSelecionarEscolaParaApoio,
   onEscolaInspecionada,
-  onIniciarApoioTecnico
+  onIniciarApoioTecnico,
+  onEncerrarApoioTecnico
 }) => {
   const [solicitacoes, setSolicitacoes] = useState<SolicitacaoApoioTecnico[]>(() => 
     dbService.getSolicitacoesApoioTecnico()
   );
+  const [escolasLocais, setEscolasLocais] = useState<Escola[]>(() =>
+    escolas.length > 0 ? escolas : dbService.getEscolas()
+  );
   
-  // Modal de nova solicitação (Diretor Geral)
+  // Modal/Formulário de nova solicitação (Diretor Geral)
   const [motivo, setMotivo] = useState('');
   const [descricao, setDescricao] = useState('');
   const [urgencia, setUrgencia] = useState<'Baixa' | 'Media' | 'Alta' | 'Critica'>('Alta');
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
   const [erroMsg, setErroMsg] = useState<string | null>(null);
 
+  // Painel inline de notas técnicas (sem window.prompt)
+  const [respostaAlvo, setRespostaAlvo] = useState<{
+    id: string;
+    status: 'Em_Atendimento' | 'Concluido' | 'Recusado';
+    titulo: string;
+  } | null>(null);
+  const [notasTecnicas, setNotasTecnicas] = useState('');
+
   const isAdminGeral = currentUser.role === 'AdminGeral';
 
-  // Atualizar lista
   const recarregar = () => {
     setSolicitacoes(dbService.getSolicitacoesApoioTecnico());
+    setEscolasLocais(dbService.getEscolas());
   };
+
+  useEffect(() => {
+    recarregar();
+  }, [escola?.id, escolas]);
+
+  useEffect(() => {
+    const handleSync = () => recarregar();
+    window.addEventListener('sge_dados_atualizados_remoto', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('sge_dados_atualizados_remoto', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
+  const escolasComSessaoAtiva = isAdminGeral
+    ? escolasLocais.filter(e => Boolean(e.sessaoApoioTecnicoAtiva && e.sessaoApoioTecnicoAtiva.dataInicio))
+    : [];
 
   const handleCriarSolicitacao = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,9 +131,48 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
     }
   };
 
-  const handleResponder = (id: string, status: 'Em_Atendimento' | 'Concluido' | 'Recusado') => {
-    const notas = prompt('Observações técnicas do atendimento:');
-    dbService.responderSolicitacaoApoioTecnico(id, status, currentUser.nomeCompleto, notas || undefined);
+  const abrirPainelResposta = (sol: SolicitacaoApoioTecnico, status: 'Em_Atendimento' | 'Concluido' | 'Recusado') => {
+    setRespostaAlvo({
+      id: sol.id,
+      status,
+      titulo: sol.motivo || sol.assunto || 'Chamado de Apoio Técnico'
+    });
+    setNotasTecnicas(
+      status === 'Concluido'
+        ? 'Intervenção técnica concluída com sucesso em ambiente seguro.'
+        : status === 'Em_Atendimento'
+          ? 'Atendimento técnico iniciado pela Equipa DTI / MED.'
+          : ''
+    );
+  };
+
+  const confirmarResposta = () => {
+    if (!respostaAlvo) return;
+    dbService.responderSolicitacaoApoioTecnico(
+      respostaAlvo.id,
+      respostaAlvo.status,
+      currentUser.nomeCompleto,
+      notasTecnicas.trim() || undefined
+    );
+    if (respostaAlvo.status !== 'Em_Atendimento' && onEncerrarApoioTecnico) {
+      const solObj = solicitacoes.find(s => s.id === respostaAlvo.id);
+      if (solObj && escolasComSessaoAtiva.some(e => e.id === solObj.escolaId)) {
+        onEncerrarApoioTecnico(solObj.escolaId);
+      }
+    }
+    setSucessoMsg(`Chamado atualizado para "${respostaAlvo.status.replace('_', ' ')}" com sucesso.`);
+    setRespostaAlvo(null);
+    setNotasTecnicas('');
+    recarregar();
+  };
+
+  const handleEncerrarSessaoDaEscola = (escolaId: string) => {
+    if (onEncerrarApoioTecnico) {
+      onEncerrarApoioTecnico(escolaId);
+    } else {
+      dbService.encerrarSessaoApoioTecnico(escolaId, currentUser);
+    }
+    setSucessoMsg('Sessão de apoio técnico encerrada com sucesso e acesso devolvido à escola.');
     recarregar();
   };
 
@@ -120,18 +207,105 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
         </div>
       </div>
 
+      {/* Painel de Sessões Ativas (caso exista alguma sessão aberta em qualquer escola) */}
+      {isAdminGeral && escolasComSessaoAtiva.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-amber-900">
+              <LifeBuoy className="w-5 h-5 text-amber-700" />
+              <h2 className="text-xs font-black uppercase tracking-wider">
+                Sessão(ões) de Apoio Técnico em Curso ({escolasComSessaoAtiva.length})
+              </h2>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {escolasComSessaoAtiva.map(esc => (
+              <div key={esc.id} className="bg-white border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-900 truncate">{esc.nomeOficial}</p>
+                  <p className="text-[11px] text-gray-500 truncate">
+                    Iniciada em: {esc.sessaoApoioTecnicoAtiva?.dataInicio ? new Date(esc.sessaoApoioTecnicoAtiva.dataInicio).toLocaleString('pt-AO') : 'Agora'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleEncerrarSessaoDaEscola(esc.id)}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg flex items-center space-x-1 shrink-0 cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Encerrar Sessão</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Alertas */}
       {sucessoMsg && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-xl text-xs flex items-center space-x-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{sucessoMsg}</span>
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-xl text-xs flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{sucessoMsg}</span>
+          </div>
+          <button type="button" onClick={() => setSucessoMsg(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
       {erroMsg && (
-        <div className="bg-red-50 border border-red-300 text-red-900 px-4 py-3 rounded-xl text-xs flex items-center space-x-2">
-          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-          <span>{erroMsg}</span>
+        <div className="bg-red-50 border border-red-300 text-red-900 px-4 py-3 rounded-xl text-xs flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{erroMsg}</span>
+          </div>
+          <button type="button" onClick={() => setErroMsg(null)} className="text-red-700 hover:text-red-900 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Painel inline de parecer/conclusão técnica */}
+      {isAdminGeral && respostaAlvo && (
+        <div className="bg-indigo-50 border-2 border-indigo-300 rounded-2xl p-5 space-y-3 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-black text-indigo-950">
+                {respostaAlvo.status === 'Em_Atendimento' ? 'Iniciar Atendimento Técnico' : respostaAlvo.status === 'Concluido' ? 'Concluir Chamado de Apoio' : 'Recusar Solicitação'}
+              </h3>
+              <p className="text-xs text-indigo-700 mt-0.5">Chamado: <strong>{respostaAlvo.titulo}</strong></p>
+            </div>
+            <button type="button" onClick={() => setRespostaAlvo(null)} className="p-1 text-indigo-600 hover:text-indigo-900 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-indigo-900 mb-1">Observações técnicas do atendimento:</label>
+            <textarea
+              value={notasTecnicas}
+              onChange={(e) => setNotasTecnicas(e.target.value)}
+              rows={2}
+              placeholder="Descreva as ações executadas ou orientações à Direção..."
+              className="w-full text-xs px-3 py-2 border border-indigo-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={() => setRespostaAlvo(null)}
+              className="px-3 py-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={confirmarResposta}
+              className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg cursor-pointer"
+            >
+              Confirmar Registo
+            </button>
+          </div>
         </div>
       )}
 
@@ -236,108 +410,133 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {solicitacoesFiltradas.map((sol) => (
-              <div 
-                key={sol.id}
-                className={`p-4 rounded-xl border transition-all ${
-                  sol.status === 'Pendente' 
-                    ? 'border-amber-200 bg-amber-50/40' 
-                    : sol.status === 'Em_Atendimento'
-                      ? 'border-indigo-200 bg-indigo-50/40'
-                      : 'border-gray-200 bg-white'
-                }`}
-              >
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-gray-100 pb-2">
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                      sol.urgencia === 'Critica' 
-                        ? 'bg-red-600 text-white' 
-                        : sol.urgencia === 'Alta'
-                          ? 'bg-amber-500 text-white'
-                          : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      Urgência: {sol.urgencia}
-                    </span>
-                    <span className="text-xs font-bold text-gray-900">{sol.motivo}</span>
+            {solicitacoesFiltradas.map((sol) => {
+              const pendente = isStatusPendente(sol);
+              const emAtendimento = isStatusEmAtendimento(sol);
+              const concluido = isStatusConcluido(sol);
+              const recusado = isStatusRecusado(sol);
+              const sessaoAtivaEscola = escolasLocais.find(e => e.id === sol.escolaId && Boolean(e.sessaoApoioTecnicoAtiva?.dataInicio));
+              const urg = sol.urgencia || sol.prioridade || 'Media';
+
+              return (
+                <div 
+                  key={sol.id}
+                  className={`p-4 rounded-xl border transition-all ${
+                    pendente
+                      ? 'border-amber-200 bg-amber-50/40' 
+                      : emAtendimento
+                        ? 'border-indigo-200 bg-indigo-50/40'
+                        : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-gray-100 pb-2">
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                        urg === 'Critica' 
+                          ? 'bg-red-600 text-white' 
+                          : urg === 'Alta'
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        Urgência: {urg}
+                      </span>
+                      <span className="text-xs font-bold text-gray-900">{sol.motivo || sol.assunto}</span>
+                    </div>
+
+                    <div className="flex items-center space-x-2 text-[11px]">
+                      <span className={`px-2 py-0.5 rounded font-bold ${
+                        pendente ? 'bg-amber-100 text-amber-800' :
+                        emAtendimento ? 'bg-indigo-100 text-indigo-800' :
+                        concluido ? 'bg-emerald-100 text-emerald-800' :
+                        recusado ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {concluido ? 'Concluído' : emAtendimento ? 'Em Atendimento' : recusado ? 'Recusado' : 'Pendente'}
+                      </span>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-gray-500">{sol.dataSolicitacao}</span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center space-x-2 text-[11px]">
-                    <span className={`px-2 py-0.5 rounded font-bold ${
-                      sol.status === 'Pendente' ? 'bg-amber-100 text-amber-800' :
-                      sol.status === 'Em_Atendimento' ? 'bg-indigo-100 text-indigo-800' :
-                      sol.status === 'Concluido' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {(sol.status || sol.estado || 'Pendente').replace('_', ' ')}
-                    </span>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-gray-500">{new Date(sol.dataSolicitacao).toLocaleString('pt-AO')}</span>
-                  </div>
-                </div>
-
-                <div className="py-2.5 text-xs text-gray-700 leading-relaxed">
-                  <p>{sol.descricaoProblema}</p>
-                </div>
-
-                <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-gray-500 gap-2">
-                  <div className="flex items-center space-x-2">
-                    <Building2 className="w-3.5 h-3.5 text-gray-400" />
-                    <span><strong>{sol.nomeEscola}</strong> (Solicitado por: {sol.solicitadoPorNome})</span>
+                  <div className="py-2.5 text-xs text-gray-700 leading-relaxed space-y-1">
+                    <p>{sol.descricaoProblema || sol.descricao}</p>
+                    {sol.respostaTecnica && (
+                      <p className="text-[11px] text-indigo-800 bg-indigo-50/70 px-2.5 py-1.5 rounded-lg border border-indigo-100">
+                        <strong>Parecer DTI:</strong> {sol.respostaTecnica}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Ações para o Admin Geral */}
-                  {isAdminGeral && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {onIniciarApoioTecnico && (
-                        <button
-                          type="button"
-                          onClick={() => onIniciarApoioTecnico(sol.escolaId, sol.id)}
-                          className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
-                          title="Aceder diretamente a todos os menus e funcionalidades do Diretor desta escola sem outras credenciais"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-yellow-300" />
-                          <span>Aceder aos Menus do Diretor (Modo Suporte)</span>
-                        </button>
-                      )}
+                  <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-gray-500 gap-2">
+                    <div className="flex items-center space-x-2">
+                      <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                      <span><strong>{sol.nomeEscola || sol.escolaNome}</strong> (Solicitado por: {sol.solicitadoPorNome || sol.diretorNome})</span>
+                    </div>
 
-                      {sol.autorizacaoAcessoValida && onSelecionarEscolaParaApoio && (
-                        <button
-                          type="button"
-                          onClick={() => onSelecionarEscolaParaApoio(sol.escolaId)}
-                          className="flex items-center space-x-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                          title="Inspecionar dados desta instituição sob autorização formal"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Inspecionar Escola</span>
-                        </button>
-                      )}
+                    {/* Ações para o Admin Geral */}
+                    {isAdminGeral && !concluido && !recusado && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {onIniciarApoioTecnico && (
+                          <button
+                            type="button"
+                            onClick={() => onIniciarApoioTecnico(sol.escolaId, sol.id)}
+                            className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                            title="Aceder diretamente a todos os menus e funcionalidades do Diretor desta escola sem outras credenciais"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-yellow-300" />
+                            <span>Aceder aos Menus do Diretor (Modo Suporte)</span>
+                          </button>
+                        )}
 
-                      {sol.status === 'Pendente' && (
-                        <button
-                          type="button"
-                          onClick={() => handleResponder(sol.id, 'Em_Atendimento')}
-                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors"
-                        >
-                          Iniciar Atendimento
-                        </button>
-                      )}
+                        {sessaoAtivaEscola && (
+                          <button
+                            type="button"
+                            onClick={() => handleEncerrarSessaoDaEscola(sol.escolaId)}
+                            className="flex items-center space-x-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Encerrar Sessão Ativa</span>
+                          </button>
+                        )}
 
-                      {sol.status === 'Em_Atendimento' && (
+                        {sol.autorizacaoAcessoValida && !onIniciarApoioTecnico && (onSelecionarEscolaParaApoio || onEscolaInspecionada) && (
+                          <button
+                            type="button"
+                            onClick={() => (onSelecionarEscolaParaApoio || onEscolaInspecionada)?.(sol.escolaId)}
+                            className="flex items-center space-x-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                            title="Inspecionar dados desta instituição sob autorização formal"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Inspecionar Escola</span>
+                          </button>
+                        )}
+
+                        {pendente && (
+                          <button
+                            type="button"
+                            onClick={() => abrirPainelResposta(sol, 'Em_Atendimento')}
+                            className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            Iniciar Atendimento
+                          </button>
+                        )}
+
                         <button
                           type="button"
-                          onClick={() => handleResponder(sol.id, 'Concluido')}
-                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors"
+                          onClick={() => abrirPainelResposta(sol, 'Concluido')}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
                         >
                           Concluir Chamado
                         </button>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
     </div>
   );
 };
+

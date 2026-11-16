@@ -24,9 +24,7 @@ import { InsigniaAngola } from '../constants/insignia';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Footer } from './Footer';
 import { ConfiguracaoSistema } from '../types';
-const ParentStudentReportView = React.lazy(() =>
-  import('./ParentStudentReportView').then((m) => ({ default: m.ParentStudentReportView }))
-);
+import { ParentStudentReportView } from './ParentStudentReportView';
 
 interface LoginViewProps {
   escolas: Escola[];
@@ -243,7 +241,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         escolaParaLogin = escolas[0] || dbService.getEscolaAtiva();
       }
       setIsLoading(false);
-      onLogin(utilizadorEncontrado, escolaParaLogin, selectedAno || escolaParaLogin.anoLectivoActivo || '2025/2026');
+      onLogin(utilizadorEncontrado, escolaParaLogin, selectedAno || escolaParaLogin.anoLectivoActivo || '');
     } catch (err: any) {
       console.error('[Login] Erro ao autenticar:', err);
       setIsLoading(false);
@@ -555,19 +553,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
             {/* Resultado da Consulta Enriquecido */}
             {alunoConsultado && (
               <div className="space-y-4">
-                <React.Suspense
-                  fallback={
-                    <div className="p-6 text-center text-xs text-slate-500">
-                      A carregar ficha do educando...
-                    </div>
-                  }
-                >
-                  <ParentStudentReportView
-                    aluno={alunoConsultado}
-                    escola={escolas.find(e => e.id === alunoConsultado.escolaId) || selectedEscola}
-                    modoModal={false}
-                  />
-                </React.Suspense>
+                <ParentStudentReportView
+                  aluno={alunoConsultado}
+                  escola={escolas.find(e => e.id === alunoConsultado.escolaId) || selectedEscola}
+                  modoModal={false}
+                />
 
                 <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <span className="text-xs text-slate-600">

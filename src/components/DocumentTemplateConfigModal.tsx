@@ -506,7 +506,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                     <div className="border border-black p-2 bg-white rounded text-[9px] space-y-2 mb-3">
                       <div className="flex justify-between font-bold border-b pb-1 text-[8px] uppercase text-gray-700">
                         <span>Pauta Geral • [Turma] • [Turno]</span>
-                        <span>Ano Lectivo: {escola.anoLectivoActivo || '2025/2026'}</span>
+                        <span>Ano Lectivo: {escola.anoLectivoActivo || '[Ano Lectivo]'}</span>
                       </div>
                       <table className="w-full border-collapse text-center text-[8px]">
                         <thead>
@@ -555,7 +555,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         </span>
                       </div>
                       <p className="leading-relaxed text-[9px]">
-                        Filho de [Filiação Paterna] e de [Filiação Materna], natural de [Naturalidade], Província de [Província], portador do B.I. n.º [Nº do Documento], concluiu no ano lectivo de {escola.anoLectivoActivo || '2025/2026'} o <strong>[Nível / Ciclo de Ensino]</strong>, no Curso de <strong>[Opção de Estudo]</strong>, com a média final de:
+                        Filho de [Filiação Paterna] e de [Filiação Materna], natural de [Naturalidade], Província de [Província], portador do B.I. n.º [Nº do Documento], concluiu no ano lectivo de {escola.anoLectivoActivo || '[Ano Lectivo]'} o <strong>[Nível / Ciclo de Ensino]</strong>, no Curso de <strong>[Opção de Estudo]</strong>, com a média final de:
                       </p>
                       <div className="text-center font-bold font-sans text-xs text-blue-900 bg-white border border-amber-300 py-1 rounded">
                         [CLASSIFICAÇÃO FINAL POR EXTENSO]
@@ -600,7 +600,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         <div className="text-[9px] text-gray-600">Proc. n.º: <strong className="font-mono text-black">[Nº Proc.]</strong></div>
                         <div className="text-[9px] text-gray-600">Classe: <strong>[Classe • Turma]</strong></div>
                         <div className="text-[8px] font-mono text-blue-700 bg-white px-1.5 py-0.5 border border-blue-200 rounded inline-block">
-                          Validade: {escola.anoLectivoActivo || '2025/2026'}
+                          Validade: {escola.anoLectivoActivo || '[Ano Lectivo]'}
                         </div>
                       </div>
                       <div className="w-12 h-12 bg-white border border-gray-300 rounded flex items-center justify-center text-[7px] text-gray-400 font-mono text-center">

@@ -52,7 +52,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
   const [workbookRaw, setWorkbookRaw] = useState<XLSX.WorkBook | null>(null);
 
   // Configurações do Ano Letivo associado
-  const [anoLetivoAlvo, setAnoLetivoAlvo] = useState(escola.anoLectivoActivo || '2025/2026');
+  const [anoLetivoAlvo, setAnoLetivoAlvo] = useState(escola.anoLectivoActivo || '');
   const [definirComoAtivo, setDefinirComoAtivo] = useState(true);
   const [dataInicioAno, setDataInicioAno] = useState('2025-09-01');
   const [dataFimAno, setDataFimAno] = useState('2026-07-31');
@@ -233,7 +233,8 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           const item = dataAno[0];
           const rotulo = item.Rotulo || item.rotulo || anoLetivoAlvo;
           const novaConfigAno: AnoLectivoConfig = {
-            id: `ano-${rotulo.replace(/\//g, '-')}`,
+            id: `ano-${escolaId}-${rotulo.replace(/\//g, '-')}`,
+            escolaId,
             rotulo: rotulo,
             dataInicio: item.DataInicio || item.dataInicio || dataInicioAno,
             dataFim: item.DataFim || item.dataFim || dataFimAno,
@@ -253,10 +254,11 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
 
       // Se não tinha folha específica de ano letivo, garantir que o ano selecionado no modal é registrado
       if (!anoLetivoCadastrado && anoLetivoAlvo) {
-        const anosExistentes = dbService.getAnosLectivos();
+        const anosExistentes = dbService.getAnosLectivos(escolaId);
         if (!anosExistentes.includes(anoLetivoAlvo)) {
           const novaConfigAno: AnoLectivoConfig = {
-            id: `ano-${anoLetivoAlvo.replace(/\//g, '-')}`,
+            id: `ano-${escolaId}-${anoLetivoAlvo.replace(/\//g, '-')}`,
+            escolaId,
             rotulo: anoLetivoAlvo,
             dataInicio: dataInicioAno,
             dataFim: dataFimAno,
@@ -313,7 +315,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             curso
           };
 
-          const idx = turmasExistentes.findIndex(t => t.nome.toLowerCase() === nomeTurma.toLowerCase() && t.anoLectivo === anoLetivoAlvo);
+          const idx = turmasExistentes.findIndex(t => t.escolaId === escolaId && t.nome.toLowerCase() === nomeTurma.toLowerCase() && t.anoLectivo === anoLetivoAlvo);
           if (idx >= 0) {
             turmasExistentes[idx] = { ...turmasExistentes[idx], ...novaTurma, id: turmasExistentes[idx].id };
             mapaTurmasCriadas[nomeTurma.toLowerCase()] = turmasExistentes[idx].id;
@@ -332,7 +334,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
         const ws = workbookRaw.Sheets[folhaAlunos.sheetName];
         const dataAlunos = XLSX.utils.sheet_to_json<any>(ws);
         const alunosExistentes = dbService.getAlunos();
-        const turmasDisponiveis = dbService.getTurmas();
+        const turmasDisponiveis = dbService.getTurmas().filter(t => t.escolaId === escolaId);
 
         for (const row of dataAlunos) {
           const nomeAluno = (row.NomeCompleto || row.nomeCompleto || row.Nome || row.nome || '').toString().trim();
@@ -341,11 +343,11 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           const classe = normalizarClasse((row.Classe || row.classe || '7ª').toString());
           const turmaNome = (row.TurmaNome || row.turmaNome || row.Turma || row.turma || '').toString().trim();
 
-          // Encontrar turma ID correspondente
+          // Encontrar turma ID correspondente dentro da própria escola
           let turmaId = mapaTurmasCriadas[turmaNome.toLowerCase()];
           if (!turmaId) {
             const encontrada = turmasDisponiveis.find(t => t.nome.toLowerCase() === turmaNome.toLowerCase());
-            turmaId = encontrada ? encontrada.id : turmasDisponiveis[0]?.id || 'turma-padrao';
+            turmaId = encontrada ? encontrada.id : turmasDisponiveis[0]?.id || '';
           }
 
           const novoAluno: Aluno = {
@@ -367,12 +369,14 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             estado: 'Ativo',
             turmaId,
             classeId: classe,
+            anoLectivo: anoLetivoAlvo || escola.anoLectivoActivo || '',
+            anoMatricula: anoLetivoAlvo || escola.anoLectivoActivo || '',
             propinaStatus: 'Regularizada',
             historicoAnterior: [],
             cadastradoEm: new Date().toISOString().split('T')[0]
           };
 
-          const idx = alunosExistentes.findIndex(a => a.codigoMatricula === novoAluno.codigoMatricula || (novoAluno.numeroBI && a.numeroBI === novoAluno.numeroBI));
+          const idx = alunosExistentes.findIndex(a => a.escolaId === escolaId && (a.codigoMatricula === novoAluno.codigoMatricula || (novoAluno.numeroBI && a.numeroBI === novoAluno.numeroBI)));
           if (idx >= 0) {
             alunosExistentes[idx] = { ...alunosExistentes[idx], ...novoAluno, id: alunosExistentes[idx].id };
           } else {
@@ -400,6 +404,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
 
           const novaDisc: Disciplina = {
             id: `disc-imp-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            escolaId,
             nome: nomeDisc,
             sigla: (row.Sigla || row.sigla || nomeDisc.substring(0, 3).toUpperCase()).toString(),
             codigo: (row.Codigo || row.codigo || `${nomeDisc.substring(0, 3).toUpperCase()}-MED`).toString(),
@@ -411,7 +416,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             ciclo
           };
 
-          const idx = discExistentes.findIndex(d => d.nome.toLowerCase() === nomeDisc.toLowerCase());
+          const idx = discExistentes.findIndex(d => d.escolaId === escolaId && d.nome.toLowerCase() === nomeDisc.toLowerCase());
           if (idx >= 0) {
             discExistentes[idx] = { ...discExistentes[idx], ...novaDisc, id: discExistentes[idx].id };
           } else {

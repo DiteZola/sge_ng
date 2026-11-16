@@ -320,7 +320,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
         </div>
 
         <div class="footer">
-          Documento expedido oficialmente pela plataforma SGE-NG sob autorização e chancela do Diretor Geral da Instituição.
+          Documento expedido oficialmente sob autorização e chancela do Diretor Geral da Instituição.
         </div>
       </body>
       </html>

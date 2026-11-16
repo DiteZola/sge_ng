@@ -75,15 +75,15 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   const [visualizacao, setVisualizacao] = useState<'frente' | 'verso' | 'ambos'>('ambos');
 
   const dataFimAnoAtivo = useMemo(() => {
-    const anos = dbService.getAnosLectivosConfigs();
+    const anos = dbService.getAnosLectivosConfigs(escola.id);
     const anoAtivo = anos.find(a => a.rotulo === escola.anoLectivoActivo || a.ano === escola.anoLectivoActivo || a.estado === 'Aberto');
-    return anoAtivo?.dataFim || '2026-07-31';
-  }, [escola.anoLectivoActivo]);
+    return anoAtivo?.dataFim || '';
+  }, [escola.id, escola.anoLectivoActivo]);
 
   const [dataValidade, setDataValidade] = useState<string>(() => {
-    const anos = dbService.getAnosLectivosConfigs();
+    const anos = dbService.getAnosLectivosConfigs(escola.id);
     const anoAtivo = anos.find(a => a.rotulo === escola.anoLectivoActivo || a.ano === escola.anoLectivoActivo || a.estado === 'Aberto');
-    return anoAtivo?.dataFim || '2026-07-31';
+    return anoAtivo?.dataFim || '';
   });
 
   useEffect(() => {
@@ -527,8 +527,8 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
           <div id="passes-print-grid" className="passes-sheet-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 print:grid-cols-2 print:gap-2">
             {alunosFiltrados.map((aluno) => {
               const turma = turmas.find(t => t.id === aluno.turmaId) || turmaExemplo;
-              const anoLectivoNome = escola.anoLectivoActivo || '2025/2026';
-              const numProcesso = aluno.numeroProcesso || aluno.codigoMatricula || '000/2025';
+              const anoLectivoNome = escola.anoLectivoActivo || '—';
+              const numProcesso = aluno.numeroProcesso || aluno.codigoMatricula || '—';
 
               return (
                 <div 
@@ -966,7 +966,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                       style={{ backgroundColor: passConfig.corPrimaria || '#1e3a8a' }}
                     >
                       <span className="text-[7.5px] font-black uppercase tracking-widest block">
-                        Cartão de Estudante • 2025/2026
+                        Cartão de Estudante • {escola.anoLectivoActivo || '—'}
                       </span>
                     </div>
 

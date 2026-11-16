@@ -70,6 +70,7 @@ import {
 } from '../services/macEngine';
 import { handleStrictNumericKeyDown, handleStrictNumericPaste } from './StrictNumericInput';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import { exportarPautaTrimestralComFormulasExcel } from '../utils/pautaExcelExporter';
 import { InsigniaAngola } from '../constants/insignia';
 import { 
   obterNomeDiretorGeral, 
@@ -333,17 +334,14 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Filtrar disciplinas estritamente pela classe e curso da turma selecionada e por atribuições docentes
   const disciplinasDaClasseECurso = useMemo(() => {
-    if (!turmaAtiva) return disciplinas;
+    if (!turmaAtiva) return isProfessor ? [] : disciplinas;
     const base = filtrarDisciplinasDaClasse(disciplinas, turmaAtiva.classe, turmaAtiva.curso);
     if (isProfessor) {
-      const discsProf = new Set(
-        atribuicoesDoProfessor
-          .filter((a: any) => a.turmaId === turmaAtiva.id)
-          .map((a: any) => a.disciplinaId)
-      );
-      if (discsProf.size > 0) {
-        return base.filter(d => discsProf.has(d.id));
-      }
+      const atribsNaTurma = atribuicoesDoProfessor.filter((a: any) => a.turmaId === turmaAtiva.id);
+      if (atribsNaTurma.length === 0) return [];
+      const discsProf = new Set(atribsNaTurma.map((a: any) => a.disciplinaId).filter(Boolean));
+      const nomesProf = new Set(atribsNaTurma.map((a: any) => String(a.disciplinaNome || '').trim().toLowerCase()).filter(Boolean));
+      return base.filter(d => discsProf.has(d.id) || nomesProf.has((d.nome || '').trim().toLowerCase()));
     }
     return base;
   }, [disciplinas, turmaAtiva, isProfessor, atribuicoesDoProfessor]);
@@ -431,43 +429,22 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     }
   }, [isDirecao, currentUser.id, selectedTurmaId, selectedClasse]);
 
-  // Exportar pauta/notas da turma atual para Excel (.xlsx)
+  // Exportar pauta/notas da turma atual para Excel (.xlsx) com fórmulas reais
   const handleExportarNotasExcel = () => {
-    const wb = XLSX.utils.book_new();
-    const dados = alunosDaTurma.map((aluno, i) => {
-      const resMAC = calcularMACEstudante(
-        aluno.id,
-        avaliacoesDaTurma,
-        notas,
-        regraVigente,
-        turmaAtiva?.nivelEnsino || 'ICiclo',
-        turmaAtiva?.classe || '7ª'
-      );
-      const row: Record<string, any> = {
-        'Nº': i + 1,
-        'Nº Processo': aluno.numeroProcesso || aluno.codigoMatricula,
-        'Nome Completo': aluno.nomeCompleto,
-        'Turma': turmaAtiva?.nome || '',
-        'Classe': turmaAtiva?.classe || '',
-        'Disciplina': disciplinaAtiva?.nome || '',
-        'Trimestre': `${selectedTrimestre}º Trimestre`,
-        'Escala': escalaInfo.rotuloEscala,
-      };
-
-      avaliacoesDaTurma.forEach(av => {
-        const notaAluno = notas.find(n => n.avaliacaoId === av.id && n.alunoId === aluno.id);
-        row[av.titulo] = notaAluno ? notaAluno.valorNota : '-';
-      });
-
-      row['MAC Calculada'] = resMAC.macCalculada;
-      row['Status'] = resMAC.statusAprovacao;
-      return row;
+    if (!turmaAtiva) return;
+    exportarPautaTrimestralComFormulasExcel({
+      escola,
+      turma: turmaAtiva,
+      disciplina: disciplinaAtiva,
+      alunos: alunosDaTurma,
+      avaliacoesDaTurma,
+      notasAvaliacoes: notas,
+      notasConsolidadas,
+      trimestre: (Number(selectedTrimestre) || 1) as 1 | 2 | 3,
+      regraVigente,
+      provaProfessorAtiva,
+      anoLectivo: turmaAtiva.anoLectivo || escola.anoLectivoActivo || ''
     });
-
-    const ws = XLSX.utils.json_to_sheet(dados);
-    XLSX.utils.book_append_sheet(wb, ws, 'Notas');
-    const nomeFicheiro = `Notas_${turmaAtiva?.nome || 'Turma'}_${disciplinaAtiva?.sigla || 'Disc'}_${selectedTrimestre}Trimestre.xlsx`;
-    XLSX.writeFile(wb, nomeFicheiro);
   };
 
   // Estados e Funções de Exportação de Pautas em PDF Oficial (MED Angola)
@@ -702,7 +679,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         turmaId: selectedTurmaId,
         disciplinaId: selectedDisciplinaId,
         trimestre: selectedTrimestre as any,
-        anoLectivo: escola.anoLectivoActivo || '2025/2026',
+        anoLectivo: escola.anoLectivoActivo || '',
         mac: retificacaoTipoNota === 'MAC' ? notaFinalValida : 10,
         npp: retificacaoTipoNota === 'NPP' ? notaFinalValida : 10,
         provaTrimestral: retificacaoTipoNota === 'NPP' ? notaFinalValida : 10,
@@ -1100,7 +1077,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
             </div>
             <h3 className="text-base font-bold text-amber-900">Sem Turmas Atribuídas</h3>
             <p className="text-xs text-amber-800 leading-relaxed">
-              Prezado(a) Professor(a) <strong>{currentUser.nomeCompleto}</strong>, ainda não possui turmas ou disciplinas atribuídas ao seu perfil docente para o ano letivo ativo ({escola.anoLectivoActivo || '2025/2026'}). Contacte a Coordenação Pedagógica ou a Direção da Escola para cadastrar as suas atribuições curriculares.
+              Prezado(a) Professor(a) <strong>{currentUser.nomeCompleto}</strong>, ainda não possui turmas ou disciplinas atribuídas ao seu perfil docente para o ano letivo ativo ({escola.anoLectivoActivo || 'Sem Ano Ativo'}). Contacte a Coordenação Pedagógica ou a Direção da Escola para cadastrar as suas atribuições curriculares.
             </p>
           </div>
         ) : (
@@ -2301,6 +2278,17 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   <Download className="h-4 w-4" />
                 )}
                 <span>{isExportingPdf ? 'A Gerar PDF...' : 'Baixar Pauta em PDF Oficial (MED)'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportarNotasExcel}
+                disabled={!turmaAtiva || alunosDaTurma.length === 0}
+                className="px-3.5 py-2 text-xs sm:text-sm font-bold text-emerald-900 bg-emerald-50 border border-emerald-300 rounded-xl hover:bg-emerald-100 inline-flex items-center space-x-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                title="Descarregar pauta oficial em Excel (.xlsx) com fórmulas de médias, percentagens e aprovação"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
+                <span>Baixar Pauta em Excel (.xlsx)</span>
               </button>
 
               <button

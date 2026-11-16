@@ -37,7 +37,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
   modoModal = false
 }) => {
   // Obter turma do aluno
-  const turma = propsTurma || dbService.getTurmas().find(t => t.id === aluno.turmaId);
+  const turma = propsTurma || dbService.getTurmas().find(t => t.id === aluno.turmaId && (t.escolaId === aluno.escolaId || t.escolaId === escola.id));
   const classeNome = aluno.classeId || turma?.classe || 'Não definida';
   const cursoNome = turma?.curso || aluno.curso || 'Ensino Geral';
   const turnoNome = turma?.turno || 'Manhã';
@@ -46,7 +46,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
   // Obter notas consolidadas do aluno
   const todasNotas = propsNotas || dbService.getNotasConsolidadas();
   const notasAluno = todasNotas.filter(n => n.alunoId === aluno.id);
-  const disciplinas = dbService.getDisciplinas();
+  const disciplinas = dbService.getDisciplinas(escola.id);
 
   // Calcular assiduidade e faltas reais
   const faltasTotal = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);

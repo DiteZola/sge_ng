@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Trophy, 
   AlertTriangle, 
@@ -38,6 +38,8 @@ export interface AlunoRankeado {
   turmaNome: string;
   cursoNome: string;
   status: 'Excelente' | 'Bom' | 'Atenção' | 'Crítico';
+  escala?: 10 | 20;
+  notaAprovacao?: number;
 }
 
 export interface ProfessorRankeado {
@@ -57,6 +59,19 @@ export interface DisciplinaRankeada {
   taxaAprovacao: number;
   totalAvaliados: number;
   nivel: string;
+  escala?: 10 | 20;
+  limiarAprovacao?: number;
+}
+
+function isClassePrimariaRanking(classeStr?: string): boolean {
+  const norm = (classeStr || '').trim().toLowerCase();
+  if (!norm) return false;
+  return (
+    norm.includes('inicia') ||
+    ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '1a', '2a', '3a', '4a', '5a', '6a', '1', '2', '3', '4', '5', '6'].some(
+      c => norm === c || norm.startsWith(`${c} `) || norm.startsWith(`${c}ª`)
+    )
+  );
 }
 
 /**
@@ -141,16 +156,29 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   });
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [feedbackExport, setFeedbackExport] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const onRemoteOrStorage = () => setRefreshTick(t => t + 1);
+    window.addEventListener('sge_dados_atualizados_remoto', onRemoteOrStorage);
+    window.addEventListener('storage', onRemoteOrStorage);
+    return () => {
+      window.removeEventListener('sge_dados_atualizados_remoto', onRemoteOrStorage);
+      window.removeEventListener('storage', onRemoteOrStorage);
+    };
+  }, []);
 
   const configSistema = dbService.getConfiguracaoSistema();
   const todosAlunos = propAlunos || dbService.getAlunos();
   const todasTurmas = propTurmas || dbService.getTurmas();
-  const todosCursos = propCursos || dbService.getCursos();
-  const todasDisciplinas = propDisciplinas || dbService.getDisciplinas();
+  const todosCursos = propCursos || dbService.getCursos(escola.id);
+  const todasDisciplinas = propDisciplinas || dbService.getDisciplinas(escola.id);
   const todosFuncionarios = propFuncionarios || dbService.getFuncionarios();
   const todasAtribuicoes = dbService.obterAtribuicoes();
   const todosAssiduidade = dbService.obterAssiduidade();
   const todasNotas = dbService.obterNotasConsolidadas();
+  const todasAvaliacoes = dbService.getAvaliacoes();
+  const todasNotasIndividuais = dbService.getNotas();
 
   const isProfessor = currentUser?.ehProfessor || currentUser?.role === 'Professor';
 
@@ -198,14 +226,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
 
   // Alunos filtrados e com médias
   const alunosComMedia = useMemo(() => {
-    const anoActivo = escola.anoLectivoActivo || '2025/2026';
+    const anoActivo = escola.anoLectivoActivo || '';
     let filtrados = todosAlunos.filter(a => {
-      // Filtrar por escola ativa
-      if (a.escolaId && escola.id && escola.id !== 'todas' && a.escolaId !== escola.id) return false;
+      // Filtrar estritamente por escola ativa
+      if (escola.id && escola.id !== 'todas' && a.escolaId !== escola.id) return false;
 
-      // Filtrar por ano letivo ativo: discentes de anos passados não entram no ranking atual
+      // Filtrar por ano letivo ativo: se houver ano ativo definido, filtrar discentes desse ano
       const anoDoAluno = a.anoLectivo || a.anoMatricula;
-      if (anoDoAluno && anoDoAluno !== anoActivo) return false;
+      if (anoActivo && anoDoAluno && anoDoAluno !== anoActivo) return false;
 
       if (isProfessor && apenasMinhasTurmas) {
         if (turmasDoProfessorIds.length > 0 && !turmasDoProfessorIds.includes(a.turmaId)) return false;
@@ -244,11 +272,16 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       const classeNome = turma?.classe || aluno.classeId || '—';
       const turmaNome = turma?.nome || aluno.turmaId || '—';
       const cursoNome = turma?.curso || aluno.curso || '—';
+      const primario = isClassePrimariaRanking(classeNome);
+      const escala: 10 | 20 = primario ? 10 : 20;
+      const notaAprovacao = primario ? 5.0 : 9.5;
+      const notaExcelencia = primario ? 8.0 : 14.0;
+      const notaCritico = primario ? 3.5 : 7.0;
 
       let status: 'Excelente' | 'Bom' | 'Atenção' | 'Crítico' = 'Bom';
-      if (media >= 15) status = 'Excelente';
-      else if (media >= 10) status = 'Bom';
-      else if (media >= 7) status = 'Atenção';
+      if (media >= notaExcelencia) status = 'Excelente';
+      else if (media >= notaAprovacao) status = 'Bom';
+      else if (media >= notaCritico) status = 'Atenção';
       else status = 'Crítico';
 
       return {
@@ -258,39 +291,59 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         classeNome,
         turmaNome,
         cursoNome,
-        status
+        status,
+        escala,
+        notaAprovacao
       };
     });
-  }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, termoPesquisa, turmasMap, escola.id, escola.anoLectivoActivo, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds]);
+  }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, termoPesquisa, turmasMap, escola.id, escola.anoLectivoActivo, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds, refreshTick]);
 
   // Quadro Geral de Todos os Estudantes Matriculados e Confirmados no Ano Activo
   const todosEstudantesRankeados: AlunoRankeado[] = useMemo(() => {
     const ordenados = [...alunosComMedia].sort((a, b) => {
-      if (b.mediaGeral !== a.mediaGeral) return b.mediaGeral - a.mediaGeral;
+      const normA = a.mediaGeral / (a.escala || 20);
+      const normB = b.mediaGeral / (b.escala || 20);
+      if (normB !== normA) return normB - normA;
       return a.aluno.nomeCompleto.localeCompare(b.aluno.nomeCompleto);
     });
     return ordenados.map((item, idx) => ({ ...item, posicao: idx + 1 }));
   }, [alunosComMedia]);
 
-  // 1. QUADRO DE EXCELÊNCIA (TOP 5 MELHORES ALUNOS)
+  // 1. QUADRO DE EXCELÊNCIA (TOP 5 MELHORES ALUNOS — ESTRITAMENTE APROVADOS)
   const top5Melhores: AlunoRankeado[] = useMemo(() => {
-    const comNotas = alunosComMedia.filter(a => a.mediaGeral > 0);
-    const ordenados = [...comNotas].sort((a, b) => b.mediaGeral - a.mediaGeral);
+    const comNotasPositivas = alunosComMedia.filter(a => a.mediaGeral >= (a.notaAprovacao ?? 9.5));
+    const ordenados = [...comNotasPositivas].sort((a, b) => {
+      const normA = a.mediaGeral / (a.escala || 20);
+      const normB = b.mediaGeral / (b.escala || 20);
+      if (normB !== normA) return normB - normA;
+      return a.aluno.nomeCompleto.localeCompare(b.aluno.nomeCompleto);
+    });
     return ordenados.slice(0, 5).map((item, idx) => ({ ...item, posicao: idx + 1 }));
   }, [alunosComMedia]);
 
-  // 2. ATENÇÃO PEDAGÓGICA (ALUNOS EM RISCO / MENOR RENDIMENTO)
+  // 2. ATENÇÃO PEDAGÓGICA (EXCLUSIVO PARA ALUNOS ABAIXO DA MÉDIA DE APROVAÇÃO — SEM SOBREPOSIÇÃO COM O TOP 5)
   const alunosAtencaoPedagogica: AlunoRankeado[] = useMemo(() => {
-    // Alunos com média lançada e inferior a 10 valores, ou menores médias
-    const comNotas = alunosComMedia.filter(a => a.mediaGeral > 0);
-    const ordenados = [...comNotas].sort((a, b) => a.mediaGeral - b.mediaGeral);
-    // Selecionamos alunos com média menor ou igual a 10, até no máximo 15 alunos para plano de intervenção
-    return ordenados.slice(0, 10).map((item, idx) => ({ ...item, posicao: idx + 1 }));
-  }, [alunosComMedia]);
+    const topIds = new Set(top5Melhores.map(t => t.aluno.id));
+    const emRisco = alunosComMedia.filter(a => {
+      if (topIds.has(a.aluno.id)) return false;
+      const limiar = a.notaAprovacao ?? 9.5;
+      return a.mediaGeral > 0 && a.mediaGeral < limiar;
+    });
+    const ordenados = [...emRisco].sort((a, b) => {
+      const normA = a.mediaGeral / (a.escala || 20);
+      const normB = b.mediaGeral / (b.escala || 20);
+      if (normA !== normB) return normA - normB;
+      return a.aluno.nomeCompleto.localeCompare(b.aluno.nomeCompleto);
+    });
+    return ordenados.slice(0, 15).map((item, idx) => ({ ...item, posicao: idx + 1 }));
+  }, [alunosComMedia, top5Melhores]);
 
-  // 3. RANKING DE PROFESSORES
+  // 3. RANKING DE PROFESSORES (ESCOPO DA ESCOLA ATIVA)
   const rankingProfessores: ProfessorRankeado[] = useMemo(() => {
-    const profs = todosFuncionarios.filter(f => f.ehProfessor || f.cargo?.toLowerCase().includes('prof'));
+    const profs = todosFuncionarios.filter(f => {
+      const belongsSchool = !escola.id || escola.id === 'todas' || f.escolaId === escola.id;
+      return belongsSchool && f.role !== 'AdminGeral' && (f.ehProfessor || f.role === 'Professor' || f.cargo?.toLowerCase().includes('prof'));
+    });
     if (profs.length === 0) return [];
 
     return profs.map(prof => {
@@ -301,8 +354,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         taxaAssiduidade = Number(((presentes / registos.length) * 100).toFixed(1));
       }
 
-      const atribs = todasAtribuicoes.filter(at => at.professorId === prof.id);
-      const disciplinasNomes = Array.from(new Set(atribs.map(at => (at as any).disciplinaNome || at.disciplinaId))).filter(Boolean).slice(0, 3);
+      const atribs = todasAtribuicoes.filter(at => at.professorId === prof.id && (!escola.id || escola.id === 'todas' || at.escolaId === escola.id));
+      const disciplinasNomes = Array.from(new Set(atribs.map(at => (at as any).disciplinaNome || todasDisciplinas.find(d => d.id === at.disciplinaId)?.nome || at.disciplinaId))).filter(Boolean).slice(0, 3);
       const turmasIds = Array.from(new Set(atribs.map(at => at.turmaId)));
 
       const notasTurmas = todasNotas.filter(nc => turmasIds.includes(nc.turmaId));
@@ -328,21 +381,80 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
     })
     .sort((a, b) => b.indiceGlobal - a.indiceGlobal)
     .map((item, idx) => ({ ...item, posicao: idx + 1 }));
-  }, [todosFuncionarios, todosAssiduidade, todasAtribuicoes, todasNotas]);
+  }, [todosFuncionarios, todosAssiduidade, todasAtribuicoes, todasNotas, todasDisciplinas, escola.id, refreshTick]);
 
-  // 4. RANKING DE DISCIPLINAS
+  // 4. RANKING DE DISCIPLINAS (NOTAS CONSOLIDADAS + FALLBACK AVALIAÇÕES MAC DA ESCOLA ATIVA)
   const rankingDisciplinas: DisciplinaRankeada[] = useMemo(() => {
-    if (todasNotas.length === 0) return [];
-    return todasDisciplinas.map(disc => {
-      const notasDisc = todasNotas.filter(n => n.disciplinaId === disc.id);
+    const alunosIdsEscola = new Set(
+      todosAlunos
+        .filter(a => !escola.id || escola.id === 'todas' || a.escolaId === escola.id)
+        .map(a => a.id)
+    );
+    const turmasIdsEscola = new Set(
+      todasTurmas
+        .filter(t => !escola.id || escola.id === 'todas' || t.escolaId === escola.id)
+        .map(t => t.id)
+    );
+    const disciplinasEscola = todasDisciplinas.filter(
+      d => !escola.id || escola.id === 'todas' || d.escolaId === escola.id
+    );
+
+    return disciplinasEscola.map(disc => {
+      const nomeNormDisc = (disc.nome || '').trim().toLowerCase();
+      const primarioDisc = (disc.nivelEnsino || '').toLowerCase().includes('prim');
+      const escala: 10 | 20 = primarioDisc ? 10 : 20;
+      const limiarAprovacao = primarioDisc ? 5.0 : 9.5;
+
+      const notasConsDisc = todasNotas.filter(n => {
+        const pertenceEscola =
+          !escola.id ||
+          escola.id === 'todas' ||
+          (n as any).escolaId === escola.id ||
+          alunosIdsEscola.has(n.alunoId) ||
+          turmasIdsEscola.has(n.turmaId);
+        if (!pertenceEscola) return false;
+        const matchId = n.disciplinaId === disc.id;
+        const matchNome = ((n as any).disciplinaNome || '').trim().toLowerCase() === nomeNormDisc;
+        return matchId || (nomeNormDisc && matchNome);
+      });
+
+      const valores: number[] = [];
+      if (notasConsDisc.length > 0) {
+        notasConsDisc.forEach(n => {
+          const val = n.notaFinal ?? n.mediaTrimestral ?? (n as any).mac;
+          if (typeof val === 'number' && !isNaN(val) && val > 0) {
+            valores.push(val);
+          }
+        });
+      }
+
+      if (valores.length === 0) {
+        const avIdsDisc = new Set(
+          todasAvaliacoes
+            .filter(av => {
+              const pertenceEscola = !escola.id || escola.id === 'todas' || av.escolaId === escola.id;
+              return pertenceEscola && (av.disciplinaId === disc.id || ((av as any).disciplinaNome || '').trim().toLowerCase() === nomeNormDisc);
+            })
+            .map(av => av.id)
+        );
+
+        todasNotasIndividuais.forEach(ni => {
+          if (avIdsDisc.has(ni.avaliacaoId)) {
+            const val = ni.valorNota ?? (ni as any).valor;
+            if (typeof val === 'number' && !isNaN(val) && val > 0) {
+              valores.push(val);
+            }
+          }
+        });
+      }
+
       let mediaGeral = 0;
       let taxaAprovacao = 0;
-
-      if (notasDisc.length > 0) {
-        const soma = notasDisc.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 0), 0);
-        mediaGeral = Number((soma / notasDisc.length).toFixed(1));
-        const positivas = notasDisc.filter(n => (n.notaFinal ?? n.mediaTrimestral ?? 0) >= 10).length;
-        taxaAprovacao = Math.round((positivas / notasDisc.length) * 100);
+      if (valores.length > 0) {
+        const soma = valores.reduce((acc, v) => acc + v, 0);
+        mediaGeral = Number((soma / valores.length).toFixed(1));
+        const positivas = valores.filter(v => v >= limiarAprovacao).length;
+        taxaAprovacao = Math.round((positivas / valores.length) * 100);
       }
 
       return {
@@ -350,17 +462,32 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         posicao: 0,
         mediaGeral,
         taxaAprovacao,
-        totalAvaliados: notasDisc.length,
-        nivel: disc.nivelEnsino || 'Geral'
+        totalAvaliados: valores.length,
+        nivel: disc.nivelEnsino || 'Geral',
+        escala,
+        limiarAprovacao
       };
     })
     .filter(d => d.totalAvaliados > 0)
-    .sort((a, b) => b.mediaGeral - a.mediaGeral)
+    .sort((a, b) => (b.mediaGeral / (b.escala || 20)) - (a.mediaGeral / (a.escala || 20)))
     .map((item, idx) => ({ ...item, posicao: idx + 1 }));
-  }, [todasDisciplinas, todasNotas]);
+  }, [todasDisciplinas, todasNotas, todasAvaliacoes, todasNotasIndividuais, todosAlunos, todasTurmas, escola.id, refreshTick]);
 
-  const topDisciplinas = useMemo(() => rankingDisciplinas.slice(0, 5), [rankingDisciplinas]);
-  const pioresDisciplinas = useMemo(() => [...rankingDisciplinas].reverse().slice(0, 5), [rankingDisciplinas]);
+  const topDisciplinas = useMemo(() => {
+    const positivas = rankingDisciplinas.filter(d => d.mediaGeral >= (d.limiarAprovacao ?? 9.5));
+    return positivas.slice(0, 5);
+  }, [rankingDisciplinas]);
+
+  const pioresDisciplinas = useMemo(() => {
+    const topIds = new Set(topDisciplinas.map(d => d.disciplina.id));
+    const baixasOuRestantes = rankingDisciplinas.filter(d => {
+      const abaixo = d.mediaGeral < (d.limiarAprovacao ?? 9.5);
+      return abaixo || !topIds.has(d.disciplina.id);
+    });
+    return [...baixasOuRestantes]
+      .sort((a, b) => (a.mediaGeral / (a.escala || 20)) - (b.mediaGeral / (b.escala || 20)))
+      .slice(0, 5);
+  }, [rankingDisciplinas, topDisciplinas]);
 
   // ID exclusivo do container atual para garantia de separação total
   const containerIdAtual = useMemo(() => {
@@ -425,17 +552,20 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       }));
       downloadExcelFile('Quadro_Excelencia_Top5', linhas, `Quadro_Honra_Top5_${escola.sigla || 'MED'}_${anoLimpo}.xlsx`);
     } else if (rankingTab === 'risco') {
-      const linhas = alunosAtencaoPedagogica.map(item => ({
-        'Prioridade': item.posicao,
-        'N.º Processo': item.aluno.numeroProcesso || item.aluno.codigoMatricula,
-        'Nome do Estudante': item.aluno.nomeCompleto,
-        'Classe': item.classeNome,
-        'Turma': item.turmaNome,
-        'Curso': item.cursoNome,
-        'Média Geral': item.mediaGeral,
-        'Diagnóstico': item.mediaGeral < 7 ? 'Crítico (Intervenção Imediata)' : 'Atenção Pedagógica (Recuperação)',
-        'Contacto Encarregado': item.aluno.telefoneEncarregado || item.aluno.telefone || '—'
-      }));
+      const linhas = alunosAtencaoPedagogica.map(item => {
+        const limiarCrit = (item.escala || 20) === 10 ? 3.5 : 7;
+        return {
+          'Prioridade': item.posicao,
+          'N.º Processo': item.aluno.numeroProcesso || item.aluno.codigoMatricula,
+          'Nome do Estudante': item.aluno.nomeCompleto,
+          'Classe': item.classeNome,
+          'Turma': item.turmaNome,
+          'Curso': item.cursoNome,
+          'Média Geral': item.mediaGeral,
+          'Diagnóstico': item.mediaGeral < limiarCrit ? 'Crítico (Intervenção Imediata)' : 'Atenção Pedagógica (Recuperação)',
+          'Contacto Encarregado': item.aluno.telefoneEncarregado || item.aluno.telefone || '—'
+        };
+      });
       downloadExcelFile('Atencao_Pedagogica', linhas, `Intervencao_Pedagogica_Risco_${escola.sigla || 'MED'}_${anoLimpo}.xlsx`);
     } else if (rankingTab === 'todos') {
       const linhas = todosEstudantesRankeados.map(item => ({
@@ -772,7 +902,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
               {rankingTab === 'disciplinas' && 'MAPA COMPARATIVO DE RENDIMENTO POR DISCIPLINA'}
             </h3>
             <p className="text-[10px] sm:text-[11px] font-bold text-blue-800">
-              Ano Lectivo: {escola.anoLectivoActivo || '2025/2026'} • Âmbito: {filtroDescricao}
+              Ano Lectivo: {escola.anoLectivoActivo || '—'} • Âmbito: {filtroDescricao}
             </p>
           </div>
         </div>
@@ -932,8 +1062,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                         <td className="py-2.5 px-4 text-right">
                           {item.mediaGeral > 0 ? (
                             <span className={`inline-block px-2.5 py-1 rounded-lg font-black text-xs ${
-                              item.mediaGeral >= 14 ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
-                              item.mediaGeral >= 10 ? 'bg-blue-100 text-blue-900 border border-blue-300' :
+                              item.mediaGeral >= ((item.escala || 20) === 10 ? 8 : 14) ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                              item.mediaGeral >= (item.notaAprovacao ?? 9.5) ? 'bg-blue-100 text-blue-900 border border-blue-300' :
                               'bg-rose-100 text-rose-900 border border-rose-300'
                             }`}>
                               {item.mediaGeral.toFixed(1)} val
@@ -946,13 +1076,13 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            item.mediaGeral >= 14 ? 'bg-amber-100 text-amber-900 border border-amber-300' :
-                            item.mediaGeral >= 10 ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
+                            item.mediaGeral >= ((item.escala || 20) === 10 ? 8 : 14) ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                            item.mediaGeral >= (item.notaAprovacao ?? 9.5) ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' :
                             item.mediaGeral > 0 ? 'bg-rose-100 text-rose-900 border border-rose-300' :
                             'bg-slate-100 text-slate-700 border border-slate-300'
                           }`}>
-                            {item.mediaGeral >= 14 ? 'Quadro de Honra' :
-                             item.mediaGeral >= 10 ? 'Aproveitamento Positivo' :
+                            {item.mediaGeral >= ((item.escala || 20) === 10 ? 8 : 14) ? 'Quadro de Honra' :
+                             item.mediaGeral >= (item.notaAprovacao ?? 9.5) ? 'Aproveitamento Positivo' :
                              item.mediaGeral > 0 ? 'Atenção Pedagógica' :
                              'Matriculado / Activo'}
                           </span>
@@ -1038,9 +1168,9 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            item.mediaGeral < 7 ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            item.mediaGeral < ((item.escala || 20) === 10 ? 3.5 : 7) ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-amber-100 text-amber-800 border border-amber-300'
                           }`}>
-                            {item.mediaGeral < 7 ? 'Apoio Tutelar Urgente' : 'Reforço nas Avaliações'}
+                            {item.mediaGeral < ((item.escala || 20) === 10 ? 3.5 : 7) ? 'Apoio Tutelar Urgente' : 'Reforço nas Avaliações'}
                           </span>
                         </td>
                       </tr>
@@ -1129,47 +1259,53 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                 </h4>
               </div>
 
-              <div className="overflow-x-auto border border-slate-300 rounded-xl">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-emerald-50 border-b border-emerald-200 text-emerald-950 font-black text-[11px] uppercase tracking-wider">
-                      <th className="py-2.5 px-3 text-center w-12">N.º</th>
-                      <th className="py-2.5 px-4">Disciplina</th>
-                      <th className="py-2.5 px-4 text-center">Ciclo / Nível</th>
-                      <th className="py-2.5 px-4 text-center">Taxa de Aproveitamento</th>
-                      <th className="py-2.5 px-4 text-right">Média Geral</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {topDisciplinas.map((item) => (
-                      <tr key={item.disciplina.id} className="hover:bg-emerald-50/30 transition-colors">
-                        <td className="py-2.5 px-3 text-center font-black">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-black shadow-2xs">
-                            {item.posicao}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 font-bold text-slate-900">
-                          {item.disciplina.nome}
-                          <span className="ml-2 text-[10px] text-slate-500 font-normal">({item.disciplina.sigla || 'DISC'})</span>
-                        </td>
-                        <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
-                          {item.nivel}
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-full font-bold text-[11px]">
-                            {item.taxaAprovacao}% Aprovados
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-right">
-                          <span className="inline-block px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-black text-sm shadow-2xs">
-                            {item.mediaGeral.toFixed(1)} val
-                          </span>
-                        </td>
+              {topDisciplinas.length === 0 ? (
+                <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500 font-medium">
+                  Ainda não existem disciplinas com média positiva lançada nesta escola.
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-300 rounded-xl">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-emerald-50 border-b border-emerald-200 text-emerald-950 font-black text-[11px] uppercase tracking-wider">
+                        <th className="py-2.5 px-3 text-center w-12">N.º</th>
+                        <th className="py-2.5 px-4">Disciplina</th>
+                        <th className="py-2.5 px-4 text-center">Ciclo / Nível</th>
+                        <th className="py-2.5 px-4 text-center">Taxa de Aproveitamento</th>
+                        <th className="py-2.5 px-4 text-right">Média Geral</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {topDisciplinas.map((item, idx) => (
+                        <tr key={item.disciplina.id} className="hover:bg-emerald-50/30 transition-colors">
+                          <td className="py-2.5 px-3 text-center font-black">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-black shadow-2xs">
+                              {idx + 1}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 font-bold text-slate-900">
+                            {item.disciplina.nome}
+                            <span className="ml-2 text-[10px] text-slate-500 font-normal">({item.disciplina.sigla || 'DISC'})</span>
+                          </td>
+                          <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
+                            {item.nivel}
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-full font-bold text-[11px]">
+                              {item.taxaAprovacao}% Aprovados
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            <span className="inline-block px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-black text-sm shadow-2xs">
+                              {item.mediaGeral.toFixed(1)} val
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3 pt-2">
@@ -1180,47 +1316,53 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                 </h4>
               </div>
 
-              <div className="overflow-x-auto border border-slate-300 rounded-xl">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-rose-50 border-b border-rose-200 text-rose-950 font-black text-[11px] uppercase tracking-wider">
-                      <th className="py-2.5 px-3 text-center w-12">N.º</th>
-                      <th className="py-2.5 px-4">Disciplina</th>
-                      <th className="py-2.5 px-4 text-center">Ciclo / Nível</th>
-                      <th className="py-2.5 px-4 text-center">Taxa de Aproveitamento</th>
-                      <th className="py-2.5 px-4 text-right">Média Geral</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {pioresDisciplinas.map((item, idx) => (
-                      <tr key={item.disciplina.id} className="hover:bg-rose-50/30 transition-colors">
-                        <td className="py-2.5 px-3 text-center font-black">
-                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white text-xs font-black shadow-2xs">
-                            {idx + 1}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 font-bold text-slate-900">
-                          {item.disciplina.nome}
-                          <span className="ml-2 text-[10px] text-slate-500 font-normal">({item.disciplina.sigla || 'DISC'})</span>
-                        </td>
-                        <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
-                          {item.nivel}
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <span className="px-2 py-0.5 bg-rose-100 text-rose-900 border border-rose-300 rounded-full font-bold text-[11px]">
-                            {item.taxaAprovacao}% Aprovados
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-right">
-                          <span className="inline-block px-2.5 py-1 bg-rose-600 text-white rounded-lg font-black text-sm shadow-2xs">
-                            {item.mediaGeral.toFixed(1)} val
-                          </span>
-                        </td>
+              {pioresDisciplinas.length === 0 ? (
+                <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500 font-medium">
+                  Sem disciplinas em situação de insuficiência ou atenção pedagógica.
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-300 rounded-xl">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-rose-50 border-b border-rose-200 text-rose-950 font-black text-[11px] uppercase tracking-wider">
+                        <th className="py-2.5 px-3 text-center w-12">N.º</th>
+                        <th className="py-2.5 px-4">Disciplina</th>
+                        <th className="py-2.5 px-4 text-center">Ciclo / Nível</th>
+                        <th className="py-2.5 px-4 text-center">Taxa de Aproveitamento</th>
+                        <th className="py-2.5 px-4 text-right">Média Geral</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {pioresDisciplinas.map((item, idx) => (
+                        <tr key={item.disciplina.id} className="hover:bg-rose-50/30 transition-colors">
+                          <td className="py-2.5 px-3 text-center font-black">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white text-xs font-black shadow-2xs">
+                              {idx + 1}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 font-bold text-slate-900">
+                            {item.disciplina.nome}
+                            <span className="ml-2 text-[10px] text-slate-500 font-normal">({item.disciplina.sigla || 'DISC'})</span>
+                          </td>
+                          <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
+                            {item.nivel}
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            <span className="px-2 py-0.5 bg-rose-100 text-rose-900 border border-rose-300 rounded-full font-bold text-[11px]">
+                              {item.taxaAprovacao}% Aprovados
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            <span className="inline-block px-2.5 py-1 bg-rose-600 text-white rounded-lg font-black text-sm shadow-2xs">
+                              {item.mediaGeral.toFixed(1)} val
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}

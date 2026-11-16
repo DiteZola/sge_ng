@@ -284,6 +284,7 @@ export interface Turma {
 
 export interface Disciplina {
   id: string;
+  escolaId?: string;
   nome: string;
   sigla: string;
   codigo?: string;
@@ -1090,7 +1091,8 @@ export interface PeriodoTrimestre {
 }
 
 export interface AnoLectivoConfig {
-  id: string; // ex: "ano-2025-2026"
+  id: string; // ex: "ano-esc-123-2025-2026"
+  escolaId?: string;
   rotulo: string; // "2025/2026"
   ano?: string;
   dataInicio: string;
@@ -1103,6 +1105,7 @@ export interface AnoLectivoConfig {
 
 export interface TurnoConfig {
   id: string;
+  escolaId?: string;
   nome: 'Manhã' | 'Tarde' | 'Noite' | string;
   horaInicio: string; // ex: "07:30"
   horaFim: string; // ex: "12:30"
@@ -1115,6 +1118,7 @@ export interface TurnoConfig {
 
 export interface ClasseConfig {
   id: string;
+  escolaId?: string;
   nome: string;
   ciclo?: string;
   regimeAvaliacao?: string;
@@ -1126,6 +1130,7 @@ export interface ClasseConfig {
 
 export interface CursoConfig {
   id: string;
+  escolaId?: string;
   nome: string;
   codigo?: string;
   area: string;
@@ -1136,6 +1141,7 @@ export interface CursoConfig {
 
 export interface ClasseEscolar {
   id: string;
+  escolaId?: string;
   nome: string; // "Iniciação", "1ª", "2ª", ..., "13ª"
   nivelEnsino?: NivelEnsino;
   descricao?: string;
@@ -1171,9 +1177,10 @@ export interface SolicitacaoApoioTecnico {
     | string;
   prioridade?: 'Baixa' | 'Média' | 'Media' | 'Alta' | 'Urgente' | 'Critica' | string;
   urgencia?: 'Baixa' | 'Média' | 'Media' | 'Alta' | 'Urgente' | 'Critica' | string;
-  estado?: 'Pendente' | 'Em_Atendimento' | 'Resolvido' | 'Concluido' | string;
-  status?: 'Pendente' | 'Em_Atendimento' | 'Resolvido' | 'Concluido' | string;
+  estado?: 'Pendente' | 'Aberto' | 'Em_Atendimento' | 'Resolvido' | 'Concluido' | 'Recusado' | string;
+  status?: 'Pendente' | 'Aberto' | 'Em_Atendimento' | 'Resolvido' | 'Concluido' | 'Recusado' | string;
   dataSolicitacao: string;
+  atualizadoEm?: string;
   respostaTecnica?: string;
   atendidoPorAdminNome?: string;
   dataResolucao?: string;

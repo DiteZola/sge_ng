@@ -306,7 +306,7 @@ export async function downloadElementAsPdf(
     return false;
   }
 
-  const cleanFilename = filename.replace(/\.pdf$/i, '').trim() || 'Documento_SGE_MED';
+  const cleanFilename = filename.replace(/\.pdf$/i, '').trim() || 'Documento_Oficial_MED';
   const scale = options.scale || 2.3;
   const geom = resolvePdfPageGeometry(options);
   const { format, orientation, margins, printableWidthMm, printableHeightMm } = geom;
@@ -418,9 +418,18 @@ export async function downloadElementAsPdf(
           clonedDoc.body.style.overflow = 'visible';
           clonedDoc.body.style.backgroundColor = '#ffffff';
 
-          // 4. Localizar exatamente o elemento marcado antes do clone
+          // 4. Localizar exatamente o elemento marcado antes do clone e impedir que ancestral .no-print o esconda
           const targetEl = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
           if (targetEl) {
+            let ancestor: HTMLElement | null = targetEl;
+            while (ancestor && ancestor !== clonedDoc.body && ancestor !== clonedDoc.documentElement) {
+              ancestor.classList.remove('no-print');
+              if (ancestor.style.display === 'none') {
+                ancestor.style.display = 'block';
+              }
+              ancestor.style.visibility = 'visible';
+              ancestor = ancestor.parentElement;
+            }
             targetEl.style.width = `${captureWidthPx}px`;
             targetEl.style.minWidth = `${captureWidthPx}px`;
             targetEl.style.maxWidth = `${captureWidthPx}px`;

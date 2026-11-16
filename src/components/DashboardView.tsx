@@ -127,6 +127,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Modal / Input de Desbloqueio Rápido de Credenciais
   const [identificadorDesbloqueioRapido, setIdentificadorDesbloqueioRapido] = useState('');
   const [statusBanco, setStatusBanco] = useState(() => dbService.verificarIntegridadeBanco());
+  const [syncTick, setSyncTick] = useState(0);
+
+  useEffect(() => {
+    const refreshLiveData = () => setSyncTick(t => t + 1);
+    window.addEventListener('sge_dados_atualizados_remoto', refreshLiveData);
+    window.addEventListener('storage', refreshLiveData);
+    window.addEventListener('sge_presencas_atualizadas', refreshLiveData);
+    return () => {
+      window.removeEventListener('sge_dados_atualizados_remoto', refreshLiveData);
+      window.removeEventListener('storage', refreshLiveData);
+      window.removeEventListener('sge_presencas_atualizadas', refreshLiveData);
+    };
+  }, []);
 
   // Monitorização em tempo real de falhas de login pelo securityEngine (Exclusivo Admin Geral)
   const [alertasSeguranca, setAlertasSeguranca] = useState<AlertaSegurancaVisual[]>(() => {
@@ -178,7 +191,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleAbrirModalSenhaDiretor = (esc: Escola) => {
-    const diretor = todosFuncionarios.find(f => f.id === esc.diretorGeralId || (f.escolaId === esc.id && f.role === 'DiretorGeral'));
+    const diretor = dbService.encontrarDiretorDaEscola(esc, todosFuncionarios);
     if (diretor) {
       setDiretorSelecionado(diretor);
       setEscolaDoDiretor(esc);
@@ -238,15 +251,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const isCoordenadorTurno = role === 'CoordenadorTurno';
   const isEncarregado = role === 'Encarregado';
 
-  // Métricas do Painel do Aluno e Rendimento (100% Reais com base nas pautas lançadas)
+  const isClassePrimariaDash = (classeStr?: string): boolean => {
+    const norm = (classeStr || '').trim().toLowerCase();
+    return norm.includes('inicia') || ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '1a', '2a', '3a', '4a', '5a', '6a', '1', '2', '3', '4', '5', '6'].includes(norm);
+  };
+
+  // Métricas do Painel do Aluno e Rendimento (100% Reais com base nas pautas lançadas + avaliações contínuas + assiduidade)
   const alunosComNota = useMemo(() => {
+    const presencasAlunos = dbService.obterPresencasAlunos();
+    const notasIndividuais = dbService.getNotas();
+    const avaliacoes = dbService.getAvaliacoes();
+    const avEscolaIds = new Set(
+      avaliacoes.filter(av => av.escolaId === escola.id).map(av => av.id)
+    );
+
     return alunos
       .map(aluno => {
         const notasDoAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id);
-        if (notasDoAluno.length === 0) return null;
-        const mediaGeral = notasDoAluno.reduce((acc, curr) => acc + curr.mediaTrimestral, 0) / notasDoAluno.length;
-        const faltasTotal = notasDoAluno.reduce((acc, curr) => acc + curr.faltas, 0);
-        const escala = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'].includes(aluno.classeId) ? 10 : 20;
+        let mediaGeral = 0;
+        let faltasNotas = 0;
+
+        if (notasDoAluno.length > 0) {
+          const validas = notasDoAluno
+            .map(n => n.notaFinal ?? n.mediaTrimestral ?? (n as any).mac ?? 0)
+            .filter(v => typeof v === 'number' && v > 0);
+          if (validas.length === 0) return null;
+          mediaGeral = validas.reduce((acc, v) => acc + v, 0) / validas.length;
+          faltasNotas = notasDoAluno.reduce((acc, curr) => acc + (curr.faltas || 0), 0);
+        } else {
+          const macAluno = notasIndividuais
+            .filter(ni => ni.alunoId === aluno.id && avEscolaIds.has(ni.avaliacaoId))
+            .map(ni => ni.valorNota ?? (ni as any).valor ?? 0)
+            .filter(v => typeof v === 'number' && v > 0);
+          if (macAluno.length === 0) return null;
+          mediaGeral = macAluno.reduce((acc, v) => acc + v, 0) / macAluno.length;
+        }
+
+        const faltasFolha = presencasAlunos.filter(
+          p => p.alunoId === aluno.id && (p.estado === 'Falta_Injustificada' || p.estado === 'Falta_Justificada')
+        ).length;
+        const faltasTotal = Math.max(faltasNotas, faltasFolha);
+
+        const turmaAluno = turmas.find(t => t.id === aluno.turmaId);
+        const classeEfetiva = turmaAluno?.classe || aluno.classeId || '';
+        const escala = isClassePrimariaDash(classeEfetiva) ? 10 : 20;
         const isAprovado = escala === 10 ? mediaGeral >= 5.0 : mediaGeral >= 9.5;
 
         return {
@@ -258,17 +306,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         };
       })
       .filter((a): a is NonNullable<typeof a> => a !== null);
-  }, [alunos, notasConsolidadas]);
+  }, [alunos, notasConsolidadas, turmas, escola.id, syncTick]);
 
+  // Quadro de Honra: estritamente alunos APROVADOS e com < 3 faltas
   const melhoresAlunos = useMemo(() => {
-    return [...alunosComNota].sort((a, b) => {
-      return (b.media / b.escala) - (a.media / a.escala);
-    }).slice(0, 5);
+    return [...alunosComNota]
+      .filter(a => a.isAprovado && a.faltas < 3)
+      .sort((a, b) => (b.media / b.escala) - (a.media / a.escala))
+      .slice(0, 5);
   }, [alunosComNota]);
 
+  // Atenção Especial: estritamente abaixo da média ou >= 3 faltas, SEM sobreposição ao Quadro de Honra
   const alunosEmRisco = useMemo(() => {
-    return alunosComNota.filter(a => a.faltas >= 3 || !a.isAprovado);
-  }, [alunosComNota]);
+    const melhoresIds = new Set(melhoresAlunos.map(m => m.aluno.id));
+    return alunosComNota
+      .filter(a => !melhoresIds.has(a.aluno.id) && (a.faltas >= 3 || !a.isAprovado))
+      .sort((a, b) => (a.media / a.escala) - (b.media / b.escala));
+  }, [alunosComNota, melhoresAlunos]);
 
   const taxaAprovacaoEscola = useMemo(() => {
     return alunosComNota.length > 0
@@ -432,7 +486,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [todosAlunos, todasTurmas]);
 
   // Professores da Escola Ativa
-  const professoresEscola = funcionarios.filter(f => f.ehProfessor);
+  const professoresEscola = funcionarios.filter(
+    f => f.escolaId === escola.id && (f.ehProfessor || f.role === 'Professor')
+  );
 
   // Estados para Modal de Utilizadores Online e Histórico 24h
   const [modalUsuariosOnlineOpen, setModalUsuariosOnlineOpen] = useState(false);
@@ -451,67 +507,162 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       : dbService.getUsuariosUltimas24Horas(escola.id);
   }, [isAdminGeral, escola.id]);
 
-  // Gráfico 1: Performance Académica por Disciplina Chave (Recharts)
+  // Gráfico 1: Performance Académica por Disciplina Chave (Recharts + Melhores & Piores Disciplinas)
   const dadosDesempenhoDisciplinas = useMemo(() => {
-    const notasEscola = notasConsolidadas.filter(n => (n as any).escolaId === escola.id || !(n as any).escolaId);
-    const disciplinas = dbService.getDisciplinas();
-    const map: Record<string, { totalNotas: number; soma: number; positivas: number; negativas: number }> = {};
-    
+    const alunosIdsEscola = new Set(alunos.map(a => a.id));
+    const turmasIdsEscola = new Set(turmas.map(t => t.id));
+    const notasEscola = notasConsolidadas.filter(
+      n => (n as any).escolaId === escola.id || alunosIdsEscola.has(n.alunoId) || turmasIdsEscola.has(n.turmaId)
+    );
+    const disciplinas = dbService.getDisciplinas(escola.id);
+    const avaliacoesEscola = dbService.getAvaliacoes().filter(av => av.escolaId === escola.id);
+    const notasIndividuais = dbService.getNotas();
+
+    const map: Record<string, { disciplinaId: string; totalNotas: number; soma: number; positivas: number; negativas: number; escala: number; limiar: number }> = {};
+
+    const registarNotaDisciplina = (discId: string, discNome: string, val: number, turmaIdRef?: string, alunoIdRef?: string) => {
+      if (typeof val !== 'number' || isNaN(val) || val <= 0) return;
+      const discObj = disciplinas.find(d => d.id === discId || (d.nome || '').trim().toLowerCase() === discNome.trim().toLowerCase());
+      const nome = discObj?.nome || discNome || 'Geral';
+      const turmaRef = turmas.find(t => t.id === turmaIdRef) || turmas.find(t => t.id === alunos.find(a => a.id === alunoIdRef)?.turmaId);
+      const primario = isClassePrimariaDash(turmaRef?.classe) || (discObj?.nivelEnsino || '').toLowerCase().includes('prim');
+      const escala = primario ? 10 : 20;
+      const limiar = primario ? 5.0 : 9.5;
+
+      if (!map[nome]) {
+        map[nome] = { disciplinaId: discObj?.id || discId || nome, totalNotas: 0, soma: 0, positivas: 0, negativas: 0, escala, limiar };
+      }
+      map[nome].totalNotas++;
+      map[nome].soma += val;
+      if (val >= map[nome].limiar) map[nome].positivas++;
+      else map[nome].negativas++;
+    };
+
     notasEscola.forEach(n => {
       const discNome = (n as any).disciplinaNome || disciplinas.find(d => d.id === n.disciplinaId)?.nome || 'Geral';
-      if (!map[discNome]) {
-        map[discNome] = { totalNotas: 0, soma: 0, positivas: 0, negativas: 0 };
-      }
-      const val = n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0;
-      map[discNome].totalNotas++;
-      map[discNome].soma += val;
-      if (val >= 10) map[discNome].positivas++;
-      else map[discNome].negativas++;
+      const val = n.notaFinal ?? n.mediaTrimestral ?? (n as any).mac ?? 0;
+      registarNotaDisciplina(n.disciplinaId, discNome, val, n.turmaId, n.alunoId);
+    });
+
+    // Fallback para avaliações contínuas (MAC/NPP/NPT) em disciplinas ainda sem pauta trimestral consolidada
+    avaliacoesEscola.forEach(av => {
+      const discNome = (av as any).disciplinaNome || disciplinas.find(d => d.id === av.disciplinaId)?.nome || '';
+      if (!discNome) return;
+      if (map[discNome] && map[discNome].totalNotas > 0) return;
+      const notasAv = notasIndividuais.filter(ni => ni.avaliacaoId === av.id);
+      notasAv.forEach(ni => {
+        const val = ni.valorNota ?? (ni as any).valor ?? 0;
+        registarNotaDisciplina(av.disciplinaId, discNome, val, av.turmaId, ni.alunoId);
+      });
     });
 
     const entries = Object.entries(map).map(([disciplina, d]) => ({
+      disciplinaId: d.disciplinaId,
       disciplina: disciplina.length > 13 ? disciplina.slice(0, 11) + '..' : disciplina,
       nomeCompleto: disciplina,
       media: Number((d.soma / (d.totalNotas || 1)).toFixed(1)),
       positivas: d.positivas,
       negativas: d.negativas,
+      totalNotas: d.totalNotas,
+      escala: d.escala,
+      limiar: d.limiar,
       taxaAprovacao: Number(((d.positivas / (d.totalNotas || 1)) * 100).toFixed(0))
     }));
 
-    if (entries.length === 0) {
-      return [];
-    }
-    return entries.slice(0, 8);
-  }, [notasConsolidadas, escola.id]);
+    return entries.sort((a, b) => (b.media / b.escala) - (a.media / a.escala));
+  }, [notasConsolidadas, escola.id, alunos, turmas, syncTick]);
 
-  // Gráfico 2: Assiduidade Escolar por Turma / Período (Recharts)
-  const dadosAssiduidade = useMemo(() => {
-    const presencas = (dbService as any).getPresencas ? (dbService as any).getPresencas(escola.id) : [];
-    if (presencas.length > 0) {
-      const turmasMap: Record<string, { presentes: number; justificadas: number; injustificadas: number }> = {};
-      presencas.forEach((p: any) => {
-        const tNome = turmas.find(t => t.id === p.turmaId)?.nome || 'Turma';
-        if (!turmasMap[tNome]) turmasMap[tNome] = { presentes: 0, justificadas: 0, injustificadas: 0 };
-        if (p.estado === 'Presente') turmasMap[tNome].presentes++;
-        else if (p.estado === 'Falta_Justificada') turmasMap[tNome].justificadas++;
-        else turmasMap[tNome].injustificadas++;
-      });
-      return Object.entries(turmasMap).map(([turma, d]) => {
-        const total = d.presentes + d.justificadas + d.injustificadas || 1;
-        return {
-          turma: turma.length > 12 ? turma.slice(0, 10) + '..' : turma,
-          nomeCompleto: turma,
-          Presenças: Number(((d.presentes / total) * 100).toFixed(1)),
-          Justificadas: Number(((d.justificadas / total) * 100).toFixed(1)),
-          Injustificadas: Number(((d.injustificadas / total) * 100).toFixed(1)),
-          totalPresentes: d.presentes,
-          totalFaltas: d.justificadas + d.injustificadas
-        };
-      });
-    }
+  const melhoresDisciplinasDashboard = useMemo(() => {
+    return dadosDesempenhoDisciplinas.filter(d => d.media >= d.limiar).slice(0, 5);
+  }, [dadosDesempenhoDisciplinas]);
 
-    return [];
-  }, [escola.id, turmas]);
+  const pioresDisciplinasDashboard = useMemo(() => {
+    const melhoresNomes = new Set(melhoresDisciplinasDashboard.map(m => m.nomeCompleto));
+    return dadosDesempenhoDisciplinas
+      .filter(d => d.media < d.limiar || !melhoresNomes.has(d.nomeCompleto))
+      .sort((a, b) => (a.media / a.escala) - (b.media / b.escala))
+      .slice(0, 5);
+  }, [dadosDesempenhoDisciplinas, melhoresDisciplinasDashboard]);
+
+  // Gráfico 2 e Resumo Real: Assiduidade Escolar dos Alunos por Turma / Dia (dbService.obterPresencasAlunos)
+  const { dadosAssiduidade, resumoAssiduidadeAlunos } = useMemo(() => {
+    const todasPresencasAlunos = dbService.obterPresencasAlunos();
+    const turmasIdsSet = new Set(turmas.map(t => t.id));
+    const alunosIdsSet = new Set(alunos.map(a => a.id));
+
+    const presencasEscola = todasPresencasAlunos.filter(
+      p => p.escolaId === escola.id || turmasIdsSet.has(p.turmaId) || alunosIdsSet.has(p.alunoId)
+    );
+
+    const hojeIso = new Date().toISOString().split('T')[0];
+    let presentesTotal = 0;
+    let justificadasTotal = 0;
+    let injustificadasTotal = 0;
+    let presentesHoje = 0;
+    let faltasHoje = 0;
+    const turmasHojeSet = new Set<string>();
+
+    const turmasGroup: Record<string, { presentes: number; justificadas: number; injustificadas: number }> = {};
+
+    presencasEscola.forEach(p => {
+      const tNome = turmas.find(t => t.id === p.turmaId)?.nome || p.turmaId || 'Turma';
+      if (!turmasGroup[tNome]) turmasGroup[tNome] = { presentes: 0, justificadas: 0, injustificadas: 0 };
+
+      if (p.estado === 'Presente') {
+        turmasGroup[tNome].presentes++;
+        presentesTotal++;
+        if (p.data === hojeIso) presentesHoje++;
+      } else if (p.estado === 'Falta_Justificada') {
+        turmasGroup[tNome].justificadas++;
+        justificadasTotal++;
+        if (p.data === hojeIso) faltasHoje++;
+      } else {
+        turmasGroup[tNome].injustificadas++;
+        injustificadasTotal++;
+        if (p.data === hojeIso) faltasHoje++;
+      }
+
+      if (p.data === hojeIso && p.turmaId) {
+        turmasHojeSet.add(p.turmaId);
+      }
+    });
+
+    const totalRegistos = presencasEscola.length;
+    const registosHoje = presentesHoje + faltasHoje;
+    const taxaPresencaGeral = totalRegistos > 0 ? Number(((presentesTotal / totalRegistos) * 100).toFixed(1)) : 0;
+    const pctJustificadasGeral = totalRegistos > 0 ? Number(((justificadasTotal / totalRegistos) * 100).toFixed(1)) : 0;
+    const pctInjustificadasGeral = totalRegistos > 0 ? Number(((injustificadasTotal / totalRegistos) * 100).toFixed(1)) : 0;
+
+    const dadosGrafico = Object.entries(turmasGroup).map(([turma, d]) => {
+      const total = d.presentes + d.justificadas + d.injustificadas || 1;
+      return {
+        turma: turma.length > 12 ? turma.slice(0, 10) + '..' : turma,
+        nomeCompleto: turma,
+        Presenças: Number(((d.presentes / total) * 100).toFixed(1)),
+        Justificadas: Number(((d.justificadas / total) * 100).toFixed(1)),
+        Injustificadas: Number(((d.injustificadas / total) * 100).toFixed(1)),
+        totalPresentes: d.presentes,
+        totalFaltas: d.justificadas + d.injustificadas
+      };
+    });
+
+    return {
+      dadosAssiduidade: dadosGrafico,
+      resumoAssiduidadeAlunos: {
+        totalRegistos,
+        presentesTotal,
+        justificadasTotal,
+        injustificadasTotal,
+        presentesHoje,
+        faltasHoje,
+        registosHoje,
+        taxaPresencaGeral,
+        pctJustificadasGeral,
+        pctInjustificadasGeral,
+        turmasComChamadaHoje: turmasHojeSet.size
+      }
+    };
+  }, [escola.id, turmas, alunos, syncTick]);
 
   // Gráficos do Administrador Geral (Nacional)
   const dadosEscolasPorProvincia = useMemo(() => {
@@ -538,15 +689,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const dadosApoioTecnicoStatus = useMemo(() => {
     const solicitacoes = dbService.getSolicitacoesApoioTecnico();
-    const abertos = solicitacoes.filter(s => s.estado === 'Aberto').length;
-    const emAtendimento = solicitacoes.filter(s => s.estado === 'Em_Atendimento').length;
-    const concluidos = solicitacoes.filter(s => s.estado === 'Concluido').length;
+    const abertos = solicitacoes.filter(s => {
+      const st = String(s.status || s.estado || '').toLowerCase();
+      return st === 'aberto' || st === 'pendente';
+    }).length;
+    const emAtendimento = solicitacoes.filter(s => {
+      const st = String(s.status || s.estado || '').toLowerCase();
+      return st === 'em_atendimento' || st === 'em atendimento';
+    }).length;
+    const concluidos = solicitacoes.filter(s => {
+      const st = String(s.status || s.estado || '').toLowerCase();
+      return st === 'concluido' || st === 'concluído' || st === 'resolvido' || st === 'encerrado';
+    }).length;
     return [
       { name: 'Abertos', value: abertos, color: '#ef4444' },
       { name: 'Em Atendimento', value: emAtendimento, color: '#f59e0b' },
       { name: 'Concluídos', value: concluidos, color: '#10b981' }
     ];
-  }, []);
+  }, [syncTick]);
 
   // Atribuições do Professor Logado
   const minhasAtribuicoes = atribuicoes.filter(a => a.professorId === currentUser.id);
@@ -607,7 +767,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const notas = notasDestaClasse.filter(n => n.alunoId === a.id);
         if (notas.length === 0) return false;
         const med = notas.reduce((acc, curr) => acc + (curr.mediaTrimestral || 0), 0) / notas.length;
-        return med >= 9.5;
+        return isClassePrimariaDash(cls) ? med >= 5.0 : med >= 9.5;
       }).length;
       
       const reprovados = avaliados - aprovados;
@@ -692,7 +852,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const notas = notasConsolidadas.filter(n => n.alunoId === a.id);
       if (notas.length === 0) return false;
       const med = notas.reduce((acc, curr) => acc + (curr.mediaTrimestral || 0), 0) / notas.length;
-      return med >= 9.5;
+      return isClassePrimariaDash(a.classeId) ? med >= 5.0 : med >= 9.5;
     }).length;
     
     const reprovados = avaliados - aprovados;
@@ -728,7 +888,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const notas = notasDaTurma.filter(n => n.alunoId === a.id);
         if (notas.length === 0) return false;
         const med = notas.reduce((acc, curr) => acc + (curr.mediaTrimestral || 0), 0) / notas.length;
-        return med >= 9.5;
+        return isClassePrimariaDash(t.classe || a.classeId) ? med >= 5.0 : med >= 9.5;
       }).length;
       const reprovados = avaliados - aprovados;
       const taxa = avaliados > 0 ? Math.round((aprovados / avaliados) * 100) : 0;
@@ -1663,7 +1823,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     const isSusp = esc.estadoEscola === 'Suspensa' || !esc.ativo;
                     const alunosDestaEscola = todosAlunos.filter(a => a.escolaId === esc.id);
                     const turmasDestaEscola = todasTurmas.filter(t => t.escolaId === esc.id);
-                    const diretor = todosFuncionarios.find(f => f.id === esc.diretorGeralId || (f.escolaId === esc.id && f.role === 'DiretorGeral'));
+                    const diretor = dbService.encontrarDiretorDaEscola(esc, todosFuncionarios);
+                    const nomeDiretorRegistado =
+                      diretor?.nomeCompleto ||
+                      (esc.diretorGeralNome &&
+                      esc.diretorGeralNome.trim() !== '' &&
+                      esc.diretorGeralNome !== 'Não Atribuído' &&
+                      esc.diretorGeralNome !== 'Pendente de Nomeação'
+                        ? esc.diretorGeralNome
+                        : '');
 
                     return (
                       <tr key={esc.id} className="hover:bg-gray-50/80 transition-colors">
@@ -1679,7 +1847,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           {diretor ? (
                             <div>
                               <div className="font-bold text-gray-900">{diretor.nomeCompleto}</div>
-                              <div className="text-[10px] text-gray-500 font-mono">BI: {diretor.numeroBI}</div>
+                              <div className="text-[10px] text-gray-500 font-mono">
+                                {diretor.numeroBI ? `BI: ${diretor.numeroBI}` : (diretor.email || 'Diretor Registado')}
+                              </div>
+                            </div>
+                          ) : nomeDiretorRegistado ? (
+                            <div>
+                              <div className="font-bold text-gray-900">{nomeDiretorRegistado}</div>
+                              <div className="text-[10px] text-emerald-700 font-medium">
+                                {esc.diretorGeralEmail || 'Diretor Registado na Escola'}
+                              </div>
                             </div>
                           ) : (
                             <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
@@ -1688,9 +1865,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           )}
                         </td>
                         <td className="py-3 px-4 font-medium text-gray-700">
-                          <span>{alunosDestaEscola.length || '3'} alunos</span>
+                          <span>{alunosDestaEscola.length} alunos</span>
                           <span className="text-gray-400 mx-1">·</span>
-                          <span>{turmasDestaEscola.length || '2'} turmas</span>
+                          <span>{turmasDestaEscola.length} turmas</span>
                         </td>
                         <td className="py-3 px-4">
                           <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
@@ -2011,10 +2188,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Métricas Principais da Escola & Monitorização em Tempo Real */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {(() => {
-              const anoActivo = escola.anoLectivoActivo || '2025/2026';
-              const alunosAno = alunos.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo);
+              const anoActivo = escola.anoLectivoActivo || '';
+              const alunosAno = anoActivo
+                ? alunos.filter(a => (a.anoLectivo || a.anoMatricula || '') === anoActivo)
+                : alunos;
               const rapazes = alunosAno.filter(a => a.genero === 'M').length;
               const raparigas = alunosAno.filter(a => a.genero === 'F').length;
               const pctRapazes = alunosAno.length > 0 ? Math.round((rapazes / alunosAno.length) * 100) : 0;
@@ -2024,7 +2203,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <>
                   <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-600">Alunos Matriculados ({anoActivo})</span>
+                      <span className="text-xs font-bold text-gray-600">Alunos Matriculados ({anoActivo || 'Sem Ano Ativo'})</span>
                       <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
                         <Users className="h-4 w-4" />
                       </div>
@@ -2036,7 +2215,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </span>
                     </div>
                     <div className="mt-1 text-[11px] text-gray-500">
-                      {turmas.length} turmas em 3 turnos
+                      {turmas.length} turmas registadas
                     </div>
                   </div>
 
@@ -2084,10 +2263,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="mt-1 text-[11px] text-gray-500">
                 {alunosComNota.length > 0 && melhoresAlunos.length > 0 ? (
-                  <>Média global: {melhoresAlunos[0].media} valores</>
+                  <>Melhor média: {melhoresAlunos[0].media} val.</>
                 ) : (
                   <>Aguardando pautas da escola</>
                 )}
+              </div>
+            </div>
+
+            {/* Novo Card Real: Assiduidade Diária dos Alunos */}
+            <div className="bg-white p-4 rounded-xl border-2 border-teal-500/40 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-700">Assiduidade dos Alunos</span>
+                <div className="h-8 w-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center">
+                  <Calendar className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-teal-700">
+                  {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}%` : '—'}
+                </span>
+                <span className="text-xs text-gray-500 font-semibold">
+                  {resumoAssiduidadeAlunos.registosHoje > 0
+                    ? `${resumoAssiduidadeAlunos.presentesHoje} pres. hoje`
+                    : `${resumoAssiduidadeAlunos.presentesTotal} presenças`}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px]">
+                <span className="text-gray-500">
+                  {resumoAssiduidadeAlunos.totalRegistos > 0
+                    ? `${resumoAssiduidadeAlunos.injustificadasTotal + resumoAssiduidadeAlunos.justificadasTotal} faltas registadas`
+                    : 'Sem chamadas registadas'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('presencas')}
+                  className="text-teal-700 font-bold hover:underline cursor-pointer"
+                >
+                  Ver Mapa →
+                </button>
               </div>
             </div>
 
@@ -2105,10 +2318,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </span>
               </div>
               <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
-                <span>100% Assiduidade</span>
+                <span>Equipa letiva</span>
                 <button 
                   onClick={() => onNavigate('professores')}
-                  className="text-blue-700 hover:underline font-semibold"
+                  className="text-blue-700 hover:underline font-semibold cursor-pointer"
                 >
                   Gerir RH →
                 </button>
@@ -2127,7 +2340,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="text-xs text-red-700 font-semibold">Requerem Apoio</span>
               </div>
               <div className="mt-1 text-[11px] text-gray-500">
-                Faltas acumuladas ou média &lt; 10
+                Faltas &ge; 3 ou abaixo da média
               </div>
             </div>
 
@@ -2437,10 +2650,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <BarChart3 className="h-4 w-4 text-indigo-600" />
                           <span>Performance Académica por Disciplina (Médias Oficiais)</span>
                         </h4>
-                        <p className="text-xs text-gray-500">Média trimestral das disciplinas comparada à meta de 10.0 valores</p>
+                        <p className="text-xs text-gray-500">Média das disciplinas lançadas (pautas e avaliações contínuas)</p>
                       </div>
                       <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-                        Escala 0-20
+                        {dadosDesempenhoDisciplinas.length} Disciplina(s)
                       </span>
                     </div>
 
@@ -2448,32 +2661,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl border border-dashed border-gray-200">
                         <BarChart3 className="h-8 w-8 text-gray-300 mb-2" />
                         <p className="text-xs font-bold text-gray-600">Sem notas ou avaliações lançadas</p>
-                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As médias trimestrais e estatísticas de rendimento serão apresentadas aqui assim que os docentes lançarem as primeiras pautas.</p>
+                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As médias trimestrais e estatísticas de rendimento serão apresentadas aqui assim que os docentes lançarem as primeiras notas.</p>
                       </div>
                     ) : (
                       <>
                         <div className="h-64 w-full">
                           <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={dadosDesempenhoDisciplinas}>
+                            <BarChart data={dadosDesempenhoDisciplinas.slice(0, 8)}>
                               <XAxis dataKey="disciplina" stroke="#6b7280" fontSize={10} />
                               <YAxis stroke="#6b7280" fontSize={10} domain={[0, 20]} />
                               <Tooltip 
-                                formatter={(val: any, name: any) => [, 'Média Oficial']}
+                                formatter={(val: any) => [`${Number(val).toFixed(1)} val`, 'Média Oficial']}
                                 labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
                                 contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
                               />
                               <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                              <Bar dataKey="media" name="Média Trimestral" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="media" name="Média" fill="#4f46e5" radius={[4, 4, 0, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
                           {dadosDesempenhoDisciplinas.slice(0, 4).map(d => (
-                            <div key={d.disciplina} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
+                            <div key={d.nomeCompleto} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
                               <span className="text-[10px] text-gray-500 truncate block">{d.disciplina}</span>
-                              <span className={`text-xs font-black ${d.media >= 10 ? "text-emerald-700" : "text-red-600"}`}>
-                                {d.media} val.
+                              <span className={`text-xs font-black ${d.media >= d.limiar ? "text-emerald-700" : "text-red-600"}`}>
+                                {d.media.toFixed(1)} val.
                               </span>
                               <span className="text-[9px] text-gray-400 block">{d.taxaAprovacao}% Positivas</span>
                             </div>
@@ -2483,26 +2696,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     )}
                   </div>
 
-                  {/* Gráfico 5: Assiduidade Escolar (Presenças vs Faltas) (Recharts) */}
+                  {/* Gráfico 5: Assiduidade Escolar dos Alunos (Presenças vs Faltas) (Recharts) */}
                   <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
                           <Clock className="h-4 w-4 text-emerald-600" />
-                          <span>Assiduidade Escolar (% Presenças vs Faltas)</span>
+                          <span>Assiduidade dos Alunos (% Presenças vs Faltas)</span>
                         </h4>
-                        <p className="text-xs text-gray-500">Taxa de frequência diária aferida pelos docentes nas turmas</p>
+                        <p className="text-xs text-gray-500">
+                          {resumoAssiduidadeAlunos.totalRegistos > 0
+                            ? `${resumoAssiduidadeAlunos.totalRegistos} chamadas registadas · Hoje: ${resumoAssiduidadeAlunos.presentesHoje} presentes, ${resumoAssiduidadeAlunos.faltasHoje} faltas`
+                            : 'Taxa de frequência diária aferida pelos docentes nas turmas'}
+                        </p>
                       </div>
-                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                        {dadosAssiduidade.length > 0 ? `${(dadosAssiduidade.reduce((acc, c) => acc + c.Presenças, 0) / dadosAssiduidade.length).toFixed(1)}% Média` : 'Sem registos'}
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                          {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}% Média` : 'Sem registos'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('presencas')}
+                          className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                        >
+                          Gerir →
+                        </button>
+                      </div>
                     </div>
 
                     {dadosAssiduidade.length === 0 ? (
                       <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl border border-dashed border-gray-200">
                         <Clock className="h-8 w-8 text-gray-300 mb-2" />
-                        <p className="text-xs font-bold text-gray-600">Sem registos de assiduidade de turmas</p>
-                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As taxas de presenças e faltas serão calculadas em tempo real após o registo de presença pelos professores.</p>
+                        <p className="text-xs font-bold text-gray-600">Sem registos de assiduidade de alunos</p>
+                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As taxas de presenças e faltas serão calculadas em tempo real após o registo da chamada pelos professores.</p>
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('presencas')}
+                          className="mt-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          Abrir Mapa de Assiduidade
+                        </button>
                       </div>
                     ) : (
                       <>
@@ -2528,23 +2761,121 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <div className="p-2 rounded-lg bg-emerald-50 text-emerald-900">
                             <span className="text-[10px] font-bold block text-emerald-700">Presença Global</span>
                             <span className="text-sm font-black">
-                              {`${(dadosAssiduidade.reduce((acc, c) => acc + c.Presenças, 0) / dadosAssiduidade.length).toFixed(1)}%`}
+                              {`${resumoAssiduidadeAlunos.taxaPresencaGeral}%`}
                             </span>
+                            <span className="text-[10px] block text-emerald-700/80">{resumoAssiduidadeAlunos.presentesTotal} registos</span>
                           </div>
                           <div className="p-2 rounded-lg bg-amber-50 text-amber-900">
                             <span className="text-[10px] font-bold block text-amber-700">Faltas Justificadas</span>
                             <span className="text-sm font-black">
-                              {`${(dadosAssiduidade.reduce((acc, c) => acc + c.Justificadas, 0) / dadosAssiduidade.length).toFixed(1)}%`}
+                              {`${resumoAssiduidadeAlunos.pctJustificadasGeral}%`}
                             </span>
+                            <span className="text-[10px] block text-amber-700/80">{resumoAssiduidadeAlunos.justificadasTotal} faltas</span>
                           </div>
                           <div className="p-2 rounded-lg bg-red-50 text-red-900">
                             <span className="text-[10px] font-bold block text-red-700">Faltas Injustificadas</span>
                             <span className="text-sm font-black">
-                              {`${(dadosAssiduidade.reduce((acc, c) => acc + c.Injustificadas, 0) / dadosAssiduidade.length).toFixed(1)}%`}
+                              {`${resumoAssiduidadeAlunos.pctInjustificadasGeral}%`}
                             </span>
+                            <span className="text-[10px] block text-red-700/80">{resumoAssiduidadeAlunos.injustificadasTotal} faltas</span>
                           </div>
                         </div>
                       </>
+                    )}
+                  </div>
+                </div>
+
+                {/* DESTAQUE PEDAGÓGICO: DISCIPLINAS COM MELHORES NOTAS VS DISCIPLINAS COM PIORES NOTAS */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Melhores Disciplinas */}
+                  <div className="bg-white rounded-2xl border border-emerald-200 p-5 shadow-2xs">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+                          <TrendingUp className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-gray-900">Disciplinas em Destaque (Melhores Notas)</h4>
+                          <p className="text-[11px] text-gray-500">Disciplinas com maior média e taxa de aprovação</p>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                        Top {melhoresDisciplinasDashboard.length}
+                      </span>
+                    </div>
+
+                    {melhoresDisciplinasDashboard.length === 0 ? (
+                      <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                        Ainda sem disciplinas com notas positivas consolidadas ou contínuas.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {melhoresDisciplinasDashboard.map((disc, idx) => (
+                          <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-[11px] shrink-0">
+                                {idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
+                                <div className="text-[10px] text-gray-500">
+                                  {disc.positivas} positivas em {disc.totalNotas} avaliações ({disc.taxaAprovacao}% aprovação)
+                                </div>
+                              </div>
+                            </div>
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-black text-xs shrink-0 ml-2">
+                              {disc.media.toFixed(1)} val.
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Piores Disciplinas */}
+                  <div className="bg-white rounded-2xl border border-rose-200 p-5 shadow-2xs">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-2 rounded-xl bg-rose-100 text-rose-700">
+                          <TrendingDown className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-gray-900">Disciplinas com Menor Rendimento (Piores Notas)</h4>
+                          <p className="text-[11px] text-gray-500">Áreas curriculares que exigem intervenção pedagógica</p>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
+                        Atenção ({pioresDisciplinasDashboard.length})
+                      </span>
+                    </div>
+
+                    {pioresDisciplinasDashboard.length === 0 ? (
+                      <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                        Nenhuma disciplina com rendimento negativo identificada até ao momento.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {pioresDisciplinasDashboard.map((disc, idx) => (
+                          <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 border border-rose-100 text-xs">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-black text-[11px] shrink-0">
+                                {idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
+                                <div className="text-[10px] text-rose-800">
+                                  {disc.negativas} negativa(s) · {disc.taxaAprovacao}% aprovação ({disc.totalNotas} notas)
+                                </div>
+                              </div>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-lg font-black text-xs shrink-0 ml-2 ${
+                              disc.media < disc.limiar ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                            }`}>
+                              {disc.media.toFixed(1)} val.
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -2558,7 +2889,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <StudentRankingSection 
             escola={escola} 
             alunos={alunos} 
-            turmas={turmas} 
+            turmas={turmas}
+            funcionarios={funcionarios}
+            currentUser={currentUser}
             isDiretorPanel={true} 
           />
 
@@ -2923,12 +3256,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </button>
             </div>
 
+            {professoresEscola.length === 0 ? (
+              <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                Nenhum professor registado nesta escola até ao momento.
+              </div>
+            ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {professoresEscola.map((prof, idx) => {
-                const turmasDoProf = atribuicoes.filter(a => a.professorId === prof.id);
-                // Simulação de cálculo real baseado nas notas registradas
-                const temNotas = idx % 2 === 0;
-                const status = temNotas ? 'Concluído' : 'Em Andamento';
+                const turmasDoProf = atribuicoes.filter(a => a.professorId === prof.id && a.escolaId === escola.id);
+                const discProfIds = new Set(turmasDoProf.map(t => t.disciplinaId));
+                const turmaProfIds = new Set(turmasDoProf.map(t => t.turmaId));
+                const notasLancadasProf = notasConsolidadas.filter(
+                  n => turmaProfIds.has(n.turmaId) && discProfIds.has(n.disciplinaId)
+                );
+                const alunosEsperados = turmasDoProf.reduce((acc, at) => {
+                  return acc + alunos.filter(al => al.turmaId === at.turmaId).length;
+                }, 0);
+                const pctLancado = alunosEsperados > 0
+                  ? Math.min(100, Math.round((notasLancadasProf.length / alunosEsperados) * 100))
+                  : (notasLancadasProf.length > 0 ? 100 : 0);
+                const status = turmasDoProf.length === 0
+                  ? 'Sem Atribuições'
+                  : pctLancado >= 100
+                    ? 'Concluído'
+                    : pctLancado > 0
+                      ? 'Em Andamento'
+                      : 'Pendente';
 
                 return (
                   <div key={`${prof.id}-${prof.escolaId || ''}-${idx}`} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70">
@@ -2940,27 +3293,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
                         status === 'Concluído' 
                           ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
-                          : 'bg-amber-50 text-amber-700 border-amber-300'
+                          : status === 'Em Andamento'
+                            ? 'bg-amber-50 text-amber-700 border-amber-300'
+                            : 'bg-gray-100 text-gray-600 border-gray-300'
                       }`}>
                         {status}
                       </span>
                     </div>
                     <div className="mt-3 flex items-center justify-between text-[11px] text-gray-600">
-                      <span>Turmas: {turmasDoProf.length || 2}</span>
+                      <span>Atribuições: {turmasDoProf.length}</span>
                       <span className="font-semibold text-gray-900">
-                        {status === 'Concluído' ? '100% Lançado' : '65% Lançado'}
+                        {pctLancado}% Lançado
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
                       <div 
-                        className={`h-full ${status === 'Concluído' ? 'bg-emerald-600' : 'bg-amber-500'} rounded-full`} 
-                        style={{ width: status === 'Concluído' ? '100%' : '65%' }} 
+                        className={`h-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-gray-300'} rounded-full`} 
+                        style={{ width: `${pctLancado}%` }} 
                       />
                     </div>
                   </div>
                 );
               })}
             </div>
+            )}
           </div>
 
           {/* Dois Quadros: Alunos de Mérito vs Alunos que Precisam de Apoio */}
@@ -2976,20 +3332,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Mérito Académico
                 </span>
               </div>
-              <div className="space-y-2.5">
-                {melhoresAlunos.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2.5 bg-emerald-50/50 border border-emerald-100 rounded-lg text-xs">
-                    <div>
-                      <div className="font-bold text-gray-900">{item.aluno.nomeCompleto}</div>
-                      <div className="text-[11px] text-gray-500">Matrícula: {item.aluno.codigoMatricula}</div>
+              {melhoresAlunos.length === 0 ? (
+                <div className="p-4 bg-slate-50 border border-dashed border-gray-200 rounded-lg text-center text-xs text-gray-500">
+                  Ainda não existem alunos qualificados com aproveitamento positivo para o Quadro de Honra.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {melhoresAlunos.map((item) => (
+                    <div key={item.aluno.id} className="flex items-center justify-between p-2.5 bg-emerald-50/50 border border-emerald-100 rounded-lg text-xs">
+                      <div>
+                        <div className="font-bold text-gray-900">{item.aluno.nomeCompleto}</div>
+                        <div className="text-[11px] text-gray-500">Matrícula: {item.aluno.codigoMatricula}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-emerald-700 text-sm">{item.media.toFixed(1)} val.</div>
+                        <div className="text-[10px] text-gray-500">
+                          {item.faltas === 0 ? 'Zero faltas' : `${item.faltas} falta(s)`}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-black text-emerald-700 text-sm">{item.media} val.</div>
-                      <div className="text-[10px] text-gray-500">Zero faltas</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Alunos em Risco */}
@@ -3003,22 +3367,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Atenção Especial
                 </span>
               </div>
-              <div className="space-y-2.5">
-                {alunosEmRisco.slice(0, 5).map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2.5 bg-red-50/50 border border-red-100 rounded-lg text-xs">
-                    <div>
-                      <div className="font-bold text-gray-900">{item.aluno.nomeCompleto}</div>
-                      <div className="text-[11px] text-red-700">Média: {item.media} valores · {item.faltas} faltas</div>
+              {alunosEmRisco.length === 0 ? (
+                <div className="p-4 bg-slate-50 border border-dashed border-gray-200 rounded-lg text-center text-xs text-gray-500">
+                  Nenhum aluno identificado abaixo da média ou com excesso de faltas neste momento.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {alunosEmRisco.slice(0, 5).map((item) => (
+                    <div key={item.aluno.id} className="flex items-center justify-between p-2.5 bg-red-50/50 border border-red-100 rounded-lg text-xs">
+                      <div>
+                        <div className="font-bold text-gray-900">{item.aluno.nomeCompleto}</div>
+                        <div className="text-[11px] text-red-700">Média: {item.media.toFixed(1)} valores · {item.faltas} falta(s)</div>
+                      </div>
+                      <button
+                        onClick={() => onNavigate('documentos')}
+                        className="text-xs font-bold text-red-700 hover:underline cursor-pointer"
+                      >
+                        Ver Ficha
+                      </button>
                     </div>
-                    <button
-                      onClick={() => onNavigate('documentos')}
-                      className="text-xs font-bold text-red-700 hover:underline"
-                    >
-                      Ver Ficha
-                    </button>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

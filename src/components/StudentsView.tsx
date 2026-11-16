@@ -115,6 +115,8 @@ export const CURRICULO_POR_CLASSE: Record<string, string[]> = {
 const DISCIPLINAS_ANGOLA_PADRAO = [
   'Língua Portuguesa',
   'Matemática',
+  'Estudo do Meio',
+  'Ciências da Natureza',
   'Física',
   'Química',
   'Biologia',
@@ -125,11 +127,32 @@ const DISCIPLINAS_ANGOLA_PADRAO = [
   'Educação Física',
   'Educação Moral e Cívica',
   'Educação Visual e Plástica',
+  'Educação Musical',
   'Informática / TIC',
   'Geologia',
   'Filosofia',
   'Desenho Técnico'
 ];
+
+const TODAS_CLASSES_HISTORICO = [
+  'Iniciação',
+  '1ª', '2ª', '3ª', '4ª', '5ª', '6ª',
+  '7ª', '8ª', '9ª',
+  '10ª', '11ª', '12ª', '13ª'
+];
+
+function ordenarClassesHistorico(classes: HistoricoClasseDisciplinas[]): HistoricoClasseDisciplinas[] {
+  return [...classes].sort((a, b) => {
+    const nA = normalizarClasse(a.classe);
+    const nB = normalizarClasse(b.classe);
+    const iA = TODAS_CLASSES_HISTORICO.indexOf(nA);
+    const iB = TODAS_CLASSES_HISTORICO.indexOf(nB);
+    if (iA === -1 && iB === -1) return a.classe.localeCompare(b.classe);
+    if (iA === -1) return 1;
+    if (iB === -1) return -1;
+    return iA - iB;
+  });
+}
 
 // Determina as classes obrigatórias do ciclo para o histórico do estudante conforme MED Angola
 export const obterClassesDoCiclo = (classeReferencia?: string, curso?: string): string[] => {
@@ -218,15 +241,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     return alunosOriginais.filter(a => ids.has(a.turmaId));
   }, [alunosOriginais, isProfessor, turmas]);
 
-  const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(), []);
+  const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(escola.id), [escola.id]);
   const anosLectivosDisponiveis = useMemo(() => {
     const fromConfigs = anosLectivosConfigs.map((c: any) => c.rotulo || c.ano).filter(Boolean);
-    const fromStorage = dbService.getAnosLectivos();
-    const set = new Set<string>([...fromConfigs, ...fromStorage, escola.anoLectivoActivo || '2025/2026', '2025/2026', '2024/2025']);
+    const fromStorage = dbService.getAnosLectivos(escola.id);
+    const set = new Set<string>([
+      ...fromConfigs,
+      ...fromStorage,
+      ...(escola.anoLectivoActivo ? [escola.anoLectivoActivo] : [])
+    ]);
     return Array.from(set).filter(Boolean);
-  }, [anosLectivosConfigs, escola.anoLectivoActivo]);
+  }, [anosLectivosConfigs, escola.anoLectivoActivo, escola.id]);
 
-  const [selectedAnoLectivoFilter, setSelectedAnoLectivoFilter] = useState<string>(escola.anoLectivoActivo || '2025/2026');
+  const [selectedAnoLectivoFilter, setSelectedAnoLectivoFilter] = useState<string>(escola.anoLectivoActivo || 'TODOS');
   const [selectedClasseFilter, setSelectedClasseFilter] = useState('TODAS');
   const [selectedTurmaFilter, setSelectedTurmaFilter] = useState('TODAS');
   const [selectedSalaFilter, setSelectedSalaFilter] = useState('TODAS');
@@ -245,18 +272,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [alunoHistoricoId, setAlunoHistoricoId] = useState<string>(() => alunos[0]?.id || '');
 
   // Modal de Matrícula: Associação Estrita Ano Letivo -> Classe -> Turma -> Sala -> Curso
-  const [modalAnoLectivo, setModalAnoLectivo] = useState(escola.anoLectivoActivo || '2025/2026');
+  const [modalAnoLectivo, setModalAnoLectivo] = useState(escola.anoLectivoActivo || '');
   const [modalClasse, setModalClasse] = useState('1ª');
   const [modalCurso, setModalCurso] = useState('Ciências Físicas e Biológicas (PUNIV)');
 
-  // Sincronização automática quando o Diretor ou Administrador altera o ano lectivo activo no cabeçalho
+  // Sincronização automática quando o Diretor ou Administrador altera o ano lectivo activo no cabeçalho ou muda de escola
   useEffect(() => {
-    if (escola.anoLectivoActivo) {
-      setSelectedAnoLectivoFilter(escola.anoLectivoActivo);
-      setModalAnoLectivo(escola.anoLectivoActivo);
-      setConfirmAnoLectivo(escola.anoLectivoActivo);
-    }
-  }, [escola.anoLectivoActivo]);
+    setSelectedAnoLectivoFilter(escola.anoLectivoActivo || 'TODOS');
+    setModalAnoLectivo(escola.anoLectivoActivo || '');
+    setConfirmAnoLectivo(escola.anoLectivoActivo || '');
+  }, [escola.id, escola.anoLectivoActivo]);
 
   // Modal de Histórico Escolar Completo & Aba Dedicada
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
@@ -285,7 +310,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         // Não inventar notas fictícias. Apenas notas reais consolidadas ou gravadas no histórico.
         const classesExistentes = hist?.classes || [];
         const notasConsolidadasAluno = dbService.getNotasConsolidadas().filter(nc => nc.alunoId === target.id);
-        const todasDisciplinas = dbService.getDisciplinas();
+        const todasDisciplinas = dbService.getDisciplinas(escola.id);
 
         const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
           const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
@@ -378,9 +403,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           };
         });
 
+        // Preservar outras classes já registadas pelo utilizador (ex.: 1ª à 6ª classe num aluno do Iº/IIº Ciclo)
+        const classesCicloNorm = new Set(classesDoCiclo.map(c => normalizarClasse(c).toLowerCase()));
+        const classesExtrasPreservadas = classesExistentes.filter(
+          c => !classesCicloNorm.has(normalizarClasse(c.classe).toLowerCase())
+        );
+        const todasClassesCombinadas = ordenarClassesHistorico([
+          ...classesExtrasPreservadas,
+          ...classesAtualizadas
+        ]);
+
         hist = {
           alunoId: target.id,
-          classes: classesAtualizadas,
+          classes: todasClassesCombinadas,
           dataUltimaAtualizacao: new Date().toISOString()
         };
         dbService.salvarHistoricoEscolarCompleto(hist);
@@ -438,7 +473,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Estado para a Funcionalidade de Confirmação de Matrícula (Alunos Existentes)
   const [showConfirmacaoModal, setShowConfirmacaoModal] = useState(false);
-  const [confirmAnoLectivo, setConfirmAnoLectivo] = useState(escola.anoLectivoActivo || '2025/2026');
+  const [confirmAnoLectivo, setConfirmAnoLectivo] = useState(escola.anoLectivoActivo || '');
   const [confirmAlunoId, setConfirmAlunoId] = useState('');
   const [confirmClasse, setConfirmClasse] = useState('');
   const [confirmTurmaId, setConfirmTurmaId] = useState('');
@@ -458,7 +493,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Formulário para adicionar nova classe ao histórico
   const [showAddClasseForm, setShowAddClasseForm] = useState(false);
-  const [novaClasseNome, setNovaClasseNome] = useState('10ª');
+  const [novaClasseNome, setNovaClasseNome] = useState('1ª');
   const [novaClasseAno, setNovaClasseAno] = useState('2023/2024');
   const [novaClasseEscola, setNovaClasseEscola] = useState('');
 
@@ -526,7 +561,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const classeDoAluno = turmaDoAluno ? normalizarClasse(turmaDoAluno.classe) : normalizarClasse(a.classeId);
     const salaDoAluno = turmaDoAluno?.sala || '';
     const cursoDoAluno = turmaDoAluno?.curso || a.curso || '';
-    const anoDoAluno = a.anoLectivo || a.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
+    const anoDoAluno = a.anoLectivo || a.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '';
 
     // 0. Filtro Coerente de Ano Letivo
     if (selectedAnoLectivoFilter !== 'TODOS') {
@@ -753,7 +788,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setProvinciaOrigem('Luanda');
     setPaisOrigem('Angola');
     setNacionalidade('Angolana');
-    const anoPadrao = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '2025/2026');
+    const anoPadrao = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '');
     setModalAnoLectivo(anoPadrao);
     const turmasDoAnoPadrao = turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoPadrao);
     const primeiraTurma = turmasDoAnoPadrao[0] || turmas[0];
@@ -800,7 +835,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setPaisOrigem(aluno.paisOrigem || 'Angola');
     setNacionalidade(aluno.nacionalidade || 'Angolana');
     const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
-    const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '2025/2026';
+    const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || escola.anoLectivoActivo || '';
     setModalAnoLectivo(anoDoAluno);
     const cls = turmaDoAluno ? normalizarClasse(turmaDoAluno.classe) : normalizarClasse(aluno.classeId || '1ª');
     setModalClasse(cls);
@@ -844,7 +879,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       : getCursoDaTurma(turmaSelecionada);
 
     const escolaAtiva = dbService.getEscolaAtiva();
-    const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || (dbService.getEscolas()[0]?.id) || 'esc-001';
+    const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || '';
 
     const novoAluno: Aluno = {
       id: editingAluno ? editingAluno.id : `aluno-${Date.now()}`,
@@ -884,8 +919,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       estado,
       propinaStatus: editingAluno?.propinaStatus || 'Pendente',
       cadastradoEm: editingAluno?.cadastradoEm || new Date().toISOString().split('T')[0],
-      anoLectivo: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
-      anoMatricula: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '2025/2026',
+      anoLectivo: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '',
+      anoMatricula: modalAnoLectivo || turmaSelecionada?.anoLectivo || escola.anoLectivoActivo || '',
       comportamentoConceito: comportamentoConceito ? (comportamentoConceito as any) : undefined,
       // Ficha Médica e de Saúde
       grupoSanguineo,
@@ -931,7 +966,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       alert('Não há alunos cadastrados no sistema para confirmação de matrícula.');
       return;
     }
-    const anoDestino = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '2025/2026');
+    const anoDestino = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '');
     setConfirmAnoLectivo(anoDestino);
     const primeiro = alunos[0];
     setConfirmAlunoId(primeiro.id);
@@ -1019,7 +1054,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   // Exportar Lista Completa de Alunos com Todos os Dados Pessoais, Saúde, Todas as Notas e Médias em Excel (.xlsx)
   const handleExportarAlunosXLSX = () => {
     const notasCons = dbService.getNotasConsolidadas();
-    const disciplinas = dbService.getDisciplinas();
+    const disciplinas = dbService.getDisciplinas(escola.id);
 
     const linhas = alunos.map((a, idx) => {
       const t = turmas.find(tm => tm.id === a.turmaId);
@@ -1098,7 +1133,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         'Código SIGE': escola.codigoSIGE || escola.codigoMEC || escola.id,
         'Província da Escola': escola.provincia || 'Luanda',
         'Município da Escola': escola.municipio || 'Luanda',
-        'Ano Lectivo': a.anoLectivo || t?.anoLectivo || escola.anoLectivoActivo || '2024/2025',
+        'Ano Lectivo': a.anoLectivo || t?.anoLectivo || escola.anoLectivoActivo || '—',
 
         'Nº': idx + 1,
         'Nº de Matrícula': a.codigoMatricula,
@@ -1213,9 +1248,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     }>();
 
     classes.forEach(c => {
-      const is1 = c.classe.includes('10ª') || c.classe.includes('7ª') || c.classe.includes('1ª');
-      const is2 = c.classe.includes('11ª') || c.classe.includes('8ª') || c.classe.includes('2ª');
-      const is3 = c.classe.includes('12ª') || c.classe.includes('9ª') || c.classe.includes('3ª');
+      const nCls = normalizarClasse(c.classe);
+      const is1 = nCls === '10ª' || nCls === '7ª' || nCls === '1ª';
+      const is2 = nCls === '11ª' || nCls === '8ª' || nCls === '2ª';
+      const is3 = nCls === '12ª' || nCls === '9ª' || nCls === '3ª';
 
       c.notasDisciplinas.forEach(nd => {
         const nome = nd.disciplinaNome.trim();
@@ -1267,7 +1303,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const notasAtualizadas = classeAtual.notasDisciplinas.map(nd => {
       const rawVal = notasEmLote[nd.disciplinaNome];
       let nota = rawVal !== undefined ? parseFloat(String(rawVal)) : nd.notaFinal;
-      if (isNaN(nota)) nota = 10;
+      if (isNaN(nota)) nota = 0;
       if (nota < 0) nota = 0;
       if (nota > escalaInfo.escalaMaxima) nota = escalaInfo.escalaMaxima;
 
@@ -1323,8 +1359,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
 
-    const nota = parseFloat(novaDiscNota) || 10;
-    const resultado = nota >= 10 ? 'Aprovado' : 'Não Transita';
+    const escalaInfo = obterInformacaoEscala(classeAtual.classe);
+    let nota = parseFloat(novaDiscNota);
+    if (isNaN(nota)) nota = escalaInfo.notaAprovacao;
+    nota = Math.min(escalaInfo.escalaMaxima, Math.max(0, parseFloat(nota.toFixed(1))));
+    const resultado = nota >= escalaInfo.notaAprovacao ? 'Aprovado' : 'Não Transita';
 
     const novaDisc: NotaFinalDisciplinaHistorico = {
       disciplinaNome: novaDiscNome.trim(),
@@ -1363,21 +1402,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setHistoricoCompleto(novoHistorico);
 
     // Sincronizar também com historicoAnterior do Aluno para manter elegibilidade do certificado MED
-    const historicoAnteriorSincronizado: HistoricoAnoAnterior[] = classesAtualizadas.map(c => ({
-      classe: c.classe,
-      anoLectivo: c.anoLectivo,
-      escolaOrigem: c.escolaOrigem,
-      mediaFinal: c.mediaGeralClasse || 10,
-      aprovado: (c.mediaGeralClasse || 10) >= 10,
-      concluido: true
-    }));
-
-    const alunoAtualizado: Aluno = {
-      ...historicoAluno,
-      historicoAnterior: historicoAnteriorSincronizado
-    };
-    onSalvarAluno(alunoAtualizado);
-    setHistoricoAluno(alunoAtualizado);
+    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
 
     setNovoProfessorNome('');
   };
@@ -1410,17 +1435,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setHistoricoCompleto(novoHistorico);
 
     // Sincronizar aluno
-    const historicoAnteriorSincronizado: HistoricoAnoAnterior[] = classesAtualizadas.map(c => ({
-      classe: c.classe,
-      anoLectivo: c.anoLectivo,
-      escolaOrigem: c.escolaOrigem,
-      mediaFinal: c.mediaGeralClasse || 10,
-      aprovado: (c.mediaGeralClasse || 10) >= 10,
-      concluido: true
-    }));
-    const alunoAtualizado = { ...historicoAluno, historicoAnterior: historicoAnteriorSincronizado };
-    onSalvarAluno(alunoAtualizado);
-    setHistoricoAluno(alunoAtualizado);
+    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
   };
 
   // Alteração direta e rápida de nota final da disciplina na tabela
@@ -1487,7 +1502,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     if (!classeAtual) return;
 
     const escalaInfo = obterInformacaoEscala(classeAtual.classe);
-    const todasDisciplinas = dbService.getDisciplinas();
+    const todasDisciplinas = dbService.getDisciplinas(escola.id);
     const discFiltradas = filtrarDisciplinasDaClasse(todasDisciplinas, classeAtual.classe, historicoAluno.curso);
     const listaPadrao = discFiltradas.length > 0
       ? discFiltradas.map(d => d.nome)
@@ -1557,7 +1572,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     // REGRA DO MINISTÉRIO DA EDUCAÇÃO:
     // No histórico escolar só devem aparecer as notas verdadeiras do aluno dos anos lectivos passado e presente!
     const notasConsolidadasAluno = dbService.getNotasConsolidadas().filter(nc => nc.alunoId === historicoAluno.id);
-    const todasDisciplinas = dbService.getDisciplinas();
+    const todasDisciplinas = dbService.getDisciplinas(escola.id);
 
     const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
       const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
@@ -1644,16 +1659,102 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       };
     });
 
+    const classesCicloNorm = new Set(classesDoCiclo.map(c => normalizarClasse(c).toLowerCase()));
+    const classesExtrasPreservadas = classesExistentes.filter(
+      c => !classesCicloNorm.has(normalizarClasse(c.classe).toLowerCase())
+    );
+    const todasClassesCombinadas = ordenarClassesHistorico([
+      ...classesExtrasPreservadas,
+      ...classesAtualizadas
+    ]);
+
     const novoHist: HistoricoEscolarCompleto = {
       alunoId: historicoAluno.id,
-      classes: classesAtualizadas,
+      classes: todasClassesCombinadas,
       dataUltimaAtualizacao: new Date().toISOString()
     };
     dbService.salvarHistoricoEscolarCompleto(novoHist);
     setHistoricoCompleto(novoHist);
     setClasseAtivaIdx(0);
-    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
+    sincronizarHistoricoComAluno(historicoAluno, todasClassesCombinadas);
     setFeedbackHistorico(`Ciclo completo gerado com sucesso: ${classesDoCiclo.join(', ')}.`);
+    setTimeout(() => setFeedbackHistorico(null), 4000);
+  };
+
+  // Inicializa todas as classes do Ensino Primário (1ª à 6ª Classe, escala 0–10) preservando classes já existentes
+  const handleInicializarEnsinoPrimario = () => {
+    if (!historicoAluno) return;
+    const primarias = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
+    const classesExistentes = historicoCompleto?.classes || [];
+    const anoBase = parseInt(escola.anoLectivoActivo?.split('/')[0] || '2025', 10);
+    const todasDisciplinas = dbService.getDisciplinas(escola.id);
+
+    const primariasMap = primarias.map((cls, idx) => {
+      const encontrada = classesExistentes.find(
+        c => normalizarClasse(c.classe).toLowerCase() === cls.toLowerCase()
+      );
+      if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
+        return encontrada;
+      }
+
+      const diffAnos = 6 - idx;
+      const anoLetivoEst = `${anoBase - diffAnos}/${anoBase - diffAnos + 1}`;
+      const discFiltradas = filtrarDisciplinasDaClasse(todasDisciplinas, cls);
+      const discPadrao = discFiltradas.length > 0
+        ? discFiltradas.map(d => d.nome)
+        : (CURRICULO_POR_CLASSE[cls] || CURRICULO_POR_CLASSE['1ª']);
+
+      const notasDisciplinas: NotaFinalDisciplinaHistorico[] = discPadrao.map(nome => ({
+        disciplinaNome: nome,
+        notaFinal: 0,
+        resultado: 'Pendente' as any
+      }));
+
+      return {
+        classe: cls,
+        anoLectivo: encontrada?.anoLectivo || anoLetivoEst,
+        escolaOrigem: encontrada?.escolaOrigem || escola.nomeOficial || 'Escola Primária de Origem',
+        mediaGeralClasse: 0,
+        notasDisciplinas,
+        ocorrencias: [],
+        faltas: {
+          anoLectivo: encontrada?.anoLectivo || anoLetivoEst,
+          classe: cls,
+          totalAulasPrevistas: 720,
+          faltasJustificadas: 0,
+          faltasInjustificadas: 0,
+          totalPresencas: 720,
+          percentualAssiduidade: 100,
+          observacao: 'Frequência regular.'
+        },
+        dividas: {
+          anoLectivo: encontrada?.anoLectivo || anoLetivoEst,
+          classe: cls,
+          status: 'Regularizado',
+          totalDividaAKZ: 0,
+          totalPagoAKZ: 0,
+          mesesPendentes: [],
+          observacoes: 'Regularizado.'
+        }
+      } as HistoricoClasseDisciplinas;
+    });
+
+    const primSet = new Set(primarias.map(p => p.toLowerCase()));
+    const outrasClasses = classesExistentes.filter(
+      c => !primSet.has(normalizarClasse(c.classe).toLowerCase())
+    );
+    const todasClassesCombinadas = ordenarClassesHistorico([...primariasMap, ...outrasClasses]);
+
+    const novoHist: HistoricoEscolarCompleto = {
+      alunoId: historicoAluno.id,
+      classes: todasClassesCombinadas,
+      dataUltimaAtualizacao: new Date().toISOString()
+    };
+    dbService.salvarHistoricoEscolarCompleto(novoHist);
+    setHistoricoCompleto(novoHist);
+    setClasseAtivaIdx(0);
+    sincronizarHistoricoComAluno(historicoAluno, todasClassesCombinadas);
+    setFeedbackHistorico('Ensino Primário (1ª à 6ª Classe • Escala 0–10) adicionado ao histórico escolar!');
     setTimeout(() => setFeedbackHistorico(null), 4000);
   };
 
@@ -1687,18 +1788,37 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     e.preventDefault();
     if (!historicoCompleto || !historicoAluno) return;
 
+    const classeNormalizada = normalizarClasse(novaClasseNome.trim()) || novaClasseNome.trim();
+    const existenteIdx = historicoCompleto.classes.findIndex(
+      c => normalizarClasse(c.classe).toLowerCase() === classeNormalizada.toLowerCase()
+    );
+    if (existenteIdx >= 0) {
+      setClasseAtivaIdx(existenteIdx);
+      setShowAddClasseForm(false);
+      setFeedbackHistorico(`A ${classeNormalizada} Classe já existe no histórico — selecionada para edição.`);
+      setTimeout(() => setFeedbackHistorico(null), 3500);
+      return;
+    }
+
+    const todasDisciplinas = dbService.getDisciplinas(escola.id);
+    const discFiltradas = filtrarDisciplinasDaClasse(todasDisciplinas, classeNormalizada, historicoAluno.curso);
+    const discPadrao = discFiltradas.length > 0
+      ? discFiltradas.map(d => d.nome)
+      : (CURRICULO_POR_CLASSE[classeNormalizada] || ['Língua Portuguesa', 'Matemática']);
+
     const novaClasse: HistoricoClasseDisciplinas = {
-      classe: novaClasseNome.trim(),
+      classe: classeNormalizada,
       anoLectivo: novaClasseAno.trim(),
-      escolaOrigem: novaClasseEscola.trim(),
-      mediaGeralClasse: 14.0,
-      notasDisciplinas: [
-        { disciplinaNome: 'Língua Portuguesa', notaFinal: 14, resultado: 'Aprovado' },
-        { disciplinaNome: 'Matemática', notaFinal: 14, resultado: 'Aprovado' }
-      ]
+      escolaOrigem: novaClasseEscola.trim() || escola.nomeOficial || 'Escola de Origem',
+      mediaGeralClasse: 0,
+      notasDisciplinas: discPadrao.map(nome => ({
+        disciplinaNome: nome,
+        notaFinal: 0,
+        resultado: 'Pendente' as any
+      }))
     };
 
-    const classesAtualizadas = [...historicoCompleto.classes, novaClasse];
+    const classesAtualizadas = ordenarClassesHistorico([...historicoCompleto.classes, novaClasse]);
     const novoHistorico: HistoricoEscolarCompleto = {
       ...historicoCompleto,
       classes: classesAtualizadas,
@@ -1707,21 +1827,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     dbService.salvarHistoricoEscolarCompleto(novoHistorico);
     setHistoricoCompleto(novoHistorico);
-    setClasseAtivaIdx(classesAtualizadas.length - 1);
+    const novoIdx = classesAtualizadas.findIndex(
+      c => normalizarClasse(c.classe).toLowerCase() === classeNormalizada.toLowerCase()
+    );
+    setClasseAtivaIdx(novoIdx >= 0 ? novoIdx : classesAtualizadas.length - 1);
     setShowAddClasseForm(false);
-
-    // Sincronizar aluno
-    const historicoAnteriorSincronizado: HistoricoAnoAnterior[] = classesAtualizadas.map(c => ({
-      classe: c.classe,
-      anoLectivo: c.anoLectivo,
-      escolaOrigem: c.escolaOrigem,
-      mediaFinal: c.mediaGeralClasse || 10,
-      aprovado: (c.mediaGeralClasse || 10) >= 10,
-      concluido: true
-    }));
-    const alunoAtualizado = { ...historicoAluno, historicoAnterior: historicoAnteriorSincronizado };
-    onSalvarAluno(alunoAtualizado);
-    setHistoricoAluno(alunoAtualizado);
+    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
   };
 
   const handleRemoverClasse = (idxClasse: number) => {
@@ -1743,17 +1854,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     setHistoricoCompleto(novoHistorico);
     setClasseAtivaIdx(0);
 
-    const historicoAnteriorSincronizado: HistoricoAnoAnterior[] = classesAtualizadas.map(c => ({
-      classe: c.classe,
-      anoLectivo: c.anoLectivo,
-      escolaOrigem: c.escolaOrigem,
-      mediaFinal: c.mediaGeralClasse || 10,
-      aprovado: (c.mediaGeralClasse || 10) >= 10,
-      concluido: true
-    }));
-    const alunoAtualizado = { ...historicoAluno, historicoAnterior: historicoAnteriorSincronizado };
-    onSalvarAluno(alunoAtualizado);
-    setHistoricoAluno(alunoAtualizado);
+    sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
   };
 
   // Adicionar acontecimento / ocorrência escolar (Professores, Coordenadores, Diretores, Subdiretores, Secretários)
@@ -1776,7 +1877,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       descricao: novaOcorrDescricao.trim(),
       registadoPor: nomeRegistador,
       cargo: novaOcorrCargo,
-      anoLectivo: classeAtual.anoLectivo || escola.anoLectivoActivo || '2025/2026',
+      anoLectivo: classeAtual.anoLectivo || escola.anoLectivoActivo || '',
       classe: classeAtual.classe,
       resolucao: novaOcorrResolucao.trim() || 'Averbado no dossiê oficial do estudante.',
       notificarEncarregado: novaOcorrNotificarEncarregado
@@ -1829,7 +1930,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const novaOcorr: OcorrenciaHistoricoAluno = {
       id: `ocorr-dos-${Date.now()}`,
       data: novaOcorrData || new Date().toISOString().split('T')[0],
-      anoLectivo: escola.anoLectivoActivo || '2025/2026',
+      anoLectivo: escola.anoLectivoActivo || '',
       tipo: novaOcorrTipo,
       gravidade: novaOcorrGravidade,
       descricao: novaOcorrDescricao.trim() || 'Ocorrência averbada no dossiê oficial.',
@@ -2366,12 +2467,21 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
+                          onClick={handleInicializarEnsinoPrimario}
+                          className="px-3 py-1 bg-amber-50 border border-amber-400 text-amber-900 hover:bg-amber-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                          title="Adiciona ou completa automaticamente as classes de 1ª à 6ª Classe (Ensino Primário, escala 0–10)"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Gerar 1ª à 6ª Classe (Primário)</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={handleInicializarCicloCompleto}
                           className="px-3 py-1 bg-emerald-50 border border-emerald-400 text-emerald-900 hover:bg-emerald-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
-                          title="Inicializa ou complementa automaticamente todas as classes obrigatórias do ciclo curricular (1ª à 6ª, 7ª à 9ª ou 10ª à 12ª/13ª)"
+                          title="Inicializa ou complementa automaticamente todas as classes obrigatórias do ciclo curricular atual (1ª à 6ª, 7ª à 9ª ou 10ª à 12ª/13ª)"
                         >
                           <Award className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>Gerar Ciclo Completo de Classes</span>
+                          <span>Gerar Ciclo Atual</span>
                         </button>
                         <button
                           type="button"
@@ -2398,20 +2508,23 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     {showAddClasseForm && (
                       <form onSubmit={handleCriarNovaClasse} className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl space-y-3 text-xs">
                         <div className="flex items-center justify-between">
-                          <h4 className="font-black text-emerald-900">Adicionar Classe ao Histórico Escolar</h4>
+                          <h4 className="font-black text-emerald-900">Adicionar Classe ao Histórico Escolar (1ª à 13ª Classe)</h4>
                           <button type="button" onClick={() => setShowAddClasseForm(false)} className="text-gray-500 font-bold">✕</button>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
                             <label className="font-bold text-gray-700 block mb-1">Classe Curricular *</label>
-                            <input
-                              type="text"
-                              required
+                            <select
                               value={novaClasseNome}
                               onChange={(e) => setNovaClasseNome(e.target.value)}
-                              placeholder="Ex: 7ª, 8ª, 9ª, 10ª, 11ª..."
                               className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
-                            />
+                            >
+                              {TODAS_CLASSES_HISTORICO.map(cls => (
+                                <option key={`add-cls-tab-${cls}`} value={cls}>
+                                  {cls === 'Iniciação' ? 'Iniciação (0–10)' : `${cls} Classe (${['1ª','2ª','3ª','4ª','5ª','6ª'].includes(cls) ? 'Primário 0–10' : 'Secundário 0–20'})`}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div>
                             <label className="font-bold text-gray-700 block mb-1">Ano Lectivo de Conclusão *</label>
@@ -2505,8 +2618,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                           {/* Barra de Preenchimento Rápido / Atalhos de Notas */}
                           <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs">
                             <div className="flex items-center space-x-2">
-                              <span className="font-bold text-gray-600 text-[11px]">Atribuir Nota Base a Todas:</span>
-                              {[10, 12, 14, 15, 16, 18].map(val => (
+                              <span className="font-bold text-gray-600 text-[11px]">Atribuir Nota Base ({escalaInfo.rotuloEscala}):</span>
+                              {(escalaInfo.ehPrimario ? [5, 6, 7, 8, 9, 10] : [10, 12, 14, 15, 16, 18]).map(val => (
                                 <button
                                   key={`btn-val-${val}`}
                                   type="button"
@@ -2539,7 +2652,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                 <tr>
                                   <th className="p-3 w-10 text-center">Nº</th>
                                   <th className="p-3">Disciplina Curricular ({classeAtual.notasDisciplinas.length})</th>
-                                  <th className="p-3 w-36 text-center">Média Final (0-20)</th>
+                                  <th className="p-3 w-36 text-center">Média Final (0-{escalaInfo.escalaMaxima})</th>
                                   <th className="p-3 w-44">Classificação por Extenso</th>
                                   <th className="p-3 w-28 text-center">Aproveitamento</th>
                                   <th className="p-3 w-16 text-center">Ações</th>
@@ -2578,19 +2691,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                           <input
                                             type="number"
                                             min="0"
-                                            max="20"
+                                            max={escalaInfo.escalaMaxima}
                                             step="0.5"
                                             value={notaAtual}
                                             onChange={(e) => {
                                               const v = parseFloat(e.target.value) || 0;
-                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: Math.min(20, Math.max(0, v)) }));
+                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: Math.min(escalaInfo.escalaMaxima, Math.max(0, v)) }));
                                             }}
                                             className="w-16 p-1 text-center font-black text-sm border-2 border-emerald-500/40 rounded-lg bg-emerald-50/20 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                                           />
                                           <button
                                             type="button"
                                             onClick={() => {
-                                              const nv = Math.min(20, Number((Number(notaAtual) + 1).toFixed(1)));
+                                              const nv = Math.min(escalaInfo.escalaMaxima, Number((Number(notaAtual) + 1).toFixed(1)));
                                               setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
                                             }}
                                             className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
@@ -2659,15 +2772,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                               />
                             </div>
                             <div className="w-28">
-                              <label className="font-bold text-gray-700 block mb-1">Nota Final:</label>
+                              <label className="font-bold text-gray-700 block mb-1">Nota Final (0-{escalaInfo.escalaMaxima}):</label>
                               <input
                                 type="number"
                                 min="0"
-                                max="20"
+                                max={escalaInfo.escalaMaxima}
                                 step="0.5"
                                 value={novaDiscNota}
                                 onChange={(e) => setNovaDiscNota(e.target.value)}
-                                placeholder="10"
+                                placeholder={String(escalaInfo.notaAprovacao)}
                                 className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
                               />
                             </div>
@@ -2925,20 +3038,34 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200">
-                            {historicoCompleto.classes.map((c, cIdx) => (
-                              <tr key={`res-${cIdx}`} className="hover:bg-slate-50 transition-colors">
-                                <td className="p-3 font-bold text-gray-900">{c.classe} Classe</td>
-                                <td className="p-3 font-mono text-gray-600">{c.anoLectivo}</td>
-                                <td className="p-3 text-gray-700">{c.escolaOrigem || escola.nomeOficial}</td>
-                                <td className="p-3 text-center font-black text-emerald-700">{c.mediaGeralClasse ?? 10} / 20</td>
-                                <td className="p-3 text-center font-bold text-amber-700">{c.ocorrencias?.length || 0}</td>
-                                <td className="p-3 text-center">
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                    Transitou
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
+                            {historicoCompleto.classes.map((c, cIdx) => {
+                              const eInfo = obterInformacaoEscala(c.classe);
+                              const aprov = (c.mediaGeralClasse || 0) >= eInfo.notaAprovacao;
+                              return (
+                                <tr key={`res-${cIdx}`} className="hover:bg-slate-50 transition-colors">
+                                  <td className="p-3 font-bold text-gray-900">{c.classe} Classe</td>
+                                  <td className="p-3 font-mono text-gray-600">{c.anoLectivo}</td>
+                                  <td className="p-3 text-gray-700">{c.escolaOrigem || escola.nomeOficial}</td>
+                                  <td className="p-3 text-center font-black">
+                                    <span className={aprov ? 'text-emerald-700' : 'text-red-700'}>
+                                      {c.mediaGeralClasse ?? 0} / {eInfo.escalaMaxima}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center font-bold text-amber-700">{c.ocorrencias?.length || 0}</td>
+                                  <td className="p-3 text-center">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      (c.mediaGeralClasse || 0) <= 0
+                                        ? 'bg-gray-100 text-gray-600'
+                                        : aprov
+                                          ? 'bg-emerald-100 text-emerald-800'
+                                          : 'bg-red-100 text-red-800'
+                                    }`}>
+                                      {(c.mediaGeralClasse || 0) <= 0 ? 'Pendente' : (aprov ? 'Transitou' : 'Não Transita')}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -3146,7 +3273,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 <div className="flex justify-between items-center">
                   <span>Ano Lectivo:</span>
                   <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded text-[11px] border border-indigo-200">
-                    {aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || escola.anoLectivoActivo || '2025/2026'}
+                    {aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || escola.anoLectivoActivo || '—'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -3477,11 +3604,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       }}
                       className="w-full p-2 border border-blue-400 bg-blue-50/40 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none font-bold text-blue-950"
                     >
-                      {anosLectivosDisponiveis.map((ano: string) => (
-                        <option key={`modal-ano-${ano}`} value={ano}>
-                          {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
-                        </option>
-                      ))}
+                      {anosLectivosDisponiveis.length === 0 ? (
+                        <option value="">Sem ano letivo cadastrado</option>
+                      ) : (
+                        anosLectivosDisponiveis.map((ano: string) => (
+                          <option key={`modal-ano-${ano}`} value={ano}>
+                            {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 
@@ -3949,11 +4080,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       }}
                       className="w-full p-2 border border-emerald-400 rounded-lg font-bold bg-emerald-50/50 text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     >
-                      {anosLectivosDisponiveis.map((ano: string) => (
-                        <option key={`conf-ano-${ano}`} value={ano}>
-                          Ano {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
-                        </option>
-                      ))}
+                      {anosLectivosDisponiveis.length === 0 ? (
+                        <option value="">Sem ano letivo cadastrado</option>
+                      ) : (
+                        anosLectivosDisponiveis.map((ano: string) => (
+                          <option key={`conf-ano-${ano}`} value={ano}>
+                            Ano {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 
@@ -4250,7 +4385,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </div>
 
               <div className="text-center pt-2 text-[9px] text-gray-500 font-mono">
-                Emitido em: {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })} • Sistema de Gestão Escolar Oficial MED
+                Emitido em: {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })} • Secretaria Escolar MED
               </div>
             </div>
           </div>
@@ -4298,8 +4433,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               ))}
 
               <button
+                type="button"
+                onClick={handleInicializarEnsinoPrimario}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 inline-flex items-center space-x-1 cursor-pointer"
+                title="Adiciona automaticamente as classes de 1ª à 6ª Classe (Ensino Primário, escala 0–10)"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                <span>Gerar 1ª à 6ª Classe (Primário)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setShowAddClasseForm(!showAddClasseForm)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-green-800 bg-green-50 hover:bg-green-100 border border-green-300 inline-flex items-center space-x-1"
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-green-800 bg-green-50 hover:bg-green-100 border border-green-300 inline-flex items-center space-x-1 cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Adicionar Nova Classe</span>
@@ -4310,7 +4456,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             {showAddClasseForm && (
               <form onSubmit={handleCriarNovaClasse} className="p-4 bg-green-50 border border-green-300 rounded-xl space-y-3 text-xs">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-black text-green-900">Adicionar Nova Classe ao Histórico Escolar</h4>
+                  <h4 className="font-black text-green-900">Adicionar Nova Classe ao Histórico Escolar (1ª à 13ª Classe)</h4>
                   <button 
                     type="button" 
                     onClick={() => setShowAddClasseForm(false)} 
@@ -4327,14 +4473,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       onChange={(e) => setNovaClasseNome(e.target.value)}
                       className="w-full p-2 border rounded-md bg-white font-bold"
                     >
-                      <option value="6ª">6ª Classe</option>
-                      <option value="7ª">7ª Classe</option>
-                      <option value="8ª">8ª Classe</option>
-                      <option value="9ª">9ª Classe</option>
-                      <option value="10ª">10ª Classe</option>
-                      <option value="11ª">11ª Classe</option>
-                      <option value="12ª">12ª Classe</option>
-                      <option value="13ª">13ª Classe</option>
+                      {TODAS_CLASSES_HISTORICO.map(cls => (
+                        <option key={`add-cls-mod-${cls}`} value={cls}>
+                          {cls === 'Iniciação' ? 'Iniciação (0–10)' : `${cls} Classe (${['1ª','2ª','3ª','4ª','5ª','6ª'].includes(cls) ? 'Primário 0–10' : 'Secundário 0–20'})`}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -5511,7 +5654,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-gray-500 uppercase">Ano de Ingresso</span>
-                    <div className="font-bold text-gray-900">{alunoDossieModal.anoMatricula || '2024/2025'}</div>
+                    <div className="font-bold text-gray-900">{alunoDossieModal.anoMatricula || alunoDossieModal.anoLectivo || '—'}</div>
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-gray-500 uppercase">Turma Ativa</span>
@@ -5879,20 +6022,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       )}
 
       {showListaNominalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto no-print">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-gray-200 max-h-[95vh] overflow-y-auto">
             <StudentClassListPdfDocument
               escola={escola}
-              turma={turmas.find(t => t.id === selectedTurmaFilter) || turmas[0] || {
-                id: 'turma-padrao',
-                escolaId: escola.id,
-                nome: 'A',
-                classe: selectedClasseFilter !== 'TODAS' ? selectedClasseFilter : '10ª',
-                anoLectivo: escola.anoLectivoActivo || '2025/2026',
-                turno: 'Manhã',
-                sala: 'Sala 01'
-              }}
+              turma={turmas.find(t => t.id === selectedTurmaFilter)}
               alunos={filteredAlunos}
+              turmasDisponiveis={turmas}
+              todosAlunos={alunos}
+              selectedAnoLectivo={selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '')}
+              initialClasse={selectedClasseFilter}
+              initialCurso={selectedCursoFilter}
+              initialTurmaId={selectedTurmaFilter}
               onClose={() => setShowListaNominalModal(false)}
             />
           </div>

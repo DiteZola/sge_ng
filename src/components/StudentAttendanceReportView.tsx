@@ -110,51 +110,62 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
   const [alunoParaJustificar, setAlunoParaJustificar] = useState<Aluno | null>(null);
   const [funcionarioParaJustificar, setFuncionarioParaJustificar] = useState<Funcionario | null>(null);
 
-  const todasClasses = useMemo(
-    () => [
-      'Iniciação',
-      ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
-      ...CLASSES_PRIMEIRO_CICLO,
-      ...CLASSES_SEGUNDO_CICLO
-    ],
-    []
-  );
+  const isProfessor = currentUser.role === 'Professor';
 
-  // Turmas atribuídas ao professor (se aplicável)
+  // Turmas e disciplinas atribuídas ao professor (se aplicável)
+  const atribuicoesProfessor = useMemo(() => {
+    if (!isProfessor) return [];
+    return atribuicoes.filter(a => a.professorId === currentUser.id);
+  }, [atribuicoes, currentUser.id, isProfessor]);
+
   const turmasProfessorIds = useMemo(() => {
-    if (currentUser.role !== 'Professor') return new Set<string>();
+    if (!isProfessor) return new Set<string>();
     const ids = new Set<string>();
-    atribuicoes
-      .filter(a => a.professorId === currentUser.id)
-      .forEach(a => ids.add(a.turmaId));
+    atribuicoesProfessor.forEach(a => ids.add(a.turmaId));
     turmas
       .filter(t => t.coordenadorId === currentUser.id)
       .forEach(t => ids.add(t.id));
     return ids;
-  }, [atribuicoes, turmas, currentUser.id, currentUser.role]);
+  }, [atribuicoesProfessor, turmas, currentUser.id, isProfessor]);
+
+  const turmasDisponiveis = useMemo(() => {
+    if (!isProfessor) return turmas;
+    return turmas.filter(t => turmasProfessorIds.has(t.id));
+  }, [turmas, isProfessor, turmasProfessorIds]);
+
+  const todasClasses = useMemo(() => {
+    const listaBase = [
+      'Iniciação',
+      ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
+      ...CLASSES_PRIMEIRO_CICLO,
+      ...CLASSES_SEGUNDO_CICLO
+    ];
+    if (!isProfessor) return listaBase;
+    const classesProf = new Set(turmasDisponiveis.map(t => normalizarClasse(t.classe)));
+    const filtradas = listaBase.filter(c => classesProf.has(normalizarClasse(c)));
+    return filtradas.length > 0 ? filtradas : Array.from(classesProf);
+  }, [isProfessor, turmasDisponiveis]);
 
   const turmaInicial = useMemo(() => {
-    if (turmasProfessorIds.size > 0) {
-      const doProf = turmas.find(t => turmasProfessorIds.has(t.id));
-      if (doProf) return doProf;
-    }
-    return turmas[0];
-  }, [turmas, turmasProfessorIds]);
+    return turmasDisponiveis[0];
+  }, [turmasDisponiveis]);
 
   const [selectedClasse, setSelectedClasse] = useState<string>(() => {
     return turmaInicial?.classe ? normalizarClasse(turmaInicial.classe) : '10ª';
   });
 
   const turmasDaClasse = useMemo(() => {
-    const list = getTurmasPorClasse(turmas, selectedClasse);
-    return list.length > 0 ? list : turmas;
-  }, [turmas, selectedClasse]);
+    const list = getTurmasPorClasse(turmasDisponiveis, selectedClasse);
+    return list.length > 0 ? list : turmasDisponiveis;
+  }, [turmasDisponiveis, selectedClasse]);
 
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmaInicial?.id || '');
 
   useEffect(() => {
     if (turmasDaClasse.length > 0 && !turmasDaClasse.some(t => t.id === selectedTurmaId)) {
       setSelectedTurmaId(turmasDaClasse[0].id);
+    } else if (turmasDaClasse.length === 0 && selectedTurmaId !== '') {
+      setSelectedTurmaId('');
     }
   }, [selectedClasse, turmasDaClasse, selectedTurmaId]);
 
@@ -206,13 +217,39 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
     setTimeout(() => setFeedbackPontoDocente(null), 4000);
   };
 
-  // Turma selecionada
-  const turmaSelecionada = turmas.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmas[0];
+  // Turma selecionada (respeitando escopo do professor)
+  const turmaSelecionada = turmasDisponiveis.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmasDisponiveis[0];
 
-  // Disciplinas filtradas estritamente para a classe/curso da turma selecionada
+  // Disciplinas filtradas estritamente para a classe/curso da turma selecionada e atribuições do Professor
   const disciplinasDaClasse = useMemo(() => {
-    return getDisciplinasDaTurma(disciplinas, turmaSelecionada);
-  }, [disciplinas, turmaSelecionada]);
+    const base = getDisciplinasDaTurma(disciplinas, turmaSelecionada);
+    if (!isProfessor) return base;
+    if (!turmaSelecionada) return [];
+    const atribsNaTurma = atribuicoesProfessor.filter(a => a.turmaId === turmaSelecionada.id);
+    if (atribsNaTurma.length === 0) return [];
+    const idsAtribuidos = new Set(atribsNaTurma.map(a => a.disciplinaId).filter(Boolean));
+    const nomesAtribuidos = new Set(
+      atribsNaTurma.map(a => String((a as any).disciplinaNome || '').trim().toLowerCase()).filter(Boolean)
+    );
+    return base.filter(
+      d => idsAtribuidos.has(d.id) || nomesAtribuidos.has((d.nome || '').trim().toLowerCase())
+    );
+  }, [disciplinas, turmaSelecionada, isProfessor, atribuicoesProfessor]);
+
+  // Manter a disciplina selecionada coerente com as atribuições do professor
+  useEffect(() => {
+    if (!isProfessor) return;
+    if (disciplinasDaClasse.length > 0) {
+      if (
+        (selectedDisciplinaId === 'todas' && disciplinasDaClasse.length === 1) ||
+        (selectedDisciplinaId !== 'todas' && !disciplinasDaClasse.some(d => d.id === selectedDisciplinaId))
+      ) {
+        setSelectedDisciplinaId(disciplinasDaClasse[0].id);
+      }
+    } else if (selectedDisciplinaId !== 'todas') {
+      setSelectedDisciplinaId('todas');
+    }
+  }, [isProfessor, disciplinasDaClasse, selectedDisciplinaId]);
 
   // Alunos desta turma
   const alunosDaTurma = useMemo(() => {
@@ -871,7 +908,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   onChange={(e) => {
                     const novaC = e.target.value;
                     setSelectedClasse(novaC);
-                    const validas = getTurmasPorClasse(turmas, novaC);
+                    const validas = getTurmasPorClasse(turmasDisponiveis, novaC);
                     if (validas.length > 0) {
                       setSelectedTurmaId(validas[0].id);
                       setPresencas(dbService.obterPresencasAlunos(validas[0].id));
@@ -879,11 +916,15 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   }}
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  {todasClasses.map(c => (
-                    <option key={`manual-cl-${c}`} value={c}>
-                      {c} {c !== 'Iniciação' ? 'Classe' : ''}
-                    </option>
-                  ))}
+                  {todasClasses.length === 0 ? (
+                    <option value="">Sem turmas atribuídas</option>
+                  ) : (
+                    todasClasses.map(c => (
+                      <option key={`manual-cl-${c}`} value={c}>
+                        {c} {c !== 'Iniciação' ? 'Classe' : ''}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -899,23 +940,36 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   }}
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  {turmasDaClasse.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {turmasProfessorIds.has(t.id) ? '★ ' : ''}
-                      {t.nome} • {t.turno} • {t.sala || 'Sala'}
-                    </option>
-                  ))}
+                  {turmasDaClasse.length === 0 ? (
+                    <option value="">Nenhuma turma atribuída</option>
+                  ) : (
+                    turmasDaClasse.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {turmasProfessorIds.has(t.id) ? '★ ' : ''}
+                        {t.nome} • {t.turno} • {t.sala || 'Sala'}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
               <div>
-                <label className="block font-bold text-gray-700 mb-1">3. Disciplina (Opcional)</label>
+                <label className="block font-bold text-gray-700 mb-1">
+                  3. {isProfessor ? 'Minha Disciplina Atribuída' : 'Disciplina (Opcional)'}
+                </label>
                 <select
                   value={selectedDisciplinaId}
                   onChange={(e) => setSelectedDisciplinaId(e.target.value)}
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  <option value="todas">Chamada Geral do Dia</option>
+                  {(!isProfessor || disciplinasDaClasse.length === 0) && (
+                    <option value="todas">
+                      {isProfessor ? 'Coordenação Geral da Turma' : 'Chamada Geral do Dia'}
+                    </option>
+                  )}
+                  {isProfessor && disciplinasDaClasse.length > 1 && (
+                    <option value="todas">Todas as Minhas Disciplinas</option>
+                  )}
                   {disciplinasDaClasse.map(d => (
                     <option key={d.id} value={d.id}>
                       {d.nome} ({d.sigla})
@@ -1227,7 +1281,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   onChange={(e) => {
                     const novaC = e.target.value;
                     setSelectedClasse(novaC);
-                    const validas = getTurmasPorClasse(turmas, novaC);
+                    const validas = getTurmasPorClasse(turmasDisponiveis, novaC);
                     if (validas.length > 0) {
                       setSelectedTurmaId(validas[0].id);
                       setPresencas(dbService.obterPresencasAlunos(validas[0].id));
@@ -1264,13 +1318,20 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
               </div>
 
               <div>
-                <label className="block font-bold text-gray-700 mb-1">3. Disciplina Oficial</label>
+                <label className="block font-bold text-gray-700 mb-1">3. {isProfessor ? 'Minha Disciplina Atribuída' : 'Disciplina Oficial'}</label>
                 <select
                   value={selectedDisciplinaId}
                   onChange={(e) => setSelectedDisciplinaId(e.target.value)}
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  <option value="todas">Todas as Disciplinas da Classe</option>
+                  {(!isProfessor || disciplinasDaClasse.length === 0) && (
+                    <option value="todas">
+                      {isProfessor ? 'Coordenação Geral da Turma' : 'Todas as Disciplinas da Classe'}
+                    </option>
+                  )}
+                  {isProfessor && disciplinasDaClasse.length > 1 && (
+                    <option value="todas">Todas as Minhas Disciplinas</option>
+                  )}
                   {disciplinasDaClasse.map(d => (
                     <option key={d.id} value={d.id}>
                       {d.nome} ({d.sigla})
@@ -1354,7 +1415,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   Sala: <strong>{turmaSelecionada?.sala}</strong>
                 </span>
                 <span>
-                  Ano Letivo: <strong>{escola.anoLectivoActivo || '2025/2026'}</strong>
+                  Ano Letivo: <strong>{escola.anoLectivoActivo || '—'}</strong>
                 </span>
               </div>
             </div>

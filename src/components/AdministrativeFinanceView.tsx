@@ -383,11 +383,13 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   };
 
   const alunosParaPagamento = useMemo(() => {
-    let list = alunos.filter(a => !a.escolaId || a.escolaId === escola.id || escola.id === 'todas');
+    let list = alunos.filter(a => a.escolaId === escola.id || escola.id === 'todas');
     // Por padrão institucional, apenas alunos do ano letivo ativo aparecem para pagamentos
     if (!mostrarTodosAnosPagamento) {
-      const anoActivo = escola.anoLectivoActivo || '2025/2026';
-      list = list.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo || a.anoMatricula === anoActivo);
+      const anoActivo = escola.anoLectivoActivo || '';
+      if (anoActivo) {
+        list = list.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo || a.anoMatricula === anoActivo);
+      }
     }
     if (modalPagFiltroClasse !== 'TODAS') {
       list = list.filter(a => {
@@ -488,10 +490,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   // REGRA MED: Aluno que paga apenas uma parte continua obrigatoriamente na lista de devedores!
   // Só desaparece quando pagar a totalidade das suas dívidas.
   const devedores = useMemo(() => {
-    const anoActivo = escola.anoLectivoActivo || '2025/2026';
+    const anoActivo = escola.anoLectivoActivo || '';
     const alunosDaEscola = alunos.filter(a => 
-      !a.escolaId || 
-      a.escolaId === 'todas' || 
       a.escolaId === escola.id || 
       escola.id === 'todas'
     );
@@ -506,7 +506,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       // Regra de anos letivos: considera anoLectivo, anoMatricula ou ano da turma
       const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
       const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || anoActivo;
-      if (!mostrarAnosPassadosDevedores && anoDoAluno !== anoActivo) {
+      if (!mostrarAnosPassadosDevedores && anoActivo && anoDoAluno !== anoActivo) {
         const temAlunosNoAno = alunosDaEscola.some(a => {
           const t = turmas.find(tm => tm.id === a.turmaId);
           return (a.anoLectivo || a.anoMatricula || t?.anoLectivo) === anoActivo;

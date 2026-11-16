@@ -776,8 +776,8 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
         titulo="Leitor QR — Acesso à Biblioteca Escolar"
         subtitulo="Valide o cartão de estudante para registar entrada, consulta local ou empréstimo."
         acaoRotulo={`Registar ${tipoAcessoQr.replace(/_/g, ' ')}`}
-        alunos={alunos.length > 0 ? alunos : dbService.getAlunos().filter(a => !a.escolaId || a.escolaId === escola.id)}
-        turmas={turmas.length > 0 ? turmas : dbService.getTurmas().filter(t => !t.escolaId || t.escolaId === escola.id)}
+        alunos={alunos.length > 0 ? alunos : dbService.getAlunos(escola.id)}
+        turmas={turmas.length > 0 ? turmas : dbService.getTurmas().filter(t => t.escolaId === escola.id)}
         onStudentMatched={handleRegistarAcessoQrBiblioteca}
       />
 

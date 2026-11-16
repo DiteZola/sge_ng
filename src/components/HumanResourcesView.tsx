@@ -161,9 +161,9 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     'ChefeSecretaria'
   ].includes(currentUser.role);
 
-  // Apenas funcionários desta escola (ou todos se AdminGeral)
+  // Apenas funcionários estritamente pertencentes a esta escola
   const funcionariosDaEscola = funcionarios.filter(f => 
-    (currentUser.role === 'AdminGeral' || f.escolaId === escola.id) &&
+    (escola.id === 'todas' || f.escolaId === escola.id) &&
     f.role !== 'AdminGeral'
   );
 
@@ -2059,7 +2059,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcParaFicha.especialidade || funcParaFicha.habilitacoes}</strong></div>
                   <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcParaFicha.categoriaProfissional || 'Professor do IIº Ciclo do Ensino Secundário - 6º Grau'}</strong></div>
                   <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcParaFicha.cargo}</strong></div>
-                  <div><span className="text-gray-600">Perfil de Acesso no Sistema:</span> <strong className="text-blue-900">{funcParaFicha.role}</strong></div>
+                  <div><span className="text-gray-600">Perfil / Categoria Funcional:</span> <strong className="text-blue-900">{funcParaFicha.role}</strong></div>
                   <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcParaFicha.numeroAgente || 'AG-89412'}</strong></div>
                   <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcParaFicha.tipoContrato || 'Efetivo (Quadro Definitivo MED)'}</strong></div>
                   <div><span className="text-gray-600">Situação Funcional:</span> <strong className="text-emerald-800">{funcParaFicha.situacaoFuncional || 'Ativo no Efetivo'}</strong></div>
@@ -2076,7 +2076,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcParaFicha.iban || 'AO06.0006.0000.1234.5678.9012.3'}</strong></div>
                   <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcParaFicha.numeroSegurancaSocial || 'INSS-481920'}</strong></div>
                   <div><span className="text-gray-600 block">NIF Fiscal:</span><strong className="font-mono">{funcParaFicha.nif || funcParaFicha.numeroBI}</strong></div>
-                  <div><span className="text-gray-600 block">Data de Registo:</span><strong>{funcParaFicha.dataCriacao || '2025/2026'}</strong></div>
+                  <div><span className="text-gray-600 block">Data de Registo:</span><strong>{funcParaFicha.dataCriacao || funcParaFicha.dataAdmissao || 'Não definida'}</strong></div>
                 </div>
               </div>
 

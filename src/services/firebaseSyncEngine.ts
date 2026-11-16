@@ -10,7 +10,8 @@ import {
   where,
   limit,
   onSnapshot,
-  Unsubscribe
+  Unsubscribe,
+  deleteField
 } from "firebase/firestore";
 import { firestoreDb } from "./firebaseClient";
 import { offlineStorage } from "./offlineStorage";
@@ -105,6 +106,22 @@ function safeParseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
+const FIRESTORE_TIMEOUT_TOKEN = '__SGE_FIRESTORE_TIMEOUT__' as const;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | typeof FIRESTORE_TIMEOUT_TOKEN> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<typeof FIRESTORE_TIMEOUT_TOKEN>((resolve) => {
+        timer = setTimeout(() => resolve(FIRESTORE_TIMEOUT_TOKEN), ms);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function sanitizarValorFirestore(val: any, depth: number = 0): any {
   if (val === undefined || typeof val === 'function' || typeof val === 'symbol') return undefined;
   if (val === null) return null;
@@ -159,9 +176,20 @@ class FirebaseSyncEngine {
   private remoteNotifyTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private processingQueuePromise: Promise<void> | null = null;
+  private syncChannel: BroadcastChannel | null = null;
 
   constructor() {
     this.iniciarObservadoresDeRede();
+    if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+      try {
+        this.syncChannel = new BroadcastChannel('sge_director_school_sync');
+        this.syncChannel.onmessage = (ev) => {
+          if (ev?.data?.type === 'DIRETOR_ESCOLA_SYNC') {
+            this.agendarNotificacaoRemota(true);
+          }
+        };
+      } catch {}
+    }
   }
 
   public atualizarProgresso(percentual: number, etapa: string) {
@@ -200,15 +228,28 @@ class FirebaseSyncEngine {
     return this.isOnline() && !!firestoreDb;
   }
 
-  private agendarNotificacaoRemota() {
+  private emitirBroadcastDiretorEscola() {
+    if (this.syncChannel) {
+      try {
+        this.syncChannel.postMessage({ type: 'DIRETOR_ESCOLA_SYNC', ts: Date.now() });
+      } catch {}
+    }
+  }
+
+  private agendarNotificacaoRemota(imediato: boolean = false) {
     if (typeof window === 'undefined') return;
     if (this.remoteNotifyTimer) {
       clearTimeout(this.remoteNotifyTimer);
+      this.remoteNotifyTimer = null;
+    }
+    if (imediato) {
+      window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+      return;
     }
     this.remoteNotifyTimer = setTimeout(() => {
       this.remoteNotifyTimer = null;
       window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
-    }, 300);
+    }, 120);
   }
 
   private agendarProcessamentoPendencias() {
@@ -243,10 +284,31 @@ class FirebaseSyncEngine {
   }
 
   private async prepararPayloadComLimiteDeTamanho(dados: Record<string, any>, colecaoHint?: string): Promise<Record<string, any>> {
+    const colLower = (colecaoHint || '').toLowerCase();
+    const deveLimparSessaoApoio =
+      (colLower === 'escolas' || colLower === 'schools') &&
+      Object.prototype.hasOwnProperty.call(dados, 'sessaoApoioTecnicoAtiva') &&
+      (dados.sessaoApoioTecnicoAtiva === null || dados.sessaoApoioTecnicoAtiva === undefined);
+
+    const deveLimparDiretor =
+      (colLower === 'escolas' || colLower === 'schools') &&
+      Object.prototype.hasOwnProperty.call(dados, 'diretorGeralId') &&
+      (!dados.diretorGeralId || dados.diretorGeralId === null) &&
+      (!dados.diretorGeralNome || String(dados.diretorGeralNome).trim().toLowerCase() === 'não atribuído');
+
     const payload = sanitizarParaFirestore({
       ...dados,
       atualizadoEm: dados.atualizadoEm || new Date().toISOString()
     });
+    if (deveLimparSessaoApoio) {
+      delete payload.sessaoApoioTecnicoAtiva;
+    }
+    if (deveLimparDiretor) {
+      delete payload.diretorGeralId;
+      delete payload.diretorGeralEmail;
+      delete payload.diretorGeralTelefone;
+      payload.diretorGeralNome = 'Não Atribuído';
+    }
 
     // Se fotoUrl veio como Blob/File ou placeholder __idb_media__, recuperar/converter antes de sanitizar
     const rawBlobFoto = (dados as any).fotoBlob ?? (typeof Blob !== 'undefined' && (dados as any).fotoUrl instanceof Blob ? (dados as any).fotoUrl : undefined);
@@ -329,6 +391,16 @@ class FirebaseSyncEngine {
       }
     }
 
+    if (deveLimparSessaoApoio) {
+      payload.sessaoApoioTecnicoAtiva = deleteField();
+    }
+    if (deveLimparDiretor) {
+      payload.diretorGeralId = deleteField();
+      payload.diretorGeralEmail = deleteField();
+      payload.diretorGeralTelefone = deleteField();
+      payload.diretorGeralNome = 'Não Atribuído';
+    }
+
     return payload;
   }
 
@@ -370,7 +442,12 @@ class FirebaseSyncEngine {
           }
         }
 
-        const results = await Promise.allSettled(tasks);
+        const results = await withTimeout(Promise.allSettled(tasks), 3500);
+        if (results === FIRESTORE_TIMEOUT_TOKEN) {
+          console.warn(`[SGE Firebase Sync] Timeout ao gravar '${colecao}/${docId}', mantido na fila offline.`);
+          this.agendarProcessamentoPendencias();
+          return false;
+        }
         const primaryResult = results[0];
 
         if (primaryResult.status === 'fulfilled') {
@@ -468,7 +545,10 @@ class FirebaseSyncEngine {
             }
           }
         }
-        await batch.commit();
+        const commitRes = await withTimeout(batch.commit(), 4500);
+        if (commitRes === FIRESTORE_TIMEOUT_TOKEN) {
+          throw new Error('Timeout ao confirmar lote no Firestore');
+        }
         for (const entry of slice) {
           offlineStorage.removerPendenciaPorDocumento(colecao, entry.id);
           syncedIds.push(entry.id);
@@ -476,29 +556,32 @@ class FirebaseSyncEngine {
       } catch (err) {
         this.registrarErroPermissao(err);
         console.warn(`[SGE Firebase Sync] Batch falhou em '${colecao}' (${slice.length} itens), tentando por documento:`, err);
-        // Fallback individual para não perder documentos válidos do lote
-        const individualResults = await Promise.allSettled(
-          slice.map(async (entry) => {
-            const tasks = [setDoc(doc(firestoreDb!, colecao, entry.id), entry.payload, { merge: true })];
-            if (extraColecoes) {
-              for (const ec of extraColecoes) {
-                tasks.push(setDoc(doc(firestoreDb!, ec, entry.id), entry.payload, { merge: true }));
+        const individualResults = await withTimeout(
+          Promise.allSettled(
+            slice.map(async (entry) => {
+              const tasks = [setDoc(doc(firestoreDb!, colecao, entry.id), entry.payload, { merge: true })];
+              if (extraColecoes) {
+                for (const ec of extraColecoes) {
+                  tasks.push(setDoc(doc(firestoreDb!, ec, entry.id), entry.payload, { merge: true }));
+                }
               }
-            }
-            const res = await Promise.allSettled(tasks);
-            if (res[0].status === 'fulfilled') {
-              offlineStorage.removerPendenciaPorDocumento(colecao, entry.id);
-              syncedIds.push(entry.id);
-              return true;
-            }
-            throw res[0].reason;
-          })
+              const res = await withTimeout(Promise.allSettled(tasks), 3000);
+              if (res !== FIRESTORE_TIMEOUT_TOKEN && res[0].status === 'fulfilled') {
+                offlineStorage.removerPendenciaPorDocumento(colecao, entry.id);
+                syncedIds.push(entry.id);
+                return true;
+              }
+              throw res === FIRESTORE_TIMEOUT_TOKEN
+                ? new Error('Timeout individual')
+                : (res[0].status === 'rejected' ? res[0].reason : new Error('Falha de escrita'));
+            })
+          ),
+          4500
         );
 
-        individualResults.forEach((r, idx) => {
-          if (r.status === 'rejected') {
-            allOk = false;
-            const entry = slice[idx];
+        if (individualResults === FIRESTORE_TIMEOUT_TOKEN) {
+          allOk = false;
+          slice.forEach((entry) => {
             offlineStorage.adicionarPendencia(
               colecao,
               'ATUALIZAR',
@@ -507,8 +590,23 @@ class FirebaseSyncEngine {
               entry.id,
               extraColecoes
             );
-          }
-        });
+          });
+        } else {
+          individualResults.forEach((r, idx) => {
+            if (r.status === 'rejected') {
+              allOk = false;
+              const entry = slice[idx];
+              offlineStorage.adicionarPendencia(
+                colecao,
+                'ATUALIZAR',
+                `Lote ${colecao} (${entry.id})`,
+                entry.dadosOriginais,
+                entry.id,
+                extraColecoes
+              );
+            }
+          });
+        }
       }
     }
 
@@ -552,15 +650,17 @@ class FirebaseSyncEngine {
             tasks.push(deleteDoc(doc(firestoreDb, extraCol, docId)));
           }
         }
-        const results = await Promise.allSettled(tasks);
-        if (results[0].status === 'fulfilled') {
+        const results = await withTimeout(Promise.allSettled(tasks), 3500);
+        if (results !== FIRESTORE_TIMEOUT_TOKEN && results[0].status === 'fulfilled') {
           offlineStorage.removerPendenciaPorDocumento(colecao, docId);
           this.registrarIdsSincronizados(colecao, [], [docId]);
           this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
           this.notificarStatus();
           return true;
         }
-        this.registrarErroPermissao(results[0].reason);
+        if (results !== FIRESTORE_TIMEOUT_TOKEN && results[0].status === 'rejected') {
+          this.registrarErroPermissao(results[0].reason);
+        }
       } catch (err) {
         this.registrarErroPermissao(err);
         console.warn(`[SGE Firebase Sync] Erro ao eliminar '${colecao}/${docId}':`, err);
@@ -605,8 +705,8 @@ class FirebaseSyncEngine {
                       delTasks.push(deleteDoc(doc(firestoreDb!, ec, docId)));
                     }
                   }
-                  const delRes = await Promise.allSettled(delTasks);
-                  if (delRes[0].status === 'fulfilled') {
+                  const delRes = await withTimeout(Promise.allSettled(delTasks), 4000);
+                  if (delRes !== FIRESTORE_TIMEOUT_TOKEN && delRes[0].status === 'fulfilled') {
                     offlineStorage.removerPendencia(p.id);
                     this.registrarIdsSincronizados(col, [], [docId]);
                   }
@@ -630,8 +730,8 @@ class FirebaseSyncEngine {
                       setTasks.push(setDoc(doc(firestoreDb!, ec, docId), payload, { merge: true }));
                     }
                   }
-                  const res = await Promise.allSettled(setTasks);
-                  if (res[0].status === 'fulfilled') {
+                  const res = await withTimeout(Promise.allSettled(setTasks), 4000);
+                  if (res !== FIRESTORE_TIMEOUT_TOKEN && res[0].status === 'fulfilled') {
                     offlineStorage.removerPendencia(p.id);
                     this.registrarIdsSincronizados(col, [docId]);
                   }
@@ -707,12 +807,7 @@ class FirebaseSyncEngine {
           this.buscarConfiguracaoSistema(),
           this.puxarColecaoArray<Escola>("escolas", STORAGE_KEYS.ESCOLAS, {
             filterValid: (esc) => Boolean(esc && esc.id && !isDemoEscola(esc)),
-            preserveFieldFn: (existing, esc) => ({
-              ...existing,
-              ...esc,
-              nomeOficial: esc.nomeOficial || (esc as any).nome || existing?.nomeOficial || 'Escola',
-              nome: (esc as any).nome || esc.nomeOficial || existing?.nome
-            }),
+            preserveFieldFn: (existing, esc) => this.mergeEscolaRemota(existing, esc),
             uploadLocalIfRemoteEmpty: true,
             extraColecoes: ["schools"]
           }),
@@ -883,7 +978,8 @@ class FirebaseSyncEngine {
       filterValid?: (item: T) => boolean,
       preserveFieldFn?: (local: T | undefined, remote: T) => T,
       afterApply?: (lista: T[]) => void,
-      getIdFn: (item: T) => string = (item) => item.id
+      getIdFn: (item: T) => string = (item) => item.id,
+      immediateNotify: boolean = false
     ) => {
       if (!firestoreDb) return;
       try {
@@ -928,7 +1024,7 @@ class FirebaseSyncEngine {
               getIdFn
             );
             if (afterApply) afterApply(aplicados);
-            this.agendarNotificacaoRemota();
+            this.agendarNotificacaoRemota(immediateNotify);
           }
         }, (err) => {
           this.registrarErroPermissao(err);
@@ -998,6 +1094,8 @@ class FirebaseSyncEngine {
       (mesclados) => {
         // Espelhar todos os funcionários e respetivas fotos imediatamente no IndexedDB local
         offlineStorage.salvarFuncionariosLoteNoIndexedDB(mesclados);
+        // Reconciliar imediatamente diretores recebidos com as respetivas escolas
+        this.reconciliarDiretoresLocal(false);
         const curRaw = localStorage.getItem('sge_current_user') || localStorage.getItem('sge_user');
         if (curRaw) {
           try {
@@ -1018,22 +1116,67 @@ class FirebaseSyncEngine {
           localStorage.setItem('sge_admin_configured', 'true');
           localStorage.setItem('sge_setup_inicial_concluido', 'true');
         }
-      }
+      },
+      (item) => item.id,
+      true
     );
 
     registrarEscutaArray<Escola>(
       "escolas",
       STORAGE_KEYS.ESCOLAS,
       (esc) => Boolean(esc && esc.id && !isDemoEscola(esc)),
-      (existing, esc) => ({
-        ...existing,
-        ...esc,
-        nomeOficial: esc.nomeOficial || (esc as any).nome || existing?.nomeOficial || 'Escola',
-        nome: (esc as any).nome || esc.nomeOficial || existing?.nome,
-        logotipoUrl: esc.logotipoUrl !== undefined ? esc.logotipoUrl : existing?.logotipoUrl,
-        assinaturaDiretorUrl: esc.assinaturaDiretorUrl !== undefined ? esc.assinaturaDiretorUrl : existing?.assinaturaDiretorUrl
-      })
+      (existing, esc) => this.mergeEscolaRemota(existing, esc),
+      () => {
+        this.reconciliarDiretoresLocal(false);
+      },
+      (item) => item.id,
+      true
     );
+
+    // Escuta auxiliar na coleção espelho "users" para Diretores Gerais (garante propagação mesmo de clientes legados)
+    try {
+      const qUsersDir = query(collection(firestoreDb, "users"), where("role", "==", "DiretorGeral"));
+      const unsubUsersDir = onSnapshot(qUsersDir, (snapshot) => {
+        if (snapshot.empty) return;
+        const locais = safeParseJson<Funcionario[]>(localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS), []);
+        const pendentesDel = new Set(
+          offlineStorage.obterPendencias()
+            .filter(p => p.entidade === 'funcionarios' && p.acao === 'ELIMINAR')
+            .map(p => p.docId || p.dados?.id)
+        );
+        let mudou = false;
+        snapshot.forEach(d => {
+          const u = d.data() as Funcionario;
+          const uid = u?.id || d.id;
+          if (!u || !u.nomeCompleto || isDemoFunc({ ...u, id: uid }) || pendentesDel.has(uid)) return;
+          const idx = locais.findIndex(f => f.id === uid);
+          const uNorm: Funcionario = { ...u, id: uid };
+          if (idx < 0) {
+            locais.push(uNorm);
+            mudou = true;
+          } else {
+            const tLoc = locais[idx].atualizadoEm ? Date.parse(String(locais[idx].atualizadoEm)) : 0;
+            const tRem = uNorm.atualizadoEm ? Date.parse(String(uNorm.atualizadoEm)) : 0;
+            if (tRem > tLoc + 500 || (locais[idx].escolaId !== uNorm.escolaId && tRem >= tLoc)) {
+              locais[idx] = {
+                ...locais[idx],
+                ...uNorm,
+                password: uNorm.password || locais[idx].password || '',
+                fotoUrl: uNorm.fotoUrl !== undefined ? uNorm.fotoUrl : locais[idx].fotoUrl
+              };
+              mudou = true;
+            }
+          }
+        });
+        if (mudou) {
+          localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(locais));
+          offlineStorage.salvarFuncionariosLoteNoIndexedDB(locais);
+          this.reconciliarDiretoresLocal(false);
+          this.agendarNotificacaoRemota(true);
+        }
+      }, () => {});
+      this.unsubRealtime.push(unsubUsersDir);
+    } catch {}
 
     registrarEscutaArray<Turma>("turmas", STORAGE_KEYS.TURMAS, (t) => Boolean(t && t.id));
     registrarEscutaArray<any>("disciplinas", STORAGE_KEYS.DISCIPLINAS, (d) => Boolean(d && d.id));
@@ -1129,28 +1272,45 @@ class FirebaseSyncEngine {
         const usersRef = collection(firestoreDb, "users");
 
         if (isAdminKeyword) {
-          const [snapAdmin, snapAdminUsers] = await Promise.all([
-            getDocs(query(funcsRef, where("role", "==", "AdminGeral"))),
-            getDocs(query(usersRef, where("role", "==", "AdminGeral")))
-          ]);
-          const admins = [
-            ...snapAdmin.docs.map(d => d.data() as Funcionario),
-            ...snapAdminUsers.docs.map(d => d.data() as Funcionario)
-          ].filter(f => f.ativo !== false && f.nomeCompleto);
-          if (admins.length > 0) {
-            const userFromFirebase = admins[0];
-            this.atualizarUsuarioNoDispositivo(userFromFirebase);
-            return userFromFirebase;
+          const adminRes = await withTimeout(
+            Promise.all([
+              getDocs(query(funcsRef, where("role", "==", "AdminGeral"))),
+              getDocs(query(usersRef, where("role", "==", "AdminGeral")))
+            ]),
+            2000
+          );
+          if (adminRes !== FIRESTORE_TIMEOUT_TOKEN) {
+            const [snapAdmin, snapAdminUsers] = adminRes;
+            const admins = [
+              ...snapAdmin.docs.map(d => d.data() as Funcionario),
+              ...snapAdminUsers.docs.map(d => d.data() as Funcionario)
+            ].filter(f => f.ativo !== false && f.nomeCompleto);
+            if (admins.length > 0) {
+              const userFromFirebase = admins[0];
+              this.atualizarUsuarioNoDispositivo(userFromFirebase);
+              return userFromFirebase;
+            }
+          } else {
+            return this.buscarPerfilNoDispositivo(termo);
           }
         }
 
         const biUpper = identificador.trim().toUpperCase();
-        // Consultas específicas em paralelo (muito mais rápido do que sequencial)
-        const [snapEmail, snapBI, docDirect] = await Promise.all([
-          getDocs(query(funcsRef, where("email", "==", termo), limit(1))),
-          getDocs(query(funcsRef, where("numeroBI", "==", biUpper), limit(1))),
-          getDoc(doc(firestoreDb, "funcionarios", identificador.trim()))
-        ]);
+        // Consultas específicas em paralelo com timeout rígido para não travar offline/rede instável
+        const parallelRes = await withTimeout(
+          Promise.all([
+            getDocs(query(funcsRef, where("email", "==", termo), limit(1))),
+            getDocs(query(funcsRef, where("numeroBI", "==", biUpper), limit(1))),
+            getDoc(doc(firestoreDb, "funcionarios", identificador.trim()))
+          ]),
+          2000
+        );
+
+        if (parallelRes === FIRESTORE_TIMEOUT_TOKEN) {
+          return this.buscarPerfilNoDispositivo(termo);
+        }
+
+        const [snapEmail, snapBI, docDirect] = parallelRes;
 
         if (!snapEmail.empty) {
           const userFromFirebase = snapEmail.docs[0].data() as Funcionario;
@@ -1168,24 +1328,26 @@ class FirebaseSyncEngine {
           return userFromFirebase;
         }
 
-        const snapAll = await getDocs(funcsRef);
-        for (const docSnap of snapAll.docs) {
-          const f = docSnap.data() as Funcionario;
-          const fEmail = (f.email || '').trim().toLowerCase();
-          const fBi = (f.numeroBI || '').toUpperCase().replace(/\s+/g, '');
-          const fNome = (f.nomeCompleto || '').trim().toLowerCase();
-          const fId = (f.id || '').trim().toLowerCase();
+        const snapAll = await withTimeout(getDocs(funcsRef), 2000);
+        if (snapAll !== FIRESTORE_TIMEOUT_TOKEN) {
+          for (const docSnap of snapAll.docs) {
+            const f = docSnap.data() as Funcionario;
+            const fEmail = (f.email || '').trim().toLowerCase();
+            const fBi = (f.numeroBI || '').toUpperCase().replace(/\s+/g, '');
+            const fNome = (f.nomeCompleto || '').trim().toLowerCase();
+            const fId = (f.id || '').trim().toLowerCase();
 
-          if (
-            fEmail === termo ||
-            fBi === biUpper ||
-            fBi === termo.toUpperCase().replace(/\s+/g, '') ||
-            fNome === termo ||
-            fId === termo ||
-            (isAdminKeyword && f.role === 'AdminGeral')
-          ) {
-            this.atualizarUsuarioNoDispositivo(f);
-            return f;
+            if (
+              fEmail === termo ||
+              fBi === biUpper ||
+              fBi === termo.toUpperCase().replace(/\s+/g, '') ||
+              fNome === termo ||
+              fId === termo ||
+              (isAdminKeyword && f.role === 'AdminGeral')
+            ) {
+              this.atualizarUsuarioNoDispositivo(f);
+              return f;
+            }
           }
         }
       } catch (err) {
@@ -1308,24 +1470,30 @@ class FirebaseSyncEngine {
   public async buscarConfiguracaoSistema(): Promise<ConfiguracaoSistema | null> {
     if (this.canUseFirestore() && firestoreDb) {
       try {
-        const [docSnap, docSnapAlt] = await Promise.all([
-          getDoc(doc(firestoreDb, "configuracao_sistema", "global")),
-          getDoc(doc(firestoreDb, "system_config", "global"))
-        ]);
+        const cfgSnaps = await withTimeout(
+          Promise.all([
+            getDoc(doc(firestoreDb, "configuracao_sistema", "global")),
+            getDoc(doc(firestoreDb, "system_config", "global"))
+          ]),
+          2000
+        );
 
-        let configFromFirebase: ConfiguracaoSistema | null = null;
-        if (docSnap.exists()) {
-          configFromFirebase = docSnap.data() as ConfiguracaoSistema;
-        } else if (docSnapAlt.exists()) {
-          configFromFirebase = docSnapAlt.data() as ConfiguracaoSistema;
-        }
-
-        if (configFromFirebase) {
-          configFromFirebase = await this.reconstruirConfiguracaoComChunks(configFromFirebase);
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(configFromFirebase));
+        if (cfgSnaps !== FIRESTORE_TIMEOUT_TOKEN) {
+          const [docSnap, docSnapAlt] = cfgSnaps;
+          let configFromFirebase: ConfiguracaoSistema | null = null;
+          if (docSnap.exists()) {
+            configFromFirebase = docSnap.data() as ConfiguracaoSistema;
+          } else if (docSnapAlt.exists()) {
+            configFromFirebase = docSnapAlt.data() as ConfiguracaoSistema;
           }
-          return configFromFirebase;
+
+          if (configFromFirebase) {
+            configFromFirebase = await this.reconstruirConfiguracaoComChunks(configFromFirebase);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(configFromFirebase));
+            }
+            return configFromFirebase;
+          }
         }
       } catch (err) {
         console.warn('[SGE Firebase Sync] Falha ao carregar configuração do Firestore:', err);
@@ -1559,12 +1727,7 @@ class FirebaseSyncEngine {
           this.buscarConfiguracaoSistema(),
           this.puxarColecaoArray<Escola>("escolas", STORAGE_KEYS.ESCOLAS, {
             filterValid: (esc) => Boolean(esc && esc.id && !isDemoEscola(esc)),
-            preserveFieldFn: (existing, esc) => ({
-              ...existing,
-              ...esc,
-              nomeOficial: esc.nomeOficial || (esc as any).nome || existing?.nomeOficial || 'Escola',
-              nome: (esc as any).nome || esc.nomeOficial || existing?.nome
-            }),
+            preserveFieldFn: (existing, esc) => this.mergeEscolaRemota(existing, esc),
             uploadLocalIfRemoteEmpty: true,
             extraColecoes: ["schools"]
           }),
@@ -1590,18 +1753,68 @@ class FirebaseSyncEngine {
               uploadLocalIfRemoteEmpty: true,
               extraColecoes: ["users"]
             });
-            if (funcs.length > 0) {
-              await offlineStorage.salvarFuncionariosLoteNoIndexedDB(funcs);
+
+            // Complementar com perfis presentes em "users" (em falta ou mais recentes, ex.: Diretores)
+            let listaConsolidada = funcs;
+            try {
+              if (firestoreDb) {
+                const snapUsers = await getDocs(collection(firestoreDb, "users"));
+                if (!snapUsers.empty) {
+                  const mapCons = new Map(listaConsolidada.map(f => [f.id, f]));
+                  const extras: Funcionario[] = [];
+                  let mudou = false;
+                  snapUsers.forEach(d => {
+                    const u = d.data() as Funcionario;
+                    const uid = u?.id || d.id;
+                    if (!u || !u.nomeCompleto || isDemoFunc({ ...u, id: uid })) return;
+                    const uNorm = { ...u, id: uid };
+                    const localExisting = mapCons.get(uid);
+                    if (!localExisting) {
+                      mapCons.set(uid, uNorm);
+                      extras.push(uNorm);
+                      mudou = true;
+                    } else {
+                      const tLoc = localExisting.atualizadoEm ? Date.parse(String(localExisting.atualizadoEm)) : 0;
+                      const tRem = uNorm.atualizadoEm ? Date.parse(String(uNorm.atualizadoEm)) : 0;
+                      if (tRem > tLoc + 500) {
+                        const merged = {
+                          ...localExisting,
+                          ...uNorm,
+                          password: uNorm.password || localExisting.password || '',
+                          fotoUrl: uNorm.fotoUrl !== undefined ? uNorm.fotoUrl : localExisting.fotoUrl
+                        };
+                        mapCons.set(uid, merged);
+                        extras.push(merged);
+                        mudou = true;
+                      }
+                    }
+                  });
+                  if (mudou) {
+                    listaConsolidada = Array.from(mapCons.values());
+                    localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(listaConsolidada));
+                    if (extras.length > 0) {
+                      await this.gravarLoteDireto("funcionarios", extras.map(e => ({ id: e.id, dados: e })));
+                    }
+                  }
+                }
+              }
+            } catch {}
+
+            if (listaConsolidada.length > 0) {
+              await offlineStorage.salvarFuncionariosLoteNoIndexedDB(listaConsolidada);
             }
-            if (funcs.some(f => f.role === 'AdminGeral' && f.ativo !== false)) {
+            if (listaConsolidada.some(f => f.role === 'AdminGeral' && f.ativo !== false)) {
               localStorage.setItem('sge_admin_configured', 'true');
               localStorage.setItem('sge_setup_inicial_concluido', 'true');
             }
           })()
         ]);
 
+        // Reconciliar Diretores Gerais encontrados com as respectivas escolas no dispositivo e reparar divergências na nuvem
+        this.reconciliarDiretoresLocal(true);
+
         this.atualizarProgresso(45, 'Instituições e utilizadores carregados. A sincronizar dados académicos...');
-        this.agendarNotificacaoRemota();
+        this.agendarNotificacaoRemota(true);
 
         // ============================================================
         // ONDA 2 (ACADÉMICA): Turmas, Disciplinas, Alunos, Atribuições, Avaliações, Notas em paralelo
@@ -1864,6 +2077,408 @@ class FirebaseSyncEngine {
   }
 
   // =========================================================================
+  // RECONCILIAÇÃO & SINCRONIZAÇÃO ATÓMICA DE DIRETORES GERAIS <-> ESCOLAS
+  // =========================================================================
+
+  private mergeEscolaRemota(existing: Escola | undefined, esc: Escola): Escola {
+    const tLocal = existing?.atualizadoEm ? Date.parse(String(existing.atualizadoEm)) : 0;
+    const tRemote = esc.atualizadoEm ? Date.parse(String(esc.atualizadoEm)) : 0;
+    const remotoMaisRecenteOuIgual = isNaN(tRemote) || isNaN(tLocal) || tRemote >= tLocal;
+
+    const placeholders = new Set([
+      'não atribuído',
+      'nao atribuido',
+      'pendente de nomeação',
+      'pendente de nomeacao',
+      'pendente',
+      'a designar',
+      ''
+    ]);
+    const nomeRemotoNorm = (esc.diretorGeralNome || '').trim().toLowerCase();
+    const remotoTemDiretorReal =
+      Boolean(esc.diretorGeralId) ||
+      (Boolean(esc.diretorGeralNome) && !placeholders.has(nomeRemotoNorm));
+    const remotoRemoveuDiretor =
+      remotoMaisRecenteOuIgual &&
+      !esc.diretorGeralId &&
+      (nomeRemotoNorm === 'não atribuído' || nomeRemotoNorm === 'nao atribuido');
+
+    let diretorGeralId = esc.diretorGeralId || existing?.diretorGeralId;
+    let diretorGeralNome = !placeholders.has(nomeRemotoNorm)
+      ? esc.diretorGeralNome
+      : (existing?.diretorGeralNome || 'Não Atribuído');
+    let diretorGeralEmail = esc.diretorGeralEmail || existing?.diretorGeralEmail;
+    let diretorGeralTelefone = esc.diretorGeralTelefone || existing?.diretorGeralTelefone;
+    let diretorGeralGenero = esc.diretorGeralGenero || existing?.diretorGeralGenero;
+
+    if (remotoRemoveuDiretor) {
+      diretorGeralId = undefined;
+      diretorGeralNome = 'Não Atribuído';
+      diretorGeralEmail = undefined;
+      diretorGeralTelefone = undefined;
+    } else if (remotoTemDiretorReal && remotoMaisRecenteOuIgual) {
+      diretorGeralId = esc.diretorGeralId;
+      diretorGeralNome = esc.diretorGeralNome || existing?.diretorGeralNome || 'Não Atribuído';
+      diretorGeralEmail = esc.diretorGeralEmail ?? existing?.diretorGeralEmail;
+      diretorGeralTelefone = esc.diretorGeralTelefone ?? existing?.diretorGeralTelefone;
+      diretorGeralGenero = esc.diretorGeralGenero ?? existing?.diretorGeralGenero;
+    }
+
+    const merged: Escola = {
+      ...existing,
+      ...esc,
+      nomeOficial: esc.nomeOficial || (esc as any).nome || existing?.nomeOficial || 'Escola',
+      nome: (esc as any).nome || esc.nomeOficial || existing?.nome,
+      diretorGeralId,
+      diretorGeralNome,
+      diretorGeralEmail,
+      diretorGeralTelefone,
+      diretorGeralGenero,
+      logotipoUrl: esc.logotipoUrl !== undefined ? esc.logotipoUrl : existing?.logotipoUrl,
+      assinaturaDiretorUrl: esc.assinaturaDiretorUrl !== undefined ? esc.assinaturaDiretorUrl : existing?.assinaturaDiretorUrl
+    };
+    if (!esc.sessaoApoioTecnicoAtiva) {
+      delete merged.sessaoApoioTecnicoAtiva;
+    }
+    return merged;
+  }
+
+  /**
+   * Reconcilia localmente em ambos os sentidos (Funcionários <-> Escolas) para eliminar
+   * qualquer discrepância entre Admin Geral e os painéis das escolas.
+   */
+  public reconciliarDiretoresLocal(pushRepairsToFirebase: boolean = false): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      const escLocais = safeParseJson<Escola[]>(localStorage.getItem(STORAGE_KEYS.ESCOLAS), []);
+      const funcLocais = safeParseJson<Funcionario[]>(localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS), []);
+      if (!Array.isArray(escLocais) || escLocais.length === 0) return false;
+
+      const pendentes = offlineStorage.obterPendencias();
+      const pendingDeleteFuncIds = new Set(
+        pendentes.filter(p => p.entidade === 'funcionarios' && p.acao === 'ELIMINAR').map(p => p.docId || p.dados?.id)
+      );
+      const hasPendingFuncUpserts = pendentes.some(p => p.entidade === 'funcionarios' && p.acao !== 'ELIMINAR');
+      const funcionariosJaSincronizados = localStorage.getItem('sge_remote_synced_funcionarios') === 'true';
+
+      const isDiretorAtivo = (f: Funcionario) =>
+        Boolean(f) &&
+        !isDemoFunc(f) &&
+        !pendingDeleteFuncIds.has(f.id) &&
+        f.role !== 'AdminGeral' &&
+        f.ativo !== false &&
+        (f.role === 'DiretorGeral' ||
+          (f.cargo || '').toLowerCase().includes('diretor geral') ||
+          (f.cargo || '').toLowerCase().includes('director geral'));
+
+      const idsOutrasEscolas = (escAtual: Escola, f: Funcionario) =>
+        escLocais.some(
+          other =>
+            other.id !== escAtual.id &&
+            ((f.escolaId && (f.escolaId === other.id || (other.codigoEscola && f.escolaId === other.codigoEscola))) ||
+              other.diretorGeralId === f.id)
+        );
+
+      let alterouEsc = false;
+      let alterouFunc = false;
+      const escolasReparadas: Escola[] = [];
+
+      const escAtualizadas = escLocais.map(esc => {
+        const candidatosDaEscola = funcLocais.filter(
+          f =>
+            isDiretorAtivo(f) &&
+            (f.escolaId === esc.id || (esc.codigoEscola && f.escolaId === esc.codigoEscola))
+        );
+
+        let dir: Funcionario | undefined;
+        if (candidatosDaEscola.length > 0) {
+          // Priorizar o diretor já apontado por diretorGeralId se ainda ativo e mais recente, ou o mais recente atribuído à escola
+          const ordenado = [...candidatosDaEscola].sort((a, b) => {
+            const tA = a.atualizadoEm ? Date.parse(String(a.atualizadoEm)) || 0 : 0;
+            const tB = b.atualizadoEm ? Date.parse(String(b.atualizadoEm)) || 0 : 0;
+            if (tB !== tA) return tB - tA;
+            if (a.id === esc.diretorGeralId) return -1;
+            if (b.id === esc.diretorGeralId) return 1;
+            return 0;
+          });
+          dir = ordenado[0];
+        } else {
+          dir =
+            funcLocais.find(f => isDiretorAtivo(f) && esc.diretorGeralId && f.id === esc.diretorGeralId && !idsOutrasEscolas(esc, f)) ||
+            (esc.diretorGeralEmail
+              ? funcLocais.find(
+                  f =>
+                    isDiretorAtivo(f) &&
+                    f.email &&
+                    f.email.trim().toLowerCase() === esc.diretorGeralEmail!.trim().toLowerCase() &&
+                    !idsOutrasEscolas(esc, f)
+                )
+              : undefined);
+        }
+
+        if (dir) {
+          // Garantir que dir.escolaId aponta para esc.id
+          const idxF = funcLocais.findIndex(f => f.id === dir!.id);
+          if (idxF >= 0 && funcLocais[idxF].escolaId !== esc.id) {
+            funcLocais[idxF] = { ...funcLocais[idxF], escolaId: esc.id };
+            alterouFunc = true;
+          }
+
+          const precisaAtualizarEsc =
+            esc.diretorGeralId !== dir.id ||
+            esc.diretorGeralNome !== dir.nomeCompleto ||
+            (dir.email && esc.diretorGeralEmail !== dir.email) ||
+            (dir.telefone && esc.diretorGeralTelefone !== dir.telefone) ||
+            (!esc.diretorGeralGenero && Boolean(dir.genero));
+
+          if (precisaAtualizarEsc) {
+            alterouEsc = true;
+            const corrigida: Escola = {
+              ...esc,
+              diretorGeralId: dir.id,
+              diretorGeralNome: dir.nomeCompleto,
+              diretorGeralGenero: dir.genero || esc.diretorGeralGenero || 'M',
+              diretorGeralEmail: dir.email || esc.diretorGeralEmail,
+              diretorGeralTelefone: dir.telefone || esc.diretorGeralTelefone
+            };
+            escolasReparadas.push(corrigida);
+            return corrigida;
+          }
+          return esc;
+        }
+
+        // Se funcionarios já foi sincronizado remotamente (sem pendências locais) e o diretor antigo não existe ou ficou inativo
+        if (funcionariosJaSincronizados && !hasPendingFuncUpserts && esc.diretorGeralId) {
+          const antigoExisteAtivo = funcLocais.some(f => f.id === esc.diretorGeralId && isDiretorAtivo(f) && (!f.escolaId || f.escolaId === esc.id));
+          if (!antigoExisteAtivo) {
+            alterouEsc = true;
+            const limpa: Escola = {
+              ...esc,
+              diretorGeralId: undefined,
+              diretorGeralNome: 'Não Atribuído',
+              diretorGeralEmail: undefined,
+              diretorGeralTelefone: undefined
+            };
+            escolasReparadas.push(limpa);
+            return limpa;
+          }
+        }
+
+        return esc;
+      });
+
+      if (alterouFunc) {
+        const serFuncs = JSON.stringify(funcLocais);
+        localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, serFuncs);
+        offlineStorage.salvarFuncionariosLoteNoIndexedDB(funcLocais);
+      }
+
+      if (alterouEsc) {
+        const serEsc = JSON.stringify(escAtualizadas);
+        localStorage.setItem(STORAGE_KEYS.ESCOLAS, serEsc);
+        offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, serEsc);
+        if (pushRepairsToFirebase && escolasReparadas.length > 0 && this.canUseFirestore()) {
+          this.gravarLoteDireto(
+            "escolas",
+            escolasReparadas.map(e => ({ id: e.id, dados: e })),
+            ["schools"]
+          ).catch(() => {});
+        }
+      }
+
+      return alterouEsc || alterouFunc;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Sincronização Atómica (writeBatch) de Atribuição de Diretor Geral <-> Escola:
+   * Grava em simultâneo `funcionarios/{dirId}`, `users/{dirId}`, `escolas/{escId}` e `schools/{escId}`
+   * numa única transação batch no Firestore + fila offline garantida se sem rede.
+   */
+  public async sincronizarAtribuicaoDiretor(
+    diretor: Funcionario,
+    escola: Escola,
+    diretoresSubstituidos?: Funcionario[]
+  ): Promise<boolean> {
+    if (!diretor?.id || !escola?.id) return false;
+
+    const agora = diretor.atualizadoEm || escola.atualizadoEm || new Date().toISOString();
+    const diretorFinal: Funcionario = { ...diretor, escolaId: escola.id, atualizadoEm: agora };
+    const escolaFinal: Escola = {
+      ...escola,
+      diretorGeralId: diretorFinal.id,
+      diretorGeralNome: diretorFinal.nomeCompleto,
+      diretorGeralGenero: diretorFinal.genero || escola.diretorGeralGenero || 'M',
+      diretorGeralEmail: diretorFinal.email || escola.diretorGeralEmail,
+      diretorGeralTelefone: diretorFinal.telefone || escola.diretorGeralTelefone,
+      atualizadoEm: agora
+    };
+
+    // Enfileira pendências offline sincronamente antes de qualquer await
+    offlineStorage.adicionarPendencia(
+      "funcionarios",
+      "ATUALIZAR",
+      `Diretor Geral ${diretorFinal.nomeCompleto} (${escolaFinal.nomeOficial})`,
+      diretorFinal,
+      diretorFinal.id,
+      ["users"]
+    );
+    offlineStorage.adicionarPendencia(
+      "escolas",
+      "ATUALIZAR",
+      `Vínculo Diretor -> Escola ${escolaFinal.nomeOficial}`,
+      escolaFinal,
+      escolaFinal.id,
+      ["schools"]
+    );
+    if (diretoresSubstituidos && diretoresSubstituidos.length > 0) {
+      for (const oldDir of diretoresSubstituidos) {
+        if (oldDir.id !== diretorFinal.id) {
+          offlineStorage.adicionarPendencia(
+            "funcionarios",
+            "ATUALIZAR",
+            `Substituição Diretor anterior ${oldDir.nomeCompleto}`,
+            oldDir,
+            oldDir.id,
+            ["users"]
+          );
+        }
+      }
+    }
+
+    this.atualizarUsuarioNoDispositivo(diretorFinal);
+    this.emitirBroadcastDiretorEscola();
+    this.agendarNotificacaoRemota(true);
+
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const [payloadDir, payloadEsc] = await Promise.all([
+          this.prepararPayloadComLimiteDeTamanho(diretorFinal, "funcionarios"),
+          this.prepararPayloadComLimiteDeTamanho(escolaFinal, "escolas")
+        ]);
+
+        const batch = writeBatch(firestoreDb);
+        batch.set(doc(firestoreDb, "funcionarios", diretorFinal.id), payloadDir, { merge: true });
+        batch.set(doc(firestoreDb, "users", diretorFinal.id), payloadDir, { merge: true });
+        batch.set(doc(firestoreDb, "escolas", escolaFinal.id), payloadEsc, { merge: true });
+        batch.set(doc(firestoreDb, "schools", escolaFinal.id), payloadEsc, { merge: true });
+
+        const antigosValidos = (diretoresSubstituidos || []).filter(o => o.id && o.id !== diretorFinal.id);
+        for (const oldDir of antigosValidos) {
+          const payloadOld = await this.prepararPayloadComLimiteDeTamanho(oldDir, "funcionarios");
+          batch.set(doc(firestoreDb, "funcionarios", oldDir.id), payloadOld, { merge: true });
+          batch.set(doc(firestoreDb, "users", oldDir.id), payloadOld, { merge: true });
+        }
+
+        const commitRes = await withTimeout(batch.commit(), 3500);
+        if (commitRes === FIRESTORE_TIMEOUT_TOKEN) {
+          throw new Error('Timeout ao sincronizar atribuição de diretor');
+        }
+
+        offlineStorage.removerPendenciaPorDocumento("funcionarios", diretorFinal.id);
+        offlineStorage.removerPendenciaPorDocumento("escolas", escolaFinal.id);
+        for (const oldDir of antigosValidos) {
+          offlineStorage.removerPendenciaPorDocumento("funcionarios", oldDir.id);
+        }
+        this.registrarIdsSincronizados("funcionarios", [diretorFinal.id, ...antigosValidos.map(o => o.id)]);
+        this.registrarIdsSincronizados("escolas", [escolaFinal.id]);
+        this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+        this.notificarStatus();
+        this.emitirBroadcastDiretorEscola();
+        return true;
+      } catch (err) {
+        this.registrarErroPermissao(err);
+        console.warn('[SGE Firebase Sync] Batch atómico de atribuição de diretor falhou, mantendo na fila:', err);
+      }
+    }
+
+    this.agendarProcessamentoPendencias();
+    return false;
+  }
+
+  /**
+   * Desvinculação/Remoção Atómica de Diretor Geral da Escola (writeBatch):
+   * Remove o perfil do diretor em `funcionarios`/`users` e limpa os campos na escola em `escolas`/`schools`.
+   */
+  public async desvincularDiretorEscola(diretorId: string, escolaAtualizada?: Escola): Promise<boolean> {
+    if (!diretorId) return false;
+    const agora = new Date().toISOString();
+
+    offlineStorage.adicionarPendencia(
+      "funcionarios",
+      "ELIMINAR",
+      `Remoção Diretor Geral ${diretorId}`,
+      { id: diretorId },
+      diretorId,
+      ["users"]
+    );
+
+    if (escolaAtualizada) {
+      const escolaJsonOffline: Record<string, any> = {
+        ...escolaAtualizada,
+        diretorGeralId: '',
+        diretorGeralNome: 'Não Atribuído',
+        diretorGeralEmail: '',
+        diretorGeralTelefone: '',
+        atualizadoEm: agora
+      };
+      offlineStorage.adicionarPendencia(
+        "escolas",
+        "ATUALIZAR",
+        `Desvinculação Diretor -> Escola ${escolaAtualizada.nomeOficial}`,
+        escolaJsonOffline,
+        escolaAtualizada.id,
+        ["schools"]
+      );
+    }
+
+    this.emitirBroadcastDiretorEscola();
+    this.agendarNotificacaoRemota(true);
+
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const batch = writeBatch(firestoreDb);
+        batch.delete(doc(firestoreDb, "funcionarios", diretorId));
+        batch.delete(doc(firestoreDb, "users", diretorId));
+
+        if (escolaAtualizada?.id) {
+          const payloadClear = {
+            diretorGeralId: deleteField(),
+            diretorGeralEmail: deleteField(),
+            diretorGeralTelefone: deleteField(),
+            diretorGeralNome: 'Não Atribuído',
+            atualizadoEm: agora
+          };
+          batch.set(doc(firestoreDb, "escolas", escolaAtualizada.id), payloadClear, { merge: true });
+          batch.set(doc(firestoreDb, "schools", escolaAtualizada.id), payloadClear, { merge: true });
+        }
+
+        const commitRes = await withTimeout(batch.commit(), 3500);
+        if (commitRes === FIRESTORE_TIMEOUT_TOKEN) {
+          throw new Error('Timeout ao desvincular diretor');
+        }
+        offlineStorage.removerPendenciaPorDocumento("funcionarios", diretorId);
+        this.registrarIdsSincronizados("funcionarios", [], [diretorId]);
+        if (escolaAtualizada?.id) {
+          offlineStorage.removerPendenciaPorDocumento("escolas", escolaAtualizada.id);
+        }
+        this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+        this.notificarStatus();
+        this.emitirBroadcastDiretorEscola();
+        return true;
+      } catch (err) {
+        this.registrarErroPermissao(err);
+        console.warn('[SGE Firebase Sync] Batch atómico de remoção de diretor falhou, mantendo na fila:', err);
+      }
+    }
+
+    this.agendarProcessamentoPendencias();
+    return false;
+  }
+
+  // =========================================================================
   // MÉTODOS DE PERSISTÊNCIA DIRETA POR ENTIDADE (Online -> Firebase + Device)
   // =========================================================================
 
@@ -1951,11 +2566,68 @@ class FirebaseSyncEngine {
   }
 
   public async salvarEscola(escola: Escola): Promise<boolean> {
-    return this.gravarDocumentoDireto("escolas", escola.id, escola, ["schools"], `Escola ${escola.nomeOficial}`);
+    const payload = { ...escola } as Record<string, any>;
+    if (!escola.sessaoApoioTecnicoAtiva) {
+      payload.sessaoApoioTecnicoAtiva = null;
+    }
+    return this.gravarDocumentoDireto("escolas", escola.id, payload, ["schools"], `Escola ${escola.nomeOficial}`);
   }
 
   public async salvarEscolasLote(escolas: Escola[]): Promise<boolean> {
-    return this.gravarLoteDireto("escolas", escolas.map(e => ({ id: e.id, dados: e })), ["schools"]);
+    return this.gravarLoteDireto(
+      "escolas",
+      escolas.map(e => {
+        const payload = { ...e } as Record<string, any>;
+        if (!e.sessaoApoioTecnicoAtiva) {
+          payload.sessaoApoioTecnicoAtiva = null;
+        }
+        return { id: e.id, dados: payload };
+      }),
+      ["schools"]
+    );
+  }
+
+  public async encerrarSessaoApoioNoFirestore(escolaId: string, escolaSnapshot?: Escola): Promise<boolean> {
+    if (!escolaId) return false;
+    const agora = new Date().toISOString();
+    const baseData: Record<string, any> = escolaSnapshot
+      ? { ...escolaSnapshot, id: escolaId, sessaoApoioTecnicoAtiva: null, atualizadoEm: agora }
+      : { id: escolaId, sessaoApoioTecnicoAtiva: null, atualizadoEm: agora };
+
+    offlineStorage.adicionarPendencia(
+      "escolas",
+      "ATUALIZAR",
+      `Encerramento apoio técnico (${escolaId})`,
+      baseData,
+      escolaId,
+      ["schools"]
+    );
+
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const clearPayload = { sessaoApoioTecnicoAtiva: deleteField(), atualizadoEm: agora };
+        const results = await withTimeout(
+          Promise.allSettled([
+            setDoc(doc(firestoreDb, "escolas", escolaId), clearPayload, { merge: true }),
+            setDoc(doc(firestoreDb, "schools", escolaId), clearPayload, { merge: true })
+          ]),
+          3500
+        );
+        if (results !== FIRESTORE_TIMEOUT_TOKEN && results[0].status === 'fulfilled') {
+          offlineStorage.removerPendenciaPorDocumento("escolas", escolaId);
+          this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+          this.notificarStatus();
+          return true;
+        }
+        if (results !== FIRESTORE_TIMEOUT_TOKEN && results[0].status === 'rejected') {
+          this.registrarErroPermissao(results[0].reason);
+        }
+      } catch (err) {
+        this.registrarErroPermissao(err);
+      }
+    }
+    this.agendarProcessamentoPendencias();
+    return false;
   }
 
   public async eliminarEscola(id: string): Promise<boolean> {
@@ -1966,7 +2638,10 @@ class FirebaseSyncEngine {
           "funcionarios", "transacoes_financeiras", "despesas_escolares", "patrimonio",
           "notas", "notas_estudantes", "avaliacoes", "juris", "termos_exame",
           "presencas", "presencas_alunos", "horarios", "mensagens", "biblioteca",
-          "recibos", "delegacoes_poderes", "acoes_delegadas_logs", "alteracoes_notas_direcao"
+          "biblioteca_acessos", "recibos", "delegacoes_poderes", "acoes_delegadas_logs",
+          "alteracoes_notas_direcao", "anos_lectivos_configs", "turnos_configs",
+          "classes_configs", "cursos", "regras_mac", "tipos_avaliacao",
+          "solicitacoes_nota", "solicitacoes_apoio"
         ];
 
         await Promise.allSettled([

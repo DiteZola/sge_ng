@@ -79,7 +79,7 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
         descricao: `Justificação de Falta Homologada: ${motivo}. ${descricao.trim()}`,
         registadoPor: currentUser.nomeCompleto,
         cargo: currentUser.cargo || 'Coordenação Pedagógica',
-        anoLectivo: turma?.anoLectivo || '2025/2026',
+        anoLectivo: turma?.anoLectivo || '',
         classe: turma?.classe || aluno.classeId || 'Classe',
         resolucao: 'Falta convertida oficialmente para Falta Justificada (FJ).'
       });

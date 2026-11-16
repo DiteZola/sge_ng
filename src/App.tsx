@@ -27,6 +27,7 @@ import { Sidebar, NavTab } from './components/Sidebar';
 import { securityEngine } from './services/securityEngine';
 import { cryptoService } from './services/cryptoService';
 import { firebaseSyncEngine } from './services/firebaseSyncEngine';
+import { offlineStorage } from './services/offlineStorage';
 import { LoginView } from './components/LoginView';
 import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
@@ -34,32 +35,32 @@ import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { notificationService } from './services/notificationService';
 import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 
-const DashboardView = React.lazy(() => import('./components/DashboardView').then(m => ({ default: m.DashboardView })));
-const AcademicManagementView = React.lazy(() => import('./components/AcademicManagementView').then(m => ({ default: m.AcademicManagementView })));
-const EvaluationMacView = React.lazy(() => import('./components/EvaluationMacView').then(m => ({ default: m.EvaluationMacView })));
-const StudentsView = React.lazy(() => import('./components/StudentsView').then(m => ({ default: m.StudentsView })));
-const HumanResourcesView = React.lazy(() => import('./components/HumanResourcesView').then(m => ({ default: m.HumanResourcesView })));
-const PrintingDocumentsView = React.lazy(() => import('./components/PrintingDocumentsView').then(m => ({ default: m.PrintingDocumentsView })));
-const CommunicationLibraryView = React.lazy(() => import('./components/CommunicationLibraryView').then(m => ({ default: m.CommunicationLibraryView })));
-const SystemAuditBackupView = React.lazy(() => import('./components/SystemAuditBackupView').then(m => ({ default: m.SystemAuditBackupView })));
-const ArchitectureDocsView = React.lazy(() => import('./components/ArchitectureDocsView').then(m => ({ default: m.ArchitectureDocsView })));
-const AdminGlobalSchoolsView = React.lazy(() => import('./components/AdminGlobalSchoolsView').then(m => ({ default: m.AdminGlobalSchoolsView })));
-const AdministrativeFinanceView = React.lazy(() => import('./components/AdministrativeFinanceView').then(m => ({ default: m.AdministrativeFinanceView })));
-const InitialSetupModal = React.lazy(() => import('./components/InitialSetupModal').then(m => ({ default: m.InitialSetupModal })));
-const SystemInitialSetupView = React.lazy(() => import('./components/SystemInitialSetupView').then(m => ({ default: m.SystemInitialSetupView })));
-const RealtimeSecurityModal = React.lazy(() => import('./components/RealtimeSecurityModal').then(m => ({ default: m.RealtimeSecurityModal })));
-const UserProfileView = React.lazy(() => import('./components/UserProfileView').then(m => ({ default: m.UserProfileView })));
-const TechnicalSupportView = React.lazy(() => import('./components/TechnicalSupportView').then(m => ({ default: m.TechnicalSupportView })));
-const PatrimonyView = React.lazy(() => import('./components/PatrimonyView').then(m => ({ default: m.PatrimonyView })));
-const JuryCommissionView = React.lazy(() => import('./components/JuryCommissionView').then(m => ({ default: m.JuryCommissionView })));
-const ScheduleTimetableView = React.lazy(() => import('./components/ScheduleTimetableView').then(m => ({ default: m.ScheduleTimetableView })));
-const StudentAttendanceReportView = React.lazy(() => import('./components/StudentAttendanceReportView').then(m => ({ default: m.StudentAttendanceReportView })));
-const StudentPassesView = React.lazy(() => import('./components/StudentPassesView').then(m => ({ default: m.StudentPassesView })));
-const ExecutiveDirectionView = React.lazy(() => import('./components/ExecutiveDirectionView').then(m => ({ default: m.ExecutiveDirectionView })));
-const SchoolCalendarView = React.lazy(() => import('./components/SchoolCalendarView').then(m => ({ default: m.SchoolCalendarView })));
-const ReportsView = React.lazy(() => import('./components/ReportsView').then(m => ({ default: m.ReportsView })));
-const StatisticsView = React.lazy(() => import('./components/StatisticsView').then(m => ({ default: m.StatisticsView })));
-const GuidedTourModal = React.lazy(() => import('./components/GuidedTourModal').then(m => ({ default: m.GuidedTourModal })));
+import { DashboardView } from './components/DashboardView';
+import { AcademicManagementView } from './components/AcademicManagementView';
+import { EvaluationMacView } from './components/EvaluationMacView';
+import { StudentsView } from './components/StudentsView';
+import { HumanResourcesView } from './components/HumanResourcesView';
+import { PrintingDocumentsView } from './components/PrintingDocumentsView';
+import { CommunicationLibraryView } from './components/CommunicationLibraryView';
+import { SystemAuditBackupView } from './components/SystemAuditBackupView';
+import { ArchitectureDocsView } from './components/ArchitectureDocsView';
+import { AdminGlobalSchoolsView } from './components/AdminGlobalSchoolsView';
+import { AdministrativeFinanceView } from './components/AdministrativeFinanceView';
+import { InitialSetupModal } from './components/InitialSetupModal';
+import { SystemInitialSetupView } from './components/SystemInitialSetupView';
+import { RealtimeSecurityModal } from './components/RealtimeSecurityModal';
+import { UserProfileView } from './components/UserProfileView';
+import { TechnicalSupportView } from './components/TechnicalSupportView';
+import { PatrimonyView } from './components/PatrimonyView';
+import { JuryCommissionView } from './components/JuryCommissionView';
+import { ScheduleTimetableView } from './components/ScheduleTimetableView';
+import { StudentAttendanceReportView } from './components/StudentAttendanceReportView';
+import { StudentPassesView } from './components/StudentPassesView';
+import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
+import { SchoolCalendarView } from './components/SchoolCalendarView';
+import { ReportsView } from './components/ReportsView';
+import { StatisticsView } from './components/StatisticsView';
+import { GuidedTourModal } from './components/GuidedTourModal';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -104,8 +105,8 @@ export default function App() {
 
   // Estado Multi-Escola & Multi-Ano Lectivo
   const [escolas, setEscolas] = useState<Escola[]>(() => dbService.getEscolas());
-  const [anosLectivos, setAnosLectivos] = useState<string[]>(() => dbService.getAnosLectivos());
   const [escola, setEscola] = useState<Escola>(() => dbService.getEscolaAtiva());
+  const [anosLectivos, setAnosLectivos] = useState<string[]>(() => dbService.getAnosLectivos(dbService.getEscolaAtiva()?.id));
 
   // Estado Geral do SGE-NG
   const [turmas, setTurmas] = useState<Turma[]>(() => dbService.obterTurmas());
@@ -146,22 +147,40 @@ export default function App() {
     escolaOriginalId?: string;
   } | null>(null);
 
+  const modoApoioAtivo = useMemo(() => {
+    if (modoApoioTecnico) return modoApoioTecnico;
+    if (currentUser.role === 'AdminGeral' && escola?.sessaoApoioTecnicoAtiva?.dataInicio) {
+      let escolaOriginalId: string | undefined;
+      try {
+        escolaOriginalId = localStorage.getItem('sge_apoio_escola_original_id') || undefined;
+      } catch {}
+      return {
+        escolaId: escola.id,
+        solicitacaoId: escola.sessaoApoioTecnicoAtiva.solicitacaoId,
+        escolaNome: escola.nomeOficial,
+        escolaOriginalId
+      };
+    }
+    return null;
+  }, [modoApoioTecnico, currentUser.role, escola]);
+
   const effectiveUser: Funcionario = useMemo(() => {
-    if (modoApoioTecnico) {
+    if (modoApoioAtivo) {
       return {
         ...currentUser,
         role: 'DiretorGeral' as UserRole,
         cargo: `Diretor Geral (Apoio Técnico DTI/MED)`,
-        escolaId: modoApoioTecnico.escolaId,
+        escolaId: modoApoioAtivo.escolaId,
       };
     }
     return currentUser;
-  }, [modoApoioTecnico, currentUser]);
+  }, [modoApoioAtivo, currentUser]);
 
   // Função centralizada para recarregar todos os dados do banco local após sincronização com o Firebase
   const recarregarDados = useCallback(() => {
     setEscolas(dbService.getEscolas());
-    setEscola(dbService.getEscolaAtiva());
+    const escAtiva = dbService.getEscolaAtiva();
+    setEscola(escAtiva);
     const funcsFrescos = dbService.getFuncionariosBruto();
     setFuncionarios(dbService.obterFuncionarios());
     setTurmas(dbService.obterTurmas());
@@ -177,11 +196,11 @@ export default function App() {
     setMensagens(dbService.obterMensagens());
     setLivros(dbService.obterLivros());
     setLogs(dbService.obterLogs());
-    setAnosLectivos(dbService.getAnosLectivos());
+    setAnosLectivos(dbService.getAnosLectivos(escAtiva?.id));
     setTiposAvaliacao(dbService.obterTiposAvaliacao());
     setRegrasMAC(dbService.obterRegrasMAC());
 
-    // Garantir que a sessão e perfil do utilizador autenticado refletem imediatamente alterações remotas (ex.: fotografia)
+    // Garantir que a sessão e perfil do utilizador autenticado refletem imediatamente alterações remotas (ex.: fotografia ou reatribuição de escola)
     const userLogado = dbService.getCurrentUser();
     if (userLogado && userLogado.id && userLogado.nomeCompleto) {
       const remotoMaisRecente = funcsFrescos.find(f => f.id === userLogado.id);
@@ -191,6 +210,17 @@ export default function App() {
         if (tsRemoto >= tsLocal && JSON.stringify(remotoMaisRecente) !== JSON.stringify(userLogado)) {
           dbService.setCurrentUser(remotoMaisRecente);
           setAuthenticatedUser(remotoMaisRecente);
+          if (
+            remotoMaisRecente.role !== 'AdminGeral' &&
+            remotoMaisRecente.escolaId &&
+            remotoMaisRecente.escolaId !== 'todas' &&
+            remotoMaisRecente.escolaId !== escAtiva?.id
+          ) {
+            dbService.setEscolaAtiva(remotoMaisRecente.escolaId);
+            const novaEscAtiva = dbService.getEscolaAtiva();
+            setEscola(novaEscAtiva);
+            setAnosLectivos(dbService.getAnosLectivos(novaEscAtiva?.id));
+          }
           return;
         }
       }
@@ -275,6 +305,18 @@ export default function App() {
           if (!dbService.temAdminGeral()) {
             verificarAdmin();
           } else {
+            setTemAdminGeral(true);
+            setMostrarSetupInicial(false);
+            setVerificandoAdminOnline(false);
+          }
+        }
+      });
+    } else {
+      // Offline: garantir hidratação imediata do IndexedDB local para operação ininterrupta
+      offlineStorage.hidratarArmazenamentoDoIndexedDB().then((restaurado) => {
+        if (ativo && restaurado) {
+          recarregarDados();
+          if (dbService.temAdminGeral()) {
             setTemAdminGeral(true);
             setMostrarSetupInicial(false);
             setVerificandoAdminOnline(false);
@@ -393,20 +435,30 @@ export default function App() {
     dbService.setEscolaAtiva(escolaId);
     const escolaAtiva = dbService.getEscolaAtiva();
     setEscola(escolaAtiva);
+    setEscolas(dbService.getEscolas());
+    setAnosLectivos(dbService.getAnosLectivos(escolaAtiva?.id));
     setTurmas(dbService.obterTurmas());
     setDisciplinas(dbService.obterDisciplinas());
     setAlunos(dbService.obterAlunos());
+    setAtribuicoes(dbService.obterAtribuicoes());
+    setAvaliacoes(dbService.obterAvaliacoes());
+    setNotas(dbService.obterNotas());
     setNotasConsolidadas(dbService.obterNotasConsolidadas());
+    setSolicitacoes(dbService.obterSolicitacoes());
+    setAssiduidade(dbService.obterAssiduidade());
+    setMensagens(dbService.obterMensagens());
+    setLivros(dbService.obterLivros());
+    setJuris(dbService.obterJuris());
     setFuncionarios(dbService.obterFuncionarios());
     setLogs(dbService.obterLogs());
   };
 
   // Alternância de Ano Lectivo Multi-Ano
   const handleSelectAnoLectivo = (ano: string) => {
-    dbService.setAnoLectivoActivo(ano);
+    dbService.setAnoLectivoActivo(ano, escola?.id);
     const escolaAtiva = dbService.getEscolaAtiva();
     setEscola({ ...escolaAtiva, anoLectivoActivo: ano });
-    setAnosLectivos(dbService.getAnosLectivos());
+    setAnosLectivos(dbService.getAnosLectivos(escolaAtiva?.id));
     setTurmas(dbService.obterTurmas());
     setAlunos(dbService.obterAlunos());
     setNotasConsolidadas(dbService.obterNotasConsolidadas());
@@ -903,7 +955,9 @@ export default function App() {
   const handleEliminarEscola = (escolaId: string) => {
     dbService.eliminarEscola(escolaId);
     setEscolas(dbService.getEscolas());
-    setEscola(dbService.getEscolaAtiva());
+    const escRestante = dbService.getEscolaAtiva();
+    setEscola(escRestante);
+    setAnosLectivos(dbService.getAnosLectivos(escRestante?.id));
     setAlunos(dbService.getAlunos());
     setTurmas(dbService.getTurmas());
     setDisciplinas(dbService.getDisciplinas());
@@ -921,37 +975,30 @@ export default function App() {
     if (typeof escolaIdOuDados === 'string') {
       const escolaId = escolaIdOuDados;
       const dados = dadosOuSenha || {};
-      f = {
-        id: `func-${Date.now()}`,
-        escolaId,
+      f = dbService.criarOuAtualizarDiretorGeral(escolaId, {
         nomeCompleto: dados.nomeCompleto,
         numeroBI: dados.numeroBI,
         genero: dados.genero || 'M',
         email: dados.email,
         telefone: dados.telefone || '',
-        password: dados.password || '',
-        habilitacoes: dados.habilitacoes || '',
-        cargo: 'Diretor Geral',
-        role: 'DiretorGeral',
-        statusConta: 'Ativa',
-        ativo: true,
-        ehProfessor: false,
-        ehAdministrativoQueLeciona: false,
-        fotoUrl: dados.fotoUrl || '',
-        dataAdmissao: new Date().toISOString().split('T')[0]
-      };
+        password: dados.password,
+        habilitacoes: dados.habilitacoes || ''
+      });
     } else {
       f = {
         ...escolaIdOuDados,
+        id: escolaIdOuDados.id || `dir-${Date.now()}`,
         role: 'DiretorGeral',
         cargo: 'Diretor Geral',
         password: dadosOuSenha || escolaIdOuDados.password || '',
         statusConta: 'Ativa',
         ativo: true
       } as Funcionario;
+      dbService.salvarFuncionario(f);
     }
-    dbService.salvarFuncionario(f);
     setFuncionarios(dbService.obterFuncionarios());
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
     setLogs(dbService.obterLogs());
     return f;
   };
@@ -962,19 +1009,17 @@ export default function App() {
     setLogs(dbService.obterLogs());
   };
 
-  const handleSelecionarEscolaParaInspecao = (escolaId: string) => {
-    handleSelectEscola(escolaId);
-    setActiveTab('dashboard');
-  };
-
   // Handlers de Login / Logout
   const handleLogin = (user: Funcionario, escolaSelecionada: Escola, anoSelecionado: string) => {
     dbService.setCurrentUser(user);
     setAuthenticatedUser(user);
     dbService.setEscolaAtiva(escolaSelecionada.id);
-    dbService.setAnoLectivoActivo(anoSelecionado);
-    setEscola({ ...escolaSelecionada, anoLectivoActivo: anoSelecionado });
-    setAnosLectivos(dbService.getAnosLectivos());
+    const anoFinal = anoSelecionado || escolaSelecionada.anoLectivoActivo || '';
+    if (anoFinal && escolaSelecionada.id) {
+      dbService.setAnoLectivoActivo(anoFinal, escolaSelecionada.id);
+    }
+    setEscola({ ...escolaSelecionada, anoLectivoActivo: anoFinal });
+    setAnosLectivos(dbService.getAnosLectivos(escolaSelecionada.id));
     setTurmas(dbService.obterTurmas());
     setAlunos(dbService.obterAlunos());
     setAtribuicoes(dbService.obterAtribuicoes());
@@ -1003,12 +1048,14 @@ export default function App() {
 
   const handleLogout = () => {
     notificationService.resetarBaseline();
+    setModoApoioTecnico(null);
     dbService.setCurrentUser(null);
     setAuthenticatedUser(null);
     setIsAuthenticated(false);
     try {
       localStorage.removeItem('sge_authenticated');
       localStorage.removeItem('sge_active_tab');
+      localStorage.removeItem('sge_apoio_escola_original_id');
     } catch {}
   };
 
@@ -1048,8 +1095,8 @@ export default function App() {
   };
 
   const handleLimparTodasDisciplinas = () => {
-    dbService.limparTodasDisciplinas();
-    setDisciplinas([]);
+    dbService.limparTodasDisciplinas(escola?.id);
+    setDisciplinas(dbService.obterDisciplinas());
   };
 
   const handleSalvarAtribuicao = (atrib: any) => {
@@ -1122,6 +1169,10 @@ export default function App() {
   const handleSalvarFuncionario = (func: Funcionario) => {
     dbService.salvarFuncionario(func);
     setFuncionarios(dbService.obterFuncionarios());
+    if (func.role === 'DiretorGeral' || (func.cargo || '').toLowerCase().includes('diretor')) {
+      setEscolas(dbService.getEscolas());
+      setEscola(dbService.getEscolaAtiva());
+    }
     if (authenticatedUser && authenticatedUser.id === func.id) {
       setAuthenticatedUser(dbService.getCurrentUser());
     }
@@ -1166,7 +1217,8 @@ export default function App() {
       dbService.restaurarBackupJSON(jsonStr);
     }
     setEscolas(dbService.getEscolas());
-    setEscola(dbService.obterEscola());
+    const escRestaurada = dbService.obterEscola();
+    setEscola(escRestaurada);
     setTurmas(dbService.obterTurmas());
     setDisciplinas(dbService.obterDisciplinas());
     setFuncionarios(dbService.obterFuncionarios());
@@ -1182,41 +1234,59 @@ export default function App() {
     setLivros(dbService.obterLivros());
     setLogs(dbService.obterLogs());
     setJuris(dbService.obterJuris());
-    setAnosLectivos(dbService.getAnosLectivos());
+    setAnosLectivos(dbService.getAnosLectivos(escRestaurada?.id));
   };
 
   // Handlers de Apoio Técnico Emergencial (Admin Geral assumindo o papel de Diretor Geral)
-  const handleIniciarApoioTecnico = (escolaId: string, solicitacaoId: string) => {
-    const esc = escolas.find(e => e.id === escolaId);
+  const handleIniciarApoioTecnico = (escolaId: string, solicitacaoId?: string) => {
+    const listaEscolas = dbService.getEscolas();
+    const esc = listaEscolas.find(e => e.id === escolaId) || escolas.find(e => e.id === escolaId);
     if (!esc) return;
 
-    dbService.setEscolaAtiva(escolaId);
-    setEscola(esc);
+    const escolaOriginalId = escola?.id && escola.id !== escolaId ? escola.id : undefined;
+    try {
+      if (escolaOriginalId) {
+        localStorage.setItem('sge_apoio_escola_original_id', escolaOriginalId);
+      } else {
+        localStorage.removeItem('sge_apoio_escola_original_id');
+      }
+    } catch {}
 
+    const solIdFinal = solicitacaoId || esc.sessaoApoioTecnicoAtiva?.solicitacaoId || '';
+    dbService.iniciarSessaoApoioTecnico(escolaId, solIdFinal, currentUser);
+
+    handleSelectEscola(escolaId);
     setModoApoioTecnico({
       escolaId,
-      solicitacaoId,
+      solicitacaoId: solIdFinal || undefined,
       escolaNome: esc.nomeOficial,
-      escolaOriginalId: escola.id
+      escolaOriginalId
     });
-
-    try {
-      dbService.responderSolicitacaoApoioTecnico(
-        solicitacaoId,
-        'Em_Atendimento',
-        currentUser.nomeCompleto,
-        `Sessão de intervenção e apoio técnico iniciada diretamente pelo Administrador Geral às ${new Date().toLocaleTimeString('pt-AO')}.`
-      );
-    } catch {}
 
     setActiveTab('dashboard');
   };
 
-  const handleEncerrarModoApoio = () => {
-    if (modoApoioTecnico?.solicitacaoId) {
+  const handleEncerrarModoApoio = (escolaIdOpcional?: string) => {
+    const escolasBrutas = dbService.getEscolasBrutas();
+    const idsParaEncerrar = new Set<string>();
+    if (typeof escolaIdOpcional === 'string' && escolaIdOpcional.trim()) {
+      idsParaEncerrar.add(escolaIdOpcional.trim());
+    } else {
+      if (modoApoioAtivo?.escolaId) idsParaEncerrar.add(modoApoioAtivo.escolaId);
+      if (escola?.id) idsParaEncerrar.add(escola.id);
+      escolasBrutas.forEach(e => {
+        if (e.sessaoApoioTecnicoAtiva) idsParaEncerrar.add(e.id);
+      });
+    }
+
+    idsParaEncerrar.forEach(id => {
+      dbService.encerrarSessaoApoioTecnico(id, currentUser);
+    });
+
+    if (modoApoioAtivo?.solicitacaoId) {
       try {
         dbService.responderSolicitacaoApoioTecnico(
-          modoApoioTecnico.solicitacaoId,
+          modoApoioAtivo.solicitacaoId,
           'Concluido',
           currentUser.nomeCompleto,
           `Intervenção técnica ministerial concluída com sucesso às ${new Date().toLocaleTimeString('pt-AO')}.`
@@ -1224,16 +1294,25 @@ export default function App() {
       } catch {}
     }
 
-    const originalEscolaId = modoApoioTecnico?.escolaOriginalId;
+    const originalEscolaId = modoApoioAtivo?.escolaOriginalId;
     setModoApoioTecnico(null);
+    try {
+      localStorage.removeItem('sge_apoio_escola_original_id');
+    } catch {}
 
-    if (originalEscolaId) {
-      const escOrig = escolas.find(e => e.id === originalEscolaId);
+    const escolasFrescas = dbService.getEscolas();
+    if (originalEscolaId && !idsParaEncerrar.has(originalEscolaId)) {
+      const escOrig = escolasFrescas.find(e => e.id === originalEscolaId);
       if (escOrig) {
         dbService.setEscolaAtiva(originalEscolaId);
-        setEscola(escOrig);
       }
     }
+
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
+    setFuncionarios(dbService.obterFuncionarios());
+    setSolicitacoes(dbService.obterSolicitacoes());
+    setLogs(dbService.obterLogs());
     setActiveTab('apoio_tecnico');
   };
 
@@ -1254,13 +1333,13 @@ export default function App() {
     (j.membros?.some(m => m.usuarioId === currentUser.id) || j.presidenteId === currentUser.id || j.secretarioId === currentUser.id)
   );
 
-  const temSessaoApoioAdminGeral = Boolean(modoApoioTecnico) || (currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva));
+  const temSessaoApoioAdminGeral = Boolean(modoApoioAtivo);
   const poderesDelegados = dbService.verificarPoderesDelegados(currentUser.id, escola.id);
   const temDelegacaoMatriculas = poderesDelegados.podeMatricular;
   const temDelegacaoCobranca = poderesDelegados.podeCobrarEmolumentos || (poderesDelegados as any).podeCobrar || dbService.getDelegacoesCobranca(escola.id).some(d => d.funcionarioId === currentUser.id && d.ativo);
 
   const isAbaPermitida = 
-    Boolean(modoApoioTecnico)
+    Boolean(modoApoioAtivo)
       ? true // No modo de apoio técnico o Administrador Geral possui acesso irrestrito a todos os menus do Diretor Geral da escola
       : (currentUser.role === 'AdminGeral' && activeTab === 'comissao_juri'
         ? false // Administrador geral não precisa ver comissões de júri
@@ -1272,50 +1351,117 @@ export default function App() {
           || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
 
   // Isolamento Rigoroso de Dados por Escola e Ano Letivo Ativo
-  const anoActivo = escola.anoLectivoActivo || '2025/2026';
+  const escolaIdAtiva = escola?.id || '';
+  const isGlobalNetworkScope = escolaIdAtiva === 'todas';
+  const anoActivo = escola.anoLectivoActivo || '';
 
-  // 1. Alunos da escola atual
+  // 1. Alunos estritamente da escola atual
   const alunosDaEscola = useMemo(() => {
-    return alunos.filter(a => !a.escolaId || a.escolaId === escola.id || escola.id === 'todas');
-  }, [alunos, escola.id]);
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return alunos;
+    return alunos.filter(a => a.escolaId === escolaIdAtiva);
+  }, [alunos, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 1.1 Alunos confirmados/matriculados no ano letivo ativo
   const alunosDoAnoActivo = useMemo(() => {
+    if (!anoActivo) {
+      return alunosDaEscola.filter(a => !(a.anoLectivo || a.anoMatricula));
+    }
     return alunosDaEscola.filter(a => {
       const ano = a.anoLectivo || a.anoMatricula;
       return !ano || ano === anoActivo;
     });
   }, [alunosDaEscola, anoActivo]);
 
-  // 2. Turmas da escola atual
+  // 2. Turmas estritamente da escola atual
   const turmasDaEscola = useMemo(() => {
-    return turmas.filter(t => !t.escolaId || t.escolaId === escola.id || escola.id === 'todas');
-  }, [turmas, escola.id]);
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return turmas;
+    return turmas.filter(t => t.escolaId === escolaIdAtiva);
+  }, [turmas, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 2.1 Turmas do ano letivo ativo (estritamente isoladas pelo ano lectivo ativo)
   const turmasDoAnoActivo = useMemo(() => {
-    return turmasDaEscola.filter(t => t.anoLectivo === anoActivo || (!t.anoLectivo && anoActivo === '2025/2026'));
+    if (!anoActivo) return [];
+    return turmasDaEscola.filter(t => t.anoLectivo === anoActivo);
   }, [turmasDaEscola, anoActivo]);
 
-  // 3. Atribuições docentes da escola atual
+  // 3. Atribuições docentes estritamente da escola atual
   const atribuicoesDaEscola = useMemo(() => {
-    return atribuicoes.filter(at => !at.escolaId || at.escolaId === escola.id || escola.id === 'todas');
-  }, [atribuicoes, escola.id]);
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return atribuicoes;
+    return atribuicoes.filter(at => at.escolaId === escolaIdAtiva);
+  }, [atribuicoes, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 3.1 Atribuições docentes do ano letivo ativo (estritamente isoladas pelo ano lectivo ativo)
   const atribuicoesDoAnoActivo = useMemo(() => {
-    return atribuicoesDaEscola.filter(at => at.anoLectivo === anoActivo || (!at.anoLectivo && anoActivo === '2025/2026'));
+    if (!anoActivo) return [];
+    return atribuicoesDaEscola.filter(at => at.anoLectivo === anoActivo);
   }, [atribuicoesDaEscola, anoActivo]);
 
-  // 4. Notas consolidadas do ano letivo ativo
+  // 4. Disciplinas estritamente da escola atual
+  const disciplinasDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return disciplinas;
+    return disciplinas.filter(d => d.escolaId === escolaIdAtiva);
+  }, [disciplinas, escolaIdAtiva, isGlobalNetworkScope]);
+
+  // 5. Funcionários estritamente da escola atual (excluindo AdminGeral)
+  const funcionariosDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return funcionarios.filter(f => f.role !== 'AdminGeral');
+    return funcionarios.filter(f => f.escolaId === escolaIdAtiva && f.role !== 'AdminGeral');
+  }, [funcionarios, escolaIdAtiva, isGlobalNetworkScope]);
+
+  // 6. Avaliações, Júris, Mensagens, Biblioteca, Assiduidade e Solicitações estritamente da escola atual
+  const avaliacoesDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return avaliacoes;
+    return avaliacoes.filter(av => av.escolaId === escolaIdAtiva);
+  }, [avaliacoes, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const jurisDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return juris;
+    return juris.filter(j => j.escolaId === escolaIdAtiva);
+  }, [juris, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const mensagensDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return mensagens;
+    return mensagens.filter(m => m.escolaId === escolaIdAtiva);
+  }, [mensagens, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const livrosDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return livros;
+    return livros.filter(l => l.escolaId === escolaIdAtiva);
+  }, [livros, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const assiduidadeDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return assiduidade;
+    const funcsIds = new Set(funcionariosDaEscola.map(f => f.id));
+    return assiduidade.filter(a => a.escolaId === escolaIdAtiva || funcsIds.has(a.funcionarioId));
+  }, [assiduidade, escolaIdAtiva, isGlobalNetworkScope, funcionariosDaEscola]);
+
+  const solicitacoesDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return solicitacoes;
+    return solicitacoes.filter(s => s.escolaId === escolaIdAtiva);
+  }, [solicitacoes, escolaIdAtiva, isGlobalNetworkScope]);
+
+  // 7. Notas consolidadas do ano letivo ativo e escola atual
   const notasConsolidadasDoAnoActivo = useMemo(() => {
+    if (!escolaIdAtiva || !anoActivo) return [];
     const alunosIdsMap = new Set(alunosDaEscola.map(a => a.id));
+    const turmasIdsMap = new Set(turmasDaEscola.map(t => t.id));
     return notasConsolidadas.filter(n => {
-      const escOk = !n.escolaId || n.escolaId === escola.id || escola.id === 'todas' || alunosIdsMap.has(n.alunoId);
+      const escOk = isGlobalNetworkScope || n.escolaId === escolaIdAtiva || alunosIdsMap.has(n.alunoId) || turmasIdsMap.has(n.turmaId);
       const anoOk = !n.anoLectivo || n.anoLectivo === anoActivo;
       return escOk && anoOk;
     });
-  }, [notasConsolidadas, escola.id, anoActivo, alunosDaEscola]);
+  }, [notasConsolidadas, escolaIdAtiva, isGlobalNetworkScope, anoActivo, alunosDaEscola, turmasDaEscola]);
 
   // Ecrã de Verificação Soberana Inicial contra o Firebase (Apenas se utilizador NÃO estiver autenticado)
   if (verificandoAdminOnline && !isAuthenticated) {
@@ -1348,32 +1494,24 @@ export default function App() {
     return (
       <>
         <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
-        <React.Suspense
-          fallback={
-            <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
-              <div className="w-7 h-7 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-            </div>
-          }
-        >
-          <SystemInitialSetupView
-            onSetupConcluido={(novoAdmin) => {
-              setMostrarSetupInicial(false);
-              setTemAdminGeral(true);
-              setAuthenticatedUser(novoAdmin);
-              setIsAuthenticated(true);
-              localStorage.setItem('sge_authenticated', 'true');
-              setFuncionarios(dbService.obterFuncionarios());
-              setEscolas(dbService.getEscolas());
-              setEscola(dbService.getEscolaAtiva());
-              setActiveTab('dashboard');
-              if (typeof navigator !== 'undefined' && navigator.onLine) {
-                firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
-                  recarregarDados();
-                });
-              }
-            }}
-          />
-        </React.Suspense>
+        <SystemInitialSetupView
+          onSetupConcluido={(novoAdmin) => {
+            setMostrarSetupInicial(false);
+            setTemAdminGeral(true);
+            setAuthenticatedUser(novoAdmin);
+            setIsAuthenticated(true);
+            localStorage.setItem('sge_authenticated', 'true');
+            setFuncionarios(dbService.obterFuncionarios());
+            setEscolas(dbService.getEscolas());
+            setEscola(dbService.getEscolaAtiva());
+            setActiveTab('dashboard');
+            if (typeof navigator !== 'undefined' && navigator.onLine) {
+              firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
+                recarregarDados();
+              });
+            }
+          }}
+        />
       </>
     );
   }
@@ -1388,7 +1526,7 @@ export default function App() {
           selectedEscola={escola}
           onSelectEscola={handleSelectEscola}
           anosLectivos={anosLectivos}
-          selectedAno={escola.anoLectivoActivo || '2025/2026'}
+          selectedAno={escola.anoLectivoActivo || ''}
           onSelectAno={handleSelectAnoLectivo}
           funcionarios={funcionarios}
           onLogin={handleLogin}
@@ -1468,7 +1606,7 @@ export default function App() {
       )}
 
       {/* Banner de Sessão de Apoio Técnico Ativa (Admin Geral no papel de Diretor Geral da Escola) */}
-      {(modoApoioTecnico || (currentUser.role === 'AdminGeral' && Boolean(escola.sessaoApoioTecnicoAtiva))) && (
+      {modoApoioAtivo && (
         <div className="bg-gradient-to-r from-amber-600 via-indigo-950 to-slate-900 text-white px-4 py-3 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 z-30 no-print border-b-2 border-amber-400 sticky top-0">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-amber-500/20 rounded-xl border border-amber-300/40 shrink-0">
@@ -1484,12 +1622,13 @@ export default function App() {
                 </span>
               </div>
               <span className="text-xs text-amber-100 block mt-0.5">
-                Instituição: <strong>{modoApoioTecnico?.escolaNome || escola.nomeOficial}</strong> · Menus pedagógicos, turmas, pautas e configurações desbloqueados.
+                Instituição: <strong>{modoApoioAtivo.escolaNome || escola.nomeOficial}</strong> · Menus pedagógicos, turmas, pautas e configurações desbloqueados.
               </span>
             </div>
           </div>
           <button
-            onClick={handleEncerrarModoApoio}
+            type="button"
+            onClick={() => handleEncerrarModoApoio(modoApoioAtivo.escolaId)}
             className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-gray-950 font-black text-xs rounded-xl shadow-md transition-all shrink-0 self-end sm:self-auto cursor-pointer flex items-center space-x-1.5"
           >
             <LogOut className="w-3.5 h-3.5 text-gray-950" />
@@ -1533,15 +1672,7 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <React.Suspense
-              fallback={
-                <div className="flex flex-col items-center justify-center py-20 space-y-3 text-slate-500">
-                  <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-xs font-medium">A carregar módulo...</span>
-                </div>
-              }
-            >
-              <>
+            <>
               {/* 1. PRINCIPAL */}
               {activeTab === 'dashboard' && (
                 <DashboardView
@@ -1549,7 +1680,7 @@ export default function App() {
                   escolas={escolas}
                   currentUser={effectiveUser}
                   alunos={alunosDoAnoActivo}
-                  funcionarios={funcionarios}
+                  funcionarios={funcionariosDaEscola}
                   turmas={turmasDoAnoActivo}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
                   onNavigate={(tab) => setActiveTab(tab)}
@@ -1563,10 +1694,10 @@ export default function App() {
                 <AcademicManagementView
                   escola={escola}
                   turmas={turmasDaEscola}
-                  disciplinas={disciplinas}
+                  disciplinas={disciplinasDaEscola}
                   atribuicoes={atribuicoesDaEscola}
-                  funcionarios={funcionarios}
-                  juris={juris}
+                  funcionarios={funcionariosDaEscola}
+                  juris={jurisDaEscola}
                   onSalvarEscola={handleSalvarEscola}
                   onSalvarTurma={handleSalvarTurma}
                   onEliminarTurma={handleEliminarTurma}
@@ -1602,8 +1733,8 @@ export default function App() {
                   escola={escola}
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
-                  disciplinas={disciplinas}
-                  funcionarios={funcionarios}
+                  disciplinas={disciplinasDaEscola}
+                  funcionarios={funcionariosDaEscola}
                 />
               )}
 
@@ -1614,10 +1745,10 @@ export default function App() {
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
                   alunos={alunosDoAnoActivo}
-                  disciplinas={disciplinas}
-                  funcionarios={funcionarios}
+                  disciplinas={disciplinasDaEscola}
+                  funcionarios={funcionariosDaEscola}
                   atribuicoes={atribuicoesDoAnoActivo}
-                  assiduidadeFuncionarios={assiduidade}
+                  assiduidadeFuncionarios={assiduidadeDaEscola}
                   onSalvarRegistoAssiduidade={handleSalvarRegistoAssiduidade}
                   onAtualizarAssiduidade={() => setAssiduidade(dbService.obterAssiduidade())}
                 />
@@ -1653,8 +1784,8 @@ export default function App() {
                 <HumanResourcesView
                   escola={escola}
                   currentUser={effectiveUser}
-                  funcionarios={funcionarios}
-                  assiduidade={assiduidade}
+                  funcionarios={funcionariosDaEscola}
+                  assiduidade={assiduidadeDaEscola}
                   onSalvarFuncionario={handleSalvarFuncionario}
                   onSalvarRegistoAssiduidade={handleSalvarRegistoAssiduidade}
                   onAtualizarStatusFuncionario={handleAtualizarStatusFuncionario}
@@ -1668,7 +1799,7 @@ export default function App() {
                 <ExecutiveDirectionView
                   escola={escola}
                   currentUser={effectiveUser}
-                  funcionarios={funcionarios}
+                  funcionarios={funcionariosDaEscola}
                   turmas={turmasDoAnoActivo}
                   alunos={alunosDoAnoActivo}
                   onSalvarEscola={handleSalvarEscola}
@@ -1683,14 +1814,14 @@ export default function App() {
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
                   atribuicoes={atribuicoesDoAnoActivo}
-                  disciplinas={disciplinas}
+                  disciplinas={disciplinasDaEscola}
                   alunos={alunosDoAnoActivo}
                   tiposAvaliacao={tiposAvaliacao}
                   regrasMAC={regrasMAC}
-                  avaliacoes={avaliacoes}
+                  avaliacoes={avaliacoesDaEscola}
                   notas={notas}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
-                  solicitacoes={solicitacoes}
+                  solicitacoes={solicitacoesDaEscola}
                   onSalvarTipoAvaliacao={handleSalvarTipoAvaliacao}
                   onSalvarRegraMAC={handleSalvarRegraMAC}
                   onSalvarAvaliacao={handleSalvarAvaliacao}
@@ -1706,13 +1837,13 @@ export default function App() {
                 <JuryCommissionView
                   escola={escola}
                   currentUser={effectiveUser}
-                  comissoes={juris}
+                  comissoes={jurisDaEscola}
                   turmas={turmasDoAnoActivo}
-                  disciplinas={disciplinas}
+                  disciplinas={disciplinasDaEscola}
                   alunos={alunosDoAnoActivo}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
                   atribuicoes={atribuicoesDoAnoActivo}
-                  funcionarios={funcionarios}
+                  funcionarios={funcionariosDaEscola}
                   onSalvarComissao={handleSalvarJuri}
                   onEliminarComissao={handleEliminarJuri}
                   onVoltarParaPainel={() => setActiveTab('dashboard')}
@@ -1727,7 +1858,7 @@ export default function App() {
                   atribuicoes={atribuicoesDoAnoActivo}
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
-                  disciplinas={disciplinas}
+                  disciplinas={disciplinasDaEscola}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
                   initialDocType={
                     activeTab === 'pautas' ? 'pautas' :
@@ -1745,19 +1876,13 @@ export default function App() {
                   escola={escola}
                   escolas={escolas}
                   currentUser={effectiveUser}
-                  turmas={turmasDaEscola}
-                  alunos={alunosDaEscola}
-                  disciplinas={disciplinas}
-                  notasConsolidadas={notasConsolidadasDoAnoActivo}
-                  funcionarios={funcionarios}
-                  atribuicoes={atribuicoesDoAnoActivo}
-                  onMudarEscola={(escId) => {
-                    const esc = escolas.find(e => e.id === escId);
-                    if (esc) {
-                      setEscola(esc);
-                      dbService.setEscolaAtiva(esc.id);
-                    }
-                  }}
+                  turmas={effectiveUser.role === 'AdminGeral' ? turmas : turmasDaEscola}
+                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDaEscola}
+                  disciplinas={effectiveUser.role === 'AdminGeral' ? disciplinas : disciplinasDaEscola}
+                  notasConsolidadas={effectiveUser.role === 'AdminGeral' ? notasConsolidadas : notasConsolidadasDoAnoActivo}
+                  funcionarios={effectiveUser.role === 'AdminGeral' ? funcionarios.filter(f => f.role !== 'AdminGeral') : funcionariosDaEscola}
+                  atribuicoes={effectiveUser.role === 'AdminGeral' ? atribuicoes : atribuicoesDoAnoActivo}
+                  onMudarEscola={(escId) => handleSelectEscola(escId)}
                 />
               )}
 
@@ -1767,19 +1892,13 @@ export default function App() {
                   escola={escola}
                   escolas={escolas}
                   currentUser={effectiveUser}
-                  turmas={turmasDaEscola}
-                  alunos={alunosDaEscola}
-                  disciplinas={disciplinas}
-                  notasConsolidadas={notasConsolidadasDoAnoActivo}
-                  funcionarios={funcionarios}
-                  atribuicoes={atribuicoesDoAnoActivo}
-                  onMudarEscola={(escId) => {
-                    const esc = escolas.find(e => e.id === escId);
-                    if (esc) {
-                      setEscola(esc);
-                      dbService.setEscolaAtiva(esc.id);
-                    }
-                  }}
+                  turmas={effectiveUser.role === 'AdminGeral' ? turmas : turmasDaEscola}
+                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDaEscola}
+                  disciplinas={effectiveUser.role === 'AdminGeral' ? disciplinas : disciplinasDaEscola}
+                  notasConsolidadas={effectiveUser.role === 'AdminGeral' ? notasConsolidadas : notasConsolidadasDoAnoActivo}
+                  funcionarios={effectiveUser.role === 'AdminGeral' ? funcionarios.filter(f => f.role !== 'AdminGeral') : funcionariosDaEscola}
+                  atribuicoes={effectiveUser.role === 'AdminGeral' ? atribuicoes : atribuicoesDoAnoActivo}
+                  onMudarEscola={(escId) => handleSelectEscola(escId)}
                 />
               )}
 
@@ -1803,11 +1922,11 @@ export default function App() {
                 <CommunicationLibraryView
                   escola={escola}
                   currentUser={effectiveUser}
-                  funcionarios={funcionarios}
+                  funcionarios={funcionariosDaEscola}
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
-                  mensagens={mensagens}
-                  livros={livros}
+                  mensagens={mensagensDaEscola}
+                  livros={livrosDaEscola}
                   onEnviarMensagem={handleEnviarMensagem}
                   onAdicionarLivro={handleAdicionarLivro}
                   onMarcarComoLida={handleMarcarMensagemLida}
@@ -1829,8 +1948,8 @@ export default function App() {
                   escola={escola}
                   currentUser={effectiveUser}
                   logs={logs}
-                  alunos={alunos}
-                  funcionarios={funcionarios}
+                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDaEscola}
+                  funcionarios={effectiveUser.role === 'AdminGeral' ? funcionarios : funcionariosDaEscola}
                   onLimparLogs={handleLimparLogs}
                   onRestaurarBackup={handleRestaurarBackup}
                   onAtualizarEscola={handleSalvarEscola}
@@ -1853,14 +1972,15 @@ export default function App() {
                   escolas={escolas}
                   currentUser={currentUser}
                   onEscolaInspecionada={(escId: string) => {
-                    handleSelectEscola(escId);
-                    setActiveTab('dashboard');
+                    handleIniciarApoioTecnico(escId);
                   }}
                   onSelecionarEscolaParaApoio={(escId: string) => {
-                    handleSelectEscola(escId);
-                    setActiveTab('dashboard');
+                    handleIniciarApoioTecnico(escId);
                   }}
                   onIniciarApoioTecnico={handleIniciarApoioTecnico}
+                  onEncerrarApoioTecnico={(escId?: string) => {
+                    handleEncerrarModoApoio(escId);
+                  }}
                 />
               )}
 
@@ -1887,7 +2007,13 @@ export default function App() {
                   onEliminarEscola={handleEliminarEscola}
                   onCriarOuAtualizarDiretor={handleCriarOuAtualizarDiretor}
                   onRedefinirSenhaDiretor={handleRedefinirSenhaDiretor}
-                  onSelecionarEscolaParaInspecao={handleSelecionarEscolaParaInspecao}
+                  onSelecionarEscolaParaInspecao={(escId: string) => {
+                    handleIniciarApoioTecnico(escId);
+                  }}
+                  onEncerrarApoioEscola={(escId: string) => {
+                    handleEncerrarModoApoio(escId);
+                    setActiveTab('admin_escolas');
+                  }}
                   onEliminarFuncionario={handleEliminarFuncionario}
                 />
               )}
@@ -1896,7 +2022,6 @@ export default function App() {
                 <ArchitectureDocsView />
               )}
               </>
-            </React.Suspense>
           )}
         </main>
       </div>
@@ -1906,42 +2031,36 @@ export default function App() {
 
       {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
       {showSetupModal && (
-        <React.Suspense fallback={null}>
-          <InitialSetupModal
-            isOpen={showSetupModal}
-            onClose={() => setShowSetupModal(false)}
-            onSaveSetup={handleSaveSetup}
-            escolasExistentes={escolas}
-          />
-        </React.Suspense>
+        <InitialSetupModal
+          isOpen={showSetupModal}
+          onClose={() => setShowSetupModal(false)}
+          onSaveSetup={handleSaveSetup}
+          escolasExistentes={escolas}
+        />
       )}
 
       {/* Motor de Segurança & Criptografia AES-256 em Tempo Real (Exclusivo Admin Geral) */}
       {currentUser.role === 'AdminGeral' && showSecurityModal && (
-        <React.Suspense fallback={null}>
-          <RealtimeSecurityModal
-            isOpen={showSecurityModal}
-            onClose={() => setShowSecurityModal(false)}
-            onAbrirSetupInicial={() => setTemAdminGeral(false)}
-            currentUserRole={currentUser.role}
-          />
-        </React.Suspense>
+        <RealtimeSecurityModal
+          isOpen={showSecurityModal}
+          onClose={() => setShowSecurityModal(false)}
+          onAbrirSetupInicial={() => setTemAdminGeral(false)}
+          currentUserRole={currentUser.role}
+        />
       )}
 
       {/* Tour Guiado Oficial da Dashboard e Plataforma */}
       {showTourModal && (
-        <React.Suspense fallback={null}>
-          <GuidedTourModal
-            isOpen={showTourModal}
-            onClose={() => setShowTourModal(false)}
-            currentUser={effectiveUser}
-            escola={escola}
-            onNavigateTab={(tab) => {
-              setActiveTab(tab);
-              setShowTourModal(false);
-            }}
-          />
-        </React.Suspense>
+        <GuidedTourModal
+          isOpen={showTourModal}
+          onClose={() => setShowTourModal(false)}
+          currentUser={effectiveUser}
+          escola={escola}
+          onNavigateTab={(tab) => {
+            setActiveTab(tab);
+            setShowTourModal(false);
+          }}
+        />
       )}
     </div>
   );

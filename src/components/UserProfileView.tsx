@@ -220,7 +220,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         <div className="text-left md:text-right bg-gray-50 p-3 rounded-xl border border-gray-100">
           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Instituição Ativa</span>
           <span className="text-xs font-bold text-gray-800 block truncate max-w-xs">{escola?.nomeOficial || 'Administração Geral'}</span>
-          <span className="text-[10px] text-gray-500 block">Ano Lectivo: <strong>{escola?.anoLectivoActivo || '2025/2026'}</strong></span>
+          <span className="text-[10px] text-gray-500 block">Ano Lectivo: <strong>{escola?.anoLectivoActivo || '—'}</strong></span>
         </div>
       </div>
 

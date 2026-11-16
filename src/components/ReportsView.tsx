@@ -32,7 +32,7 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { 
   filtrarDisciplinasDaClasse, 
@@ -58,6 +58,7 @@ interface ReportsViewProps {
 }
 
 type SubAbaRelatorio = 
+  | 'resumo_rede'
   | 'mapa_rendimento' 
   | 'rendimento_disciplina' 
   | 'assiduidade_faltas' 
@@ -68,14 +69,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   escola,
   escolas = [],
   currentUser,
-  turmas,
-  alunos,
-  disciplinas,
+  turmas: propTurmas,
+  alunos: propAlunos,
+  disciplinas: propDisciplinas,
   notasConsolidadas: propNotas,
   funcionarios: propFuncionarios,
   anoLectivoConfigs = [],
   atribuicoes: propAtribuicoes,
-  onMudarEscola
+  onMudarEscola: _onMudarEscola
 }) => {
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -85,15 +86,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
     return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
   }, []);
-
-  // Carregar dados atualizados do banco caso não fornecidos, estritamente isolados à escola ativa
-  const notas = useMemo(() => propNotas || dbService.getNotasConsolidadas(), [propNotas]);
-  const funcionarios = useMemo(() => {
-    const base = propFuncionarios || dbService.getFuncionarios();
-    return base.filter(f => f.escolaId === escola.id && f.role !== 'AdminGeral');
-  }, [propFuncionarios, escola.id]);
-  const anosConfigs = useMemo(() => anoLectivoConfigs.length > 0 ? anoLectivoConfigs : dbService.getAnosLectivosConfigs(), [anoLectivoConfigs]);
-  const atribuicoesTodas = useMemo(() => propAtribuicoes || dbService.getAtribuicoes(), [propAtribuicoes]);
 
   // Identificação do Perfil do Utilizador
   const isAdminGeral = currentUser?.role === 'AdminGeral';
@@ -113,23 +105,144 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     currentUser?.role === 'Secretario' ||
     currentUser?.role === 'TecnicoTI';
 
+  // Filtro local de escola para Administrador Geral (padrão: 'TODAS' = Resumo Consolidado de todas as escolas)
+  const [escolaFiltroAdmin, setEscolaFiltroAdmin] = useState<string>(() => (isAdminGeral ? 'TODAS' : escola.id));
+  useEffect(() => {
+    if (!isAdminGeral) {
+      setEscolaFiltroAdmin(escola.id);
+    }
+  }, [isAdminGeral, escola.id]);
+
+  const isVisaoRedeTodas = isAdminGeral && escolaFiltroAdmin === 'TODAS';
+  const escolaExibida = useMemo(() => {
+    if (isAdminGeral && escolaFiltroAdmin !== 'TODAS') {
+      return escolas.find(e => e.id === escolaFiltroAdmin) || escola;
+    }
+    return escola;
+  }, [isAdminGeral, escolaFiltroAdmin, escolas, escola]);
+
+  const escolasMap = useMemo(() => {
+    const map = new Map<string, Escola>();
+    escolas.forEach(e => map.set(e.id, e));
+    if (escola?.id && !map.has(escola.id)) map.set(escola.id, escola);
+    return map;
+  }, [escolas, escola]);
+
+  // Dados isolados ao escopo selecionado (Todas as Escolas vs Escola Individual)
+  const turmas = useMemo(() => {
+    if (!isAdminGeral || isVisaoRedeTodas) return propTurmas;
+    return propTurmas.filter(t => t.escolaId === escolaExibida.id);
+  }, [isAdminGeral, isVisaoRedeTodas, propTurmas, escolaExibida.id]);
+
+  const alunos = useMemo(() => {
+    if (!isAdminGeral || isVisaoRedeTodas) return propAlunos;
+    return propAlunos.filter(a => a.escolaId === escolaExibida.id);
+  }, [isAdminGeral, isVisaoRedeTodas, propAlunos, escolaExibida.id]);
+
+  const disciplinas = useMemo(() => {
+    if (!isAdminGeral || isVisaoRedeTodas) return propDisciplinas;
+    return propDisciplinas.filter(d => d.escolaId === escolaExibida.id);
+  }, [isAdminGeral, isVisaoRedeTodas, propDisciplinas, escolaExibida.id]);
+
+  const notas = useMemo(() => {
+    const base = propNotas || dbService.getNotasConsolidadas();
+    if (!isAdminGeral || isVisaoRedeTodas) return base;
+    const idsAlunos = new Set(alunos.map(a => a.id));
+    return base.filter(n => n.escolaId === escolaExibida.id || idsAlunos.has(n.alunoId));
+  }, [propNotas, isAdminGeral, isVisaoRedeTodas, escolaExibida.id, alunos]);
+
+  const funcionarios = useMemo(() => {
+    const base = (propFuncionarios || dbService.getFuncionarios()).filter(f => f.role !== 'AdminGeral');
+    if (!isAdminGeral) return base.filter(f => f.escolaId === escola.id);
+    if (isVisaoRedeTodas) return base;
+    return base.filter(f => f.escolaId === escolaExibida.id);
+  }, [propFuncionarios, isAdminGeral, isVisaoRedeTodas, escola.id, escolaExibida.id]);
+
+  const anosConfigs = useMemo(() => {
+    if (anoLectivoConfigs.length > 0 && !isVisaoRedeTodas) return anoLectivoConfigs;
+    const todasConfigs = isVisaoRedeTodas
+      ? dbService.getAnosLectivosConfigs()
+      : dbService.getAnosLectivosConfigs(escolaExibida.id);
+    const vistos = new Map<string, AnoLectivoConfig>();
+    todasConfigs.forEach(c => {
+      const rot = (c.rotulo || c.ano || '').trim();
+      if (rot && !vistos.has(rot)) vistos.set(rot, c);
+    });
+    if (isVisaoRedeTodas) {
+      escolas.forEach(esc => {
+        if (esc.anoLectivoActivo && !vistos.has(esc.anoLectivoActivo)) {
+          vistos.set(esc.anoLectivoActivo, {
+            id: `ano-esc-${esc.id}`,
+            escolaId: esc.id,
+            rotulo: esc.anoLectivoActivo,
+            ano: esc.anoLectivoActivo,
+            dataInicio: '',
+            dataFim: '',
+            estado: 'Aberto',
+            trimestres: [],
+            criadoEm: ''
+          });
+        }
+      });
+    }
+    return Array.from(vistos.values());
+  }, [anoLectivoConfigs, isVisaoRedeTodas, escolaExibida.id, escolas]);
+
+  const atribuicoesTodas = useMemo(() => {
+    const base = propAtribuicoes || dbService.getAtribuicoes();
+    if (!isAdminGeral || isVisaoRedeTodas) return base;
+    return base.filter(a => !a.escolaId || a.escolaId === escolaExibida.id);
+  }, [propAtribuicoes, isAdminGeral, isVisaoRedeTodas, escolaExibida.id]);
+
+  const presencasAlunosRede = useMemo(() => {
+    const todas = dbService.obterPresencasAlunos();
+    if (!isAdminGeral || isVisaoRedeTodas) return todas;
+    return todas.filter(p => p.escolaId === escolaExibida.id);
+  }, [isAdminGeral, isVisaoRedeTodas, escolaExibida.id]);
+
   // Modo de visualização: Professores e Coordenadores iniciam com 'minhas_atribuicoes', mas podem alternar livremente para 'toda_escola'
   const [modoVisao, setModoVisao] = useState<'minhas_atribuicoes' | 'toda_escola'>(
     isDocenteOuCoordenador ? 'minhas_atribuicoes' : 'toda_escola'
   );
 
-  // Filtro de Docente para Direção / AdminGeral: permite auditar individualmente qualquer professor da escola
+  // Filtro de Docente para Direção / AdminGeral: permite auditar individualmente qualquer professor
   const [filtroDocenteId, setFiltroDocenteId] = useState<string>('TODOS');
 
   // Estados de Filtros Centrais (incluindo Curso e Disciplina)
-  const [subAbaAtiva, setSubAbaAtiva] = useState<SubAbaRelatorio>('mapa_rendimento');
-  const [filtroAno, setFiltroAno] = useState<string>(escola.anoLectivoActivo || '2024/2025');
-  const [filtroTrimestre, setFiltroTrimestre] = useState<string>(String(escola.trimestreActivo || '1'));
+  const [subAbaAtiva, setSubAbaAtiva] = useState<SubAbaRelatorio>(() => (isAdminGeral ? 'resumo_rede' : 'mapa_rendimento'));
+  const [filtroAno, setFiltroAno] = useState<string>(() => (isAdminGeral ? 'TODOS' : (escola.anoLectivoActivo || '')));
+  useEffect(() => {
+    if (!isAdminGeral) {
+      setFiltroAno(escola.anoLectivoActivo || '');
+    }
+  }, [isAdminGeral, escola.id, escola.anoLectivoActivo]);
+  const [filtroTrimestre, setFiltroTrimestre] = useState<string>(() => (isAdminGeral ? 'anual' : String(escola.trimestreActivo || '1')));
   const [filtroCiclo, setFiltroCiclo] = useState<string>('TODOS');
   const [filtroCurso, setFiltroCurso] = useState<string>('TODOS');
   const [filtroClasse, setFiltroClasse] = useState<string>('TODAS');
   const [filtroTurmaId, setFiltroTurmaId] = useState<string>('TODAS');
   const [filtroDisciplinaId, setFiltroDisciplinaId] = useState<string>('TODAS');
+
+  const handleSelecionarEscolaAdmin = (novoEscId: string) => {
+    setEscolaFiltroAdmin(novoEscId);
+    setFiltroDocenteId('TODOS');
+    setFiltroTurmaId('TODAS');
+    setFiltroDisciplinaId('TODAS');
+    setFiltroClasse('TODAS');
+    setFiltroCurso('TODOS');
+    if (novoEscId === 'TODAS') {
+      setFiltroAno('TODOS');
+      setFiltroTrimestre('anual');
+      setSubAbaAtiva('resumo_rede');
+    } else {
+      const escAlvo = escolas.find(e => e.id === novoEscId);
+      setFiltroAno(escAlvo?.anoLectivoActivo || 'TODOS');
+      setFiltroTrimestre(String(escAlvo?.trimestreActivo || 'anual'));
+      if (subAbaAtiva === 'resumo_rede') {
+        setSubAbaAtiva('mapa_rendimento');
+      }
+    }
+  };
 
   // Lista de docentes e coordenadores cadastrados na escola
   const listaDocentes = useMemo(() => {
@@ -254,9 +367,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return Array.from(setClasses).sort();
   }, [turmasPermitidas]);
 
-  // Turmas filtradas pelo ciclo, curso e classe
+  // Turmas filtradas pelo ano, ciclo, curso e classe
   const turmasFiltradas = useMemo(() => {
     return turmasPermitidas.filter(t => {
+      if (filtroAno && filtroAno !== 'TODOS' && t.anoLectivo && t.anoLectivo !== filtroAno) return false;
       if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
       if (filtroCiclo !== 'TODOS') {
         const cicloTurma = formatarCicloPorClasse(t.classe);
@@ -265,7 +379,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       if (filtroCurso !== 'TODOS' && t.curso !== filtroCurso) return false;
       return true;
     });
-  }, [turmasPermitidas, filtroClasse, filtroCiclo, filtroCurso]);
+  }, [turmasPermitidas, filtroAno, filtroClasse, filtroCiclo, filtroCurso]);
 
   // Turmas ativas no relatório
   const turmasAlvo = useMemo(() => {
@@ -306,7 +420,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         // Se houver docente alvo ou disciplina específica, avalia com base nesses critérios
         const notasDoAluno = notas.filter(n => {
           if (n.alunoId !== aluno.id) return false;
-          if (n.anoLectivo && n.anoLectivo !== filtroAno) return false;
+          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
           if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
           if (filtroDisciplinaId !== 'TODAS' && n.disciplinaId !== filtroDisciplinaId) return false;
           if (docenteAlvo && disciplinasDocenteIds.size > 0) {
@@ -340,6 +454,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
       return {
         turma: t,
+        escolaSigla: escolasMap.get(t.escolaId)?.sigla || escolaExibida.sigla || 'MED',
         matriculadosTotal,
         matriculadosM,
         matriculadosF,
@@ -357,10 +472,100 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         ehTerminal: isClasseFinal(t.classe)
       };
     });
-  }, [turmasAlvo, alunos, notas, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds]);
+  }, [turmasAlvo, alunos, notas, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds, escolasMap, escolaExibida.sigla]);
 
-  // Rendimento por Disciplina (estritamente na ordem configurada na gestão de disciplinas)
+  // Rendimento por Disciplina (estritamente na ordem configurada na gestão de disciplinas; consolida por nome quando em Visão Geral de Todas as Escolas)
   const rendimentoPorDisciplina = useMemo(() => {
+    if (isVisaoRedeTodas) {
+      const grupos = new Map<string, { nome: string; codigo: string; ordem: number; totalAvaliados: number; totalPositivas: number; totalNegativas: number; somaNotas: number }>();
+      const discPorId = new Map<string, Disciplina>();
+      disciplinasPermitidas.forEach(d => discPorId.set(d.id, d));
+
+      const alunosIdsAlvo = new Set(
+        alunos.filter(a => a.estado !== 'Desistente' && turmasAlvo.some(t => t.id === a.turmaId)).map(a => a.id)
+      );
+      const turmaPorAluno = new Map<string, Turma>();
+      alunos.forEach(a => {
+        const t = turmasAlvo.find(tu => tu.id === a.turmaId);
+        if (t) turmaPorAluno.set(a.id, t);
+      });
+
+      notas.forEach(item => {
+        if (!alunosIdsAlvo.has(item.alunoId)) return;
+        if (filtroAno && filtroAno !== 'TODOS' && item.anoLectivo && item.anoLectivo !== filtroAno) return;
+        if (filtroTrimestre !== 'anual' && item.trimestre && String(item.trimestre) !== filtroTrimestre) return;
+        if (filtroDisciplinaId !== 'TODAS' && item.disciplinaId !== filtroDisciplinaId) return;
+
+        const disc = discPorId.get(item.disciplinaId);
+        if (!disc) return;
+        const key = (disc.nome || '').trim().toLowerCase();
+        if (!key) return;
+
+        const turma = turmaPorAluno.get(item.alunoId);
+        const escala = obterInformacaoEscala(turma?.classe);
+        const notaVal = item.mediaTrimestral ?? item.notaFinal ?? item.mac ?? 0;
+
+        if (!grupos.has(key)) {
+          grupos.set(key, {
+            nome: disc.nome,
+            codigo: disc.codigo || '—',
+            ordem: disc.ordem ?? 999,
+            totalAvaliados: 0,
+            totalPositivas: 0,
+            totalNegativas: 0,
+            somaNotas: 0
+          });
+        }
+        const g = grupos.get(key)!;
+        g.totalAvaliados++;
+        g.somaNotas += notaVal;
+        if (notaVal >= escala.notaAprovacao) g.totalPositivas++;
+        else g.totalNegativas++;
+      });
+
+      // Garantir que disciplinas cadastradas sem notas também apareçam se houver poucas ou na lista
+      disciplinasPermitidas.forEach(disc => {
+        if (filtroDisciplinaId !== 'TODAS' && disc.id !== filtroDisciplinaId) return;
+        const key = (disc.nome || '').trim().toLowerCase();
+        if (key && !grupos.has(key)) {
+          grupos.set(key, {
+            nome: disc.nome,
+            codigo: disc.codigo || '—',
+            ordem: disc.ordem ?? 999,
+            totalAvaliados: 0,
+            totalPositivas: 0,
+            totalNegativas: 0,
+            somaNotas: 0
+          });
+        }
+      });
+
+      return Array.from(grupos.values())
+        .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, 'pt-AO'))
+        .map(g => {
+          const taxaAproveitamento = g.totalAvaliados > 0 ? ((g.totalPositivas / g.totalAvaliados) * 100).toFixed(1) : '0.0';
+          const mediaDisciplina = g.totalAvaliados > 0 ? (g.somaNotas / g.totalAvaliados).toFixed(1) : '—';
+          let statusQualitativo = 'Sem Avaliações';
+          if (g.totalAvaliados > 0) {
+            const pct = parseFloat(taxaAproveitamento);
+            if (pct >= 85) statusQualitativo = 'Excelente';
+            else if (pct >= 65) statusQualitativo = 'Bom';
+            else if (pct >= 50) statusQualitativo = 'Regular';
+            else statusQualitativo = 'Crítico / Atenção';
+          }
+          return {
+            disciplina: { id: g.nome, nome: g.nome, codigo: g.codigo, ordem: g.ordem } as Disciplina,
+            ordem: g.ordem,
+            totalAvaliados: g.totalAvaliados,
+            totalPositivas: g.totalPositivas,
+            totalNegativas: g.totalNegativas,
+            taxaAproveitamento,
+            mediaDisciplina,
+            statusQualitativo
+          };
+        });
+    }
+
     const refClasse = filtroClasse !== 'TODAS' ? filtroClasse : (turmasAlvo[0]?.classe || '10ª');
     const refCurso = filtroCurso !== 'TODOS' ? filtroCurso : turmasAlvo[0]?.curso;
     const disciplinasDaGrelha = filtrarDisciplinasDaClasse(disciplinasPermitidas, refClasse, refCurso);
@@ -382,7 +587,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           const n = notas.find(item => 
             item.alunoId === aluno.id && 
             item.disciplinaId === disc.id &&
-            (!item.anoLectivo || item.anoLectivo === filtroAno) &&
+            (!filtroAno || filtroAno === 'TODOS' || !item.anoLectivo || item.anoLectivo === filtroAno) &&
             (filtroTrimestre === 'anual' || !item.trimestre || String(item.trimestre) === filtroTrimestre)
           );
 
@@ -422,19 +627,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         statusQualitativo
       };
     });
-  }, [disciplinasPermitidas, filtroClasse, filtroCurso, filtroDisciplinaId, turmasAlvo, alunos, notas, filtroAno, filtroTrimestre]);
+  }, [isVisaoRedeTodas, disciplinasPermitidas, filtroClasse, filtroCurso, filtroDisciplinaId, turmasAlvo, alunos, notas, filtroAno, filtroTrimestre]);
 
-  // Relatório de Assiduidade e Faltas
+  // Relatório de Assiduidade e Faltas (presenças diárias reais + faltas em notas)
   const dadosAssiduidade = useMemo(() => {
     return turmasAlvo.map(t => {
       const alunosTurma = alunos.filter(a => a.turmaId === t.id && a.estado !== 'Desistente');
+      const presencasTurma = presencasAlunosRede.filter(p => p.turmaId === t.id);
       let totalFaltasTurma = 0;
-      let alunosEmRiscoFaltas = 0; // Mais de 20 faltas no trimestre
+      let alunosEmRiscoFaltas = 0;
 
       alunosTurma.forEach(aluno => {
         const notasAluno = notas.filter(n => {
           if (n.alunoId !== aluno.id) return false;
-          if (n.anoLectivo && n.anoLectivo !== filtroAno) return false;
+          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
           if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
           if (filtroDisciplinaId !== 'TODAS' && n.disciplinaId !== filtroDisciplinaId) return false;
           if (docenteAlvo && disciplinasDocenteIds.size > 0) {
@@ -442,16 +648,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           }
           return true;
         });
-        const faltasAluno = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);
+        const faltasNotas = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);
+        const faltasChamada = presencasTurma.filter(p => p.alunoId === aluno.id && p.estado !== 'Presente').length;
+        const faltasAluno = Math.max(faltasNotas, faltasChamada);
         totalFaltasTurma += faltasAluno;
         if (faltasAluno >= 20) alunosEmRiscoFaltas++;
       });
 
       const mediaFaltasPorAluno = alunosTurma.length > 0 ? (totalFaltasTurma / alunosTurma.length).toFixed(1) : '0';
-      const taxaAssiduidadeEstimada = Math.max(0, 100 - (parseFloat(mediaFaltasPorAluno) * 1.5)).toFixed(1);
+      let taxaAssiduidadeEstimada = Math.max(0, 100 - (parseFloat(mediaFaltasPorAluno) * 1.5)).toFixed(1);
+      if (presencasTurma.length > 0) {
+        const presentes = presencasTurma.filter(p => p.estado === 'Presente').length;
+        taxaAssiduidadeEstimada = ((presentes / presencasTurma.length) * 100).toFixed(1);
+      }
 
       return {
         turma: t,
+        escolaSigla: escolasMap.get(t.escolaId)?.sigla || escolaExibida.sigla || 'MED',
         totalAlunos: alunosTurma.length,
         totalFaltasTurma,
         mediaFaltasPorAluno,
@@ -459,7 +672,94 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         taxaAssiduidadeEstimada
       };
     });
-  }, [turmasAlvo, alunos, notas, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds]);
+  }, [turmasAlvo, alunos, presencasAlunosRede, notas, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds, escolasMap, escolaExibida.sigla]);
+
+  // Resumo Consolidado por Escola (Visão Ministerial de Todas as Escolas para AdminGeral)
+  const resumoConsolidadoPorEscola = useMemo(() => {
+    if (!isAdminGeral) return [];
+    return escolas.map(esc => {
+      const dir = dbService.encontrarDiretorDaEscola(esc, propFuncionarios);
+      const nomeDirRaw = dir?.nomeCompleto || esc.diretorGeralNome || '';
+      const nomeDirNorm = nomeDirRaw.trim().toLowerCase();
+      const temDiretor = Boolean(
+        dir ||
+        (nomeDirNorm && nomeDirNorm !== 'não atribuído' && nomeDirNorm !== 'nao atribuido' && nomeDirNorm !== 'pendente de nomeação')
+      );
+      const diretorNome = temDiretor ? nomeDirRaw : 'Sem Diretor Atribuído';
+
+      const turmasEsc = propTurmas.filter(t => {
+        if (t.escolaId !== esc.id) return false;
+        if (filtroAno && filtroAno !== 'TODOS' && t.anoLectivo && t.anoLectivo !== filtroAno) return false;
+        if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
+        return true;
+      });
+      const turmasEscIds = new Set(turmasEsc.map(t => t.id));
+      const alunosEsc = propAlunos.filter(a => a.escolaId === esc.id);
+      const matriculadosM = alunosEsc.filter(a => a.genero === 'M').length;
+      const matriculadosF = alunosEsc.filter(a => a.genero === 'F').length;
+      const matriculadosTotal = alunosEsc.length;
+      const desistentes = alunosEsc.filter(a => a.estado === 'Desistente' || a.estado === 'Transferido').length;
+      const ativos = alunosEsc.filter(a => a.estado !== 'Desistente' && a.estado !== 'Transferido');
+
+      const funcsBase = (propFuncionarios || dbService.getFuncionarios()).filter(f => f.escolaId === esc.id && f.role !== 'AdminGeral' && f.ativo !== false);
+      const professoresCount = funcsBase.filter(f =>
+        f.role === 'Professor' || f.ehProfessor || f.categoriaProfissional?.toLowerCase().includes('prof') || f.categoriaProfissional?.toLowerCase().includes('doc')
+      ).length;
+
+      const notasBase = propNotas || dbService.getNotasConsolidadas();
+      let avaliados = 0;
+      let aprovados = 0;
+      let reprovados = 0;
+      let somaMedias = 0;
+
+      ativos.forEach(aluno => {
+        const turma = propTurmas.find(t => t.id === aluno.turmaId);
+        if (filtroTurmaId !== 'TODAS' && turma?.id !== filtroTurmaId) return;
+        if (turmasEscIds.size > 0 && aluno.turmaId && !turmasEscIds.has(aluno.turmaId)) return;
+        const escala = obterInformacaoEscala(turma?.classe);
+        const notasAluno = notasBase.filter(n => {
+          if (n.alunoId !== aluno.id) return false;
+          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
+          if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
+          return true;
+        });
+        if (notasAluno.length > 0) {
+          const media = notasAluno.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0) / notasAluno.length;
+          avaliados++;
+          somaMedias += media;
+          if (media >= escala.notaAprovacao) aprovados++;
+          else reprovados++;
+        }
+      });
+
+      const taxaAprovacao = avaliados > 0 ? ((aprovados / avaliados) * 100).toFixed(1) : '0.0';
+      const mediaGeral = avaliados > 0 ? (somaMedias / avaliados).toFixed(1) : '—';
+
+      const presencasEsc = dbService.obterPresencasAlunos().filter(p => p.escolaId === esc.id);
+      const taxaAssiduidade = presencasEsc.length > 0
+        ? `${((presencasEsc.filter(p => p.estado === 'Presente').length / presencasEsc.length) * 100).toFixed(1)}%`
+        : '—';
+
+      return {
+        escola: esc,
+        diretorNome,
+        temDiretor,
+        turmasCount: turmasEsc.length,
+        funcionariosCount: funcsBase.length,
+        professoresCount,
+        matriculadosTotal,
+        matriculadosM,
+        matriculadosF,
+        desistentes,
+        avaliados,
+        aprovados,
+        reprovados,
+        taxaAprovacao,
+        mediaGeral,
+        taxaAssiduidade
+      };
+    });
+  }, [isAdminGeral, escolas, propFuncionarios, propTurmas, propAlunos, propNotas, filtroAno, filtroTrimestre, filtroClasse, filtroTurmaId]);
 
   // Distribuição de Carga Horária Docente
   const distribuicaoCargaDocente = useMemo(() => {
@@ -525,9 +825,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return { matriculados, avaliados, aprovados, reprovados, taxaGeral };
   }, [mapaRendimentoTurmas]);
 
-  // Ação de Imprimir Relatório
+  // Ação de Imprimir Relatório diretamente a partir do documento formatado
   const handleImprimir = () => {
-    window.print();
+    const el = document.getElementById('relatorio-pedagogico-oficial-doc');
+    if (el) {
+      imprimirElementoDiretamente(el, `Relatorio_Oficial_${escolaExibida?.sigla || 'MED'}`, {
+        orientation: 'portrait',
+        format: 'a4'
+      });
+    } else {
+      window.print();
+    }
   };
 
   // Exportação em Excel Oficial (.xlsx)
@@ -535,9 +843,36 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     try {
       const wb = XLSX.utils.book_new();
 
+      if (resumoConsolidadoPorEscola.length > 0) {
+        const dadosEscolas = resumoConsolidadoPorEscola.map((r, idx) => ({
+          'Nº': idx + 1,
+          'Escola': r.escola.nomeOficial || r.escola.nome,
+          'Sigla': r.escola.sigla || '—',
+          'Província / Município': `${r.escola.provincia || 'Angola'} / ${r.escola.municipio || '—'}`,
+          'Diretor Geral': r.diretorNome,
+          'Ano Letivo Ativo': r.escola.anoLectivoActivo || 'Não Definido',
+          'Estado': r.escola.ativo === false || r.escola.estadoEscola === 'Suspensa' ? 'Suspensa' : 'Ativa',
+          'Turmas': r.turmasCount,
+          'Docentes': r.professoresCount,
+          'Funcionários': r.funcionariosCount,
+          'Matriculados Total': r.matriculadosTotal,
+          'Matriculados M': r.matriculadosM,
+          'Matriculados F': r.matriculadosF,
+          'Desistentes': r.desistentes,
+          'Avaliados': r.avaliados,
+          'Aprovados': r.aprovados,
+          '% Aprovação': `${r.taxaAprovacao}%`,
+          'Média Geral': r.mediaGeral,
+          'Assiduidade': r.taxaAssiduidade
+        }));
+        const wsEscolas = XLSX.utils.json_to_sheet(dadosEscolas);
+        XLSX.utils.book_append_sheet(wb, wsEscolas, 'Resumo_Por_Escola');
+      }
+
       // Folha 1: Mapa Estatístico Geral MED
       const dadosMapa = mapaRendimentoTurmas.map((m, idx) => ({
         'Nº': idx + 1,
+        ...(isVisaoRedeTodas ? { 'Escola': m.escolaSigla } : {}),
         'Turma': m.turma.nome,
         'Classe': m.turma.classe,
         'Curso': m.turma.curso || 'Geral',
@@ -578,6 +913,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
       // Folha 3: Assiduidade
       const dadosAssid = dadosAssiduidade.map(a => ({
+        ...(isVisaoRedeTodas ? { 'Escola': a.escolaSigla } : {}),
         'Turma': a.turma.nome,
         'Classe': a.turma.classe,
         'Total Alunos': a.totalAlunos,
@@ -591,6 +927,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
       // Folha 4: Carga Horária Docente
       const dadosDoc = distribuicaoCargaDocente.map(d => ({
+        ...(isVisaoRedeTodas ? { 'Escola': escolasMap.get(d.docente.escolaId)?.sigla || 'MED' } : {}),
         'Docente': d.docente.nomeCompleto,
         'Cargo': d.docente.categoriaProfissional || 'Professor (MED)',
         'Disciplinas': d.disciplinas,
@@ -604,8 +941,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
       const prefixo = docenteAlvo 
         ? `RELATORIO_DOCENTE_${docenteAlvo.nomeCompleto.replace(/\s+/g, '_').toUpperCase()}` 
-        : `RELATORIO_MED_${escola.sigla || 'ESCOLA'}`;
-      const fileName = `${prefixo}_${filtroAno.replace('/', '-')}_T${filtroTrimestre}.xlsx`;
+        : isVisaoRedeTodas
+          ? 'RELATORIO_CONSOLIDADO_TODAS_ESCOLAS'
+          : `RELATORIO_MED_${escolaExibida.sigla || 'ESCOLA'}`;
+      const fileName = `${prefixo}_${(filtroAno || 'GERAL').replace('/', '-')}_T${filtroTrimestre}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (err) {
       console.error('Erro ao gerar ficheiro Excel:', err);
@@ -615,8 +954,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 px-2 sm:px-4">
-      {/* SELETOR DE ESCOLA PARA ADMIN GERAL (MINISTERIAL / REDE NACIONAL) */}
-      {isAdminGeral && escolas.length > 0 && (
+      {/* SELETOR DE ESCOPO MINISTERIAL PARA ADMIN GERAL (TODAS AS ESCOLAS OU ESCOLA ESPECÍFICA) */}
+      {isAdminGeral && (
         <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 shadow-sm print:hidden">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center space-x-3">
@@ -625,21 +964,24 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </div>
               <div>
                 <span className="text-xs font-black uppercase text-purple-900 tracking-wider">
-                  Supervisão Ministerial da Rede Nacional de Angola
+                  Supervisão Ministerial Central — Rede Nacional ({escolas.length} Escolas)
                 </span>
                 <p className="text-xs text-purple-700">
-                  Selecione a instituição escolar para emitir os balanços estatísticos oficiais:
+                  {isVisaoRedeTodas
+                    ? 'A exibir o Resumo Consolidado de todas as escolas registadas, sem necessidade de entrar em cada instituição.'
+                    : `A filtrar relatórios oficiais da escola selecionada (${escolaExibida.nomeOficial}).`}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-purple-900 whitespace-nowrap">Escola:</span>
+              <span className="text-xs font-bold text-purple-900 whitespace-nowrap">Âmbito:</span>
               <select
-                value={escola.id}
-                onChange={e => onMudarEscola && onMudarEscola(e.target.value)}
+                value={escolaFiltroAdmin}
+                onChange={e => handleSelecionarEscolaAdmin(e.target.value)}
                 className="bg-white border-2 border-purple-300 rounded-xl px-3 py-1.5 text-xs font-black text-purple-950 focus:ring-2 focus:ring-purple-600 shadow-sm"
               >
+                <option value="TODAS">Todas as Escolas da Rede ({escolas.length}) — Resumo Consolidado</option>
                 {escolas.map(esc => (
                   <option key={esc.id} value={esc.id}>
                     {esc.nomeOficial || esc.nome} ({esc.municipio || 'Angola'})
@@ -721,17 +1063,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <div>
                 <div className="flex items-center space-x-2">
                   <h3 className="font-black text-sm text-slate-900">
-                    Direcção da Escola: {escola.nomeOficial || escola.nome}
+                    {isVisaoRedeTodas
+                      ? `Administração Central: Rede Completa (${escolas.length} Escolas)`
+                      : `Direcção da Escola: ${escolaExibida.nomeOficial || escolaExibida.nome}`}
                   </h3>
                   <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full font-black text-[10px] uppercase">
-                    Acesso Pleno da Liderança
+                    {isVisaoRedeTodas ? 'Visão Consolidada Nacional' : 'Acesso Pleno da Liderança'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-0.5">
                   {docenteAlvo ? (
                     <span>A auditar relatório detalhado do(a) docente <strong>{docenteAlvo.nomeCompleto}</strong> ({turmasPermitidas.length} turmas • {disciplinasPermitidas.length} disciplinas).</span>
+                  ) : isVisaoRedeTodas ? (
+                    <span>Relatório consolidado de todas as instituições ({escolas.length} escolas • {turmas.length} turmas • {alunos.length} alunos matriculados • {funcionarios.length} colaboradores).</span>
                   ) : (
-                    <span>Relatório Institucional Integral do Estabelecimento de Ensino ({turmas.length} turmas • {alunos.length} alunos matriculados • {escola.municipio || 'Angola'}).</span>
+                    <span>Relatório Institucional Integral do Estabelecimento de Ensino ({turmas.length} turmas • {alunos.length} alunos matriculados • {escolaExibida.municipio || 'Angola'}).</span>
                   )}
                 </p>
               </div>
@@ -750,10 +1096,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 }}
                 className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 max-w-xs"
               >
-                <option value="TODOS">Todos os Professores (Escola Completa)</option>
+                <option value="TODOS">Todos os Professores ({isVisaoRedeTodas ? 'Rede Completa' : 'Escola Completa'})</option>
                 {listaDocentes.map(d => (
                   <option key={d.id} value={d.id}>
-                    {d.nomeCompleto} — {d.especialidade || d.categoriaProfissional || 'Professor'}
+                    {d.nomeCompleto}{isVisaoRedeTodas ? ` [${escolasMap.get(d.escolaId)?.sigla || 'MED'}]` : ''} — {d.especialidade || d.categoriaProfissional || 'Professor'}
                   </option>
                 ))}
               </select>
@@ -766,7 +1112,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     setFiltroDisciplinaId('TODAS');
                   }}
                   className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-[10px] font-bold transition-all"
-                  title="Voltar ao Relatório Geral da Escola"
+                  title="Voltar ao Relatório Geral"
                 >
                   ✕ Geral
                 </button>
@@ -786,16 +1132,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">
-                  {docenteAlvo ? `Relatório Pedagógico: ${docenteAlvo.nomeCompleto}` : 'Relatórios Oficiais & Balanços MED'}
+                  {docenteAlvo
+                    ? `Relatório Pedagógico: ${docenteAlvo.nomeCompleto}`
+                    : isVisaoRedeTodas
+                      ? 'Relatórios Consolidados de Todas as Escolas'
+                      : 'Relatórios Oficiais & Balanços MED'}
                 </h1>
                 <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200">
-                  {escola.sigla || 'MED'}
+                  {isVisaoRedeTodas ? `${escolas.length} ESCOLAS` : (escolaExibida.sigla || 'MED')}
                 </span>
               </div>
               <p className="text-sm text-slate-500 mt-0.5">
                 {docenteAlvo
                   ? 'Balanço detalhado de aproveitamento das turmas e disciplinas sob lecionação do docente, pronto para emissão e download.'
-                  : 'Emissão oficial de mapas estatísticos de rendimento, aproveitamento por disciplina, assiduidade e pareceres pedagógicos ministeriais da escola.'}
+                  : isVisaoRedeTodas
+                    ? 'Resumo executivo e comparativo automático de todas as escolas cadastradas na rede, com emissão para Excel e PDF.'
+                    : 'Emissão oficial de mapas estatísticos de rendimento, aproveitamento por disciplina, assiduidade e pareceres pedagógicos ministeriais da escola.'}
               </p>
             </div>
           </div>
@@ -817,7 +1169,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 try {
                   await downloadElementAsPdf(
                     'relatorio-pedagogico-oficial-doc',
-                    `Relatorio_Oficial_${(escola.sigla || escola.nome || 'MED').replace(/\s+/g, '_')}_${filtroAno.replace('/', '-')}`,
+                    `Relatorio_Oficial_${(isVisaoRedeTodas ? 'TODAS_ESCOLAS' : (escolaExibida.sigla || escolaExibida.nome || 'MED')).replace(/\s+/g, '_')}_${(filtroAno || 'GERAL').replace('/', '-')}`,
                     { orientation: 'portrait', format: 'a4' }
                   );
                 } finally {
@@ -854,13 +1206,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               onChange={e => setFiltroAno(e.target.value)}
               className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
             >
+              {isAdminGeral && <option value="TODOS">Todos os Anos Letivos</option>}
               {anosConfigs.length > 0 ? (
                 anosConfigs.map(a => (
                   <option key={a.id} value={a.rotulo || a.ano}>{a.rotulo || a.ano}</option>
                 ))
-              ) : (
-                <option value={escola.anoLectivoActivo || '2024/2025'}>{escola.anoLectivoActivo || '2024/2025'}</option>
-              )}
+              ) : escolaExibida.anoLectivoActivo ? (
+                <option value={escolaExibida.anoLectivoActivo}>{escolaExibida.anoLectivoActivo}</option>
+              ) : !isAdminGeral ? (
+                <option value="">Sem ano letivo registado</option>
+              ) : null}
             </select>
           </div>
 
@@ -987,6 +1342,23 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
         {/* NAVEGAÇÃO ENTRE SUB-RELATÓRIOS */}
         <div className="flex flex-wrap items-center gap-2 mt-5 pt-4 border-t border-slate-100">
+          {isAdminGeral && (
+            <button
+              onClick={() => {
+                if (!isVisaoRedeTodas) handleSelecionarEscolaAdmin('TODAS');
+                setSubAbaAtiva('resumo_rede');
+              }}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
+                subAbaAtiva === 'resumo_rede'
+                  ? 'bg-purple-700 text-white shadow-sm'
+                  : 'bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Resumo Consolidado por Escola ({escolas.length})</span>
+            </button>
+          )}
+
           <button
             onClick={() => setSubAbaAtiva('mapa_rendimento')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
@@ -1060,16 +1432,24 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             República de Angola
           </h2>
           <h3 className="text-xs sm:text-sm font-bold tracking-wide uppercase text-slate-800">
-            Governo da Província de {escola.provincia || 'Luanda'}
+            {isVisaoRedeTodas
+              ? 'Ministério da Educação • Administração Central da Rede Escolar'
+              : `Governo da Província de ${escolaExibida.provincia || 'Luanda'}`}
           </h3>
           <h4 className="text-xs sm:text-sm font-bold uppercase text-slate-700">
-            Gabinete Provincial de Educação / Direcção Municipal de {escola.municipio || 'Cazenga'}
+            {isVisaoRedeTodas
+              ? `Direcção Nacional de Gestão e Supervisão Escolar (${escolas.length} Instituições)`
+              : `Gabinete Provincial de Educação / Direcção Municipal de ${escolaExibida.municipio || 'Luanda'}`}
           </h4>
           <h1 className="text-base sm:text-lg font-black uppercase text-blue-950 mt-1">
-            {escola.nomeOficial || escola.nome}
+            {isVisaoRedeTodas
+              ? 'RELATÓRIO CONSOLIDADO DE TODAS AS ESCOLAS'
+              : (escolaExibida.nomeOficial || escolaExibida.nome)}
           </h1>
           <p className="text-[11px] font-semibold text-slate-600">
-            Código da Escola: {escola.codigoEscola || 'MED-ANG'} • NIF: {escola.nif || '5000000000'}
+            {isVisaoRedeTodas
+              ? `Escolas Ativas: ${escolas.filter(e => e.ativo !== false && e.estadoEscola !== 'Suspensa').length} • Total na Rede: ${escolas.length}`
+              : `Código da Escola: ${escolaExibida.codigoEscola || 'MED-ANG'} • NIF: ${escolaExibida.nif || '5000000000'}`}
           </p>
 
           <div className="mt-3 inline-block bg-slate-100 px-4 py-1 rounded border border-slate-300">
@@ -1077,16 +1457,143 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               {isProfessor ? (
                 `RELATÓRIO INDIVIDUAL DO PROFESSOR: ${currentUser?.nomeCompleto?.toUpperCase()} — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}`
               ) : (
+                subAbaAtiva === 'resumo_rede' ? `RESUMO GERAL CONSOLIDADO POR ESCOLA — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
                 subAbaAtiva === 'mapa_rendimento' ? `MAPA ESTATÍSTICO DE RENDIMENTO ESCOLAR — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
                 subAbaAtiva === 'rendimento_disciplina' ? `MAPA DE RENDIMENTO CURRICULAR POR DISCIPLINA — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
                 subAbaAtiva === 'assiduidade_faltas' ? `MAPA OFICIAL DE ASSIDUIDADE E FREQUÊNCIA — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
                 subAbaAtiva === 'carga_horaria' ? `QUADRO OFICIAL DE CARGA HORÁRIA E CORPO DOCENTE` :
                 `BALANÇO PEDAGÓGICO E PARECER OFICIAL DA SUBDIRECÇÃO PEDAGÓGICA`
               )}
-              {' — '}ANO LECTIVO {filtroAno}
+              {' — '}{filtroAno && filtroAno !== 'TODOS' ? `ANO LECTIVO ${filtroAno}` : 'TODOS OS ANOS LECTIVOS'}
             </span>
           </div>
         </div>
+
+        {/* SUB-ABA 0 (ADMIN GERAL): RESUMO CONSOLIDADO POR ESCOLA */}
+        {subAbaAtiva === 'resumo_rede' && isAdminGeral && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 print:hidden">
+              <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                <span className="text-xs font-bold text-purple-700 uppercase">Escolas da Rede</span>
+                <p className="text-2xl font-black text-purple-950">{escolas.length}</p>
+                <span className="text-[10px] text-purple-600">
+                  {escolas.filter(e => e.ativo !== false && e.estadoEscola !== 'Suspensa').length} ativas
+                </span>
+              </div>
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-xs font-bold text-slate-500 uppercase">Matrícula Nacional</span>
+                <p className="text-2xl font-black text-slate-800">{totaisGeraisMapa.matriculados}</p>
+                <span className="text-[10px] text-slate-500">{turmas.length} turmas totais</span>
+              </div>
+              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <span className="text-xs font-bold text-indigo-700 uppercase">Funcionários</span>
+                <p className="text-2xl font-black text-indigo-950">{funcionarios.length}</p>
+                <span className="text-[10px] text-indigo-600">{listaDocentes.length} docentes</span>
+              </div>
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <span className="text-xs font-bold text-emerald-700 uppercase">Aprovação Média</span>
+                <p className="text-2xl font-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</p>
+                <span className="text-[10px] text-emerald-600">{totaisGeraisMapa.aprovados} aprovados de {totaisGeraisMapa.avaliados}</span>
+              </div>
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl">
+                <span className="text-xs font-bold text-rose-600 uppercase">Não Transitam</span>
+                <p className="text-2xl font-black text-rose-900">{totaisGeraisMapa.reprovados}</p>
+                <span className="text-[10px] text-rose-600">Em recuperação</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
+                <thead className="bg-slate-100 font-bold text-center text-[10px]">
+                  <tr>
+                    <th className="p-2 border-r border-black w-8">Nº</th>
+                    <th className="p-2 border-r border-black text-left">ESCOLA / PROVÍNCIA</th>
+                    <th className="p-2 border-r border-black text-left">DIRETOR GERAL</th>
+                    <th className="p-2 border-r border-black w-20">ANO ATIVO</th>
+                    <th className="p-2 border-r border-black w-16">TURMAS</th>
+                    <th className="p-2 border-r border-black w-20">DOCENTES / STAFF</th>
+                    <th className="p-2 border-r border-black w-24 bg-slate-200">MATRÍCULA (M/F)</th>
+                    <th className="p-2 border-r border-black w-16 bg-blue-50">AVAL.</th>
+                    <th className="p-2 border-r border-black w-20 bg-emerald-50">% APROV.</th>
+                    <th className="p-2 border-r border-black w-14">MÉDIA</th>
+                    <th className="p-2 border-r border-black w-16">ASSID.</th>
+                    <th className="p-2 w-24 print:hidden">AÇÃO</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black font-mono text-center">
+                  {resumoConsolidadoPorEscola.length > 0 ? (
+                    resumoConsolidadoPorEscola.map((r, idx) => {
+                      const suspensa = r.escola.ativo === false || r.escola.estadoEscola === 'Suspensa';
+                      return (
+                        <tr key={r.escola.id} className="hover:bg-slate-50">
+                          <td className="p-1.5 border-r border-black">{idx + 1}</td>
+                          <td className="p-1.5 border-r border-black text-left font-sans">
+                            <div className="font-bold text-slate-900">
+                              {r.escola.nomeOficial || r.escola.nome}
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-black">{r.escola.sigla || 'ESC'}</span>
+                              {suspensa && <span className="ml-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[9px] font-black">SUSPENSA</span>}
+                            </div>
+                            <div className="text-[10px] text-slate-500">{r.escola.municipio || '—'}, {r.escola.provincia || 'Angola'}</div>
+                          </td>
+                          <td className="p-1.5 border-r border-black text-left font-sans">
+                            <span className={r.temDiretor ? 'font-semibold text-slate-800' : 'text-amber-700 italic font-semibold'}>
+                              {r.diretorNome}
+                            </span>
+                          </td>
+                          <td className="p-1.5 border-r border-black text-[10px]">{r.escola.anoLectivoActivo || '—'}</td>
+                          <td className="p-1.5 border-r border-black font-bold">{r.turmasCount}</td>
+                          <td className="p-1.5 border-r border-black text-[10px]">
+                            <span className="font-bold">{r.professoresCount}</span> / {r.funcionariosCount}
+                          </td>
+                          <td className="p-1.5 border-r border-black bg-slate-50">
+                            <span className="font-bold">{r.matriculadosTotal}</span>
+                            <span className="text-[9px] text-slate-500 block">({r.matriculadosM}M / {r.matriculadosF}F)</span>
+                          </td>
+                          <td className="p-1.5 border-r border-black bg-blue-50/40 font-bold">{r.avaliados}</td>
+                          <td className="p-1.5 border-r border-black bg-emerald-50/40 font-black text-emerald-800">{r.taxaAprovacao}%</td>
+                          <td className="p-1.5 border-r border-black font-black">{r.mediaGeral}</td>
+                          <td className="p-1.5 border-r border-black font-semibold text-indigo-800">{r.taxaAssiduidade}</td>
+                          <td className="p-1.5 font-sans print:hidden">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleSelecionarEscolaAdmin(r.escola.id);
+                                setSubAbaAtiva('mapa_rendimento');
+                              }}
+                              className="px-2 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded text-[10px] font-bold transition-colors"
+                            >
+                              Detalhar
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={12} className="p-6 text-center font-sans text-slate-500 italic">
+                        Nenhuma escola registada na rede nacional.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot className="bg-slate-200 font-bold text-center border-t-2 border-black font-mono">
+                  <tr>
+                    <td colSpan={4} className="p-2 border-r border-black text-right font-sans uppercase">
+                      TOTAIS CONSOLIDADOS DA REDE ({escolas.length} ESCOLAS):
+                    </td>
+                    <td className="p-1.5 border-r border-black">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.turmasCount, 0)}</td>
+                    <td className="p-1.5 border-r border-black">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.professoresCount, 0)} / {resumoConsolidadoPorEscola.reduce((s, r) => s + r.funcionariosCount, 0)}</td>
+                    <td className="p-1.5 border-r border-black">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.matriculadosTotal, 0)}</td>
+                    <td className="p-1.5 border-r border-black text-blue-900">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.avaliados, 0)}</td>
+                    <td className="p-1.5 border-r border-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</td>
+                    <td colSpan={2} className="p-1.5 border-r border-black font-sans text-[10px]">Consolidado MED</td>
+                    <td className="p-1.5 print:hidden">—</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* SUB-ABA 1: MAPA GERAL DE RENDIMENTO MED */}
         {subAbaAtiva === 'mapa_rendimento' && (
@@ -1152,7 +1659,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     mapaRendimentoTurmas.map((item, idx) => (
                       <tr key={item.turma.id} className="hover:bg-slate-50 text-center">
                         <td className="p-1.5 border-r border-black">{idx + 1}</td>
-                        <td className="p-1.5 border-r border-black text-left font-sans font-bold uppercase">{item.turma.nome}</td>
+                        <td className="p-1.5 border-r border-black text-left font-sans font-bold uppercase">
+                          {isVisaoRedeTodas && (
+                            <span className="mr-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 text-[9px] font-black">{item.escolaSigla}</span>
+                          )}
+                          {item.turma.nome}
+                        </td>
                         <td className="p-1.5 border-r border-black text-left font-sans text-[10px] truncate max-w-[120px]">{item.turma.curso || 'Ensino Geral'}</td>
                         <td className="p-1 border-r border-black font-bold">{item.matriculadosTotal}</td>
                         <td className="p-1 border-r border-black text-slate-600">{item.matriculadosM}</td>
@@ -1310,7 +1822,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     dadosAssiduidade.map((item, idx) => (
                       <tr key={item.turma.id} className="hover:bg-slate-50">
                         <td className="p-2 border-r border-black">{idx + 1}</td>
-                        <td className="p-2 border-r border-black text-left font-sans font-bold uppercase">{item.turma.nome}</td>
+                        <td className="p-2 border-r border-black text-left font-sans font-bold uppercase">
+                          {isVisaoRedeTodas && (
+                            <span className="mr-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 text-[9px] font-black">{item.escolaSigla}</span>
+                          )}
+                          {item.turma.nome}
+                        </td>
                         <td className="p-2 border-r border-black text-left font-sans">{item.turma.classe}</td>
                         <td className="p-2 border-r border-black font-bold">{item.totalAlunos}</td>
                         <td className="p-2 border-r border-black font-bold text-slate-700">{item.totalFaltasTurma}</td>
@@ -1384,10 +1901,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 1. Introdução e Enquadramento Curricular
               </h3>
               <p className="text-justify">
-                O presente documento formaliza o Balanço do Rendimento Escolar do <strong>{filtroTrimestre === 'anual' ? 'Consolidado Anual' : `${filtroTrimestre}º Trimestre`}</strong> referente ao <strong>Ano Lectivo {filtroAno}</strong>, na instituição <strong>{escola.nomeOficial || escola.nome}</strong>. {isProfessor ? (
+                O presente documento formaliza o Balanço do Rendimento Escolar do <strong>{filtroTrimestre === 'anual' ? 'Consolidado Anual' : `${filtroTrimestre}º Trimestre`}</strong> referente ao <strong>{filtroAno && filtroAno !== 'TODOS' ? `Ano Lectivo ${filtroAno}` : 'Consolidado Multi-Anual'}</strong>, {isVisaoRedeTodas ? <>na <strong>Rede Nacional ({escolas.length} Escolas Cadastradas)</strong></> : <>na instituição <strong>{escolaExibida.nomeOficial || escolaExibida.nome}</strong></>}. {isProfessor ? (
                   `Este relatório expressa o aproveitamento pedagógico individual nas turmas lecionadas pelo(a) Prof(a). ${currentUser?.nomeCompleto || 'Docente'}.`
                 ) : (
-                  `A instituição operou com um corpo discente de ${totaisGeraisMapa.matriculados} estudantes sob regime pedagógico oficial MED.`
+                  `A rede/instituição operou com um corpo discente de ${totaisGeraisMapa.matriculados} estudantes sob regime pedagógico oficial MED.`
                 )}
               </p>
             </div>
@@ -1456,7 +1973,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </p>
             <div className="w-56 h-12 mx-auto border-b border-black mt-6"></div>
             <p className="text-[11px] font-semibold text-slate-700 mt-1">
-              {escola.diretorGeralNome || 'Homologação e Carimbo Oficial'}
+              {isVisaoRedeTodas ? 'Administrador Geral / Supervisão Central MED' : (escolaExibida.diretorGeralNome || 'Homologação e Carimbo Oficial')}
             </p>
           </div>
         </div>
@@ -1464,16 +1981,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         {/* RODAPÉ DO DOCUMENTO COM QR DE AUTENTICAÇÃO */}
         <div className="mt-8 pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] text-slate-500 font-mono">
           <div className="text-center sm:text-left">
-            <p>Documento gerado pelo Sistema Integrado de Gestão Escolar (SGE Angola) em {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO')}</p>
-            <p className="font-bold text-slate-700 mt-0.5">{escola.nomeOficial || escola.nome}</p>
+            <p>Documento Oficial emitido em {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO')}</p>
+            <p className="font-bold text-slate-700 mt-0.5">
+              {isVisaoRedeTodas ? `Administração Central • Rede de ${escolas.length} Escolas` : (escolaExibida.nomeOficial || escolaExibida.nome)}
+            </p>
           </div>
           <OfficialQrCode
             value={gerarPayloadQrDocumento({
               docType: 'RELATORIO_OFICIAL',
-              escolaId: escola.id,
-              docRef: `${subAbaAtiva}-${filtroAno}-${filtroTrimestre}`,
+              escolaId: isVisaoRedeTodas ? 'REDE_NACIONAL' : escolaExibida.id,
+              docRef: `${subAbaAtiva}-${filtroAno || 'TODOS'}-${filtroTrimestre}`,
               turmaId: filtroTurmaId !== 'TODAS' ? filtroTurmaId : undefined,
-              anoLectivo: filtroAno
+              anoLectivo: filtroAno || 'TODOS'
             })}
             size={54}
             label="Validar Relatório"

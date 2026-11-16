@@ -310,7 +310,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
     const novoTermo: TermoExame = {
       id: editandoId || `termo_${Date.now()}`,
       escolaId: escola.id,
-      anoLectivo: escola.anoLectivoActivo || '2025/2026',
+      anoLectivo: escola.anoLectivoActivo || '',
       epoca: formEpoca,
       classe: turmaSelecionada?.classe || '9ª',
       turmaId: formTurmaId,
