@@ -121,6 +121,16 @@ const FIXED_PDF_LAYOUT_CSS = `
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+  [data-passes-page="true"] {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+  [data-passes-page="true"]:last-child {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
 `;
 
 const MODERN_COLOR_FN_RE = /(?:oklch|oklab|lab|lch|color-mix|color)\([^)]*(?:\([^)]*\)[^)]*)*\)/gi;
@@ -335,6 +345,131 @@ export async function downloadElementAsPdf(
       ? Math.max(320, Math.round(originalWidthPx || 360))
       : Math.max(baseTargetWidthPx, Math.round(originalScrollWidth || baseTargetWidthPx));
 
+    const pdf = new jsPDF({
+      orientation,
+      unit: 'mm',
+      format,
+      compress: true
+    });
+
+    const passesPages = Array.from(element.querySelectorAll('[data-passes-page="true"]')) as HTMLElement[];
+    if (passesPages.length > 0) {
+      for (let idx = 0; idx < passesPages.length; idx++) {
+        const pageNode = passesPages[idx];
+        if (idx > 0) {
+          pdf.addPage(format, orientation);
+        }
+        const hadPageMarker = pageNode.hasAttribute('data-sge-pdf-target');
+        pageNode.setAttribute('data-sge-pdf-target', 'true');
+        try {
+          const pageCanvas = await html2canvas(pageNode, {
+            scale,
+            useCORS: true,
+            allowTaint: false,
+            backgroundColor: '#ffffff',
+            logging: false,
+            imageTimeout: 15000,
+            windowWidth: Math.max(captureWidthPx + 80, isLandscape ? 1280 : 1024),
+            onclone: (clonedDoc) => {
+              try {
+                let compiledCss = '';
+                Array.from(document.styleSheets).forEach((sheet) => {
+                  try {
+                    const rules = sheet.cssRules || sheet.rules;
+                    if (rules) {
+                      for (let i = 0; i < rules.length; i++) {
+                        compiledCss += sanitizeCssForCanvas(rules[i].cssText) + '\n';
+                      }
+                    }
+                  } catch {}
+                });
+                clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+                  if (node.tagName === 'STYLE') {
+                    node.textContent = sanitizeCssForCanvas(node.textContent || '');
+                  } else {
+                    node.remove();
+                  }
+                });
+                if (compiledCss.trim().length > 0) {
+                  const fullStyle = clonedDoc.createElement('style');
+                  fullStyle.textContent = compiledCss;
+                  clonedDoc.head.appendChild(fullStyle);
+                }
+                const overrideStyle = clonedDoc.createElement('style');
+                overrideStyle.innerHTML = `
+                  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box !important; }
+                  body { background: #ffffff !important; color: #000000 !important; margin: 0 !important; padding: 0 !important; }
+                  .no-print, button, nav { display: none !important; }
+                  ${FIXED_PDF_LAYOUT_CSS}
+                `;
+                clonedDoc.head.appendChild(overrideStyle);
+                const clonedTarget = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
+                if (clonedTarget) {
+                  let anc: HTMLElement | null = clonedTarget;
+                  while (anc && anc !== clonedDoc.body && anc !== clonedDoc.documentElement) {
+                    anc.classList.remove('no-print');
+                    if (anc.style.display === 'none') anc.style.display = 'block';
+                    anc.style.visibility = 'visible';
+                    anc = anc.parentElement;
+                  }
+                  clonedTarget.style.width = `${captureWidthPx}px`;
+                  clonedTarget.style.minWidth = `${captureWidthPx}px`;
+                  clonedTarget.style.maxWidth = `${captureWidthPx}px`;
+                  clonedTarget.style.backgroundColor = '#ffffff';
+                }
+                clonedDoc.querySelectorAll('.passes-grid-container, .passes-sheet-grid').forEach((pg) => {
+                  const el = pg as HTMLElement;
+                  el.style.display = 'grid';
+                  el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
+                  el.style.gap = '10px';
+                  el.style.width = '100%';
+                });
+                const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
+                clonedDoc.querySelectorAll('*').forEach((node) => {
+                  const el = node as HTMLElement;
+                  if (!el.style) return;
+                  try {
+                    const comp = window.getComputedStyle(el);
+                    if (!comp) return;
+                    for (const prop of colorProps) {
+                      const val = (comp as any)[prop];
+                      if (val && /(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(val)) {
+                        (el.style as any)[prop] = normalizeColorForCanvas(val);
+                      }
+                    }
+                  } catch {}
+                });
+              } catch {}
+            }
+          });
+
+          const ratioW = printableWidthMm / pageCanvas.width;
+          const naturalH = pageCanvas.height * ratioW;
+          const fitScale = naturalH > printableHeightMm ? printableHeightMm / naturalH : 1;
+          const finalW = printableWidthMm * fitScale;
+          const finalH = naturalH * fitScale;
+          const offsetX = margins.left + Math.max(0, (printableWidthMm - finalW) / 2);
+
+          pdf.addImage(
+            pageCanvas.toDataURL('image/png'),
+            'PNG',
+            offsetX,
+            margins.top,
+            finalW,
+            finalH,
+            undefined,
+            'FAST'
+          );
+        } finally {
+          if (!hadPageMarker) {
+            pageNode.removeAttribute('data-sge-pdf-target');
+          }
+        }
+      }
+      pdf.save(`${cleanFilename}.pdf`);
+      return true;
+    }
+
     const canvas = await html2canvas(element, {
       scale,
       useCORS: true,
@@ -512,13 +647,6 @@ export async function downloadElementAsPdf(
           console.warn('[PDF Generator] Aviso no ajuste do clone:', cloneErr);
         }
       }
-    });
-
-    const pdf = new jsPDF({
-      orientation,
-      unit: 'mm',
-      format,
-      compress: true
     });
 
     const canvasTotalHeight = canvas.height;

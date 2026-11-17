@@ -26,9 +26,10 @@ import {
   Upload
 } from 'lucide-react';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { OfficialQrCode, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
+import { obterNomeDiretorGeral, obterTituloDiretorGeral } from '../utils/directorHelper';
 import {
   getTurmasPorClasse,
   normalizarClasse,
@@ -156,6 +157,75 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     });
   }, [alunos, selectedTurmaId, selectedTurnoFilter, selectedClasseFilter, searchTerm, turmas]);
 
+  // Funcionários, Título e Nome Completo do Director Geral (como em todos os documentos oficiais)
+  const funcionariosEscola = useMemo(() => dbService.getFuncionarios(escola.id), [escola.id]);
+  const nomeDiretorCompleto = useMemo(
+    () => obterNomeDiretorGeral(escola, funcionariosEscola),
+    [escola, funcionariosEscola]
+  );
+  const tituloDiretorOficial = useMemo(
+    () => obterTituloDiretorGeral(escola, funcionariosEscola),
+    [escola, funcionariosEscola]
+  );
+
+  // Numeração sequencial única por turma (nunca repete Nº 1 para todos os alunos)
+  const mapaNumeroSequencial = useMemo(() => {
+    const mapa = new Map<string, number>();
+    const porTurma = new Map<string, Aluno[]>();
+    alunos.forEach(a => {
+      const chave = a.turmaId || '__sem_turma__';
+      const arr = porTurma.get(chave) || [];
+      arr.push(a);
+      porTurma.set(chave, arr);
+    });
+    porTurma.forEach(lista => {
+      const ordenada = [...lista].sort((a, b) => {
+        const ordDiff = (Number(a.numeroOrdem) || 0) - (Number(b.numeroOrdem) || 0);
+        if (ordDiff !== 0) return ordDiff;
+        return (a.nomeCompleto || '').localeCompare(b.nomeCompleto || '', 'pt-AO');
+      });
+      const ordens = ordenada.map(a => Number(a.numeroOrdem) || 0);
+      const todosValidosEUnicos =
+        ordens.every(n => n > 0) && new Set(ordens).size === ordens.length;
+      ordenada.forEach((a, idx) => {
+        mapa.set(a.id, todosValidosEUnicos ? (Number(a.numeroOrdem) || idx + 1) : idx + 1);
+      });
+    });
+    return mapa;
+  }, [alunos]);
+
+  // Agrupar passes em folhas A4 de 8 passes cada (2 colunas × 4 linhas)
+  const paginasPasses = useMemo(() => {
+    const paginas: Aluno[][] = [];
+    for (let i = 0; i < alunosFiltrados.length; i += 8) {
+      paginas.push(alunosFiltrados.slice(i, i + 8));
+    }
+    return paginas;
+  }, [alunosFiltrados]);
+
+  const formatarDocumentoIdentificacao = (al: Aluno): { rotulo: string; numero: string } => {
+    const tipo = al.tipoDocumento || 'BI';
+    const numeroLimpo = (
+      al.numeroDocumento ||
+      (al.numeroBI && al.numeroBI !== '000000000LA000' ? al.numeroBI : '') ||
+      ''
+    ).trim();
+    const rotulo =
+      tipo === 'Cédula'
+        ? 'Cédula Nº:'
+        : tipo === 'Passaporte'
+        ? 'Passaporte Nº:'
+        : tipo === 'Cartão de Residente'
+        ? 'Cartão Resid. Nº:'
+        : tipo === 'Outro'
+        ? 'Doc. Ident. Nº:'
+        : 'B.I. Nº:';
+    return {
+      rotulo,
+      numero: numeroLimpo || 'Não Registado'
+    };
+  };
+
   // Aluno de exemplo para pré-visualização em tempo real (utiliza o primeiro aluno real ou campos de modelo)
   const alunoExemplo: Aluno = alunosFiltrados[0] || {
     id: 'placeholder-preview',
@@ -280,7 +350,11 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       await downloadElementAsPdf(
         'passes-print-grid',
         `Passes_Escolares_${escola.sigla || 'MED'}_8porA4.pdf`,
-        { orientation: 'landscape', format: 'a4', marginMm: 6 }
+        {
+          orientation: 'portrait',
+          format: 'a4',
+          margins: { top: 8, right: 8, bottom: 14, left: 8 }
+        }
       );
     } catch (e) {
       console.error('Erro ao exportar passes PDF:', e);
@@ -290,7 +364,16 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    const el = document.getElementById('passes-print-grid');
+    if (el) {
+      imprimirElementoDiretamente(el, `Passes Escolares - ${escola.nomeOficial}`, {
+        format: 'a4',
+        orientation: 'portrait',
+        margins: { top: 8, right: 8, bottom: 14, left: 8 }
+      });
+    } else {
+      window.print();
+    }
   };
 
   // Helper para verificar se elemento está ativo
@@ -516,7 +599,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* GRADE DE 8 PASSES POR FOLHA A4 (LAYOUT EXATO DE IMPRESSÃO)               */}
+      {/* GRADE DE 8 PASSES POR FOLHA A4 (2 COLUNAS × 4 LINHAS COM MARGEM INFERIOR) */}
       {/* ========================================================================= */}
       <div className="space-y-4">
         {alunosFiltrados.length === 0 ? (
@@ -524,217 +607,235 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
             Nenhum aluno encontrado para os critérios selecionados.
           </div>
         ) : (
-          <div id="passes-print-grid" className="passes-sheet-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 print:grid-cols-2 print:gap-2">
-            {alunosFiltrados.map((aluno) => {
-              const turma = turmas.find(t => t.id === aluno.turmaId) || turmaExemplo;
-              const anoLectivoNome = escola.anoLectivoActivo || '—';
-              const numProcesso = aluno.numeroProcesso || aluno.codigoMatricula || '—';
-
-              return (
-                <div 
-                  key={aluno.id}
-                  className="bg-white border-2 rounded-xl overflow-hidden shadow-xs hover:shadow-md transition-shadow relative flex flex-col justify-between print:shadow-none print:break-inside-avoid print:border-black h-[225px] select-none text-black"
-                  style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
-                >
-                  {/* FRENTE DO PASSE */}
-                  {(visualizacao === 'frente' || visualizacao === 'ambos') && (
-                    <div className="p-2.5 bg-white relative flex flex-col justify-between h-full">
-                      {/* Topo Oficial com Brasão e Título */}
-                      <div className="border-b pb-1 flex items-center justify-between" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
-                        {isAtivo('insignia') && (
-                          <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                            {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                              <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-6 w-6 object-contain" />
-                            ) : (
-                              <InsigniaAngola size={20} />
-                            )}
-                          </div>
-                        )}
-
-                        <div className="flex-1 text-center min-w-0 px-1">
-                          <p className="text-[6.5px] font-black uppercase text-gray-600 tracking-wider">
-                            República de Angola • MED
-                          </p>
-                          <h4 
-                            className="text-[8px] font-black uppercase truncate leading-tight"
-                            style={{ color: passConfig.corPrimaria || '#1e3a8a' }}
-                          >
-                            {escola.nomeOficial}
-                          </h4>
-                          <span className="text-[6px] font-bold text-gray-500 block truncate">
-                            {escola.governoProvincial || 'Governo Provincial'} • {escola.municipio || 'Angola'}
-                          </span>
-                        </div>
-
-                        {isAtivo('logotipo') && (
-                          <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                            {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) ? (
-                              <img src={escola.logotipoUrl || escola.logotipo} alt="Logo" className="h-6 w-6 object-contain rounded" />
-                            ) : (
-                              <Award className="h-5 w-5" style={{ color: passConfig.corPrimaria }} />
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Tarja Oficial com Cor Escolhida pela Escola */}
-                      <div 
-                        className="text-white text-center py-0.5 my-1 rounded-xs shadow-2xs"
-                        style={{ 
-                          backgroundColor: passConfig.corPrimaria || '#1e3a8a',
-                          color: passConfig.corTexto || '#ffffff'
-                        }}
-                      >
-                        <span className="text-[7.5px] font-black uppercase tracking-widest block">
-                          Cartão de Estudante • {anoLectivoNome}
-                        </span>
-                      </div>
-
-                      {/* Corpo do Cartão: Foto & Dados */}
-                      <div className={`flex items-start gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
-                        {/* Foto do Aluno em formato 3x4 ampliado */}
-                        {isAtivo('foto') && (
-                          <div className="shrink-0 flex flex-col items-center">
-                            {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
-                              <img 
-                                src={aluno.fotoUrl} 
-                                alt={aluno.nomeCompleto} 
-                                className="h-24 w-20 rounded-md object-cover border-2 border-slate-700 shadow-2xs print:border-black"
-                              />
-                            ) : (
-                              <div className="h-24 w-20 rounded-md border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs print:border-black">
-                                <User className="h-8 w-8 text-gray-300 mb-0.5" />
-                                <span>FOTO 3x4</span>
-                              </div>
-                            )}
-                            <span className="text-[6.5px] font-bold text-gray-500 mt-0.5 font-mono">
-                              Nº {aluno.numeroOrdem || 1}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Dados Académicos e Pessoais do Aluno */}
-                        <div className="flex-1 min-w-0 text-[8px] leading-tight space-y-0.5">
-                          {isAtivo('nome') && (
-                            <div className="font-black uppercase truncate text-gray-900 text-[8.5px]">
-                              {aluno.nomeCompleto}
-                            </div>
-                          )}
-
-                          {isAtivo('numeroProcesso') && (
-                            <div className="text-gray-700 font-mono">
-                              Proc. Nº: <strong className="text-gray-950">{numProcesso}</strong>
-                            </div>
-                          )}
-
-                          {isAtivo('numeroBI') && (
-                            <div className="text-gray-700 font-mono">
-                              B.I. Nº: <strong className="text-gray-950">{aluno.numeroBI || '000000000LA000'}</strong>
-                            </div>
-                          )}
-
-                          {isAtivo('classeTurma') && (
-                            <div className="text-gray-700">
-                              Classe/Turma: <strong>{aluno.classeId || turma?.classe} • {turma?.nome}</strong>
-                            </div>
-                          )}
-
-                          {isAtivo('turno') && (
-                            <div className="text-gray-700 truncate">
-                              Turno: <strong>{turma?.turno || 'Manhã'}</strong> • Sala: {turma?.sala || '01'}
-                            </div>
-                          )}
-
-                          {(() => {
-                            const clNorm = normalizarClasse(aluno.classeId || turma?.classe || '');
-                            const ehPrimarioOuICiclo = isEnsinoPrimario(clNorm) || isPrimeiroCiclo(clNorm);
-                            if (ehPrimarioOuICiclo) return null;
-                            return isAtivo('curso') && (aluno.curso || turma?.curso) ? (
-                              <div className="text-gray-600 truncate text-[7.5px]">
-                                Curso: <strong>{aluno.curso || turma?.curso}</strong>
-                              </div>
-                            ) : null;
-                          })()}
-
-                          {isAtivo('encarregado') && aluno.encarregadoNome && (
-                            <div className="text-gray-600 truncate text-[7px]">
-                              Enc.: {aluno.encarregadoNome}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* QR Code de Validação Digital Oficial */}
-                        {isAtivo('qrCode') && (
-                          <div className="shrink-0 flex flex-col items-center">
-                            <OfficialQrCode
-                              value={gerarPayloadQrEstudante(aluno, escola, turma)}
-                              size={42}
-                              className="border-gray-300"
-                            />
-                            <span className="text-[6px] font-bold text-gray-500 mt-0.5">QR Passe MED</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Rodapé Oficial: Validade, Código e Assinatura */}
-                      <div className="pt-1 border-t border-gray-200 flex items-center justify-between text-[7px] text-gray-600">
-                        {isAtivo('validade') && (
-                          <div>
-                            <span>Val: <strong>{dataValidade}</strong></span>
-                          </div>
-                        )}
-
-                        {isAtivo('assinaturaDiretor') && (
-                          <div className="flex flex-col items-center justify-end text-center min-w-[55px]">
-                            {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
-                              <img
-                                src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
-                                alt="Assinatura"
-                                className="h-5 w-auto max-w-[55px] object-contain mb-0.5"
-                              />
-                            ) : (
-                              <div className="border-b border-gray-600 w-12 mb-0.5"></div>
-                            )}
-                            <span className="font-serif italic text-gray-800 text-[6.5px]">
-                              {escola.diretorGeralNome ? `Dr. ${escola.diretorGeralNome.split(' ')[0]}` : 'A Direcção'}
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="font-mono text-[6.5px] text-gray-500 font-bold uppercase">
-                          MED ANGOLA
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* VERSO DO PASSE (REGRAS E AVISOS) */}
-                  {visualizacao === 'verso' && (
-                    <div className="p-3 bg-gray-50 relative flex flex-col justify-between h-full text-[7.5px] leading-tight text-gray-700">
-                      <div>
-                        <div className="text-center font-black uppercase text-[8px] border-b pb-1 text-gray-900">
-                          Regulamento de Uso do Cartão
-                        </div>
-                        <ul className="list-disc pl-3 pt-1.5 space-y-1">
-                          {passConfig.regrasVerso.map((r, idx) => (
-                            <li key={idx}>{r}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-[7px]">
-                        <div>
-                          <span>Emissão: <strong>{dataEmissao}</strong></span>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-bold">Direcção Municipal de Educação</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+          <div id="passes-print-grid" data-passes-grid="true" className="space-y-6 print:space-y-0">
+            {paginasPasses.map((grupoPagina, pageIndex) => (
+              <div
+                key={`passes-page-${pageIndex}`}
+                data-passes-page="true"
+                className="passes-sheet-page bg-white/60 print:bg-white pb-5 mb-4 print:pb-4 print:mb-0"
+              >
+                <div className="flex items-center justify-between text-[11px] text-gray-500 font-semibold mb-2 px-1 no-print">
+                  <span>
+                    Folha {pageIndex + 1} de {paginasPasses.length} (A4 • 8 passes por página)
+                  </span>
+                  <span>
+                    Passes {pageIndex * 8 + 1} a {pageIndex * 8 + grupoPagina.length}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="passes-sheet-grid grid grid-cols-1 md:grid-cols-2 gap-3 print:grid-cols-2 print:gap-2.5">
+                  {grupoPagina.map((aluno, idxInPage) => {
+                    const turma = turmas.find(t => t.id === aluno.turmaId) || turmaExemplo;
+                    const anoLectivoNome = aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || escola.anoLectivoActivo || '—';
+                    const numProcesso = aluno.numeroProcesso || aluno.codigoMatricula || '—';
+                    const classeExibida = turma?.classe || aluno.classeId || '—';
+                    const numeroSequencial = mapaNumeroSequencial.get(aluno.id) ?? (pageIndex * 8 + idxInPage + 1);
+                    const docInfo = formatarDocumentoIdentificacao(aluno);
+                    const clNorm = normalizarClasse(classeExibida);
+                    const ehSegundoCicloPass = isSegundoCiclo(clNorm);
+
+                    return (
+                      <div
+                        key={aluno.id}
+                        className="bg-white border-2 rounded-xl overflow-hidden shadow-xs hover:shadow-md transition-shadow relative flex flex-col justify-between print:shadow-none print:break-inside-avoid print:border-black h-[260px] min-h-[260px] select-none text-black"
+                        style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
+                      >
+                        {/* FRENTE DO PASSE */}
+                        {(visualizacao === 'frente' || visualizacao === 'ambos') && (
+                          <div className="p-2.5 bg-white relative flex flex-col justify-between h-full">
+                            {/* Topo Oficial: Província e Município PRIMEIRO, Nome da Escola DEPOIS */}
+                            <div className="border-b pb-1 flex items-center justify-between gap-1.5" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
+                              {isAtivo('insignia') && (
+                                <div className="h-7 w-7 flex items-center justify-center shrink-0">
+                                  {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                                    <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-7 w-7 object-contain" />
+                                  ) : (
+                                    <InsigniaAngola size={24} />
+                                  )}
+                                </div>
+                              )}
+
+                              <div className="flex-1 text-center min-w-0 px-1">
+                                <p className="text-[7px] font-black uppercase text-gray-700 tracking-wider leading-tight">
+                                  República de Angola • MED
+                                </p>
+                                <p className="text-[7px] font-bold uppercase text-gray-600 truncate leading-tight">
+                                  Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
+                                </p>
+                                <h4
+                                  className="text-[8.5px] font-black uppercase truncate leading-tight mt-0.5"
+                                  style={{ color: passConfig.corPrimaria || '#1e3a8a' }}
+                                >
+                                  {escola.nomeOficial}
+                                </h4>
+                              </div>
+
+                              {isAtivo('logotipo') && (
+                                <div className="h-7 w-7 flex items-center justify-center shrink-0">
+                                  {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) ? (
+                                    <img src={escola.logotipoUrl || escola.logotipo} alt="Logo" className="h-7 w-7 object-contain rounded" />
+                                  ) : (
+                                    <Award className="h-5 w-5" style={{ color: passConfig.corPrimaria }} />
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Tarja Oficial */}
+                            <div
+                              className="text-white text-center py-0.5 my-1 rounded-xs shadow-2xs"
+                              style={{
+                                backgroundColor: passConfig.corPrimaria || '#1e3a8a',
+                                color: passConfig.corTexto || '#ffffff'
+                              }}
+                            >
+                              <span className="text-[7.5px] font-black uppercase tracking-widest block">
+                                Cartão de Estudante • {anoLectivoNome}
+                              </span>
+                            </div>
+
+                            {/* Corpo do Cartão: Foto Ampliada (sem Nº 1 por baixo) & Dados Completos + QR Code limpo */}
+                            <div className={`flex items-center gap-2.5 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
+                              {isAtivo('foto') && (
+                                <div className="shrink-0 flex flex-col items-center">
+                                  {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
+                                    <img
+                                      src={aluno.fotoUrl}
+                                      alt={aluno.nomeCompleto}
+                                      className="h-[112px] w-[88px] rounded-md object-cover border-2 border-slate-700 shadow-2xs print:border-black"
+                                    />
+                                  ) : (
+                                    <div className="h-[112px] w-[88px] rounded-md border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[8px] text-gray-400 font-bold shadow-2xs print:border-black">
+                                      <User className="h-9 w-9 text-gray-300 mb-0.5" />
+                                      <span>FOTO 3x4</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Dados Académicos e Pessoais do Aluno */}
+                              <div className="flex-1 min-w-0 text-[8.5px] leading-snug space-y-0.5">
+                                {isAtivo('nome') && (
+                                  <div className="font-black uppercase truncate text-gray-950 text-[9.5px]">
+                                    {aluno.nomeCompleto}
+                                  </div>
+                                )}
+
+                                {isAtivo('classeTurma') && (
+                                  <>
+                                    <div className="text-gray-800">
+                                      Classe: <strong className="text-gray-950">{classeExibida}</strong> • <strong className="font-mono text-gray-950">Nº {numeroSequencial}</strong>
+                                    </div>
+                                    <div className="text-gray-800 truncate">
+                                      Turma: <strong className="text-gray-950">{turma?.nome || '—'}</strong>
+                                      {isAtivo('turno') && (
+                                        <> • Turno: <strong className="text-gray-950">{turma?.turno || 'Manhã'}</strong></>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+
+                                {ehSegundoCicloPass && isAtivo('curso') && (
+                                  <div className="text-gray-700 truncate text-[8px]">
+                                    Curso: <strong className="text-gray-950">{aluno.curso || turma?.curso || 'Geral'}</strong>
+                                  </div>
+                                )}
+
+                                {isAtivo('numeroBI') && (
+                                  <div className="text-gray-800 font-mono truncate">
+                                    {docInfo.rotulo} <strong className="text-gray-950">{docInfo.numero}</strong>
+                                  </div>
+                                )}
+
+                                {isAtivo('numeroProcesso') && (
+                                  <div className="text-gray-700 font-mono truncate text-[8px]">
+                                    Proc. Nº: <strong className="text-gray-950">{numProcesso}</strong>
+                                  </div>
+                                )}
+
+                                {isAtivo('encarregado') && aluno.encarregadoNome && (
+                                  <div className="text-gray-600 truncate text-[7.5px]">
+                                    Enc.: {aluno.encarregadoNome}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Apenas QR Code (sem texto/palavra ao lado ou por baixo) */}
+                              {isAtivo('qrCode') && (
+                                <div className="shrink-0 flex items-center justify-center">
+                                  <OfficialQrCode
+                                    value={gerarPayloadQrEstudante(aluno, escola, turma)}
+                                    size={46}
+                                    className="border-gray-300"
+                                  />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Rodapé Oficial: Validade, Título e Nome Completo do Director da Escola */}
+                            <div className="pt-1 border-t border-gray-200 flex items-end justify-between gap-2 text-[7.5px] text-gray-700">
+                              {isAtivo('validade') && (
+                                <div className="shrink-0">
+                                  <span>Val: <strong className="text-gray-950">{dataValidade || '—'}</strong></span>
+                                </div>
+                              )}
+
+                              {isAtivo('assinaturaDiretor') && (
+                                <div className="flex-1 flex flex-col items-center justify-end text-center min-w-0">
+                                  <span className="text-[6.5px] font-bold uppercase text-gray-800 leading-none mb-0.5 truncate max-w-full">
+                                    {tituloDiretorOficial}
+                                  </span>
+                                  {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
+                                    <img
+                                      src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
+                                      alt="Assinatura do Director"
+                                      className="h-4 w-auto max-w-[75px] object-contain my-0.5"
+                                    />
+                                  ) : (
+                                    <div className="border-b border-gray-500 w-24 my-1"></div>
+                                  )}
+                                  <span className="font-bold text-gray-950 text-[7px] leading-tight truncate max-w-full">
+                                    {nomeDiretorCompleto}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="font-mono text-[6.5px] text-gray-500 font-bold uppercase shrink-0">
+                                MED ANGOLA
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* VERSO DO PASSE (REGRAS E AVISOS) */}
+                        {visualizacao === 'verso' && (
+                          <div className="p-3 bg-gray-50 relative flex flex-col justify-between h-full text-[8px] leading-tight text-gray-700">
+                            <div>
+                              <div className="text-center font-black uppercase text-[8.5px] border-b pb-1 text-gray-900">
+                                Regulamento de Uso do Cartão
+                              </div>
+                              <ul className="list-disc pl-3 pt-2 space-y-1.5">
+                                {passConfig.regrasVerso.map((r, idx) => (
+                                  <li key={idx}>{r}</li>
+                                ))}
+                              </ul>
+                            </div>
+
+                            <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-[7.5px]">
+                              <div>
+                                <span>Emissão: <strong>{dataEmissao}</strong></span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold">Direcção Municipal de Educação</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -931,30 +1032,33 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                   {/* Cartão Preview FRENTE */}
                   <div 
-                    className="w-[320px] h-[210px] bg-white border-2 rounded-xl p-2.5 shadow-md flex flex-col justify-between select-none"
+                    className="w-[340px] h-[245px] bg-white border-2 rounded-xl p-2.5 shadow-md flex flex-col justify-between select-none"
                     style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
                   >
-                    {/* Topo Oficial */}
+                    {/* Topo Oficial: Província e Município antes do Nome da Escola */}
                     <div className="border-b pb-1 flex items-center justify-between" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
                       {isAtivo('insignia') && (
-                        <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                        <div className="h-6 w-6 flex items-center justify-center shrink-0">
                           {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                            <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-5 w-5 object-contain" />
+                            <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-6 w-6 object-contain" />
                           ) : (
-                            <InsigniaAngola size={18} />
+                            <InsigniaAngola size={20} />
                           )}
                         </div>
                       )}
 
                       <div className="flex-1 text-center min-w-0 px-1">
-                        <p className="text-[6.5px] font-black uppercase text-gray-600 tracking-wider">República de Angola • MED</p>
-                        <h4 className="text-[8px] font-black uppercase truncate" style={{ color: passConfig.corPrimaria }}>
+                        <p className="text-[6.5px] font-black uppercase text-gray-600 tracking-wider leading-tight">República de Angola • MED</p>
+                        <p className="text-[6.5px] font-bold uppercase text-gray-500 truncate leading-tight">
+                          Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
+                        </p>
+                        <h4 className="text-[8px] font-black uppercase truncate leading-tight" style={{ color: passConfig.corPrimaria }}>
                           {escola.nomeOficial}
                         </h4>
                       </div>
 
                       {isAtivo('logotipo') && (
-                        <div className="h-5 w-5 flex items-center justify-center shrink-0">
+                        <div className="h-6 w-6 flex items-center justify-center shrink-0">
                           <Award className="h-4 w-4" style={{ color: passConfig.corPrimaria }} />
                         </div>
                       )}
@@ -971,17 +1075,17 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                     </div>
 
                     {/* Corpo */}
-                    <div className={`flex items-start gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
+                    <div className={`flex items-center gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
                       {isAtivo('foto') && (
                         alunoExemplo.fotoUrl && alunoExemplo.fotoUrl.trim() !== '' ? (
                           <img 
                             src={alunoExemplo.fotoUrl} 
                             alt="Foto" 
-                            className="h-20 w-16 rounded object-cover border-2 border-slate-700 shadow-2xs"
+                            className="h-24 w-20 rounded object-cover border-2 border-slate-700 shadow-2xs shrink-0"
                           />
                         ) : (
-                          <div className="h-20 w-16 rounded border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs">
-                            <User className="h-6 w-6 text-gray-300 mb-0.5" />
+                          <div className="h-24 w-20 rounded border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs shrink-0">
+                            <User className="h-7 w-7 text-gray-300 mb-0.5" />
                             <span>FOTO 3x4</span>
                           </div>
                         )
@@ -989,38 +1093,55 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                       <div className="flex-1 min-w-0 text-[8px] leading-tight space-y-0.5">
                         {isAtivo('nome') && <div className="font-black uppercase truncate text-gray-900">{alunoExemplo.nomeCompleto}</div>}
-                        {isAtivo('numeroProcesso') && <div className="text-gray-700 font-mono">Proc: <strong>{alunoExemplo.numeroProcesso}</strong></div>}
-                        {isAtivo('numeroBI') && <div className="text-gray-700 font-mono">BI: <strong>{alunoExemplo.numeroBI}</strong></div>}
-                        {isAtivo('classeTurma') && <div className="text-gray-700">Classe/Turma: <strong>10ª • Turma A</strong></div>}
-                        {isAtivo('turno') && <div className="text-gray-700">Turno: <strong>Manhã</strong> • Sala: 01</div>}
+                        {isAtivo('classeTurma') && (
+                          <>
+                            <div className="text-gray-700">
+                              Classe: <strong>{turmaExemplo?.classe || alunoExemplo.classeId || '10ª'}</strong> • <strong className="font-mono">Nº {mapaNumeroSequencial.get(alunoExemplo.id) || 1}</strong>
+                            </div>
+                            <div className="text-gray-700 truncate">
+                              Turma: <strong>{turmaExemplo?.nome || 'Turma A'}</strong>
+                              {isAtivo('turno') && <> • Turno: <strong>{turmaExemplo?.turno || 'Manhã'}</strong></>}
+                            </div>
+                          </>
+                        )}
+                        {isSegundoCiclo(normalizarClasse(turmaExemplo?.classe || alunoExemplo.classeId || '')) && isAtivo('curso') && (
+                          <div className="text-gray-700 truncate">Curso: <strong>{alunoExemplo.curso || turmaExemplo?.curso || 'Geral'}</strong></div>
+                        )}
+                        {isAtivo('numeroBI') && (
+                          <div className="text-gray-700 font-mono truncate">
+                            {formatarDocumentoIdentificacao(alunoExemplo).rotulo} <strong>{formatarDocumentoIdentificacao(alunoExemplo).numero}</strong>
+                          </div>
+                        )}
+                        {isAtivo('numeroProcesso') && <div className="text-gray-700 font-mono truncate">Proc: <strong>{alunoExemplo.numeroProcesso}</strong></div>}
                         {isAtivo('encarregado') && <div className="text-gray-600 truncate text-[7px]">Enc: {alunoExemplo.encarregadoNome}</div>}
                       </div>
 
                       {isAtivo('qrCode') && (
-                        <div className="shrink-0 flex flex-col items-center">
+                        <div className="shrink-0 flex items-center justify-center">
                           <OfficialQrCode
                             value={gerarPayloadQrEstudante(alunoExemplo, escola, turmaExemplo)}
-                            size={34}
+                            size={38}
                           />
-                          <span className="text-[5.5px] font-bold text-gray-500">Validação</span>
                         </div>
                       )}
                     </div>
 
                     {/* Rodapé */}
-                    <div className="pt-1 border-t border-gray-200 flex items-center justify-between text-[7px] text-gray-600">
-                      {isAtivo('validade') && <span>Val: <strong>{dataValidade}</strong></span>}
+                    <div className="pt-1 border-t border-gray-200 flex items-end justify-between gap-2 text-[7px] text-gray-600">
+                      {isAtivo('validade') && <span>Val: <strong>{dataValidade || '—'}</strong></span>}
                       {isAtivo('assinaturaDiretor') && (
-                        <div className="flex flex-col items-center">
+                        <div className="flex-1 flex flex-col items-center min-w-0">
+                          <span className="text-[6px] font-bold uppercase text-gray-700 truncate max-w-full">{tituloDiretorOficial}</span>
                           {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
                             <img
                               src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
                               alt="Assinatura"
-                              className="h-4 w-auto max-w-[50px] object-contain"
+                              className="h-4 w-auto max-w-[60px] object-contain"
                             />
                           ) : (
-                            <span className="font-serif italic text-gray-800">A Direcção</span>
+                            <div className="border-b border-gray-400 w-16 my-0.5" />
                           )}
+                          <span className="font-bold text-gray-900 text-[6.5px] truncate max-w-full">{nomeDiretorCompleto}</span>
                         </div>
                       )}
                       <span className="font-mono text-[6px] text-gray-500 font-bold uppercase">MED ANGOLA</span>

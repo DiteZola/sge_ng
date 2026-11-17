@@ -419,7 +419,7 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                     <LocationPicker
                       provinciaSelecionada={escolaProvincia}
                       onProvinciaChange={setEscolaProvincia}
-                      municipioSelecionado={escolaMunicipio || 'Luanda'}
+                      municipioSelecionado={escolaMunicipio}
                       onMunicipioChange={setEscolaMunicipio}
                     />
                   </div>

@@ -60,6 +60,7 @@ import { processarFotoUpload } from '../utils/imageCompressor';
 import { AngolaDateInput } from './AngolaDateInput';
 import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
+import { locationService } from '../services/locationService';
 import { InsigniaAngola } from '../constants/insignia';
 import { OfficialQrCode, gerarPayloadQrDocumento, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
 import { downloadElementAsPdf as downloadExactPdf } from '../utils/pdfGenerator';
@@ -438,7 +439,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [nomeCompleto, setNomeCompleto] = useState('');
   const [genero, setGenero] = useState<Genero>('M');
   const [numeroDocumento, setNumeroDocumento] = useState('');
-  const [tipoDocumento, setTipoDocumento] = useState<'BI' | 'Cédula' | 'Passaporte'>('BI');
+  const [tipoDocumento, setTipoDocumento] = useState<'BI' | 'Cédula' | 'Passaporte' | 'Cartão de Residente' | 'Outro'>('BI');
   const [dataEmissaoBI, setDataEmissaoBI] = useState('');
   const [dataValidadeBI, setDataValidadeBI] = useState('');
   const [arquivoIdentificacao, setArquivoIdentificacao] = useState('Arquivo de Identificação de Luanda');
@@ -880,18 +881,45 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     const escolaAtiva = dbService.getEscolaAtiva();
     const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || '';
+    const turmaIdFinal = turmaId || turmaSelecionada?.id || turmas[0]?.id || '';
+
+    // Persistir automaticamente novas províncias, municípios, países, nacionalidades ou naturalidades digitados
+    const ehPaisAngola = !paisOrigem.trim() || paisOrigem.trim().toLowerCase() === 'angola';
+    if (ehPaisAngola && provinciaOrigem.trim()) {
+      locationService.adicionarProvincia(provinciaOrigem.trim());
+    }
+    if (ehPaisAngola && municipioNascimento.trim()) {
+      locationService.adicionarMunicipio(municipioNascimento.trim(), provinciaOrigem.trim() || 'Luanda');
+    }
+    if (paisOrigem.trim()) {
+      locationService.adicionarPais(paisOrigem.trim());
+    }
+    if (nacionalidade.trim()) {
+      locationService.adicionarNacionalidade(nacionalidade.trim());
+    }
+    if (naturalidade.trim()) {
+      locationService.adicionarNaturalidade(naturalidade.trim());
+    }
+
+    // Calcular numeração sequencial única na turma (sem repetir Nº 1)
+    const alunosMesmaTurma = alunos.filter(a => a.turmaId === turmaIdFinal && a.id !== editingAluno?.id);
+    const maiorOrdem = alunosMesmaTurma.reduce((max, a) => Math.max(max, Number(a.numeroOrdem) || 0), 0);
+    const numeroOrdemCalculado =
+      editingAluno?.numeroOrdem && !alunosMesmaTurma.some(a => a.numeroOrdem === editingAluno.numeroOrdem)
+        ? editingAluno.numeroOrdem
+        : maiorOrdem + 1;
 
     const novoAluno: Aluno = {
       id: editingAluno ? editingAluno.id : `aluno-${Date.now()}`,
       escolaId: escolaIdFinal,
       codigoMatricula: codigoMatricula.trim() || editingAluno?.codigoMatricula || `${new Date().getFullYear()}/MED-${Math.floor(1000 + Math.random() * 9000)}`,
       numeroProcesso: numeroProcesso || editingAluno?.numeroProcesso || `PROC-${Math.floor(1000 + Math.random() * 9000)}`,
-      numeroOrdem: editingAluno?.numeroOrdem || 1,
+      numeroOrdem: numeroOrdemCalculado,
       nomeCompleto: nomeCompleto.trim(),
       genero,
-      numeroBI: numeroDocumento || '000000000LA000',
+      numeroBI: numeroDocumento.trim() || '',
       tipoDocumento,
-      numeroDocumento,
+      numeroDocumento: numeroDocumento.trim(),
       dataEmissaoBI,
       dataValidadeBI,
       arquivoIdentificacao,
@@ -902,7 +930,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       paisOrigem: paisOrigem || 'Angola',
       nacionalidade: nacionalidade || 'Angolana',
       telefone: telefoneEncarregado,
-      turmaId: turmaId || turmaSelecionada?.id || turmas[0]?.id || '',
+      turmaId: turmaIdFinal,
       classeId: classeFinal,
       curso: cursoFinal,
       nomePai,
@@ -3493,24 +3521,36 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       <option value="BI">Bilhete de Identidade (BI)</option>
                       <option value="Cédula">Cédula Pessoal</option>
                       <option value="Passaporte">Passaporte</option>
+                      <option value="Cartão de Residente">Cartão de Residente (Estrangeiro)</option>
+                      <option value="Outro">Outro Documento Oficial</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Número do Documento *</label>
+                    <label className="font-semibold text-gray-700 block mb-1">
+                      Número do {tipoDocumento === 'BI' ? 'BI' : tipoDocumento} *
+                    </label>
                     <input
                       type="text"
                       required
                       value={numeroDocumento}
                       onChange={(e) => setNumeroDocumento(e.target.value)}
-                      placeholder="Ex: 005819234ZE048"
+                      placeholder={
+                        tipoDocumento === 'Passaporte'
+                          ? 'Ex: P12345678'
+                          : tipoDocumento === 'Cédula'
+                          ? 'Ex: Cédula nº 4521/2020'
+                          : tipoDocumento === 'Cartão de Residente'
+                          ? 'Ex: CR-908213-AO'
+                          : 'Ex: 005819234LA048'
+                      }
                       className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none font-mono"
                     />
                   </div>
 
                   <div>
                     <AngolaDateInput
-                      label="Data de Emissão do BI"
+                      label={`Data de Emissão (${tipoDocumento})`}
                       value={dataEmissaoBI}
                       onChange={setDataEmissaoBI}
                       placeholder="DD/MM/AAAA"
@@ -3519,7 +3559,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
                   <div>
                     <AngolaDateInput
-                      label="Data de Validade do BI"
+                      label={`Data de Validade (${tipoDocumento})`}
                       value={dataValidadeBI}
                       onChange={setDataValidadeBI}
                       placeholder="DD/MM/AAAA"
@@ -3527,12 +3567,20 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Arquivo / Conservatória de Identificação</label>
+                    <label className="font-semibold text-gray-700 block mb-1">
+                      {(nacionalidade && nacionalidade !== 'Angolana') || (paisOrigem && paisOrigem !== 'Angola')
+                        ? 'Entidade / País Emissor do Documento'
+                        : 'Arquivo / Conservatória de Identificação'}
+                    </label>
                     <input
                       type="text"
                       value={arquivoIdentificacao}
                       onChange={(e) => setArquivoIdentificacao(e.target.value)}
-                      placeholder="Ex: Arquivo de Identificação de Luanda"
+                      placeholder={
+                        (nacionalidade && nacionalidade !== 'Angolana') || (paisOrigem && paisOrigem !== 'Angola')
+                          ? 'Ex: Embaixada / SME Angola / Serviços Migratórios'
+                          : 'Ex: Arquivo de Identificação de Luanda'
+                      }
                       className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none"
                     />
                   </div>
@@ -3559,17 +3607,36 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     <NacionalidadeInput
                       label="Nacionalidade"
                       value={nacionalidade}
-                      onChange={setNacionalidade}
+                      onChange={(val) => {
+                        setNacionalidade(val);
+                        if (val && val.trim().toLowerCase() !== 'angolana') {
+                          if (tipoDocumento === 'BI') {
+                            setTipoDocumento('Passaporte');
+                          }
+                          if (arquivoIdentificacao === 'Arquivo de Identificação de Luanda') {
+                            setArquivoIdentificacao('Serviço de Migração / Consulado');
+                          }
+                        } else if (val && val.trim().toLowerCase() === 'angolana') {
+                          setPaisOrigem('Angola');
+                        }
+                      }}
                     />
                   </div>
 
+                  {((nacionalidade && nacionalidade.trim().toLowerCase() !== 'angolana') ||
+                    (paisOrigem && paisOrigem.trim().toLowerCase() !== 'angola')) && (
+                    <div className="sm:col-span-3 p-2.5 bg-purple-50 border border-purple-200 rounded-lg text-[11px] text-purple-900 font-medium">
+                      <strong>Registo de Estudante Estrangeiro Ativo:</strong> Pode usar Passaporte, Cartão de Residente ou Cédula Consular sem restrição de formato nacional e indicar o país, província/estado e cidade de origem abaixo.
+                    </div>
+                  )}
+
                   <div className="sm:col-span-3">
                     <LocationPicker
-                      provinciaSelecionada={provinciaOrigem || 'Luanda'}
+                      provinciaSelecionada={provinciaOrigem}
                       onProvinciaChange={setProvinciaOrigem}
-                      municipioSelecionado={municipioNascimento || 'Luanda'}
+                      municipioSelecionado={municipioNascimento}
                       onMunicipioChange={setMunicipioNascimento}
-                      paisSelecionado={paisOrigem || 'Angola'}
+                      paisSelecionado={paisOrigem}
                       onPaisChange={setPaisOrigem}
                     />
                   </div>

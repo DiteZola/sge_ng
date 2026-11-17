@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MapPin, Globe, Compass, List, Edit3 } from 'lucide-react';
+import { MapPin, Globe, Compass, List, Edit3, Plus, Check } from 'lucide-react';
 import { locationService } from '../services/locationService';
 
 const CUSTOM_SENTINEL = '__OUTRO__';
@@ -29,10 +29,13 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
   const [municipios, setMunicipios] = useState<string[]>(() => locationService.getMunicipios(provinciaSelecionada));
   const [paises, setPaises] = useState<string[]>(() => locationService.getPaises());
 
+  const ehEstrangeiro = Boolean(paisSelecionado && paisSelecionado.trim().toLowerCase() !== 'angola');
+
   const [modoManualProvincia, setModoManualProvincia] = useState<boolean>(() =>
-    Boolean(provinciaSelecionada && !locationService.getProvincias().includes(provinciaSelecionada))
+    ehEstrangeiro || Boolean(provinciaSelecionada && !locationService.getProvincias().includes(provinciaSelecionada))
   );
   const [modoManualMunicipio, setModoManualMunicipio] = useState<boolean>(() => {
+    if (ehEstrangeiro) return true;
     const lista = locationService.getMunicipios(provinciaSelecionada);
     return lista.length === 0 || Boolean(municipioSelecionado && !lista.includes(municipioSelecionado));
   });
@@ -40,15 +43,20 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
     Boolean(paisSelecionado && !locationService.getPaises().includes(paisSelecionado))
   );
 
+  const [feedbackCampo, setFeedbackCampo] = useState<'prov' | 'munc' | 'pais' | null>(null);
+
   useEffect(() => {
     const novosMunc = locationService.getMunicipios(provinciaSelecionada);
     setMunicipios(novosMunc);
-    if (novosMunc.length === 0) {
+    if (ehEstrangeiro) {
+      setModoManualProvincia(true);
+      setModoManualMunicipio(true);
+    } else if (novosMunc.length === 0) {
       setModoManualMunicipio(true);
     } else if (municipioSelecionado && !novosMunc.includes(municipioSelecionado)) {
       setModoManualMunicipio(true);
     }
-  }, [provinciaSelecionada, municipioSelecionado]);
+  }, [provinciaSelecionada, municipioSelecionado, ehEstrangeiro]);
 
   useEffect(() => {
     if (provinciaSelecionada && !provincias.includes(provinciaSelecionada)) {
@@ -62,11 +70,45 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
     }
   }, [paisSelecionado, paises]);
 
+  const mostrarFeedback = (campo: 'prov' | 'munc' | 'pais') => {
+    setFeedbackCampo(campo);
+    setTimeout(() => setFeedbackCampo(prev => (prev === campo ? null : prev)), 2200);
+  };
+
+  const handleGuardarNovaProvincia = () => {
+    const val = provinciaSelecionada.trim();
+    if (!val) return;
+    if (!ehEstrangeiro) {
+      locationService.adicionarProvincia(val);
+      setProvincias(locationService.getProvincias());
+    }
+    mostrarFeedback('prov');
+  };
+
+  const handleGuardarNovoMunicipio = () => {
+    const val = municipioSelecionado.trim();
+    if (!val) return;
+    if (!ehEstrangeiro) {
+      locationService.adicionarMunicipio(val, provinciaSelecionada || 'Luanda');
+      setMunicipios(locationService.getMunicipios(provinciaSelecionada));
+    }
+    mostrarFeedback('munc');
+  };
+
+  const handleGuardarNovoPais = () => {
+    const val = (paisSelecionado || '').trim();
+    if (!val || !onPaisChange) return;
+    locationService.adicionarPais(val);
+    setPaises(locationService.getPaises());
+    mostrarFeedback('pais');
+  };
+
   const handleMudarProvinciaSelect = (val: string) => {
     if (val === CUSTOM_SENTINEL) {
       setModoManualProvincia(true);
       setModoManualMunicipio(true);
       onProvinciaChange('');
+      onMunicipioChange('');
       return;
     }
     setModoManualProvincia(false);
@@ -80,6 +122,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
       }
     } else {
       setModoManualMunicipio(true);
+      onMunicipioChange('');
     }
   };
 
@@ -97,11 +140,31 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
     if (!onPaisChange) return;
     if (val === CUSTOM_SENTINEL) {
       setModoManualPais(true);
+      setModoManualProvincia(true);
+      setModoManualMunicipio(true);
       onPaisChange('');
       return;
     }
     setModoManualPais(false);
     onPaisChange(val);
+    if (val.trim().toLowerCase() === 'angola') {
+      const listaProv = locationService.getProvincias();
+      setProvincias(listaProv);
+      const provDefault = listaProv.includes(provinciaSelecionada) ? provinciaSelecionada : (listaProv.includes('Luanda') ? 'Luanda' : listaProv[0] || '');
+      if (provDefault && !listaProv.includes(provinciaSelecionada)) {
+        onProvinciaChange(provDefault);
+      }
+      setModoManualProvincia(false);
+      const muncs = locationService.getMunicipios(provDefault);
+      setMunicipios(muncs);
+      if (muncs.length > 0 && !muncs.includes(municipioSelecionado)) {
+        onMunicipioChange(muncs[0]);
+        setModoManualMunicipio(false);
+      }
+    } else {
+      setModoManualProvincia(true);
+      setModoManualMunicipio(true);
+    }
   };
 
   const colsClass =
@@ -114,47 +177,56 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
   return (
     <div className={`space-y-3 ${className}`}>
       <div className={`grid ${colsClass} gap-3`}>
-        {/* Província */}
+        {/* Província / Estado / Região */}
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="font-semibold text-gray-700 text-xs flex items-center space-x-1">
               <Compass className="w-3.5 h-3.5 text-blue-600" />
-              <span>Província *</span>
+              <span>{ehEstrangeiro ? 'Província / Estado / Região *' : 'Província *'}</span>
             </label>
-            <button
-              type="button"
-              onClick={() => {
-                if (modoManualProvincia) {
-                  setModoManualProvincia(false);
-                  if (!provincias.includes(provinciaSelecionada)) {
-                    const primeiro = provincias[0] || 'Luanda';
-                    onProvinciaChange(primeiro);
+            {!ehEstrangeiro && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (modoManualProvincia) {
+                    setModoManualProvincia(false);
+                    if (!provincias.includes(provinciaSelecionada)) {
+                      const primeiro = provincias.includes('Luanda') ? 'Luanda' : (provincias[0] || 'Luanda');
+                      onProvinciaChange(primeiro);
+                    }
+                  } else {
+                    setModoManualProvincia(true);
                   }
-                } else {
-                  setModoManualProvincia(true);
-                }
-              }}
-              className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center space-x-0.5 cursor-pointer"
-              title={modoManualProvincia ? 'Voltar à lista de províncias' : 'Digitar outra província'}
-            >
-              {modoManualProvincia ? <List className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
-              <span>{modoManualProvincia ? 'Da lista' : 'Outra / Digitar'}</span>
-            </button>
+                }}
+                className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center space-x-0.5 cursor-pointer"
+                title={modoManualProvincia ? 'Voltar à lista de províncias' : 'Adicionar nova província que não está na lista'}
+              >
+                {modoManualProvincia ? <List className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                <span>{modoManualProvincia ? 'Ver lista' : 'Nova / Digitar'}</span>
+              </button>
+            )}
           </div>
           {modoManualProvincia ? (
-            <input
-              type="text"
-              value={provinciaSelecionada}
-              onChange={(e) => onProvinciaChange(e.target.value)}
-              onBlur={() => {
-                if (provinciaSelecionada.trim()) {
-                  locationService.adicionarProvincia(provinciaSelecionada.trim());
-                  setProvincias(locationService.getProvincias());
-                }
-              }}
-              placeholder="Digite o nome da província / estado..."
-              className="w-full p-2 border border-blue-400 rounded-lg text-xs font-bold text-gray-900 bg-blue-50/30 focus:ring-2 focus:ring-blue-600 focus:outline-none"
-            />
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={provinciaSelecionada}
+                onChange={(e) => onProvinciaChange(e.target.value)}
+                onBlur={handleGuardarNovaProvincia}
+                placeholder={ehEstrangeiro ? 'Ex: Kinshasa, Lisboa, Gauteng...' : 'Digite o nome da nova província...'}
+                className="w-full p-2 border border-blue-400 rounded-lg text-xs font-bold text-gray-900 bg-blue-50/30 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+              />
+              {!ehEstrangeiro && provinciaSelecionada.trim() && (
+                <button
+                  type="button"
+                  onClick={handleGuardarNovaProvincia}
+                  className="px-2 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-0.5 cursor-pointer"
+                  title="Adicionar esta província à lista do sistema"
+                >
+                  {feedbackCampo === 'prov' ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                </button>
+              )}
+            </div>
           ) : (
             <select
               value={provincias.includes(provinciaSelecionada) ? provinciaSelecionada : CUSTOM_SENTINEL}
@@ -164,20 +236,23 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
               {provincias.map(p => (
                 <option key={`prov-${p}`} value={p}>{p}</option>
               ))}
-              <option value={CUSTOM_SENTINEL}>Outro (Digitar outra província...)</option>
+              <option value={CUSTOM_SENTINEL}>+ Adicionar Nova Província (Digitar)...</option>
             </select>
+          )}
+          {feedbackCampo === 'prov' && (
+            <span className="text-[10px] text-emerald-700 font-semibold mt-0.5 block">Província adicionada à lista!</span>
           )}
         </div>
 
-        {/* Município */}
+        {/* Município / Cidade */}
         {showMunicipio && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="font-semibold text-gray-700 text-xs flex items-center space-x-1">
                 <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Município / Localidade *</span>
+                <span>{ehEstrangeiro ? 'Cidade / Município *' : 'Município / Localidade *'}</span>
               </label>
-              {municipios.length > 0 && (
+              {!ehEstrangeiro && municipios.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
@@ -191,27 +266,34 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                     }
                   }}
                   className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center space-x-0.5 cursor-pointer"
-                  title={modoManualMunicipio ? 'Voltar à lista de municípios' : 'Digitar outro município'}
+                  title={modoManualMunicipio ? 'Voltar à lista de municípios' : 'Adicionar novo município que não está na lista'}
                 >
-                  {modoManualMunicipio ? <List className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
-                  <span>{modoManualMunicipio ? 'Da lista' : 'Outro / Digitar'}</span>
+                  {modoManualMunicipio ? <List className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                  <span>{modoManualMunicipio ? 'Ver lista' : 'Novo / Digitar'}</span>
                 </button>
               )}
             </div>
             {modoManualMunicipio || municipios.length === 0 ? (
-              <input
-                type="text"
-                value={municipioSelecionado}
-                onChange={(e) => onMunicipioChange(e.target.value)}
-                onBlur={() => {
-                  if (municipioSelecionado.trim()) {
-                    locationService.adicionarMunicipio(municipioSelecionado.trim(), provinciaSelecionada || 'Luanda');
-                    setMunicipios(locationService.getMunicipios(provinciaSelecionada));
-                  }
-                }}
-                placeholder="Digite o município ou cidade..."
-                className="w-full p-2 border border-emerald-400 rounded-lg text-xs font-bold text-gray-900 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={municipioSelecionado}
+                  onChange={(e) => onMunicipioChange(e.target.value)}
+                  onBlur={handleGuardarNovoMunicipio}
+                  placeholder={ehEstrangeiro ? 'Digite a cidade ou distrito...' : 'Digite o nome do novo município...'}
+                  className="w-full p-2 border border-emerald-400 rounded-lg text-xs font-bold text-gray-900 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                />
+                {!ehEstrangeiro && municipioSelecionado.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleGuardarNovoMunicipio}
+                    className="px-2 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center space-x-0.5 cursor-pointer"
+                    title="Adicionar este município à lista da província"
+                  >
+                    {feedbackCampo === 'munc' ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
             ) : (
               <select
                 value={municipios.includes(municipioSelecionado) ? municipioSelecionado : CUSTOM_SENTINEL}
@@ -221,8 +303,11 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                 {municipios.map(m => (
                   <option key={`munc-${m}`} value={m}>{m}</option>
                 ))}
-                <option value={CUSTOM_SENTINEL}>Outro (Digitar outro município...)</option>
+                <option value={CUSTOM_SENTINEL}>+ Adicionar Novo Município (Digitar)...</option>
               </select>
+            )}
+            {feedbackCampo === 'munc' && (
+              <span className="text-[10px] text-emerald-700 font-semibold mt-0.5 block">Município adicionado à lista!</span>
             )}
           </div>
         )}
@@ -233,7 +318,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
             <div className="flex items-center justify-between mb-1">
               <label className="font-semibold text-gray-700 text-xs flex items-center space-x-1">
                 <Globe className="w-3.5 h-3.5 text-purple-600" />
-                <span>País</span>
+                <span>País de Origem</span>
               </label>
               <button
                 type="button"
@@ -255,19 +340,26 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
               </button>
             </div>
             {modoManualPais ? (
-              <input
-                type="text"
-                value={paisSelecionado}
-                onChange={(e) => onPaisChange(e.target.value)}
-                onBlur={() => {
-                  if (paisSelecionado.trim()) {
-                    locationService.adicionarPais(paisSelecionado.trim());
-                    setPaises(locationService.getPaises());
-                  }
-                }}
-                placeholder="Digite o nome do país..."
-                className="w-full p-2 border border-purple-400 rounded-lg text-xs font-bold text-gray-900 bg-purple-50/30 focus:ring-2 focus:ring-purple-600 focus:outline-none"
-              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={paisSelecionado}
+                  onChange={(e) => onPaisChange(e.target.value)}
+                  onBlur={handleGuardarNovoPais}
+                  placeholder="Digite o nome do país..."
+                  className="w-full p-2 border border-purple-400 rounded-lg text-xs font-bold text-gray-900 bg-purple-50/30 focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                />
+                {(paisSelecionado || '').trim() && (
+                  <button
+                    type="button"
+                    onClick={handleGuardarNovoPais}
+                    className="px-2 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-[10px] font-bold shrink-0 flex items-center cursor-pointer"
+                    title="Guardar país na lista"
+                  >
+                    {feedbackCampo === 'pais' ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
             ) : (
               <select
                 value={paises.includes(paisSelecionado) ? paisSelecionado : CUSTOM_SENTINEL}
@@ -296,18 +388,23 @@ interface NaturalidadeInputProps {
 }
 
 /**
- * Campo de Naturalidade com lista completa de Províncias e Municípios de Angola + opção "Outro (Digitar)"
+ * Campo de Naturalidade com lista completa de Províncias e Municípios de Angola + opção "Outro (Digitar)" para localidades novas ou estrangeiras
  */
 export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
   value,
   onChange,
   label = 'Naturalidade',
-  placeholder = 'Digite a naturalidade (cidade, município ou localidade)...',
+  placeholder = 'Ex: Luanda, Kinshasa, Lisboa, Catete...',
   className = ''
 }) => {
-  const provinciasAngola = useMemo(() => locationService.getProvincias(), []);
-  const municipiosAngola = useMemo(() => locationService.getMunicipios(), []);
-  const todasOpcoes = useMemo(() => new Set([...provinciasAngola, ...municipiosAngola]), [provinciasAngola, municipiosAngola]);
+  const [provinciasAngola, setProvinciasAngola] = useState<string[]>(() => locationService.getProvincias());
+  const [municipiosAngola, setMunicipiosAngola] = useState<string[]>(() => locationService.getMunicipios());
+  const [todasPersonalizadas, setTodasPersonalizadas] = useState<string[]>(() => locationService.getTodasNaturalidades());
+
+  const todasOpcoes = useMemo(
+    () => new Set([...provinciasAngola, ...municipiosAngola, ...todasPersonalizadas]),
+    [provinciasAngola, municipiosAngola, todasPersonalizadas]
+  );
 
   const [modoManual, setModoManual] = useState<boolean>(() =>
     Boolean(value && !todasOpcoes.has(value))
@@ -319,6 +416,12 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
     }
   }, [value, todasOpcoes]);
 
+  const atualizarListas = () => {
+    setProvinciasAngola(locationService.getProvincias());
+    setMunicipiosAngola(locationService.getMunicipios());
+    setTodasPersonalizadas(locationService.getTodasNaturalidades());
+  };
+
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-1">
@@ -326,6 +429,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
         <button
           type="button"
           onClick={() => {
+            atualizarListas();
             if (modoManual) {
               setModoManual(false);
               if (!todasOpcoes.has(value)) {
@@ -338,7 +442,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
           className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center space-x-0.5 cursor-pointer"
         >
           {modoManual ? <List className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
-          <span>{modoManual ? 'Lista Angola' : 'Outro / Digitar'}</span>
+          <span>{modoManual ? 'Ver lista' : 'Outro / Digitar'}</span>
         </button>
       </div>
 
@@ -347,6 +451,12 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={() => {
+            if (value.trim()) {
+              locationService.adicionarNaturalidade(value.trim());
+              atualizarListas();
+            }
+          }}
           placeholder={placeholder}
           className="w-full p-2 border border-blue-400 rounded-md text-xs font-semibold text-gray-900 bg-blue-50/30 focus:ring-2 focus:ring-blue-600 focus:outline-none"
         />
@@ -363,7 +473,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
           }}
           className="w-full p-2 border border-gray-300 rounded-md text-xs font-semibold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
         >
-          <option value={CUSTOM_SENTINEL}>Outro (Digitar nome que não está na lista...)</option>
+          <option value={CUSTOM_SENTINEL}>Outro (Digitar localidade / cidade estrangeira...)</option>
           <optgroup label="Províncias de Angola">
             {provinciasAngola.map(p => (
               <option key={`nat-p-${p}`} value={p}>{p}</option>
@@ -374,6 +484,15 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
               <option key={`nat-m-${m}`} value={m}>{m}</option>
             ))}
           </optgroup>
+          {todasPersonalizadas.filter(x => !provinciasAngola.includes(x) && !municipiosAngola.includes(x)).length > 0 && (
+            <optgroup label="Outras Localidades / Cidades">
+              {todasPersonalizadas
+                .filter(x => !provinciasAngola.includes(x) && !municipiosAngola.includes(x))
+                .map(x => (
+                  <option key={`nat-c-${x}`} value={x}>{x}</option>
+                ))}
+            </optgroup>
+          )}
         </select>
       )}
     </div>

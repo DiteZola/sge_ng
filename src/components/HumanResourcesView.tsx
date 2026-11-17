@@ -44,6 +44,7 @@ import * as XLSX from 'xlsx';
 import { ModalJustificarFaltaFuncionario } from './ModalJustificarFaltaFuncionario';
 import { AngolaDateInput } from './AngolaDateInput';
 import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
+import { locationService } from '../services/locationService';
 
 interface HumanResourcesViewProps {
   escola: Escola;
@@ -84,6 +85,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const [editingFuncionarioId, setEditingFuncionarioId] = useState<string | null>(null);
   const [nomeCompleto, setNomeCompleto] = useState('');
   const [numeroBI, setNumeroBI] = useState('');
+  const [tipoDocumento, setTipoDocumento] = useState<'BI' | 'Passaporte' | 'Cartão de Residente' | 'Outro'>('BI');
   const [genero, setGenero] = useState<Genero>('M');
   const [cargo, setCargo] = useState('');
   const [role, setRole] = useState<UserRole>('Professor');
@@ -259,6 +261,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setEditingFuncionarioId(null);
     setNomeCompleto('');
     setNumeroBI('');
+    setTipoDocumento('BI');
     setDataEmissaoBI('');
     setDataValidadeBI('');
     setLocalEmissaoBI('');
@@ -308,7 +311,8 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const abrirModalEditarFuncionario = (func: Funcionario) => {
     setEditingFuncionarioId(func.id);
     setNomeCompleto(func.nomeCompleto || '');
-    setNumeroBI(func.numeroBI || func.bi || '');
+    setNumeroBI(func.numeroBI || func.bi || func.numeroDocumento || '');
+    setTipoDocumento(func.tipoDocumento || 'BI');
     setDataEmissaoBI(func.dataEmissaoBI || '');
     setDataValidadeBI(func.dataValidadeBI || '');
     setLocalEmissaoBI(func.localEmissaoBI || func.arquivoIdentificacao || '');
@@ -361,12 +365,25 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
     const funcExistente = editingFuncionarioId ? funcionarios.find(f => f.id === editingFuncionarioId) : null;
 
+    const ehPaisAngola = !pais.trim() || pais.trim().toLowerCase() === 'angola';
+    if (ehPaisAngola && provincia.trim()) {
+      locationService.adicionarProvincia(provincia.trim());
+    }
+    if (ehPaisAngola && municipio.trim()) {
+      locationService.adicionarMunicipio(municipio.trim(), provincia.trim() || 'Luanda');
+    }
+    if (pais.trim()) locationService.adicionarPais(pais.trim());
+    if (nacionalidade.trim()) locationService.adicionarNacionalidade(nacionalidade.trim());
+    if (naturalidade.trim()) locationService.adicionarNaturalidade(naturalidade.trim());
+
     const funcionarioAtualizado: Funcionario = {
       ...(funcExistente || {}),
       id: editingFuncionarioId || `func-${Date.now()}`,
       escolaId: escola.id,
       nomeCompleto: nomeCompleto.trim(),
       genero,
+      tipoDocumento,
+      numeroDocumento: (numeroBI || funcExistente?.numeroBI || '').trim(),
       numeroBI: (numeroBI || funcExistente?.numeroBI || '').trim(),
       dataEmissaoBI,
       dataValidadeBI,
@@ -1378,15 +1395,27 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">N.º do Bilhete de Identidade (BI) *</label>
-                    <input
-                      type="text"
-                      required
-                      value={numeroBI}
-                      onChange={(e) => setNumeroBI(e.target.value)}
-                      placeholder="001928374LA045"
-                      className="w-full p-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                    />
+                    <label className="font-bold text-gray-700 block mb-1">Tipo & N.º de Documento *</label>
+                    <div className="flex gap-1.5">
+                      <select
+                        value={tipoDocumento}
+                        onChange={(e) => setTipoDocumento(e.target.value as any)}
+                        className="w-28 p-2 border border-gray-300 rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none shrink-0"
+                      >
+                        <option value="BI">B.I.</option>
+                        <option value="Passaporte">Passaporte</option>
+                        <option value="Cartão de Residente">Cartão Resid.</option>
+                        <option value="Outro">Outro</option>
+                      </select>
+                      <input
+                        type="text"
+                        required
+                        value={numeroBI}
+                        onChange={(e) => setNumeroBI(e.target.value)}
+                        placeholder={tipoDocumento === 'Passaporte' ? 'P1234567' : '001928374LA045'}
+                        className="flex-1 min-w-0 p-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -1445,17 +1474,23 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     <NacionalidadeInput
                       label="Nacionalidade"
                       value={nacionalidade}
-                      onChange={setNacionalidade}
+                      onChange={(val) => {
+                        setNacionalidade(val);
+                        if (val && val.trim().toLowerCase() !== 'angolana' && tipoDocumento === 'BI') {
+                          setTipoDocumento('Passaporte');
+                        } else if (val && val.trim().toLowerCase() === 'angolana') {
+                          setPais('Angola');
+                        }
+                      }}
                     />
                   </div>
 
                   <div>
                     <NaturalidadeInput
-                      label="Naturalidade (Município / Província)"
-                      value={naturalidade || municipio}
+                      label="Naturalidade (Município / Cidade)"
+                      value={naturalidade}
                       onChange={(val) => {
                         setNaturalidade(val);
-                        if (val) setMunicipio(val);
                       }}
                     />
                   </div>

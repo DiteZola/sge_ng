@@ -56,8 +56,11 @@ const MUNICIPIOS_PADRAO: Record<string, string[]> = {
   'Malanje': ['Malanje', 'Cangandala', 'Calandula', 'Cacuso', 'Massango', 'Marimba', 'Kiwaba Nzoji', 'Kalandula', 'Cunda-dia-Baze', 'Quela', 'Mucari', 'Luquembo', 'Quirima', 'Cambundi-Catembo'],
   'Namibe': ['Moçâmedes (Namibe)', 'Tômbwa', 'Virei', 'Bibala', 'Camucuio'],
   'Cunene': ['Ondjiva (Cuanhama)', 'Ombadja', 'Namacunde', 'Curoca', 'Cuvelai', 'Cahama'],
-  'Cuando Cubango': ['Menongue', 'Cuito Cuanavale', 'Cuchi', 'Cuangar', 'Calai', 'Dirico', 'Mavinga', 'Rivungo', 'Nancova'],
-  'Bengo': ['Caxito (Dande)', 'Ambriz', 'Bula Atumba', 'Dande', 'Dembos', 'Nambuangongo', 'Pango Aluquém']
+  'Quando Cubango': ['Menongue', 'Cuito Cuanavale', 'Cuchi', 'Cuangar', 'Calai', 'Dirico', 'Mavinga', 'Rivungo', 'Nancova'],
+  'Bengo': ['Caxito (Dande)', 'Ambriz', 'Bula Atumba', 'Dande', 'Dembos', 'Nambuangongo', 'Pango Aluquém'],
+  'Icolo e Bengo': ['Catete', 'Bom Jesus', 'Cabiri', 'Caculo Cahango', 'Calumbo', 'Cassoneca', 'Quiminha', 'Sequele'],
+  'Moxico Leste': ['Cazombo', 'Lumbala Caquengue', 'Macondo', 'Caianda', 'Lóvua do Zambeze', 'Nana Candundo', 'Luau'],
+  'Cuando': ['Mavinga', 'Cuito Cuanavale', 'Dirico', 'Rivungo', 'Luiana', 'Mucusso', 'Dima']
 };
 
 const PAISES_PADRAO: string[] = [
@@ -67,6 +70,7 @@ const PAISES_PADRAO: string[] = [
   'Moçambique',
   'Cabo Verde',
   'São Tomé e Príncipe',
+  'Guiné-Bissau',
   'República Democrática do Congo (RDC)',
   'República do Congo',
   'Namíbia',
@@ -85,6 +89,7 @@ const PAISES_PADRAO: string[] = [
 ];
 
 const STORAGE_KEY_NACIONALIDADES = 'sgeng_nacionalidades_personalizadas';
+const STORAGE_KEY_NATURALIDADES = 'sgeng_naturalidades_personalizadas';
 
 const NACIONALIDADES_PADRAO: string[] = [
   'Angolana',
@@ -156,18 +161,29 @@ class LocationService {
    */
   getMunicipios(provincia?: string): string[] {
     let base: string[] = [];
-    if (provincia && MUNICIPIOS_PADRAO[provincia]) {
-      base = [...MUNICIPIOS_PADRAO[provincia]];
-    } else if (!provincia) {
+    const provTrim = (provincia || '').trim();
+    if (provTrim) {
+      const chavePadrao = Object.keys(MUNICIPIOS_PADRAO).find(
+        k => k.toLowerCase() === provTrim.toLowerCase()
+      );
+      if (chavePadrao) {
+        base = [...MUNICIPIOS_PADRAO[chavePadrao]];
+      }
+    } else {
       base = Object.values(MUNICIPIOS_PADRAO).flat();
     }
 
     try {
       const salvas = localStorage.getItem(STORAGE_KEY_MUNICIPIOS);
       const personalizadas: Record<string, string[]> = salvas ? JSON.parse(salvas) : {};
-      if (provincia && personalizadas[provincia]) {
-        base = [...base, ...personalizadas[provincia]];
-      } else if (!provincia) {
+      if (provTrim) {
+        const chavePers = Object.keys(personalizadas).find(
+          k => k.toLowerCase() === provTrim.toLowerCase()
+        );
+        if (chavePers && personalizadas[chavePers]) {
+          base = [...base, ...personalizadas[chavePers]];
+        }
+      } else {
         base = [...base, ...Object.values(personalizadas).flat()];
       }
     } catch {
@@ -196,10 +212,11 @@ class LocationService {
     try {
       const salvas = localStorage.getItem(STORAGE_KEY_MUNICIPIOS);
       const personalizadas: Record<string, string[]> = salvas ? JSON.parse(salvas) : {};
-      if (!personalizadas[prov]) {
-        personalizadas[prov] = [];
+      const chaveExistente = Object.keys(personalizadas).find(k => k.toLowerCase() === prov.toLowerCase()) || prov;
+      if (!personalizadas[chaveExistente]) {
+        personalizadas[chaveExistente] = [];
       }
-      personalizadas[prov].push(limpo);
+      personalizadas[chaveExistente].push(limpo);
       localStorage.setItem(STORAGE_KEY_MUNICIPIOS, JSON.stringify(personalizadas));
       return { sucesso: true, mensagem: `Município "${limpo}" adicionado com sucesso!`, municipio: limpo };
     } catch {
@@ -208,11 +225,34 @@ class LocationService {
   }
 
   /**
-   * Obtém a lista completa de naturalidades (províncias e municípios de Angola)
+   * Obtém a lista completa de naturalidades (províncias, municípios e localidades personalizadas)
    */
   getTodasNaturalidades(): string[] {
-    const todas = Array.from(new Set([...this.getProvincias(), ...this.getMunicipios()]));
+    let personalizadas: string[] = [];
+    try {
+      const salvas = localStorage.getItem(STORAGE_KEY_NATURALIDADES);
+      personalizadas = salvas ? JSON.parse(salvas) : [];
+    } catch {
+      personalizadas = [];
+    }
+    const todas = Array.from(new Set([...this.getProvincias(), ...this.getMunicipios(), ...personalizadas]));
     return todas.sort((a, b) => a.localeCompare(b, 'pt-AO'));
+  }
+
+  adicionarNaturalidade(nome: string): { sucesso: boolean; naturalidade?: string } {
+    const limpo = (nome || '').trim();
+    if (!limpo) return { sucesso: false };
+    try {
+      const salvas = localStorage.getItem(STORAGE_KEY_NATURALIDADES);
+      const personalizadas: string[] = salvas ? JSON.parse(salvas) : [];
+      if (!personalizadas.some(n => n.toLowerCase() === limpo.toLowerCase())) {
+        personalizadas.push(limpo);
+        localStorage.setItem(STORAGE_KEY_NATURALIDADES, JSON.stringify(personalizadas));
+      }
+      return { sucesso: true, naturalidade: limpo };
+    } catch {
+      return { sucesso: false };
+    }
   }
 
   /**

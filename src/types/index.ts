@@ -222,7 +222,7 @@ export interface Aluno {
   restricaoEducacaoFisica?: boolean;
   contactoEmergenciaNome?: string;
   contactoEmergenciaTelefone?: string;
-  tipoDocumento?: 'BI' | 'Cédula' | 'Passaporte';
+  tipoDocumento?: 'BI' | 'Cédula' | 'Passaporte' | 'Cartão de Residente' | 'Outro';
   numeroDocumento?: string;
   nomePai?: string;
   nomeMae?: string;
@@ -315,6 +315,8 @@ export interface Funcionario {
   genero: Genero;
   numeroBI: string;
   bi?: string;
+  tipoDocumento?: 'BI' | 'Passaporte' | 'Cartão de Residente' | 'Outro';
+  numeroDocumento?: string;
   dataEmissaoBI?: string;
   dataValidadeBI?: string;
   localEmissaoBI?: string;

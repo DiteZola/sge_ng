@@ -709,17 +709,21 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       }
 
       const nomeBase = docNomeLimpo;
+      const margensEfetivas =
+        docType === 'passes'
+          ? { ...margensPdfMm, bottom: Math.max(margensPdfMm.bottom, 12) }
+          : margensPdfMm;
 
       const ok = await downloadElementAsPdf(el, nomeBase, {
         orientation: orientacao,
         format: formatoPaginaPdf,
-        margins: margensPdfMm,
+        margins: margensEfetivas,
         scale: qualidadePdf === 'ultra' ? 2.8 : 2.0
       });
       if (ok) {
         const rotuloFmt = formatoPaginaPdf === 'letter' ? 'Carta' : 'A4';
         setPdfSuccessToast(
-          `Ficheiro PDF (${rotuloFmt} • Margens ${margensPdfMm.top}/${margensPdfMm.right}/${margensPdfMm.bottom}/${margensPdfMm.left}mm) "${nomeBase}.pdf" gerado com sucesso!`
+          `Ficheiro PDF (${rotuloFmt} • Margens ${margensEfetivas.top}/${margensEfetivas.right}/${margensEfetivas.bottom}/${margensEfetivas.left}mm) "${nomeBase}.pdf" gerado com sucesso!`
         );
         setTimeout(() => setPdfSuccessToast(null), 5000);
       }
@@ -736,10 +740,14 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       document.getElementById('documento-para-impressao') ||
       document.getElementById('documento-lista-nominal-alunos');
     if (el) {
+      const margensEfetivas =
+        docType === 'passes'
+          ? { ...margensPdfMm, bottom: Math.max(margensPdfMm.bottom, 12) }
+          : margensPdfMm;
       imprimirElementoDiretamente(el, `${docType.toUpperCase()} - ${escola.nomeOficial}`, {
         format: formatoPaginaPdf,
         orientation: orientacaoRecomendada,
-        margins: margensPdfMm
+        margins: margensEfetivas
       });
     } else {
       handleBaixarPDF();
@@ -3068,127 +3076,196 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       {/* ========================================================================= */}
       {/* 4. PASSES ESCOLARES (GRADE DE 8 PASSES POR FOLHA A4) */}
       {/* ========================================================================= */}
-      {docType === 'passes' && (
-        <div 
-          id="documento-para-impressao" 
-          data-doc-root="true" 
-          data-passes-grid="true"
-          className="documento-oficial-print space-y-4 max-w-5xl mx-auto"
-        >
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 no-print flex items-center justify-between">
-            <div>
-              <strong>Passes Escolares Oficiais:</strong> Otimizados para impressão em papel cartão {formatoPaginaPdf === 'letter' ? 'Carta (Letter)' : 'A4'} (grade de 8 passes por página com marcações de corte).
+      {docType === 'passes' && (() => {
+        const tituloDiretorPass = obterTituloDiretorGeral(escola, funcionariosEscola);
+        const paginasPassesDoc: Aluno[][] = [];
+        for (let i = 0; i < alunosDaTurma.length; i += 8) {
+          paginasPassesDoc.push(alunosDaTurma.slice(i, i + 8));
+        }
+        const ordensUnicas =
+          alunosDaTurma.every(a => Number(a.numeroOrdem) > 0) &&
+          new Set(alunosDaTurma.map(a => Number(a.numeroOrdem))).size === alunosDaTurma.length;
+
+        const formatarDocAluno = (al: Aluno) => {
+          const tipo = al.tipoDocumento || 'BI';
+          const num = (
+            al.numeroDocumento ||
+            (al.numeroBI && al.numeroBI !== '000000000LA000' ? al.numeroBI : '') ||
+            ''
+          ).trim();
+          const rotulo =
+            tipo === 'Cédula'
+              ? 'Cédula Nº:'
+              : tipo === 'Passaporte'
+              ? 'Passaporte Nº:'
+              : tipo === 'Cartão de Residente'
+              ? 'Cartão Resid. Nº:'
+              : tipo === 'Outro'
+              ? 'Doc. Ident. Nº:'
+              : 'B.I. Nº:';
+          return { rotulo, numero: num || 'Não Registado' };
+        };
+
+        return (
+          <div 
+            id="documento-para-impressao" 
+            data-doc-root="true" 
+            data-passes-grid="true"
+            className="documento-oficial-print space-y-4 max-w-5xl mx-auto"
+          >
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 no-print flex items-center justify-between">
+              <div>
+                <strong>Passes Escolares Oficiais:</strong> Otimizados para impressão em papel cartão {formatoPaginaPdf === 'letter' ? 'Carta (Letter)' : 'A4'} (grade de 8 passes por página com margem inferior de segurança).
+              </div>
+              <span className="font-bold bg-blue-200 px-2 py-0.5 rounded text-[11px]">8 passes por folha {formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'}</span>
             </div>
-            <span className="font-bold bg-blue-200 px-2 py-0.5 rounded text-[11px]">8 passes por folha {formatoPaginaPdf === 'letter' ? 'Carta' : 'A4'}</span>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 print:grid-cols-2 print:gap-2">
-            {alunosDaTurma.slice(0, 8).map((aluno) => {
-              const turma = turmas.find(t => t.id === aluno.turmaId) || turmaSelecionada;
-              return (
-                <div 
-                  key={aluno.id}
-                  className="bg-white border-2 border-blue-700 rounded-xl p-3 shadow-2xs relative flex flex-col justify-between min-h-[235px] print:min-h-[235px] print:border-black"
-                >
-                  {/* Cabeçalho do Cartão com Insígnia Nacional + Logotipo da Escola Fixos */}
-                  <div>
-                    <div data-pdf-fixed-header="true" className="text-center border-b pb-1 border-blue-200 print:border-gray-400">
-                      <div className="flex items-center justify-between px-1">
-                        <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                          {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                            <img src={configSistema.insigniaNacionalUrl} alt="Insígnia da República de Angola" className="h-6 w-6 object-contain" referrerPolicy="no-referrer" />
-                          ) : (
-                            <InsigniaAngola size={20} />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0 px-1 text-center">
-                          <p className="text-[7.5px] font-bold uppercase text-gray-600 truncate">República de Angola</p>
-                          <p className="text-[8.5px] font-black uppercase text-blue-900 truncate print:text-black">
-                            {escola.nomeOficial}
-                          </p>
-                        </div>
-                        <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                          {(escola.logotipoUrl || escola.logotipo) ? (
-                            <img
-                              src={escola.logotipoUrl || escola.logotipo}
-                              alt="Logo Escola"
-                              className="h-5 w-5 object-contain rounded"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <span className="w-5" />
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-[7px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded-full inline-block mt-0.5">
-                        Cartão de Estudante • {aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
-                      </span>
-                    </div>
-
-                    {/* Foto & Dados do Aluno Fixos */}
-                    <div data-pdf-fixed-student="true" className="flex items-center space-x-2.5 mt-2">
-                      {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
-                        <img 
-                          src={aluno.fotoUrl} 
-                          alt={aluno.nomeCompleto} 
-                          className="h-20 w-16 rounded object-cover border-2 border-blue-900 print:border-black shrink-0 shadow-2xs"
-                        />
-                      ) : (
-                        <div className="h-20 w-16 rounded bg-gray-100 border-2 border-dashed border-gray-400 flex flex-col items-center justify-center text-gray-400 shrink-0">
-                          <User className="w-6 h-6 mb-0.5" />
-                          <span className="text-[7px] font-bold">FOTO 3x4</span>
-                        </div>
-                      )}
-                      <div className="min-w-0 text-[10px] leading-tight space-y-0.5">
-                        <h4 className="font-extrabold text-gray-900 truncate">{aluno.nomeCompleto}</h4>
-                        <p className="text-gray-600">Classe: <strong>{turma?.classe || aluno.classeId}</strong></p>
-                        <p className="text-gray-600">Turma: <strong>{turma?.nome}</strong></p>
-                        <p className="text-gray-600 truncate">Turno: <strong>{turma?.turno || 'Manhã'}</strong></p>
-                        {isSegundoCiclo(turma?.classe || aluno.classeId) && (
-                          <p className="text-gray-600 truncate">Curso: <strong>{aluno.curso || turma?.curso || 'Geral'}</strong></p>
-                        )}
-                        <p className="text-gray-500 text-[8px] font-semibold pt-0.5">
-                          Validade: 31/07/{(aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '').split('/')[1] || '—'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Rodapé do Cartão com Matrícula, Assinatura do Diretor e QR Code */}
-                  <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-[9px]">
-                    <div>
-                      <span className="text-[8px] text-gray-500 block">Nº Matrícula:</span>
-                      <strong className="font-mono text-gray-900">{aluno.codigoMatricula}</strong>
-                    </div>
-
-                    <div className="flex flex-col items-center justify-end text-center min-w-[50px]">
-                      {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
-                        <img 
-                          src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
-                          alt="Assinatura Diretor" 
-                          className="h-5 w-auto max-w-[55px] object-contain mb-0.5" 
-                        />
-                      ) : (
-                        <div className="border-b border-gray-400 w-10 mb-0.5" />
-                      )}
-                      <span className="font-serif italic text-gray-700 text-[6.5px]">
-                        A Direcção
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-center shrink-0">
-                      <OfficialQrCode
-                        value={gerarPayloadQrEstudante(aluno, escola, turma)}
-                        size={34}
-                      />
-                    </div>
-                  </div>
+            {paginasPassesDoc.map((grupoPagina, pageIndex) => (
+              <div
+                key={`doc-passes-page-${pageIndex}`}
+                data-passes-page="true"
+                className="passes-sheet-page pb-5 mb-4 print:pb-4 print:mb-0"
+              >
+                <div className="flex items-center justify-between text-[11px] text-gray-500 font-semibold mb-2 px-1 no-print">
+                  <span>Folha {pageIndex + 1} de {paginasPassesDoc.length} (8 passes por folha)</span>
+                  <span>Passes {pageIndex * 8 + 1} a {pageIndex * 8 + grupoPagina.length}</span>
                 </div>
-              );
-            })}
+                <div className="passes-sheet-grid grid grid-cols-1 md:grid-cols-2 gap-3 print:grid-cols-2 print:gap-2.5">
+                  {grupoPagina.map((aluno, idxInPage) => {
+                    const turma = turmas.find(t => t.id === aluno.turmaId) || turmaSelecionada;
+                    const classeExibida = turma?.classe || aluno.classeId || '—';
+                    const numeroSequencial = ordensUnicas
+                      ? Number(aluno.numeroOrdem)
+                      : pageIndex * 8 + idxInPage + 1;
+                    const docInfo = formatarDocAluno(aluno);
+                    const clNorm = normalizarClasse(classeExibida);
+
+                    return (
+                      <div 
+                        key={aluno.id}
+                        className="bg-white border-2 border-blue-700 rounded-xl p-2.5 shadow-2xs relative flex flex-col justify-between h-[260px] min-h-[260px] print:h-[260px] print:min-h-[260px] print:break-inside-avoid print:border-black"
+                      >
+                        {/* Cabeçalho do Cartão: Província & Município PRIMEIRO, Nome da Escola DEPOIS */}
+                        <div>
+                          <div data-pdf-fixed-header="true" className="text-center border-b pb-1 border-blue-200 print:border-gray-400">
+                            <div className="flex items-center justify-between px-1 gap-1.5">
+                              <div className="h-7 w-7 flex items-center justify-center shrink-0">
+                                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                                  <img src={configSistema.insigniaNacionalUrl} alt="Insígnia da República de Angola" className="h-7 w-7 object-contain" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <InsigniaAngola size={24} />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0 px-1 text-center">
+                                <p className="text-[7px] font-bold uppercase text-gray-600 truncate leading-tight">República de Angola • MED</p>
+                                <p className="text-[7px] font-bold uppercase text-gray-600 truncate leading-tight">
+                                  Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
+                                </p>
+                                <p className="text-[8.5px] font-black uppercase text-blue-900 truncate print:text-black leading-tight mt-0.5">
+                                  {escola.nomeOficial}
+                                </p>
+                              </div>
+                              <div className="h-7 w-7 flex items-center justify-center shrink-0">
+                                {(escola.logotipoUrl || escola.logotipo) ? (
+                                  <img
+                                    src={escola.logotipoUrl || escola.logotipo}
+                                    alt="Logo Escola"
+                                    className="h-7 w-7 object-contain rounded"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <span className="w-6" />
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-[7px] font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                              Cartão de Estudante • {aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
+                            </span>
+                          </div>
+
+                          {/* Foto Ampliada (sem Nº 1 por baixo) & Dados Completos + QR Code limpo */}
+                          <div data-pdf-fixed-student="true" className="flex items-center gap-2.5 mt-2">
+                            {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
+                              <img 
+                                src={aluno.fotoUrl} 
+                                alt={aluno.nomeCompleto} 
+                                className="h-[112px] w-[88px] rounded object-cover border-2 border-blue-900 print:border-black shrink-0 shadow-2xs"
+                              />
+                            ) : (
+                              <div className="h-[112px] w-[88px] rounded bg-gray-100 border-2 border-dashed border-gray-400 flex flex-col items-center justify-center text-gray-400 shrink-0">
+                                <User className="w-8 h-8 mb-0.5" />
+                                <span className="text-[8px] font-bold">FOTO 3x4</span>
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0 text-[9px] leading-snug space-y-0.5">
+                              <h4 className="font-black uppercase text-gray-950 truncate text-[9.5px]">{aluno.nomeCompleto}</h4>
+                              <p className="text-gray-700">
+                                Classe: <strong className="text-gray-950">{classeExibida}</strong> • <strong className="font-mono text-gray-950">Nº {numeroSequencial}</strong>
+                              </p>
+                              <p className="text-gray-700 truncate">
+                                Turma: <strong className="text-gray-950">{turma?.nome || '—'}</strong> • Turno: <strong className="text-gray-950">{turma?.turno || 'Manhã'}</strong>
+                              </p>
+                              {isSegundoCiclo(clNorm) && (
+                                <p className="text-gray-700 truncate text-[8.5px]">
+                                  Curso: <strong className="text-gray-950">{aluno.curso || turma?.curso || 'Geral'}</strong>
+                                </p>
+                              )}
+                              <p className="text-gray-800 font-mono truncate text-[8.5px]">
+                                {docInfo.rotulo} <strong className="text-gray-950">{docInfo.numero}</strong>
+                              </p>
+                              <p className="text-gray-600 text-[8px] font-semibold">
+                                Validade: 31/07/{(aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '').split('/')[1] || '—'}
+                              </p>
+                            </div>
+
+                            <div className="shrink-0 flex items-center justify-center">
+                              <OfficialQrCode
+                                value={gerarPayloadQrEstudante(aluno, escola, turma)}
+                                size={44}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Rodapé do Cartão com Matrícula e Título + Nome Completo do Director Geral */}
+                        <div className="pt-1 border-t border-gray-200 flex items-end justify-between gap-2 text-[8px]">
+                          <div className="shrink-0">
+                            <span className="text-[7px] text-gray-500 block">Nº Processo/Matr.:</span>
+                            <strong className="font-mono text-gray-900">{aluno.numeroProcesso || aluno.codigoMatricula}</strong>
+                          </div>
+
+                          <div className="flex-1 flex flex-col items-center justify-end text-center min-w-0">
+                            <span className="text-[6.5px] font-bold uppercase text-gray-800 leading-none mb-0.5 truncate max-w-full">
+                              {tituloDiretorPass}
+                            </span>
+                            {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                              <img 
+                                src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
+                                alt="Assinatura do Director" 
+                                className="h-4 w-auto max-w-[75px] object-contain my-0.5" 
+                              />
+                            ) : (
+                              <div className="border-b border-gray-400 w-24 my-1" />
+                            )}
+                            <span className="font-bold text-gray-950 text-[7px] leading-tight truncate max-w-full">
+                              {nomeDiretorGeral}
+                            </span>
+                          </div>
+
+                          <div className="font-mono text-[6.5px] text-gray-500 font-bold uppercase shrink-0">
+                            MED ANGOLA
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* 4. FICHA INDIVIDUAL DO ALUNO (REGISTO BIOGRÁFICO & MATRÍCULA)              */}

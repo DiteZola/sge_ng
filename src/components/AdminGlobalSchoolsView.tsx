@@ -31,6 +31,7 @@ import { Escola, Funcionario, Genero, Aluno, Turma, SolicitacaoApoioTecnico } fr
 import { dbService } from '../services/storage';
 import { securityEngine } from '../services/securityEngine';
 import { LocationPicker } from './LocationPicker';
+import { locationService } from '../services/locationService';
 
 interface AdminGlobalSchoolsViewProps {
   escolas: Escola[];
@@ -180,18 +181,23 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
     e.preventDefault();
     if (!novaEscolaNome.trim()) return;
 
+    const provLimpa = novaEscolaProvincia.trim() || 'Luanda';
+    const muncLimpo = novaEscolaMunicipio.trim() || provLimpa;
+    locationService.adicionarProvincia(provLimpa);
+    locationService.adicionarMunicipio(muncLimpo, provLimpa);
+
     onCriarEscola({
       nomeOficial: novaEscolaNome,
       denominacao: novaEscolaDenominacao,
       sigla: novaEscolaSigla || novaEscolaNome.substring(0, 4).toUpperCase(),
       nif: novaEscolaNif,
-      provincia: novaEscolaProvincia,
-      municipio: novaEscolaMunicipio,
+      provincia: provLimpa,
+      municipio: muncLimpo,
       endereco: novaEscolaEndereco,
       email: novaEscolaEmail || `direcao.${novaEscolaSigla.toLowerCase() || 'escola'}@med.gov.ao`,
       contactos: novaEscolaTelefone,
       decretoCriacao: novaEscolaDecreto,
-      governoProvincial: `GOVERNO PROVINCIAL DE ${novaEscolaProvincia.toUpperCase()}`,
+      governoProvincial: `GOVERNO PROVINCIAL DE ${provLimpa.toUpperCase()}`,
       gabineteEducacao: 'GABINETE PROVINCIAL DA EDUCAÇÃO',
       anoLectivoActivo: '',
       trimestreActivo: '1',
@@ -312,19 +318,31 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
       return;
     }
 
+    const provEditLimpa = editProvincia.trim() || 'Luanda';
+    const muncEditLimpo = editMunicipio.trim() || provEditLimpa;
+    locationService.adicionarProvincia(provEditLimpa);
+    locationService.adicionarMunicipio(muncEditLimpo, provEditLimpa);
+
+    const govAtual = editGovernoProvincial.trim();
+    const govPadraoAnterior = `GOVERNO PROVINCIAL DE ${(escolaSelecionada.provincia || '').toUpperCase()}`;
+    const governoProvincialFinal =
+      !govAtual || govAtual.toUpperCase() === govPadraoAnterior
+        ? `GOVERNO PROVINCIAL DE ${provEditLimpa.toUpperCase()}`
+        : govAtual;
+
     const dadosAtualizados: Partial<Escola> & { id: string } = {
       id: escolaSelecionada.id,
       nomeOficial: editNomeOficial.trim(),
       denominacao: editDenominacao.trim() || undefined,
       sigla: editSigla.trim().toUpperCase() || undefined,
       nif: editNif.trim() || undefined,
-      provincia: editProvincia.trim(),
-      municipio: editMunicipio.trim(),
+      provincia: provEditLimpa,
+      municipio: muncEditLimpo,
       endereco: editEndereco.trim() || undefined,
       email: editEmail.trim() || undefined,
       contactos: editTelefone.trim() || undefined,
       decretoCriacao: editDecreto.trim() || undefined,
-      governoProvincial: editGovernoProvincial.trim() || undefined,
+      governoProvincial: governoProvincialFinal,
       gabineteEducacao: editGabineteEducacao.trim() || undefined,
       anoLectivoActivo: editAnoLectivo.trim(),
       ensinoPrimario: editEnsinoPrimario,
