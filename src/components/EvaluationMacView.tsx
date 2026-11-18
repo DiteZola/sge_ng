@@ -57,6 +57,7 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import * as XLSX from 'xlsx';
+import { formatarDataHoraAngolana, hojeAngolano } from '../utils/dateFormat';
 import { 
   calcularMACEstudante, 
   calcularNotaTrimestralDinamica,
@@ -716,7 +717,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       alteradoPorId: currentUser.id,
       alteradoPorNome: currentUser.nomeCompleto,
       alteradoPorRole: currentUser.role as any,
-      dataHora: new Date().toLocaleString('pt-AO'),
+      dataHora: formatarDataHoraAngolana(new Date()),
       lidoPeloProfessor: false
     });
 
@@ -2523,7 +2524,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
             {/* Data Oficial da Pauta Conforme Normas do Ministério da Educação */}
             <div className="flex justify-end my-4 pr-3">
               <p className="text-right text-xs font-serif italic text-gray-800">
-                {escola.municipio ? `${escola.municipio}` : (escola.provincia || 'Luanda')}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+                {escola.municipio ? `${escola.municipio}` : (escola.provincia || 'Luanda')}, aos {hojeAngolano('extenso')}.
               </p>
             </div>
 

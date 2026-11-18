@@ -1,47 +1,48 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  FileBarChart, 
-  Download, 
-  Printer, 
-  Calendar, 
-  BookOpen, 
-  Users, 
-  GraduationCap, 
-  Award, 
-  AlertTriangle, 
-  CheckCircle, 
-  Clock, 
-  FileText, 
-  Building2, 
-  ChevronRight,
-  TrendingUp,
-  UserCheck,
+import {
+  FileText,
+  Plus,
+  Calendar,
+  Clock,
+  MapPin,
+  Users,
+  CheckCircle,
+  Download,
+  Printer,
+  Filter,
+  Search,
+  Edit3,
+  Trash2,
+  Eye,
+  X,
+  Building2,
   ShieldCheck,
-  Filter
+  Megaphone,
+  BookOpen,
+  Award,
+  Layers,
+  Check
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { 
-  Escola, 
-  Turma, 
-  Aluno, 
-  Disciplina, 
-  NotaTrimestralConsolidada, 
-  Funcionario, 
+import {
+  Escola,
+  Turma,
+  Aluno,
+  Disciplina,
+  NotaTrimestralConsolidada,
+  Funcionario,
   AnoLectivoConfig,
-  AtribuicaoDocente
+  AtribuicaoDocente,
+  RelatorioAcontecimento,
+  CategoriaRelatorioAcontecimento,
+  VisibilidadeRelatorioAcontecimento,
+  EstadoRelatorioAcontecimento
 } from '../types';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
-import { 
-  filtrarDisciplinasDaClasse, 
-  normalizarClasse, 
-  formatarCicloPorClasse,
-  ordenarDisciplinas,
-  isClasseFinal 
-} from '../services/academicHierarchyService';
-import { obterInformacaoEscala } from '../services/macEngine';
+import { formatarDataAngolana, formatarDataHoraAngolana } from '../utils/dateFormat';
 
 interface ReportsViewProps {
   escola: Escola;
@@ -57,13 +58,139 @@ interface ReportsViewProps {
   onMudarEscola?: (escolaId: string) => void;
 }
 
-type SubAbaRelatorio = 
-  | 'resumo_rede'
-  | 'mapa_rendimento' 
-  | 'rendimento_disciplina' 
-  | 'assiduidade_faltas' 
-  | 'carga_horaria' 
-  | 'balanco_pedagogico';
+interface EventoEscolarExterno {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  titulo: string;
+  categoria: string;
+  dataInicio: string;
+  dataFim?: string;
+  hora?: string;
+  local?: string;
+  publicoAlvo: string;
+  descricao?: string;
+  concluido?: boolean;
+}
+
+interface DespachoExterno {
+  id: string;
+  escolaId: string;
+  numeroDespacho: string;
+  ano: string;
+  assunto: string;
+  categoria: string;
+  fundamentacaoLegal: string;
+  conteudo: string;
+  dataEmissao: string;
+  assinadoPor: string;
+  cargoSignatario: string;
+  publicoAlvo: string;
+  status: string;
+}
+
+interface ReuniaoDirecaoExterna {
+  id: string;
+  escolaId: string;
+  numeroAta: string;
+  tipo: string;
+  data: string;
+  hora: string;
+  local: string;
+  ordemDoDia: string[];
+  membrosPresentes: string[];
+  deliberacoes: string[];
+  estado: string;
+}
+
+type OrigemItemRelatorio = 'Relatorio' | 'Agenda' | 'Conselho_Direcao' | 'Despacho' | 'Ocorrencia_Aluno';
+
+interface ItemRelatorioUnificado extends RelatorioAcontecimento {
+  origem: OrigemItemRelatorio;
+  somenteLeitura: boolean;
+  referenciaOriginal?: string;
+}
+
+const CATEGORIAS_CONFIG: Record<
+  CategoriaRelatorioAcontecimento,
+  { label: string; corBadge: string; subtipos: string[] }
+> = {
+  Reuniao: {
+    label: 'Reunião',
+    corBadge: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    subtipos: [
+      'Reunião de Direção',
+      'Conselho Pedagógico',
+      'Conselho de Turma',
+      'Reunião de Pais e Encarregados',
+      'Reunião de Coordenação de Disciplina',
+      'Reunião Extraordinária'
+    ]
+  },
+  Palestra: {
+    label: 'Palestra & Formação',
+    corBadge: 'bg-purple-100 text-purple-800 border-purple-200',
+    subtipos: [
+      'Palestra Educativa',
+      'Seminário / Simpósio',
+      'Capacitação Docente',
+      'Workshop Técnico-Pedagógico',
+      'Sensibilização Comunitária'
+    ]
+  },
+  Evento: {
+    label: 'Evento Escolar',
+    corBadge: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    subtipos: [
+      'Abertura do Ano Letivo',
+      'Jornada Pedagógica',
+      'Feira de Ciências / Cultura',
+      'Cerimónia Oficial / Efeméride',
+      'Actividade Desportiva / Recreativa'
+    ]
+  },
+  Desenvolvimento: {
+    label: 'Desenvolvimento',
+    corBadge: 'bg-blue-100 text-blue-800 border-blue-200',
+    subtipos: [
+      'Desenvolvimento Pedagógico',
+      'Desenvolvimento Administrativo',
+      'Cumprimento Programático / Curricular',
+      'Melhoria de Infraestrutura',
+      'Projecto Educativo'
+    ]
+  },
+  Ocorrencia: {
+    label: 'Ocorrência & Supervisão',
+    corBadge: 'bg-amber-100 text-amber-800 border-amber-200',
+    subtipos: [
+      'Ocorrência Disciplinar / Pedagógica',
+      'Visita de Inspecção / Supervisão',
+      'Ocorrência de Turno',
+      'Relatório de Incidente'
+    ]
+  }
+};
+
+const LABEL_ESTADO: Record<EstadoRelatorioAcontecimento, { label: string; classe: string }> = {
+  Rascunho: { label: 'Rascunho', classe: 'bg-slate-100 text-slate-700 border-slate-300' },
+  Registado: { label: 'Registado', classe: 'bg-blue-100 text-blue-800 border-blue-200' },
+  Homologado: { label: 'Homologado', classe: 'bg-emerald-100 text-emerald-800 border-emerald-200' }
+};
+
+const LABEL_VISIBILIDADE: Record<VisibilidadeRelatorioAcontecimento, string> = {
+  Publico_Escola: 'Toda a Escola',
+  Direcao: 'Direção & Coordenação',
+  Docente_Turma: 'Turma / Docência Específica',
+  Rede_Nacional: 'Rede Nacional (Administração Central)'
+};
+
+const normalizarTexto = (txt?: string): string =>
+  (txt || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
   escola,
@@ -72,41 +199,65 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   turmas: propTurmas,
   alunos: propAlunos,
   disciplinas: propDisciplinas,
-  notasConsolidadas: propNotas,
   funcionarios: propFuncionarios,
   anoLectivoConfigs = [],
   atribuicoes: propAtribuicoes,
   onMudarEscola: _onMudarEscola
 }) => {
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
+  const [refreshTick, setRefreshTick] = useState(0);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const notificar = (msg: string) => {
+    setFeedback(msg);
+    setTimeout(() => setFeedback(null), 4000);
+  };
 
   useEffect(() => {
-    const syncConfig = () => setConfigSistema(dbService.getConfiguracaoSistema());
-    window.addEventListener('sge_dados_atualizados_remoto', syncConfig);
-    return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
+    const onSync = () => {
+      setConfigSistema(dbService.getConfiguracaoSistema());
+      setRefreshTick(t => t + 1);
+    };
+    window.addEventListener('sge_dados_atualizados_remoto', onSync);
+    window.addEventListener('storage', onSync);
+    return () => {
+      window.removeEventListener('sge_dados_atualizados_remoto', onSync);
+      window.removeEventListener('storage', onSync);
+    };
   }, []);
 
-  // Identificação do Perfil do Utilizador
+  // Identificação estrita do perfil do utilizador
   const isAdminGeral = currentUser?.role === 'AdminGeral';
-  const isProfessor = currentUser?.role === 'Professor';
-  const isCoordenadorDisciplina = currentUser?.role === 'CoordenadorDisciplina';
-  const isCoordenadorTurno = currentUser?.role === 'CoordenadorTurno';
+  const isDiretorGeral = currentUser?.role === 'DiretorGeral';
+  const isSubdiretor =
+    currentUser?.role === 'SubdiretorPedagogico' ||
+    currentUser?.role === 'SubdiretorAdministrativo' ||
+    currentUser?.role === 'SubdirectorAdministrativo';
   const isCoordenadorPedagogico = currentUser?.role === 'CoordenadorPedagogico';
-  const isDocenteOuCoordenador = isProfessor || isCoordenadorDisciplina || isCoordenadorTurno || isCoordenadorPedagogico;
-  const isDirecao = 
-    currentUser?.role === 'DiretorGeral' || 
-    currentUser?.role === 'SubdiretorPedagogico' || 
-    currentUser?.role === 'SubdiretorAdministrativo' || 
-    currentUser?.role === 'SubdirectorAdministrativo' || 
-    currentUser?.role === 'ChefeSecretaria' || 
+  const isDirecaoOuAdmin =
+    isAdminGeral ||
+    isDiretorGeral ||
+    isSubdiretor ||
+    isCoordenadorPedagogico ||
+    currentUser?.role === 'ChefeSecretaria' ||
     currentUser?.role === 'Secretaria' ||
     currentUser?.role === 'SecretarioEscolar' ||
     currentUser?.role === 'Secretario' ||
     currentUser?.role === 'TecnicoTI';
 
-  // Filtro local de escola para Administrador Geral (padrão: 'TODAS' = Resumo Consolidado de todas as escolas)
-  const [escolaFiltroAdmin, setEscolaFiltroAdmin] = useState<string>(() => (isAdminGeral ? 'TODAS' : escola.id));
+  const isProfessor = currentUser?.role === 'Professor';
+  const isCoordenadorDisciplina = currentUser?.role === 'CoordenadorDisciplina';
+  const isCoordenadorTurno = currentUser?.role === 'CoordenadorTurno';
+  const isDocenteEscopoRestrito =
+    !isDirecaoOuAdmin && (isProfessor || isCoordenadorDisciplina || isCoordenadorTurno);
+
+  const podeHomologar = isAdminGeral || isDiretorGeral || isSubdiretor || isCoordenadorPedagogico;
+
+  // Filtro de escola para Admin Geral ('TODAS' por padrão para visão global)
+  const [escolaFiltroAdmin, setEscolaFiltroAdmin] = useState<string>(() =>
+    isAdminGeral ? 'TODAS' : escola.id
+  );
   useEffect(() => {
     if (!isAdminGeral) {
       setEscolaFiltroAdmin(escola.id);
@@ -124,1881 +275,1967 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const escolasMap = useMemo(() => {
     const map = new Map<string, Escola>();
     escolas.forEach(e => map.set(e.id, e));
-    if (escola?.id && !map.has(escola.id)) map.set(escola.id, escola);
+    if (escola?.id && !map.has(escola.id)) {
+      map.set(escola.id, escola);
+    }
     return map;
   }, [escolas, escola]);
 
-  // Dados isolados ao escopo selecionado (Todas as Escolas vs Escola Individual)
-  const turmas = useMemo(() => {
-    if (!isAdminGeral || isVisaoRedeTodas) return propTurmas;
-    return propTurmas.filter(t => t.escolaId === escolaExibida.id);
-  }, [isAdminGeral, isVisaoRedeTodas, propTurmas, escolaExibida.id]);
+  // Dados base consolidados
+  const todasTurmas = useMemo(() => {
+    if (isAdminGeral) {
+      const todas = dbService.getTurmas();
+      return escolaFiltroAdmin === 'TODAS'
+        ? todas
+        : todas.filter(t => t.escolaId === escolaFiltroAdmin);
+    }
+    return propTurmas;
+  }, [isAdminGeral, escolaFiltroAdmin, propTurmas, refreshTick]);
 
-  const alunos = useMemo(() => {
-    if (!isAdminGeral || isVisaoRedeTodas) return propAlunos;
-    return propAlunos.filter(a => a.escolaId === escolaExibida.id);
-  }, [isAdminGeral, isVisaoRedeTodas, propAlunos, escolaExibida.id]);
+  const todosAlunos = useMemo(() => {
+    if (isAdminGeral) {
+      const todos = dbService.getAlunos();
+      return escolaFiltroAdmin === 'TODAS'
+        ? todos
+        : todos.filter(a => a.escolaId === escolaFiltroAdmin);
+    }
+    return propAlunos;
+  }, [isAdminGeral, escolaFiltroAdmin, propAlunos, refreshTick]);
 
-  const disciplinas = useMemo(() => {
-    if (!isAdminGeral || isVisaoRedeTodas) return propDisciplinas;
-    return propDisciplinas.filter(d => d.escolaId === escolaExibida.id);
-  }, [isAdminGeral, isVisaoRedeTodas, propDisciplinas, escolaExibida.id]);
+  const todasDisciplinas = useMemo(() => {
+    if (isAdminGeral) {
+      const todas = dbService.getDisciplinas();
+      return escolaFiltroAdmin === 'TODAS'
+        ? todas
+        : todas.filter(d => d.escolaId === escolaFiltroAdmin);
+    }
+    return propDisciplinas;
+  }, [isAdminGeral, escolaFiltroAdmin, propDisciplinas, refreshTick]);
 
-  const notas = useMemo(() => {
-    const base = propNotas || dbService.getNotasConsolidadas();
-    if (!isAdminGeral || isVisaoRedeTodas) return base;
-    const idsAlunos = new Set(alunos.map(a => a.id));
-    return base.filter(n => n.escolaId === escolaExibida.id || idsAlunos.has(n.alunoId));
-  }, [propNotas, isAdminGeral, isVisaoRedeTodas, escolaExibida.id, alunos]);
+  const todasAtribuicoes = useMemo(() => {
+    if (isAdminGeral) {
+      const todas = dbService.getAtribuicoes();
+      return escolaFiltroAdmin === 'TODAS'
+        ? todas
+        : todas.filter(a => a.escolaId === escolaFiltroAdmin);
+    }
+    return propAtribuicoes || dbService.getAtribuicoes(escola.id);
+  }, [isAdminGeral, escolaFiltroAdmin, propAtribuicoes, escola.id, refreshTick]);
 
-  const funcionarios = useMemo(() => {
-    const base = (propFuncionarios || dbService.getFuncionarios()).filter(f => f.role !== 'AdminGeral');
-    if (!isAdminGeral) return base.filter(f => f.escolaId === escola.id);
-    if (isVisaoRedeTodas) return base;
-    return base.filter(f => f.escolaId === escolaExibida.id);
-  }, [propFuncionarios, isAdminGeral, isVisaoRedeTodas, escola.id, escolaExibida.id]);
+  const todosFuncionarios = useMemo(() => {
+    if (isAdminGeral) {
+      const todos = dbService.getFuncionarios().filter(f => f.role !== 'AdminGeral');
+      return escolaFiltroAdmin === 'TODAS'
+        ? todos
+        : todos.filter(f => f.escolaId === escolaFiltroAdmin);
+    }
+    return propFuncionarios || dbService.getFuncionarios(escola.id);
+  }, [isAdminGeral, escolaFiltroAdmin, propFuncionarios, escola.id, refreshTick]);
 
-  const anosConfigs = useMemo(() => {
-    if (anoLectivoConfigs.length > 0 && !isVisaoRedeTodas) return anoLectivoConfigs;
-    const todasConfigs = isVisaoRedeTodas
-      ? dbService.getAnosLectivosConfigs()
-      : dbService.getAnosLectivosConfigs(escolaExibida.id);
-    const vistos = new Map<string, AnoLectivoConfig>();
-    todasConfigs.forEach(c => {
-      const rot = (c.rotulo || c.ano || '').trim();
-      if (rot && !vistos.has(rot)) vistos.set(rot, c);
+  // Escopo do Docente / Coordenador de Turno / Disciplina
+  const minhasAtribuicoes = useMemo(() => {
+    if (!currentUser || !isDocenteEscopoRestrito) return [];
+    return todasAtribuicoes.filter(a => {
+      if (a.escolaId && a.escolaId !== escola.id) return false;
+      return a.professorId === currentUser.id;
     });
-    if (isVisaoRedeTodas) {
-      escolas.forEach(esc => {
-        if (esc.anoLectivoActivo && !vistos.has(esc.anoLectivoActivo)) {
-          vistos.set(esc.anoLectivoActivo, {
-            id: `ano-esc-${esc.id}`,
-            escolaId: esc.id,
-            rotulo: esc.anoLectivoActivo,
-            ano: esc.anoLectivoActivo,
-            dataInicio: '',
-            dataFim: '',
-            estado: 'Aberto',
-            trimestres: [],
-            criadoEm: ''
-          });
-        }
-      });
-    }
-    return Array.from(vistos.values());
-  }, [anoLectivoConfigs, isVisaoRedeTodas, escolaExibida.id, escolas]);
+  }, [currentUser, isDocenteEscopoRestrito, todasAtribuicoes, escola.id]);
 
-  const atribuicoesTodas = useMemo(() => {
-    const base = propAtribuicoes || dbService.getAtribuicoes();
-    if (!isAdminGeral || isVisaoRedeTodas) return base;
-    return base.filter(a => !a.escolaId || a.escolaId === escolaExibida.id);
-  }, [propAtribuicoes, isAdminGeral, isVisaoRedeTodas, escolaExibida.id]);
-
-  const presencasAlunosRede = useMemo(() => {
-    const todas = dbService.obterPresencasAlunos();
-    if (!isAdminGeral || isVisaoRedeTodas) return todas;
-    return todas.filter(p => p.escolaId === escolaExibida.id);
-  }, [isAdminGeral, isVisaoRedeTodas, escolaExibida.id]);
-
-  // Modo de visualização: Professores e Coordenadores iniciam com 'minhas_atribuicoes', mas podem alternar livremente para 'toda_escola'
-  const [modoVisao, setModoVisao] = useState<'minhas_atribuicoes' | 'toda_escola'>(
-    isDocenteOuCoordenador ? 'minhas_atribuicoes' : 'toda_escola'
-  );
-
-  // Filtro de Docente para Direção / AdminGeral: permite auditar individualmente qualquer professor
-  const [filtroDocenteId, setFiltroDocenteId] = useState<string>('TODOS');
-
-  // Estados de Filtros Centrais (incluindo Curso e Disciplina)
-  const [subAbaAtiva, setSubAbaAtiva] = useState<SubAbaRelatorio>(() => (isAdminGeral ? 'resumo_rede' : 'mapa_rendimento'));
-  const [filtroAno, setFiltroAno] = useState<string>(() => (isAdminGeral ? 'TODOS' : (escola.anoLectivoActivo || '')));
-  useEffect(() => {
-    if (!isAdminGeral) {
-      setFiltroAno(escola.anoLectivoActivo || '');
-    }
-  }, [isAdminGeral, escola.id, escola.anoLectivoActivo]);
-  const [filtroTrimestre, setFiltroTrimestre] = useState<string>(() => (isAdminGeral ? 'anual' : String(escola.trimestreActivo || '1')));
-  const [filtroCiclo, setFiltroCiclo] = useState<string>('TODOS');
-  const [filtroCurso, setFiltroCurso] = useState<string>('TODOS');
-  const [filtroClasse, setFiltroClasse] = useState<string>('TODAS');
-  const [filtroTurmaId, setFiltroTurmaId] = useState<string>('TODAS');
-  const [filtroDisciplinaId, setFiltroDisciplinaId] = useState<string>('TODAS');
-
-  const handleSelecionarEscolaAdmin = (novoEscId: string) => {
-    setEscolaFiltroAdmin(novoEscId);
-    setFiltroDocenteId('TODOS');
-    setFiltroTurmaId('TODAS');
-    setFiltroDisciplinaId('TODAS');
-    setFiltroClasse('TODAS');
-    setFiltroCurso('TODOS');
-    if (novoEscId === 'TODAS') {
-      setFiltroAno('TODOS');
-      setFiltroTrimestre('anual');
-      setSubAbaAtiva('resumo_rede');
-    } else {
-      const escAlvo = escolas.find(e => e.id === novoEscId);
-      setFiltroAno(escAlvo?.anoLectivoActivo || 'TODOS');
-      setFiltroTrimestre(String(escAlvo?.trimestreActivo || 'anual'));
-      if (subAbaAtiva === 'resumo_rede') {
-        setSubAbaAtiva('mapa_rendimento');
-      }
-    }
-  };
-
-  // Lista de docentes e coordenadores cadastrados na escola
-  const listaDocentes = useMemo(() => {
-    return funcionarios.filter(f => 
-      f.categoriaProfissional?.toLowerCase().includes('prof') || 
-      f.categoriaProfissional?.toLowerCase().includes('doc') ||
-      f.role === 'Professor' ||
-      f.role === 'CoordenadorDisciplina' ||
-      f.role === 'CoordenadorTurno' ||
-      f.role === 'CoordenadorPedagogico' ||
-      Boolean(f.especialidade)
-    );
-  }, [funcionarios]);
-
-  // Identificação do Docente Alvo da Análise
-  const docenteAlvo = useMemo(() => {
-    if (isDocenteOuCoordenador && modoVisao === 'minhas_atribuicoes') {
-      return currentUser || null;
-    }
-    if ((isDirecao || isAdminGeral) && filtroDocenteId !== 'TODOS') {
-      return funcionarios.find(f => f.id === filtroDocenteId) || null;
-    }
-    return null;
-  }, [isDocenteOuCoordenador, modoVisao, currentUser, isDirecao, isAdminGeral, filtroDocenteId, funcionarios]);
-
-  // Atribuições do Docente Alvo (se ativo)
-  const atribuicoesDoDocenteAlvo = useMemo(() => {
-    if (!docenteAlvo) return [];
-    return atribuicoesTodas.filter(a => a.professorId === docenteAlvo.id);
-  }, [docenteAlvo, atribuicoesTodas]);
-
-  const turmasDocenteIds = useMemo(() => {
-    if (!docenteAlvo) return new Set<string>();
-    const ids = new Set<string>(atribuicoesDoDocenteAlvo.map(a => a.turmaId));
-    // Fallback: se o docente for coordenador de turma ou diretor de turma
-    turmas.forEach(t => {
-      if (t.coordenadorId === docenteAlvo.id || 
-          (t.coordenadorNome && t.coordenadorNome.toLowerCase() === docenteAlvo.nomeCompleto.toLowerCase()) ||
-          (t.directorTurmaNome && t.directorTurmaNome.toLowerCase() === docenteAlvo.nomeCompleto.toLowerCase())) {
+  const minhasTurmasIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!currentUser) return ids;
+    minhasAtribuicoes.forEach(a => {
+      if (a.turmaId) ids.add(a.turmaId);
+    });
+    todasTurmas.forEach(t => {
+      if (t.escolaId !== escola.id) return;
+      if (
+        t.coordenadorId === currentUser.id ||
+        (t.coordenadorNome &&
+          normalizarTexto(t.coordenadorNome) === normalizarTexto(currentUser.nomeCompleto)) ||
+        (t.directorTurmaNome &&
+          normalizarTexto(t.directorTurmaNome) === normalizarTexto(currentUser.nomeCompleto))
+      ) {
         ids.add(t.id);
+      }
+      if (isCoordenadorTurno && currentUser.cargo) {
+        const cargoNorm = normalizarTexto(currentUser.cargo);
+        const turnoNorm = normalizarTexto(t.turno);
+        if (turnoNorm && cargoNorm.includes(turnoNorm)) {
+          ids.add(t.id);
+        }
       }
     });
     return ids;
-  }, [docenteAlvo, atribuicoesDoDocenteAlvo, turmas]);
+  }, [currentUser, minhasAtribuicoes, todasTurmas, escola.id, isCoordenadorTurno]);
 
-  const disciplinasDocenteIds = useMemo(() => {
-    if (!docenteAlvo) return new Set<string>();
-    const ids = new Set<string>(atribuicoesDoDocenteAlvo.map(a => a.disciplinaId));
-    if (docenteAlvo.especialidade) {
-      disciplinas.forEach(d => {
-        if (d.nome.toLowerCase().includes(docenteAlvo.especialidade!.toLowerCase()) || 
-            docenteAlvo.especialidade!.toLowerCase().includes(d.nome.toLowerCase())) {
+  const minhasDisciplinasIds = useMemo(() => {
+    const ids = new Set<string>();
+    minhasAtribuicoes.forEach(a => {
+      if (a.disciplinaId) ids.add(a.disciplinaId);
+    });
+    if (isCoordenadorDisciplina && currentUser?.especialidade) {
+      const espNorm = normalizarTexto(currentUser.especialidade);
+      todasDisciplinas.forEach(d => {
+        if (d.escolaId === escola.id && normalizarTexto(d.nome).includes(espNorm)) {
           ids.add(d.id);
         }
       });
     }
     return ids;
-  }, [docenteAlvo, atribuicoesDoDocenteAlvo, disciplinas]);
+  }, [minhasAtribuicoes, isCoordenadorDisciplina, currentUser, todasDisciplinas, escola.id]);
 
-  // Turmas permitidas conforme o filtro ou perfil
-  const turmasPermitidas = useMemo(() => {
-    if (docenteAlvo && turmasDocenteIds.size > 0) {
-      return turmas.filter(t => turmasDocenteIds.has(t.id));
-    }
-    if (isCoordenadorTurno && modoVisao === 'minhas_atribuicoes' && currentUser?.cargo) {
-      const cargo = currentUser.cargo.toLowerCase();
-      if (cargo.includes('manhã')) return turmas.filter(t => t.turno === 'Manhã');
-      if (cargo.includes('tarde')) return turmas.filter(t => t.turno === 'Tarde');
-      if (cargo.includes('noite')) return turmas.filter(t => t.turno === 'Noite');
-    }
-    return turmas;
-  }, [turmas, docenteAlvo, turmasDocenteIds, isCoordenadorTurno, modoVisao, currentUser]);
-
-  // Disciplinas permitidas conforme o filtro ou perfil
-  const disciplinasPermitidas = useMemo(() => {
-    if (docenteAlvo && disciplinasDocenteIds.size > 0) {
-      const filtradas = disciplinas.filter(d => disciplinasDocenteIds.has(d.id));
-      return filtradas.length > 0 ? ordenarDisciplinas(filtradas) : ordenarDisciplinas(disciplinas);
-    }
-    if (isCoordenadorDisciplina && modoVisao === 'minhas_atribuicoes' && currentUser?.especialidade) {
-      const filtradas = disciplinas.filter(d => 
-        d.nome.toLowerCase().includes(currentUser.especialidade!.toLowerCase()) ||
-        currentUser.especialidade!.toLowerCase().includes(d.nome.toLowerCase())
-      );
-      if (filtradas.length > 0) return ordenarDisciplinas(filtradas);
-    }
-    return ordenarDisciplinas(disciplinas);
-  }, [disciplinas, docenteAlvo, disciplinasDocenteIds, isCoordenadorDisciplina, modoVisao, currentUser]);
-
-  // Cursos disponíveis a partir das turmas permitidas
-  const cursosDisponiveis = useMemo(() => {
-    const setCursos = new Set<string>();
-    turmasPermitidas.forEach(t => {
-      if (t.curso && t.curso.trim()) setCursos.add(t.curso.trim());
-    });
-    return Array.from(setCursos).sort();
-  }, [turmasPermitidas]);
-
-  // Textos para o Parecer / Balanço Pedagógico
-  const [parecerDificuldades, setParecerDificuldades] = useState<string>(
-    isProfessor
-      ? `Nas turmas lecionadas pelo(a) Prof(a). ${currentUser?.nomeCompleto || 'Docente'}, registou-se evolução no domínio curricular, com atenção especial a conceitos fundamentais de cálculo e compreensão textual.`
-      : 'Verificou-se ligeira irregularidade na assiduidade discente nos dias chuvosos e necessidade de consolidação de conceitos elementares em turmas de transição.'
-  );
-  const [parecerMedidas, setParecerMedidas] = useState<string>(
-    isProfessor
-      ? 'Intensificação de fichas de exercícios práticos, apoio pedagógico nos tempos complementares e acompanhamento contínuo dos estudantes com dificuldades.'
-      : 'Implementação de aulas de apoio pedagógico aos sábados, reforço na planificação conjunta por disciplina e reuniões de alinhamento com encarregados de educação.'
-  );
-  const [parecerConclusao, setParecerConclusao] = useState<string>(
-    isProfessor
-      ? `Relatório do(a) docente ${currentUser?.nomeCompleto || 'Professor'} submetido para homologação da Subdirecção Pedagógica, em conformidade com o cumprimento integral da carga horária e planos de aula.`
-      : 'O trimestre decorreu dentro da normalidade curricular com 94% de cumprimento do calendário escolar ministerial. Recomenda-se a homologação dos resultados provisórios.'
-  );
-
-  // Lista de classes disponíveis baseada nas turmas permitidas para o usuário
-  const classesDisponiveis = useMemo(() => {
-    const setClasses = new Set<string>();
-    turmasPermitidas.forEach(t => {
-      if (t.classe) setClasses.add(t.classe);
-    });
-    return Array.from(setClasses).sort();
-  }, [turmasPermitidas]);
-
-  // Turmas filtradas pelo ano, ciclo, curso e classe
-  const turmasFiltradas = useMemo(() => {
-    return turmasPermitidas.filter(t => {
-      if (filtroAno && filtroAno !== 'TODOS' && t.anoLectivo && t.anoLectivo !== filtroAno) return false;
-      if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
-      if (filtroCiclo !== 'TODOS') {
-        const cicloTurma = formatarCicloPorClasse(t.classe);
-        if (!cicloTurma.toLowerCase().includes(filtroCiclo.toLowerCase())) return false;
-      }
-      if (filtroCurso !== 'TODOS' && t.curso !== filtroCurso) return false;
-      return true;
-    });
-  }, [turmasPermitidas, filtroAno, filtroClasse, filtroCiclo, filtroCurso]);
-
-  // Turmas ativas no relatório
-  const turmasAlvo = useMemo(() => {
-    if (filtroTurmaId !== 'TODAS') {
-      return turmasFiltradas.filter(t => t.id === filtroTurmaId);
-    }
-    return turmasFiltradas;
-  }, [turmasFiltradas, filtroTurmaId]);
-
-  // Cálculos consolidados para o Mapa de Rendimento Escolar por Turma
-  const mapaRendimentoTurmas = useMemo(() => {
-    return turmasAlvo.map(t => {
-      const alunosDaTurma = alunos.filter(a => a.turmaId === t.id);
-      const matriculadosM = alunosDaTurma.filter(a => a.genero === 'M').length;
-      const matriculadosF = alunosDaTurma.filter(a => a.genero === 'F').length;
-      const matriculadosTotal = alunosDaTurma.length;
-
-      const desistentes = alunosDaTurma.filter(a => a.estado === 'Desistente' || a.estado === 'Transferido');
-      const desistentesTotal = desistentes.length;
-
-      const ativos = alunosDaTurma.filter(a => a.estado !== 'Desistente' && a.estado !== 'Transferido');
-      const avaliadosTotal = ativos.length;
-      const avaliadosM = ativos.filter(a => a.genero === 'M').length;
-      const avaliadosF = ativos.filter(a => a.genero === 'F').length;
-
-      // Calcular médias e transição de cada aluno na turma
-      const escala = obterInformacaoEscala(t.classe);
-      const notaCorte = escala.notaAprovacao; // 10 valores (ou 3 na escala 0-5)
-
-      let aprovadosTotal = 0;
-      let aprovadosM = 0;
-      let aprovadosF = 0;
-      let reprovadosTotal = 0;
-      let somaMedias = 0;
-      let alunosComNotasContador = 0;
-
-      ativos.forEach(aluno => {
-        // Se houver docente alvo ou disciplina específica, avalia com base nesses critérios
-        const notasDoAluno = notas.filter(n => {
-          if (n.alunoId !== aluno.id) return false;
-          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
-          if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
-          if (filtroDisciplinaId !== 'TODAS' && n.disciplinaId !== filtroDisciplinaId) return false;
-          if (docenteAlvo && disciplinasDocenteIds.size > 0) {
-            return disciplinasDocenteIds.has(n.disciplinaId);
-          }
-          return true;
-        });
-
-        if (notasDoAluno.length > 0) {
-          const somaNotas = notasDoAluno.reduce((acc, n) => {
-            const val = n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0;
-            return acc + val;
-          }, 0);
-          const mediaAluno = somaNotas / notasDoAluno.length;
-          somaMedias += mediaAluno;
-          alunosComNotasContador++;
-
-          if (mediaAluno >= notaCorte) {
-            aprovadosTotal++;
-            if (aluno.genero === 'M') aprovadosM++;
-            else aprovadosF++;
-          } else {
-            reprovadosTotal++;
-          }
-        }
-      });
-
-      const percAprovados = avaliadosTotal > 0 ? ((aprovadosTotal / avaliadosTotal) * 100).toFixed(1) : '0.0';
-      const percReprovados = avaliadosTotal > 0 ? ((reprovadosTotal / avaliadosTotal) * 100).toFixed(1) : '0.0';
-      const mediaTurma = alunosComNotasContador > 0 ? (somaMedias / alunosComNotasContador).toFixed(1) : '—';
-
-      return {
-        turma: t,
-        escolaSigla: escolasMap.get(t.escolaId)?.sigla || escolaExibida.sigla || 'MED',
-        matriculadosTotal,
-        matriculadosM,
-        matriculadosF,
-        desistentesTotal,
-        avaliadosTotal,
-        avaliadosM,
-        avaliadosF,
-        aprovadosTotal,
-        aprovadosM,
-        aprovadosF,
-        percAprovados,
-        reprovadosTotal,
-        percReprovados,
-        mediaTurma,
-        ehTerminal: isClasseFinal(t.classe)
-      };
-    });
-  }, [turmasAlvo, alunos, notas, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds, escolasMap, escolaExibida.sigla]);
-
-  // Rendimento por Disciplina (estritamente na ordem configurada na gestão de disciplinas; consolida por nome quando em Visão Geral de Todas as Escolas)
-  const rendimentoPorDisciplina = useMemo(() => {
+  // Anos letivos disponíveis
+  const anosConfigs = useMemo(() => {
     if (isVisaoRedeTodas) {
-      const grupos = new Map<string, { nome: string; codigo: string; ordem: number; totalAvaliados: number; totalPositivas: number; totalNegativas: number; somaNotas: number }>();
-      const discPorId = new Map<string, Disciplina>();
-      disciplinasPermitidas.forEach(d => discPorId.set(d.id, d));
+      return dbService.getAnosLectivosConfigs();
+    }
+    return anoLectivoConfigs.length > 0
+      ? anoLectivoConfigs
+      : dbService.getAnosLectivosConfigs(escolaExibida.id);
+  }, [isVisaoRedeTodas, anoLectivoConfigs, escolaExibida.id, refreshTick]);
 
-      const alunosIdsAlvo = new Set(
-        alunos.filter(a => a.estado !== 'Desistente' && turmasAlvo.some(t => t.id === a.turmaId)).map(a => a.id)
-      );
-      const turmaPorAluno = new Map<string, Turma>();
-      alunos.forEach(a => {
-        const t = turmasAlvo.find(tu => tu.id === a.turmaId);
-        if (t) turmaPorAluno.set(a.id, t);
+  const anosDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    anosConfigs.forEach(a => {
+      const rot = a.rotulo || a.ano;
+      if (rot) set.add(rot);
+    });
+    if (escolaExibida.anoLectivoActivo) set.add(escolaExibida.anoLectivoActivo);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [anosConfigs, escolaExibida.anoLectivoActivo]);
+
+  // Filtros
+  const [filtroAno, setFiltroAno] = useState<string>('TODOS');
+  const [filtroTrimestre, setFiltroTrimestre] = useState<string>('TODOS');
+  const [filtroCategoria, setFiltroCategoria] = useState<'TODAS' | CategoriaRelatorioAcontecimento>('TODAS');
+  const [filtroEstado, setFiltroEstado] = useState<'TODOS' | EstadoRelatorioAcontecimento>('TODOS');
+  const [filtroOrigem, setFiltroOrigem] = useState<'TODAS' | OrigemItemRelatorio>('TODAS');
+  const [filtroTurmaId, setFiltroTurmaId] = useState<string>('TODAS');
+  const [filtroDataInicio, setFiltroDataInicio] = useState<string>('');
+  const [filtroDataFim, setFiltroDataFim] = useState<string>('');
+  const [busca, setBusca] = useState<string>('');
+
+  // Relatórios estruturados guardados na base de dados (sincronizados via Firebase + cache offline)
+  const relatoriosEstruturados = useMemo(() => {
+    return dbService.getRelatoriosAcontecimentos('TODAS');
+  }, [refreshTick]);
+
+  // Agregação segura com os módulos existentes (Agenda Escolar, Reuniões de Direção, Despachos e Ocorrências de Alunos)
+  const todosItensBrutos = useMemo<ItemRelatorioUnificado[]>(() => {
+    const lista: ItemRelatorioUnificado[] = [];
+
+    // 1. Relatórios de Acontecimentos registados diretamente (CRUD principal)
+    relatoriosEstruturados.forEach(r => {
+      lista.push({
+        ...r,
+        origem: 'Relatorio',
+        somenteLeitura: false
       });
+    });
 
-      notas.forEach(item => {
-        if (!alunosIdsAlvo.has(item.alunoId)) return;
-        if (filtroAno && filtroAno !== 'TODOS' && item.anoLectivo && item.anoLectivo !== filtroAno) return;
-        if (filtroTrimestre !== 'anual' && item.trimestre && String(item.trimestre) !== filtroTrimestre) return;
-        if (filtroDisciplinaId !== 'TODAS' && item.disciplinaId !== filtroDisciplinaId) return;
+    // Escolas relevantes para leitura de chaves locais complementares
+    const escolaIdsAlvo = isAdminGeral
+      ? escolaFiltroAdmin === 'TODAS'
+        ? Array.from(escolasMap.keys())
+        : [escolaFiltroAdmin]
+      : [escola.id];
 
-        const disc = discPorId.get(item.disciplinaId);
-        if (!disc) return;
-        const key = (disc.nome || '').trim().toLowerCase();
-        if (!key) return;
+    // 2. Eventos Escolares (Calendário / Agenda Escolar)
+    try {
+      const rawEventos = localStorage.getItem('sge_eventos_escolares');
+      if (rawEventos) {
+        const parsed: EventoEscolarExterno[] = JSON.parse(rawEventos);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(ev => {
+            if (!escolaIdsAlvo.includes(ev.escolaId)) return;
+            const esc = escolasMap.get(ev.escolaId);
+            const catRaw = normalizarTexto(ev.categoria);
+            const categoriaMapeada: CategoriaRelatorioAcontecimento = catRaw.includes('reuniao')
+              ? 'Reuniao'
+              : catRaw.includes('palestra')
+              ? 'Palestra'
+              : catRaw.includes('pedagogic')
+              ? 'Desenvolvimento'
+              : 'Evento';
+            const visibilidade: VisibilidadeRelatorioAcontecimento =
+              ev.publicoAlvo === 'Direção' ? 'Direcao' : 'Publico_Escola';
 
-        const turma = turmaPorAluno.get(item.alunoId);
-        const escala = obterInformacaoEscala(turma?.classe);
-        const notaVal = item.mediaTrimestral ?? item.notaFinal ?? item.mac ?? 0;
-
-        if (!grupos.has(key)) {
-          grupos.set(key, {
-            nome: disc.nome,
-            codigo: disc.codigo || '—',
-            ordem: disc.ordem ?? 999,
-            totalAvaliados: 0,
-            totalPositivas: 0,
-            totalNegativas: 0,
-            somaNotas: 0
+            lista.push({
+              id: `agenda-${ev.id}`,
+              escolaId: ev.escolaId,
+              escolaNome: esc?.nomeOficial || esc?.nome,
+              anoLectivo: ev.anoLectivo || esc?.anoLectivoActivo || '',
+              categoria: categoriaMapeada,
+              subtipo: `Agenda: ${ev.categoria}`,
+              titulo: ev.titulo,
+              data: ev.dataInicio,
+              hora: ev.hora,
+              local: ev.local || 'Recinto Escolar',
+              organizadorNome: 'Calendário Escolar',
+              publicoAlvo: (ev.publicoAlvo as any) || 'Toda a Comunidade',
+              resumoAcontecimentos: ev.descricao || `Actividade registada na agenda escolar (${ev.categoria}).`,
+              nivelVisibilidade: visibilidade,
+              estado: ev.concluido ? 'Homologado' : 'Registado',
+              criadoPorId: 'sistema-agenda',
+              criadoPorNome: 'Agenda Escolar',
+              criadoPorRole: 'Secretaria',
+              criadoEm: ev.dataInicio || '',
+              origem: 'Agenda',
+              somenteLeitura: true,
+              referenciaOriginal: ev.id
+            });
           });
         }
-        const g = grupos.get(key)!;
-        g.totalAvaliados++;
-        g.somaNotas += notaVal;
-        if (notaVal >= escala.notaAprovacao) g.totalPositivas++;
-        else g.totalNegativas++;
-      });
-
-      // Garantir que disciplinas cadastradas sem notas também apareçam se houver poucas ou na lista
-      disciplinasPermitidas.forEach(disc => {
-        if (filtroDisciplinaId !== 'TODAS' && disc.id !== filtroDisciplinaId) return;
-        const key = (disc.nome || '').trim().toLowerCase();
-        if (key && !grupos.has(key)) {
-          grupos.set(key, {
-            nome: disc.nome,
-            codigo: disc.codigo || '—',
-            ordem: disc.ordem ?? 999,
-            totalAvaliados: 0,
-            totalPositivas: 0,
-            totalNegativas: 0,
-            somaNotas: 0
-          });
-        }
-      });
-
-      return Array.from(grupos.values())
-        .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, 'pt-AO'))
-        .map(g => {
-          const taxaAproveitamento = g.totalAvaliados > 0 ? ((g.totalPositivas / g.totalAvaliados) * 100).toFixed(1) : '0.0';
-          const mediaDisciplina = g.totalAvaliados > 0 ? (g.somaNotas / g.totalAvaliados).toFixed(1) : '—';
-          let statusQualitativo = 'Sem Avaliações';
-          if (g.totalAvaliados > 0) {
-            const pct = parseFloat(taxaAproveitamento);
-            if (pct >= 85) statusQualitativo = 'Excelente';
-            else if (pct >= 65) statusQualitativo = 'Bom';
-            else if (pct >= 50) statusQualitativo = 'Regular';
-            else statusQualitativo = 'Crítico / Atenção';
-          }
-          return {
-            disciplina: { id: g.nome, nome: g.nome, codigo: g.codigo, ordem: g.ordem } as Disciplina,
-            ordem: g.ordem,
-            totalAvaliados: g.totalAvaliados,
-            totalPositivas: g.totalPositivas,
-            totalNegativas: g.totalNegativas,
-            taxaAproveitamento,
-            mediaDisciplina,
-            statusQualitativo
-          };
-        });
+      }
+    } catch {
+      // ignore malformed local events
     }
 
-    const refClasse = filtroClasse !== 'TODAS' ? filtroClasse : (turmasAlvo[0]?.classe || '10ª');
-    const refCurso = filtroCurso !== 'TODOS' ? filtroCurso : turmasAlvo[0]?.curso;
-    const disciplinasDaGrelha = filtrarDisciplinasDaClasse(disciplinasPermitidas, refClasse, refCurso);
-    const disciplinasFinais = filtroDisciplinaId !== 'TODAS'
-      ? disciplinasDaGrelha.filter(d => d.id === filtroDisciplinaId)
-      : disciplinasDaGrelha;
+    // 3. Reuniões de Conselho de Direção & Despachos Executivos (por escola)
+    escolaIdsAlvo.forEach(escId => {
+      const esc = escolasMap.get(escId);
+      const escNome = esc?.nomeOficial || esc?.nome || '';
 
-    return disciplinasFinais.map(disc => {
-      let totalAvaliados = 0;
-      let totalPositivas = 0;
-      let totalNegativas = 0;
-      let somaNotas = 0;
+      try {
+        const rawReunioes = localStorage.getItem(`sge_reunioes_direcao_${escId}`);
+        if (rawReunioes) {
+          const parsed: ReuniaoDirecaoExterna[] = JSON.parse(rawReunioes);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(reu => {
+              lista.push({
+                id: `reu-dir-${escId}-${reu.id}`,
+                escolaId: escId,
+                escolaNome: escNome,
+                anoLectivo: esc?.anoLectivoActivo || (reu.data || '').slice(0, 4),
+                categoria: 'Reuniao',
+                subtipo: `Conselho de Direção (${reu.tipo})`,
+                titulo: `${reu.numeroAta} — Reunião ${reu.tipo}`,
+                data: reu.data,
+                hora: reu.hora,
+                local: reu.local || 'Sala da Direção',
+                organizadorNome: esc?.diretorGeralNome || 'Direção Executiva',
+                organizadorRole: 'DiretorGeral',
+                participantes: (reu.membrosPresentes || []).join(', '),
+                numeroParticipantes: (reu.membrosPresentes || []).length,
+                publicoAlvo: 'Direção',
+                resumoAcontecimentos:
+                  (reu.ordemDoDia || []).length > 0
+                    ? `Ordem do Dia: ${reu.ordemDoDia.join('; ')}`
+                    : 'Reunião do Conselho de Direção.',
+                deliberacoesEncaminhamentos: (reu.deliberacoes || []).join('\n• '),
+                nivelVisibilidade: 'Direcao',
+                estado: reu.estado === 'Concluída' ? 'Homologado' : 'Registado',
+                criadoPorId: 'conselho-direcao',
+                criadoPorNome: 'Conselho de Direção',
+                criadoPorRole: 'DiretorGeral',
+                criadoEm: reu.data || '',
+                origem: 'Conselho_Direcao',
+                somenteLeitura: true,
+                referenciaOriginal: reu.numeroAta
+              });
+            });
+          }
+        }
+      } catch {
+        // silent
+      }
 
-      turmasAlvo.forEach(t => {
-        const alunosTurma = alunos.filter(a => a.turmaId === t.id && a.estado !== 'Desistente');
-        const escala = obterInformacaoEscala(t.classe);
+      try {
+        const rawDespachos = localStorage.getItem(`sge_despachos_${escId}`);
+        if (rawDespachos) {
+          const parsed: DespachoExterno[] = JSON.parse(rawDespachos);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(desp => {
+              const vis: VisibilidadeRelatorioAcontecimento =
+                desp.publicoAlvo === 'Geral' || desp.publicoAlvo === 'Professores'
+                  ? 'Publico_Escola'
+                  : 'Direcao';
+              lista.push({
+                id: `desp-${escId}-${desp.id}`,
+                escolaId: escId,
+                escolaNome: escNome,
+                anoLectivo: desp.ano || esc?.anoLectivoActivo || '',
+                categoria: 'Desenvolvimento',
+                subtipo: `Despacho (${desp.categoria})`,
+                titulo: `${desp.numeroDespacho} — ${desp.assunto}`,
+                data: desp.dataEmissao,
+                local: 'Gabinete da Direção Geral',
+                organizadorNome: desp.assinadoPor || esc?.diretorGeralNome || 'Diretor Geral',
+                organizadorRole: desp.cargoSignatario || 'DiretorGeral',
+                publicoAlvo:
+                  desp.publicoAlvo === 'Geral' ? 'Toda a Comunidade' : (desp.publicoAlvo as any),
+                resumoAcontecimentos: desp.conteudo,
+                deliberacoesEncaminhamentos: desp.fundamentacaoLegal,
+                nivelVisibilidade: vis,
+                estado: desp.status === 'Em Vigor' ? 'Homologado' : 'Rascunho',
+                criadoPorId: 'direcao-despacho',
+                criadoPorNome: desp.assinadoPor || 'Direção Geral',
+                criadoPorRole: 'DiretorGeral',
+                criadoEm: desp.dataEmissao || '',
+                origem: 'Despacho',
+                somenteLeitura: true,
+                referenciaOriginal: desp.numeroDespacho
+              });
+            });
+          }
+        }
+      } catch {
+        // silent
+      }
+    });
 
-        alunosTurma.forEach(aluno => {
-          const n = notas.find(item => 
-            item.alunoId === aluno.id && 
-            item.disciplinaId === disc.id &&
-            (!filtroAno || filtroAno === 'TODOS' || !item.anoLectivo || item.anoLectivo === filtroAno) &&
-            (filtroTrimestre === 'anual' || !item.trimestre || String(item.trimestre) === filtroTrimestre)
-          );
+    // 4. Ocorrências registadas nas fichas dos alunos (para visão agregada)
+    todosAlunos.forEach(al => {
+      if (!al.ocorrencias || al.ocorrencias.length === 0) return;
+      const esc = escolasMap.get(al.escolaId);
+      const turmaAl = todasTurmas.find(t => t.id === al.turmaId);
+      al.ocorrencias.forEach(oc => {
+        const ehReuniao = oc.tipo === 'Reunião Encarregado';
+        lista.push({
+          id: `oc-${al.id}-${oc.id}`,
+          escolaId: al.escolaId,
+          escolaNome: esc?.nomeOficial || esc?.nome || '',
+          anoLectivo: oc.anoLectivo || al.anoLectivo || esc?.anoLectivoActivo || '',
+          categoria: ehReuniao ? 'Reuniao' : 'Ocorrencia',
+          subtipo: `${oc.tipo}${oc.gravidade ? ` (${oc.gravidade})` : ''}`,
+          titulo: `${oc.tipo} — ${al.nomeCompleto}`,
+          data: oc.data,
+          organizadorNome: oc.registadoPor || 'Equipa Pedagógica',
+          organizadorRole: oc.cargo,
+          publicoAlvo: ehReuniao ? 'Encarregados' : 'Direção',
+          turmaId: al.turmaId,
+          turmaNome: oc.turmaNome || turmaAl?.nome || '',
+          classe: oc.classe || turmaAl?.classe || al.classeId,
+          turno: turmaAl?.turno,
+          resumoAcontecimentos: oc.descricao,
+          deliberacoesEncaminhamentos: oc.resolucao,
+          nivelVisibilidade: 'Docente_Turma',
+          estado: oc.resolucao ? 'Homologado' : 'Registado',
+          criadoPorId: oc.registadoPor || 'docente',
+          criadoPorNome: oc.registadoPor || 'Equipa Pedagógica',
+          criadoPorRole: oc.cargo || 'Professor',
+          criadoEm: oc.data || '',
+          origem: 'Ocorrencia_Aluno',
+          somenteLeitura: true,
+          referenciaOriginal: al.numeroProcesso || al.codigoMatricula
+        });
+      });
+    });
 
-          if (n) {
-            const notaVal = n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0;
-            totalAvaliados++;
-            somaNotas += notaVal;
-            if (notaVal >= escala.notaAprovacao) {
-              totalPositivas++;
-            } else {
-              totalNegativas++;
+    return lista;
+  }, [
+    relatoriosEstruturados,
+    isAdminGeral,
+    escolaFiltroAdmin,
+    escolasMap,
+    escola.id,
+    todosAlunos,
+    todasTurmas,
+    refreshTick
+  ]);
+
+  // Aplicação rigorosa das regras de visibilidade por Perfil + Filtros
+  const itensVisiveisPorPerfil = useMemo(() => {
+    return todosItensBrutos
+      .filter(item => {
+        // Escopo por Escola
+        if (isAdminGeral) {
+          if (escolaFiltroAdmin !== 'TODAS') {
+            if (item.escolaId !== escolaFiltroAdmin && item.escolaId !== 'REDE') {
+              return false;
             }
           }
-        });
-      });
-
-      const taxaAproveitamento = totalAvaliados > 0 ? ((totalPositivas / totalAvaliados) * 100).toFixed(1) : '0.0';
-      const mediaDisciplina = totalAvaliados > 0 ? (somaNotas / totalAvaliados).toFixed(1) : '—';
-      
-      let statusQualitativo = 'Sem Avaliações';
-      if (totalAvaliados > 0) {
-        const pct = parseFloat(taxaAproveitamento);
-        if (pct >= 85) statusQualitativo = 'Excelente';
-        else if (pct >= 65) statusQualitativo = 'Bom';
-        else if (pct >= 50) statusQualitativo = 'Regular';
-        else statusQualitativo = 'Crítico / Atenção';
-      }
-
-      return {
-        disciplina: disc,
-        ordem: disc.ordem ?? 999,
-        totalAvaliados,
-        totalPositivas,
-        totalNegativas,
-        taxaAproveitamento,
-        mediaDisciplina,
-        statusQualitativo
-      };
-    });
-  }, [isVisaoRedeTodas, disciplinasPermitidas, filtroClasse, filtroCurso, filtroDisciplinaId, turmasAlvo, alunos, notas, filtroAno, filtroTrimestre]);
-
-  // Relatório de Assiduidade e Faltas (presenças diárias reais + faltas em notas)
-  const dadosAssiduidade = useMemo(() => {
-    return turmasAlvo.map(t => {
-      const alunosTurma = alunos.filter(a => a.turmaId === t.id && a.estado !== 'Desistente');
-      const presencasTurma = presencasAlunosRede.filter(p => p.turmaId === t.id);
-      let totalFaltasTurma = 0;
-      let alunosEmRiscoFaltas = 0;
-
-      alunosTurma.forEach(aluno => {
-        const notasAluno = notas.filter(n => {
-          if (n.alunoId !== aluno.id) return false;
-          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
-          if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
-          if (filtroDisciplinaId !== 'TODAS' && n.disciplinaId !== filtroDisciplinaId) return false;
-          if (docenteAlvo && disciplinasDocenteIds.size > 0) {
-            return disciplinasDocenteIds.has(n.disciplinaId);
-          }
-          return true;
-        });
-        const faltasNotas = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);
-        const faltasChamada = presencasTurma.filter(p => p.alunoId === aluno.id && p.estado !== 'Presente').length;
-        const faltasAluno = Math.max(faltasNotas, faltasChamada);
-        totalFaltasTurma += faltasAluno;
-        if (faltasAluno >= 20) alunosEmRiscoFaltas++;
-      });
-
-      const mediaFaltasPorAluno = alunosTurma.length > 0 ? (totalFaltasTurma / alunosTurma.length).toFixed(1) : '0';
-      let taxaAssiduidadeEstimada = Math.max(0, 100 - (parseFloat(mediaFaltasPorAluno) * 1.5)).toFixed(1);
-      if (presencasTurma.length > 0) {
-        const presentes = presencasTurma.filter(p => p.estado === 'Presente').length;
-        taxaAssiduidadeEstimada = ((presentes / presencasTurma.length) * 100).toFixed(1);
-      }
-
-      return {
-        turma: t,
-        escolaSigla: escolasMap.get(t.escolaId)?.sigla || escolaExibida.sigla || 'MED',
-        totalAlunos: alunosTurma.length,
-        totalFaltasTurma,
-        mediaFaltasPorAluno,
-        alunosEmRiscoFaltas,
-        taxaAssiduidadeEstimada
-      };
-    });
-  }, [turmasAlvo, alunos, presencasAlunosRede, notas, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds, escolasMap, escolaExibida.sigla]);
-
-  // Resumo Consolidado por Escola (Visão Ministerial de Todas as Escolas para AdminGeral)
-  const resumoConsolidadoPorEscola = useMemo(() => {
-    if (!isAdminGeral) return [];
-    return escolas.map(esc => {
-      const dir = dbService.encontrarDiretorDaEscola(esc, propFuncionarios);
-      const nomeDirRaw = dir?.nomeCompleto || esc.diretorGeralNome || '';
-      const nomeDirNorm = nomeDirRaw.trim().toLowerCase();
-      const temDiretor = Boolean(
-        dir ||
-        (nomeDirNorm && nomeDirNorm !== 'não atribuído' && nomeDirNorm !== 'nao atribuido' && nomeDirNorm !== 'pendente de nomeação')
-      );
-      const diretorNome = temDiretor ? nomeDirRaw : 'Sem Diretor Atribuído';
-
-      const turmasEsc = propTurmas.filter(t => {
-        if (t.escolaId !== esc.id) return false;
-        if (filtroAno && filtroAno !== 'TODOS' && t.anoLectivo && t.anoLectivo !== filtroAno) return false;
-        if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
-        return true;
-      });
-      const turmasEscIds = new Set(turmasEsc.map(t => t.id));
-      const alunosEsc = propAlunos.filter(a => a.escolaId === esc.id);
-      const matriculadosM = alunosEsc.filter(a => a.genero === 'M').length;
-      const matriculadosF = alunosEsc.filter(a => a.genero === 'F').length;
-      const matriculadosTotal = alunosEsc.length;
-      const desistentes = alunosEsc.filter(a => a.estado === 'Desistente' || a.estado === 'Transferido').length;
-      const ativos = alunosEsc.filter(a => a.estado !== 'Desistente' && a.estado !== 'Transferido');
-
-      const funcsBase = (propFuncionarios || dbService.getFuncionarios()).filter(f => f.escolaId === esc.id && f.role !== 'AdminGeral' && f.ativo !== false);
-      const professoresCount = funcsBase.filter(f =>
-        f.role === 'Professor' || f.ehProfessor || f.categoriaProfissional?.toLowerCase().includes('prof') || f.categoriaProfissional?.toLowerCase().includes('doc')
-      ).length;
-
-      const notasBase = propNotas || dbService.getNotasConsolidadas();
-      let avaliados = 0;
-      let aprovados = 0;
-      let reprovados = 0;
-      let somaMedias = 0;
-
-      ativos.forEach(aluno => {
-        const turma = propTurmas.find(t => t.id === aluno.turmaId);
-        if (filtroTurmaId !== 'TODAS' && turma?.id !== filtroTurmaId) return;
-        if (turmasEscIds.size > 0 && aluno.turmaId && !turmasEscIds.has(aluno.turmaId)) return;
-        const escala = obterInformacaoEscala(turma?.classe);
-        const notasAluno = notasBase.filter(n => {
-          if (n.alunoId !== aluno.id) return false;
-          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
-          if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
-          return true;
-        });
-        if (notasAluno.length > 0) {
-          const media = notasAluno.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0) / notasAluno.length;
-          avaliados++;
-          somaMedias += media;
-          if (media >= escala.notaAprovacao) aprovados++;
-          else reprovados++;
+        } else {
+          const ehDaEscola = item.escolaId === escola.id;
+          const ehCircularNacional =
+            item.escolaId === 'REDE' && item.nivelVisibilidade === 'Rede_Nacional';
+          if (!ehDaEscola && !ehCircularNacional) return false;
         }
+
+        // Escopo por Perfil
+        if (isDocenteEscopoRestrito && currentUser) {
+          const ehMeu =
+            item.criadoPorId === currentUser.id ||
+            item.organizadorId === currentUser.id ||
+            (item.criadoPorNome &&
+              normalizarTexto(item.criadoPorNome) === normalizarTexto(currentUser.nomeCompleto));
+
+          if (ehMeu) return true;
+
+          // Documentos exclusivos da Direção ou Rede Nacional restrita não aparecem ao docente
+          if (item.nivelVisibilidade === 'Direcao' || item.origem === 'Conselho_Direcao') {
+            return false;
+          }
+
+          // Eventos/Relatórios públicos para toda a escola ou corpo docente
+          if (
+            item.nivelVisibilidade === 'Publico_Escola' ||
+            item.publicoAlvo === 'Toda a Comunidade' ||
+            item.publicoAlvo === 'Professores'
+          ) {
+            return true;
+          }
+
+          // Relatórios ou ocorrências da mesma turma/disciplina/turno sob responsabilidade do docente
+          if (item.turmaId && minhasTurmasIds.has(item.turmaId)) return true;
+          if (item.disciplinaId && minhasDisciplinasIds.has(item.disciplinaId)) return true;
+          if (
+            isCoordenadorTurno &&
+            item.turno &&
+            currentUser.cargo &&
+            normalizarTexto(currentUser.cargo).includes(normalizarTexto(item.turno))
+          ) {
+            return true;
+          }
+
+          return false;
+        }
+
+        // Direção e AdminGeral veem globalmente no seu respectivo escopo
+        return true;
+      })
+      .sort((a, b) => {
+        const da = a.data || a.criadoEm || '';
+        const db = b.data || b.criadoEm || '';
+        return db.localeCompare(da);
       });
+  }, [
+    todosItensBrutos,
+    isAdminGeral,
+    escolaFiltroAdmin,
+    escola.id,
+    isDocenteEscopoRestrito,
+    currentUser,
+    minhasTurmasIds,
+    minhasDisciplinasIds,
+    isCoordenadorTurno
+  ]);
 
-      const taxaAprovacao = avaliados > 0 ? ((aprovados / avaliados) * 100).toFixed(1) : '0.0';
-      const mediaGeral = avaliados > 0 ? (somaMedias / avaliados).toFixed(1) : '—';
-
-      const presencasEsc = dbService.obterPresencasAlunos().filter(p => p.escolaId === esc.id);
-      const taxaAssiduidade = presencasEsc.length > 0
-        ? `${((presencasEsc.filter(p => p.estado === 'Presente').length / presencasEsc.length) * 100).toFixed(1)}%`
-        : '—';
-
-      return {
-        escola: esc,
-        diretorNome,
-        temDiretor,
-        turmasCount: turmasEsc.length,
-        funcionariosCount: funcsBase.length,
-        professoresCount,
-        matriculadosTotal,
-        matriculadosM,
-        matriculadosF,
-        desistentes,
-        avaliados,
-        aprovados,
-        reprovados,
-        taxaAprovacao,
-        mediaGeral,
-        taxaAssiduidade
-      };
+  // Filtros aplicados sobre os itens permitidos ao perfil
+  const itensFiltrados = useMemo(() => {
+    const termo = normalizarTexto(busca);
+    return itensVisiveisPorPerfil.filter(item => {
+      if (filtroAno !== 'TODOS' && item.anoLectivo && item.anoLectivo !== filtroAno) {
+        return false;
+      }
+      if (filtroTrimestre !== 'TODOS' && item.trimestre && item.trimestre !== filtroTrimestre) {
+        return false;
+      }
+      if (filtroCategoria !== 'TODAS' && item.categoria !== filtroCategoria) {
+        return false;
+      }
+      if (filtroEstado !== 'TODOS' && item.estado !== filtroEstado) {
+        return false;
+      }
+      if (filtroOrigem !== 'TODAS' && item.origem !== filtroOrigem) {
+        return false;
+      }
+      if (filtroTurmaId !== 'TODAS' && item.turmaId !== filtroTurmaId) {
+        return false;
+      }
+      if (filtroDataInicio && item.data && item.data < filtroDataInicio) {
+        return false;
+      }
+      if (filtroDataFim && item.data && item.data > filtroDataFim) {
+        return false;
+      }
+      if (termo) {
+        const alvo = normalizarTexto(
+          `${item.titulo} ${item.subtipo || ''} ${item.resumoAcontecimentos} ${item.deliberacoesEncaminhamentos || ''} ${item.organizadorNome} ${item.local || ''} ${item.escolaNome || ''} ${item.turmaNome || ''}`
+        );
+        if (!alvo.includes(termo)) return false;
+      }
+      return true;
     });
-  }, [isAdminGeral, escolas, propFuncionarios, propTurmas, propAlunos, propNotas, filtroAno, filtroTrimestre, filtroClasse, filtroTurmaId]);
+  }, [
+    itensVisiveisPorPerfil,
+    filtroAno,
+    filtroTrimestre,
+    filtroCategoria,
+    filtroEstado,
+    filtroOrigem,
+    filtroTurmaId,
+    filtroDataInicio,
+    filtroDataFim,
+    busca
+  ]);
 
-  // Distribuição de Carga Horária Docente
-  const distribuicaoCargaDocente = useMemo(() => {
-    const listaProfessores = docenteAlvo
-      ? [docenteAlvo]
-      : listaDocentes.length > 0
-        ? listaDocentes
-        : funcionarios.filter(f => 
-            f.categoriaProfissional?.toLowerCase().includes('prof') || 
-            f.categoriaProfissional?.toLowerCase().includes('doc') ||
-            Boolean(f.especialidade)
-          );
+  // Métricas / Resumo executivo dos relatórios filtrados
+  const metricasRelatorios = useMemo(() => {
+    const total = itensFiltrados.length;
+    const reunioes = itensFiltrados.filter(i => i.categoria === 'Reuniao').length;
+    const palestrasEventos = itensFiltrados.filter(
+      i => i.categoria === 'Palestra' || i.categoria === 'Evento'
+    ).length;
+    const desenvolvimentosOcorrencias = itensFiltrados.filter(
+      i => i.categoria === 'Desenvolvimento' || i.categoria === 'Ocorrencia'
+    ).length;
+    const homologados = itensFiltrados.filter(i => i.estado === 'Homologado').length;
+    const participantesTotais = itensFiltrados.reduce(
+      (acc, i) => acc + (i.numeroParticipantes || 0),
+      0
+    );
+    const escolasCobertas = new Set(
+      itensFiltrados.map(i => i.escolaId).filter(id => id && id !== 'REDE')
+    ).size;
 
-    return listaProfessores.map(doc => {
-      const turmasDoProf = turmas.filter(t => 
-        t.coordenadorId === doc.id ||
-        (t.coordenadorNome && t.coordenadorNome.toLowerCase() === doc.nomeCompleto.toLowerCase()) ||
-        (t.directorTurmaNome && t.directorTurmaNome.toLowerCase() === doc.nomeCompleto.toLowerCase()) ||
-        atribuicoesTodas.some(a => a.professorId === doc.id && a.turmaId === t.id)
+    return {
+      total,
+      reunioes,
+      palestrasEventos,
+      desenvolvimentosOcorrencias,
+      homologados,
+      taxaHomologacao: total > 0 ? Math.round((homologados / total) * 100) : 0,
+      participantesTotais,
+      escolasCobertas
+    };
+  }, [itensFiltrados]);
+
+  // Estado do Modal de Novo / Editar Relatório
+  const [modalAberto, setModalAberto] = useState(false);
+  const [detalheItem, setDetalheItem] = useState<ItemRelatorioUnificado | null>(null);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+
+  const [formEscolaId, setFormEscolaId] = useState<string>(escola.id);
+  const [formAnoLectivo, setFormAnoLectivo] = useState<string>(
+    escolaExibida.anoLectivoActivo || anosDisponiveis[0] || String(new Date().getFullYear())
+  );
+  const [formTrimestre, setFormTrimestre] = useState<string>('1');
+  const [formCategoria, setFormCategoria] = useState<CategoriaRelatorioAcontecimento>('Reuniao');
+  const [formSubtipo, setFormSubtipo] = useState<string>(CATEGORIAS_CONFIG.Reuniao.subtipos[0]);
+  const [formTitulo, setFormTitulo] = useState<string>('');
+  const [formData, setFormData] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [formHora, setFormHora] = useState<string>('09:00');
+  const [formLocal, setFormLocal] = useState<string>('');
+  const [formOrganizadorNome, setFormOrganizadorNome] = useState<string>(
+    currentUser?.nomeCompleto || ''
+  );
+  const [formPublicoAlvo, setFormPublicoAlvo] = useState<RelatorioAcontecimento['publicoAlvo']>(
+    isDocenteEscopoRestrito ? 'Professores' : 'Toda a Comunidade'
+  );
+  const [formParticipantes, setFormParticipantes] = useState<string>('');
+  const [formNumeroParticipantes, setFormNumeroParticipantes] = useState<string>('');
+  const [formTurmaId, setFormTurmaId] = useState<string>('');
+  const [formDisciplinaId, setFormDisciplinaId] = useState<string>('');
+  const [formResumo, setFormResumo] = useState<string>('');
+  const [formDeliberacoes, setFormDeliberacoes] = useState<string>('');
+  const [formResultados, setFormResultados] = useState<string>('');
+  const [formVisibilidade, setFormVisibilidade] = useState<VisibilidadeRelatorioAcontecimento>(
+    isAdminGeral ? 'Rede_Nacional' : isDocenteEscopoRestrito ? 'Docente_Turma' : 'Publico_Escola'
+  );
+  const [formEstado, setFormEstado] = useState<EstadoRelatorioAcontecimento>('Registado');
+
+  // Turmas disponíveis para associação no formulário conforme perfil
+  const turmasDisponiveisForm = useMemo(() => {
+    const base = isAdminGeral
+      ? dbService.getTurmas().filter(t => formEscolaId === 'REDE' || t.escolaId === formEscolaId)
+      : todasTurmas;
+    if (isDocenteEscopoRestrito && minhasTurmasIds.size > 0) {
+      return base.filter(t => minhasTurmasIds.has(t.id));
+    }
+    return base;
+  }, [isAdminGeral, formEscolaId, todasTurmas, isDocenteEscopoRestrito, minhasTurmasIds]);
+
+  const disciplinasDisponiveisForm = useMemo(() => {
+    const base = isAdminGeral
+      ? dbService.getDisciplinas(formEscolaId === 'REDE' ? undefined : formEscolaId)
+      : todasDisciplinas;
+    if (isDocenteEscopoRestrito && minhasDisciplinasIds.size > 0) {
+      return base.filter(d => minhasDisciplinasIds.has(d.id));
+    }
+    return base;
+  }, [isAdminGeral, formEscolaId, todasDisciplinas, isDocenteEscopoRestrito, minhasDisciplinasIds]);
+
+  const abrirModalNovo = (categoriaInicial: CategoriaRelatorioAcontecimento = 'Reuniao') => {
+    setEditandoId(null);
+    setFormEscolaId(
+      isAdminGeral
+        ? escolaFiltroAdmin !== 'TODAS'
+          ? escolaFiltroAdmin
+          : 'REDE'
+        : escola.id
+    );
+    setFormAnoLectivo(
+      escolaExibida.anoLectivoActivo || anosDisponiveis[0] || String(new Date().getFullYear())
+    );
+    setFormTrimestre('1');
+    setFormCategoria(categoriaInicial);
+    setFormSubtipo(CATEGORIAS_CONFIG[categoriaInicial].subtipos[0]);
+    setFormTitulo('');
+    setFormData(new Date().toISOString().split('T')[0]);
+    setFormHora('09:00');
+    setFormLocal(isAdminGeral ? 'Sede / Supervisão Central' : 'Anfiteatro / Sala de Reuniões');
+    setFormOrganizadorNome(currentUser?.nomeCompleto || '');
+    setFormPublicoAlvo(
+      isAdminGeral
+        ? 'Rede Nacional'
+        : isDocenteEscopoRestrito
+        ? 'Estudantes'
+        : 'Toda a Comunidade'
+    );
+    setFormParticipantes('');
+    setFormNumeroParticipantes('');
+    setFormTurmaId('');
+    setFormDisciplinaId('');
+    setFormResumo('');
+    setFormDeliberacoes('');
+    setFormResultados('');
+    setFormVisibilidade(
+      isAdminGeral ? 'Rede_Nacional' : isDocenteEscopoRestrito ? 'Docente_Turma' : 'Publico_Escola'
+    );
+    setFormEstado('Registado');
+    setModalAberto(true);
+  };
+
+  const abrirModalEditar = (item: ItemRelatorioUnificado) => {
+    if (item.somenteLeitura) return;
+    setEditandoId(item.id);
+    setFormEscolaId(item.escolaId);
+    setFormAnoLectivo(item.anoLectivo || '');
+    setFormTrimestre(item.trimestre || '1');
+    setFormCategoria(item.categoria);
+    setFormSubtipo(item.subtipo || CATEGORIAS_CONFIG[item.categoria].subtipos[0]);
+    setFormTitulo(item.titulo);
+    setFormData(item.data || new Date().toISOString().split('T')[0]);
+    setFormHora(item.hora || '');
+    setFormLocal(item.local || '');
+    setFormOrganizadorNome(item.organizadorNome || '');
+    setFormPublicoAlvo(item.publicoAlvo || 'Toda a Comunidade');
+    setFormParticipantes(item.participantes || '');
+    setFormNumeroParticipantes(
+      item.numeroParticipantes !== undefined ? String(item.numeroParticipantes) : ''
+    );
+    setFormTurmaId(item.turmaId || '');
+    setFormDisciplinaId(item.disciplinaId || '');
+    setFormResumo(item.resumoAcontecimentos || '');
+    setFormDeliberacoes(item.deliberacoesEncaminhamentos || '');
+    setFormResultados(item.resultadosObtidos || '');
+    setFormVisibilidade(item.nivelVisibilidade || 'Publico_Escola');
+    setFormEstado(item.estado || 'Registado');
+    setModalAberto(true);
+  };
+
+  const handleSalvarRelatorio = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTitulo.trim() || !formResumo.trim() || !formData) {
+      notificar('Preencha pelo menos o Título, a Data e a Descrição dos Acontecimentos.');
+      return;
+    }
+
+    const escDestino =
+      formEscolaId === 'REDE'
+        ? undefined
+        : escolasMap.get(formEscolaId) || escola;
+    const turmaSel = turmasDisponiveisForm.find(t => t.id === formTurmaId);
+    const discSel = disciplinasDisponiveisForm.find(d => d.id === formDisciplinaId);
+    const existente = editandoId
+      ? relatoriosEstruturados.find(r => r.id === editandoId)
+      : undefined;
+
+    const estadoFinal: EstadoRelatorioAcontecimento =
+      formEstado === 'Homologado' && !podeHomologar ? 'Registado' : formEstado;
+
+    const payload: RelatorioAcontecimento = {
+      id: editandoId || `rel-acont-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      escolaId: isAdminGeral ? formEscolaId : escola.id,
+      escolaNome:
+        formEscolaId === 'REDE'
+          ? 'Rede Escolar (Administração Central)'
+          : escDestino?.nomeOficial || escDestino?.nome || escola.nome,
+      anoLectivo: formAnoLectivo || escolaExibida.anoLectivoActivo || '',
+      trimestre: formTrimestre || '1',
+      categoria: formCategoria,
+      subtipo: formSubtipo.trim() || CATEGORIAS_CONFIG[formCategoria].label,
+      titulo: formTitulo.trim(),
+      data: formData,
+      hora: formHora.trim() || undefined,
+      local: formLocal.trim() || undefined,
+      organizadorId: currentUser?.id,
+      organizadorNome:
+        formOrganizadorNome.trim() || currentUser?.nomeCompleto || 'Responsável',
+      organizadorRole: currentUser?.role || 'Professor',
+      participantes: formParticipantes.trim() || undefined,
+      numeroParticipantes: formNumeroParticipantes
+        ? Math.max(0, parseInt(formNumeroParticipantes, 10) || 0)
+        : undefined,
+      publicoAlvo: formPublicoAlvo,
+      turmaId: turmaSel?.id,
+      turmaNome: turmaSel?.nome,
+      classe: turmaSel?.classe,
+      turno: turmaSel?.turno || (isCoordenadorTurno ? currentUser?.cargo : undefined),
+      disciplinaId: discSel?.id,
+      disciplinaNome: discSel?.nome,
+      resumoAcontecimentos: formResumo.trim(),
+      deliberacoesEncaminhamentos: formDeliberacoes.trim() || undefined,
+      resultadosObtidos: formResultados.trim() || undefined,
+      nivelVisibilidade: formVisibilidade,
+      estado: estadoFinal,
+      homologadoPorNome:
+        estadoFinal === 'Homologado'
+          ? existente?.homologadoPorNome || currentUser?.nomeCompleto || 'Direção'
+          : undefined,
+      homologadoEm:
+        estadoFinal === 'Homologado'
+          ? existente?.homologadoEm || new Date().toISOString()
+          : undefined,
+      criadoPorId: existente?.criadoPorId || currentUser?.id || 'sistema',
+      criadoPorNome: existente?.criadoPorNome || currentUser?.nomeCompleto || 'Utilizador',
+      criadoPorRole: existente?.criadoPorRole || currentUser?.role || 'Professor',
+      criadoEm: existente?.criadoEm || new Date().toISOString()
+    };
+
+    dbService.salvarRelatorioAcontecimento(payload);
+    setRefreshTick(t => t + 1);
+    setModalAberto(false);
+    notificar(
+      editandoId
+        ? 'Relatório atualizado e guardado com sucesso.'
+        : 'Relatório de acontecimento registado com sucesso (sincronização offline/online ativa).'
+    );
+  };
+
+  const handleHomologar = (item: ItemRelatorioUnificado) => {
+    if (item.somenteLeitura || !podeHomologar) return;
+    const original = relatoriosEstruturados.find(r => r.id === item.id);
+    if (!original) return;
+    dbService.salvarRelatorioAcontecimento({
+      ...original,
+      estado: 'Homologado',
+      homologadoPorNome: currentUser?.nomeCompleto || 'Direção Geral',
+      homologadoEm: new Date().toISOString()
+    });
+    setRefreshTick(t => t + 1);
+    if (detalheItem?.id === item.id) {
+      setDetalheItem({
+        ...item,
+        estado: 'Homologado',
+        homologadoPorNome: currentUser?.nomeCompleto || 'Direção Geral',
+        homologadoEm: new Date().toISOString()
+      });
+    }
+    notificar(`Relatório "${item.titulo}" homologado com sucesso.`);
+  };
+
+  const handleExcluir = (item: ItemRelatorioUnificado) => {
+    if (item.somenteLeitura) return;
+    const podeExcluir =
+      isAdminGeral ||
+      isDiretorGeral ||
+      isSubdiretor ||
+      (item.criadoPorId === currentUser?.id && item.estado !== 'Homologado');
+    if (!podeExcluir) return;
+    dbService.excluirRelatorioAcontecimento(item.id);
+    setRefreshTick(t => t + 1);
+    if (detalheItem?.id === item.id) setDetalheItem(null);
+    notificar('Relatório removido.');
+  };
+
+  // Exportação Excel formatada (sem branding de software)
+  const handleExportarExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const linhas = [
+      [
+        'Nº',
+        'Data',
+        'Hora',
+        'Escola / Âmbito',
+        'Categoria',
+        'Subtipo',
+        'Título do Relatório',
+        'Local',
+        'Organizador / Responsável',
+        'Público-Alvo',
+        'Turma / Disciplina',
+        'Nº Participantes',
+        'Resumo dos Acontecimentos',
+        'Deliberações & Encaminhamentos',
+        'Resultados Obtidos',
+        'Estado',
+        'Homologado Por'
+      ],
+      ...itensFiltrados.map((item, idx) => [
+        idx + 1,
+        item.data || '—',
+        item.hora || '—',
+        item.escolaNome || escolasMap.get(item.escolaId)?.nome || (item.escolaId === 'REDE' ? 'Rede Escolar Nacional' : '—'),
+        CATEGORIAS_CONFIG[item.categoria]?.label || item.categoria,
+        item.subtipo || '—',
+        item.titulo,
+        item.local || '—',
+        item.organizadorNome || '—',
+        item.publicoAlvo || '—',
+        [item.turmaNome, item.disciplinaNome].filter(Boolean).join(' • ') || 'Geral',
+        item.numeroParticipantes ?? '',
+        item.resumoAcontecimentos,
+        item.deliberacoesEncaminhamentos || '—',
+        item.resultadosObtidos || '—',
+        LABEL_ESTADO[item.estado]?.label || item.estado,
+        item.homologadoPorNome || '—'
+      ])
+    ];
+
+    const ws = XLSX.utils.aoa_to_sheet(linhas);
+    ws['!cols'] = [
+      { wch: 5 },
+      { wch: 12 },
+      { wch: 8 },
+      { wch: 28 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 36 },
+      { wch: 22 },
+      { wch: 24 },
+      { wch: 18 },
+      { wch: 20 },
+      { wch: 14 },
+      { wch: 52 },
+      { wch: 44 },
+      { wch: 36 },
+      { wch: 14 },
+      { wch: 24 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Relatorios_Acontecimentos');
+    const escNomeSlug = isVisaoRedeTodas
+      ? 'REDE_NACIONAL'
+      : (escolaExibida.sigla || escolaExibida.nome || 'ESCOLA').replace(/\s+/g, '_');
+    XLSX.writeFile(wb, `Relatorios_Acontecimentos_${escNomeSlug}_${filtroAno}.xlsx`);
+    notificar('Ficheiro Excel exportado com sucesso.');
+  };
+
+  const handleBaixarPdf = async () => {
+    setIsDownloadingPdf(true);
+    try {
+      const escNomeSlug = isVisaoRedeTodas
+        ? 'REDE_NACIONAL'
+        : (escolaExibida.sigla || escolaExibida.nome || 'ESCOLA').replace(/\s+/g, '_');
+      await downloadElementAsPdf(
+        'relatorio-acontecimentos-oficial-doc',
+        `Relatorio_Acontecimentos_${escNomeSlug}_${filtroAno}.pdf`,
+        { orientation: 'portrait', scale: 2, marginMm: 10 }
       );
-      const turmasNomes = turmasDoProf.length > 0 
-        ? turmasDoProf.map(t => t.nome).join(', ') 
-        : 'Docência em Turmas Curriculares';
-      
-      const discAtribs = atribuicoesTodas
-        .filter(a => a.professorId === doc.id)
-        .map(a => disciplinas.find(d => d.id === a.disciplinaId)?.nome)
-        .filter(Boolean);
-
-      const discNomes = discAtribs.length > 0 
-        ? Array.from(new Set(discAtribs)).join(', ') 
-        : (doc.especialidade || 'Docência Curricular (MED)');
-      
-      const temposSemanais = Math.max(doc.cargaHorariaSemanal || (turmasDoProf.length * 4), turmasDoProf.length * 2, 4);
-
-      return {
-        docente: doc,
-        disciplinas: discNomes,
-        turmasContagem: Math.max(turmasDoProf.length, 1),
-        turmasNomes,
-        temposSemanais,
-        regime: doc.tipoContrato || 'Quadro Efetivo (MED)'
-      };
-    });
-  }, [funcionarios, turmas, isProfessor, currentUser, atribuicoesTodas, disciplinas]);
-
-  // Totais Gerais do Mapa
-  const totaisGeraisMapa = useMemo(() => {
-    let matriculados = 0;
-    let avaliados = 0;
-    let aprovados = 0;
-    let reprovados = 0;
-
-    mapaRendimentoTurmas.forEach(m => {
-      matriculados += m.matriculadosTotal;
-      avaliados += m.avaliadosTotal;
-      aprovados += m.aprovadosTotal;
-      reprovados += m.reprovadosTotal;
-    });
-
-    const taxaGeral = avaliados > 0 ? ((aprovados / avaliados) * 100).toFixed(1) : '0.0';
-
-    return { matriculados, avaliados, aprovados, reprovados, taxaGeral };
-  }, [mapaRendimentoTurmas]);
-
-  // Ação de Imprimir Relatório diretamente a partir do documento formatado
-  const handleImprimir = () => {
-    const el = document.getElementById('relatorio-pedagogico-oficial-doc');
-    if (el) {
-      imprimirElementoDiretamente(el, `Relatorio_Oficial_${escolaExibida?.sigla || 'MED'}`, {
-        orientation: 'portrait',
-        format: 'a4'
-      });
-    } else {
-      window.print();
+    } finally {
+      setIsDownloadingPdf(false);
     }
   };
 
-  // Exportação em Excel Oficial (.xlsx)
-  const handleExportarExcel = () => {
-    try {
-      const wb = XLSX.utils.book_new();
-
-      if (resumoConsolidadoPorEscola.length > 0) {
-        const dadosEscolas = resumoConsolidadoPorEscola.map((r, idx) => ({
-          'Nº': idx + 1,
-          'Escola': r.escola.nomeOficial || r.escola.nome,
-          'Sigla': r.escola.sigla || '—',
-          'Província / Município': `${r.escola.provincia || 'Angola'} / ${r.escola.municipio || '—'}`,
-          'Diretor Geral': r.diretorNome,
-          'Ano Letivo Ativo': r.escola.anoLectivoActivo || 'Não Definido',
-          'Estado': r.escola.ativo === false || r.escola.estadoEscola === 'Suspensa' ? 'Suspensa' : 'Ativa',
-          'Turmas': r.turmasCount,
-          'Docentes': r.professoresCount,
-          'Funcionários': r.funcionariosCount,
-          'Matriculados Total': r.matriculadosTotal,
-          'Matriculados M': r.matriculadosM,
-          'Matriculados F': r.matriculadosF,
-          'Desistentes': r.desistentes,
-          'Avaliados': r.avaliados,
-          'Aprovados': r.aprovados,
-          '% Aprovação': `${r.taxaAprovacao}%`,
-          'Média Geral': r.mediaGeral,
-          'Assiduidade': r.taxaAssiduidade
-        }));
-        const wsEscolas = XLSX.utils.json_to_sheet(dadosEscolas);
-        XLSX.utils.book_append_sheet(wb, wsEscolas, 'Resumo_Por_Escola');
-      }
-
-      // Folha 1: Mapa Estatístico Geral MED
-      const dadosMapa = mapaRendimentoTurmas.map((m, idx) => ({
-        'Nº': idx + 1,
-        ...(isVisaoRedeTodas ? { 'Escola': m.escolaSigla } : {}),
-        'Turma': m.turma.nome,
-        'Classe': m.turma.classe,
-        'Curso': m.turma.curso || 'Geral',
-        'Turno': m.turma.turno || 'Manhã',
-        'Matrícula Total': m.matriculadosTotal,
-        'Matrícula M': m.matriculadosM,
-        'Matrícula F': m.matriculadosF,
-        'Desistentes': m.desistentesTotal,
-        'Avaliados Total': m.avaliadosTotal,
-        'Avaliados M': m.avaliadosM,
-        'Avaliados F': m.avaliadosF,
-        'Aprovados Total': m.aprovadosTotal,
-        'Aprovados M': m.aprovadosM,
-        'Aprovados F': m.aprovadosF,
-        '% Aprovados': `${m.percAprovados}%`,
-        'Reprovados Total': m.reprovadosTotal,
-        '% Reprovados': `${m.percReprovados}%`,
-        'Média da Turma': m.mediaTurma,
-        'Classe Final': m.ehTerminal ? 'SIM (Exame Nacional)' : 'NÃO'
-      }));
-      const wsMapa = XLSX.utils.json_to_sheet(dadosMapa);
-      XLSX.utils.book_append_sheet(wb, wsMapa, isProfessor ? 'Rendimento_Turmas_Docente' : 'Mapa_Rendimento_MED');
-
-      // Folha 2: Rendimento por Disciplina
-      const dadosDisc = rendimentoPorDisciplina.map(r => ({
-        'Ordem': r.ordem,
-        'Disciplina': r.disciplina.nome,
-        'Código': r.disciplina.codigo || '—',
-        'Total Avaliados': r.totalAvaliados,
-        'Notas Positivas': r.totalPositivas,
-        'Notas Negativas': r.totalNegativas,
-        'Taxa de Sucesso (%)': `${r.taxaAproveitamento}%`,
-        'Média Geral': r.mediaDisciplina,
-        'Classificação Qualitativa': r.statusQualitativo
-      }));
-      const wsDisc = XLSX.utils.json_to_sheet(dadosDisc);
-      XLSX.utils.book_append_sheet(wb, wsDisc, isProfessor ? 'Rendimento_Disciplinas_Docente' : 'Rendimento_Disciplinas');
-
-      // Folha 3: Assiduidade
-      const dadosAssid = dadosAssiduidade.map(a => ({
-        ...(isVisaoRedeTodas ? { 'Escola': a.escolaSigla } : {}),
-        'Turma': a.turma.nome,
-        'Classe': a.turma.classe,
-        'Total Alunos': a.totalAlunos,
-        'Total Faltas Registadas': a.totalFaltasTurma,
-        'Média de Faltas/Aluno': a.mediaFaltasPorAluno,
-        'Alunos em Risco (>20 Faltas)': a.alunosEmRiscoFaltas,
-        'Taxa de Assiduidade (%)': `${a.taxaAssiduidadeEstimada}%`
-      }));
-      const wsAssid = XLSX.utils.json_to_sheet(dadosAssid);
-      XLSX.utils.book_append_sheet(wb, wsAssid, 'Mapa_Assiduidade');
-
-      // Folha 4: Carga Horária Docente
-      const dadosDoc = distribuicaoCargaDocente.map(d => ({
-        ...(isVisaoRedeTodas ? { 'Escola': escolasMap.get(d.docente.escolaId)?.sigla || 'MED' } : {}),
-        'Docente': d.docente.nomeCompleto,
-        'Cargo': d.docente.categoriaProfissional || 'Professor (MED)',
-        'Disciplinas': d.disciplinas,
-        'Nº de Turmas': d.turmasContagem,
-        'Turmas': d.turmasNomes,
-        'Tempos Semanais': d.temposSemanais,
-        'Regime Contratual': d.regime
-      }));
-      const wsDoc = XLSX.utils.json_to_sheet(dadosDoc);
-      XLSX.utils.book_append_sheet(wb, wsDoc, 'Carga_Horaria_Docente');
-
-      const prefixo = docenteAlvo 
-        ? `RELATORIO_DOCENTE_${docenteAlvo.nomeCompleto.replace(/\s+/g, '_').toUpperCase()}` 
-        : isVisaoRedeTodas
-          ? 'RELATORIO_CONSOLIDADO_TODAS_ESCOLAS'
-          : `RELATORIO_MED_${escolaExibida.sigla || 'ESCOLA'}`;
-      const fileName = `${prefixo}_${(filtroAno || 'GERAL').replace('/', '-')}_T${filtroTrimestre}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-    } catch (err) {
-      console.error('Erro ao gerar ficheiro Excel:', err);
-      alert('Erro ao exportar o relatório para Excel. Por favor tente novamente.');
+  const handleImprimir = () => {
+    const el = document.getElementById('relatorio-acontecimentos-oficial-doc');
+    if (el) {
+      imprimirElementoDiretamente(el, 'Relatorio_de_Acontecimentos', {
+        orientation: 'portrait',
+        marginMm: 10
+      });
     }
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16 px-2 sm:px-4">
-      {/* SELETOR DE ESCOPO MINISTERIAL PARA ADMIN GERAL (TODAS AS ESCOLAS OU ESCOLA ESPECÍFICA) */}
-      {isAdminGeral && (
-        <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 shadow-sm print:hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-purple-700 text-white flex items-center justify-center font-bold shadow">
-                <Building2 className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-xs font-black uppercase text-purple-900 tracking-wider">
-                  Supervisão Ministerial Central — Rede Nacional ({escolas.length} Escolas)
-                </span>
-                <p className="text-xs text-purple-700">
-                  {isVisaoRedeTodas
-                    ? 'A exibir o Resumo Consolidado de todas as escolas registadas, sem necessidade de entrar em cada instituição.'
-                    : `A filtrar relatórios oficiais da escola selecionada (${escolaExibida.nomeOficial}).`}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-purple-900 whitespace-nowrap">Âmbito:</span>
-              <select
-                value={escolaFiltroAdmin}
-                onChange={e => handleSelecionarEscolaAdmin(e.target.value)}
-                className="bg-white border-2 border-purple-300 rounded-xl px-3 py-1.5 text-xs font-black text-purple-950 focus:ring-2 focus:ring-purple-600 shadow-sm"
-              >
-                <option value="TODAS">Todas as Escolas da Rede ({escolas.length}) — Resumo Consolidado</option>
-                {escolas.map(esc => (
-                  <option key={esc.id} value={esc.id}>
-                    {esc.nomeOficial || esc.nome} ({esc.municipio || 'Angola'})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* BANNER CONTEXTUAL ESPECÍFICO DE ESCOLA & PAPEL DO USUÁRIO */}
-      <div className="print:hidden space-y-3">
-        {isDocenteOuCoordenador ? (
-          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-emerald-950 shadow-sm">
-            <div className="flex items-center space-x-3">
-              <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow">
-                <UserCheck className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h3 className="font-black text-sm text-emerald-900">
-                    {isProfessor ? 'Relatório Individual do Professor:' : 'Relatório de Coordenação:'} {currentUser?.nomeCompleto}
-                  </h3>
-                  <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-black text-[10px] uppercase">
-                    {currentUser?.cargo || currentUser?.categoriaProfissional || 'Docente'}
-                  </span>
-                </div>
-                <p className="text-xs text-emerald-700 mt-0.5">
-                  Instituição: <strong>{escola.nomeOficial || escola.nome}</strong> • {modoVisao === 'minhas_atribuicoes' ? (
-                    <span>A visualizar dados exclusivos das suas <strong>{turmasPermitidas.length} turmas</strong> e <strong>{disciplinasPermitidas.length} disciplinas</strong> atribuídas.</span>
-                  ) : (
-                    <span>Modo de visualização ampliado: Consulta global de <strong>todas as {turmas.length} turmas</strong> da escola.</span>
-                  )}
-                </p>
-              </div>
-            </div>
-
-            {/* SELETOR DE MODO DE VISÃO PARA PROFESSORES E COORDENADORES */}
-            <div className="flex items-center space-x-1 bg-white/80 p-1 rounded-xl border border-emerald-300 shadow-xs self-start md:self-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setModoVisao('minhas_atribuicoes');
-                  setFiltroTurmaId('TODAS');
-                  setFiltroDisciplinaId('TODAS');
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  modoVisao === 'minhas_atribuicoes'
-                    ? 'bg-emerald-700 text-white shadow-xs'
-                    : 'text-emerald-900 hover:bg-emerald-100'
-                }`}
-              >
-                Minhas Atribuições
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setModoVisao('toda_escola');
-                  setFiltroTurmaId('TODAS');
-                  setFiltroDisciplinaId('TODAS');
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  modoVisao === 'toda_escola'
-                    ? 'bg-emerald-700 text-white shadow-xs'
-                    : 'text-emerald-900 hover:bg-emerald-100'
-                }`}
-              >
-                Toda a Escola (Geral)
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-slate-50 border border-slate-300 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-slate-900 shadow-sm">
-            <div className="flex items-center space-x-3">
-              <div className="w-11 h-11 rounded-xl bg-slate-800 text-white flex items-center justify-center shadow">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h3 className="font-black text-sm text-slate-900">
-                    {isVisaoRedeTodas
-                      ? `Administração Central: Rede Completa (${escolas.length} Escolas)`
-                      : `Direcção da Escola: ${escolaExibida.nomeOficial || escolaExibida.nome}`}
-                  </h3>
-                  <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full font-black text-[10px] uppercase">
-                    {isVisaoRedeTodas ? 'Visão Consolidada Nacional' : 'Acesso Pleno da Liderança'}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  {docenteAlvo ? (
-                    <span>A auditar relatório detalhado do(a) docente <strong>{docenteAlvo.nomeCompleto}</strong> ({turmasPermitidas.length} turmas • {disciplinasPermitidas.length} disciplinas).</span>
-                  ) : isVisaoRedeTodas ? (
-                    <span>Relatório consolidado de todas as instituições ({escolas.length} escolas • {turmas.length} turmas • {alunos.length} alunos matriculados • {funcionarios.length} colaboradores).</span>
-                  ) : (
-                    <span>Relatório Institucional Integral do Estabelecimento de Ensino ({turmas.length} turmas • {alunos.length} alunos matriculados • {escolaExibida.municipio || 'Angola'}).</span>
-                  )}
-                </p>
-              </div>
-            </div>
-
-            {/* SELETOR DE PROFESSOR PARA A DIREÇÃO AUDITAR QUALQUER DOCENTE OU VER A ESCOLA TODA */}
-            <div className="flex items-center space-x-2 bg-white p-1.5 rounded-xl border border-slate-300 shadow-xs">
-              <Users className="w-4 h-4 text-slate-500" />
-              <label className="text-[11px] font-bold text-slate-600 whitespace-nowrap">Auditar Docente:</label>
-              <select
-                value={filtroDocenteId}
-                onChange={e => {
-                  setFiltroDocenteId(e.target.value);
-                  setFiltroTurmaId('TODAS');
-                  setFiltroDisciplinaId('TODAS');
-                }}
-                className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 max-w-xs"
-              >
-                <option value="TODOS">Todos os Professores ({isVisaoRedeTodas ? 'Rede Completa' : 'Escola Completa'})</option>
-                {listaDocentes.map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.nomeCompleto}{isVisaoRedeTodas ? ` [${escolasMap.get(d.escolaId)?.sigla || 'MED'}]` : ''} — {d.especialidade || d.categoriaProfissional || 'Professor'}
-                  </option>
-                ))}
-              </select>
-              {filtroDocenteId !== 'TODOS' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFiltroDocenteId('TODOS');
-                    setFiltroTurmaId('TODAS');
-                    setFiltroDisciplinaId('TODAS');
-                  }}
-                  className="px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-[10px] font-bold transition-all"
-                  title="Voltar ao Relatório Geral"
-                >
-                  ✕ Geral
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* CABEÇALHO DO MÓDULO DE RELATÓRIOS */}
+    <div className="space-y-6 animate-fade-in pb-16">
+      {/* CABEÇALHO DE COMANDO */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm print:hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
-              <FileBarChart className="w-6 h-6" />
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start space-x-3">
+            <div className="p-3 bg-indigo-50 text-indigo-700 rounded-xl shrink-0">
+              <FileText className="w-7 h-7" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-2xl font-black text-slate-800 tracking-tight">
-                  {docenteAlvo
-                    ? `Relatório Pedagógico: ${docenteAlvo.nomeCompleto}`
-                    : isVisaoRedeTodas
-                      ? 'Relatórios Consolidados de Todas as Escolas'
-                      : 'Relatórios Oficiais & Balanços MED'}
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                  Relatórios de Acontecimentos & Actividades
                 </h1>
-                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-blue-200">
-                  {isVisaoRedeTodas ? `${escolas.length} ESCOLAS` : (escolaExibida.sigla || 'MED')}
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase border ${
+                    isAdminGeral
+                      ? 'bg-purple-50 text-purple-800 border-purple-200'
+                      : isDirecaoOuAdmin
+                      ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  }`}
+                >
+                  {isAdminGeral
+                    ? 'Visão Global — Todas as Escolas'
+                    : isDirecaoOuAdmin
+                    ? 'Visão Global da Escola (Direção)'
+                    : 'Âmbito Docente & Atividades Gerais'}
                 </span>
               </div>
-              <p className="text-sm text-slate-500 mt-0.5">
-                {docenteAlvo
-                  ? 'Balanço detalhado de aproveitamento das turmas e disciplinas sob lecionação do docente, pronto para emissão e download.'
-                  : isVisaoRedeTodas
-                    ? 'Resumo executivo e comparativo automático de todas as escolas cadastradas na rede, com emissão para Excel e PDF.'
-                    : 'Emissão oficial de mapas estatísticos de rendimento, aproveitamento por disciplina, assiduidade e pareceres pedagógicos ministeriais da escola.'}
+              <p className="text-xs text-slate-600 mt-1">
+                {isAdminGeral
+                  ? 'Registo centralizado e acompanhamento global de reuniões, palestras, eventos, desenvolvimentos e ocorrências em toda a rede escolar.'
+                  : isDirecaoOuAdmin
+                  ? 'Registo e homologação de atas, reuniões, palestras, eventos institucionais, avanços pedagógicos e ocorrências da escola.'
+                  : 'Registe e acompanhe relatórios de reuniões de turma/disciplina, palestras, desenvolvimentos pedagógicos e eventos escolares.'}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
+              onClick={() => abrirModalNovo('Reuniao')}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Novo Relatório de Acontecimento</span>
+            </button>
+            <button
+              type="button"
               onClick={handleExportarExcel}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all cursor-pointer"
-              title="Baixar Dossier Estatístico Completo em Formato Excel"
+              className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Exportar Excel (.xlsx)</span>
+              <span>Excel (.xlsx)</span>
             </button>
             <button
               type="button"
               disabled={isDownloadingPdf}
-              onClick={async () => {
-                setIsDownloadingPdf(true);
-                try {
-                  await downloadElementAsPdf(
-                    'relatorio-pedagogico-oficial-doc',
-                    `Relatorio_Oficial_${(isVisaoRedeTodas ? 'TODAS_ESCOLAS' : (escolaExibida.sigla || escolaExibida.nome || 'MED')).replace(/\s+/g, '_')}_${(filtroAno || 'GERAL').replace('/', '-')}`,
-                    { orientation: 'portrait', format: 'a4' }
-                  );
-                } finally {
-                  setIsDownloadingPdf(false);
-                }
-              }}
-              className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:bg-indigo-400 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all cursor-pointer"
-              title="Baixar Relatório Oficial em formato PDF com formatação exata"
+              onClick={handleBaixarPdf}
+              className="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>{isDownloadingPdf ? 'Gerando PDF...' : 'Baixar PDF (.pdf)'}</span>
+              <span>{isDownloadingPdf ? 'A Gerar...' : 'Baixar PDF'}</span>
             </button>
             <button
+              type="button"
               onClick={handleImprimir}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center space-x-2 shadow-sm transition-all cursor-pointer"
-              title="Imprimir Relatório Formatado para A4"
+              className="px-3.5 py-2 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Imprimir Relatório (A4)</span>
+              <span>Imprimir (A4)</span>
             </button>
           </div>
         </div>
 
-        {/* BARRA DE FILTROS ADAPTADOS: ANO, TRIMESTRE, CICLO, CURSO, CLASSE, TURMA, DISCIPLINA */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 mt-6 pt-5 border-t border-slate-100">
-          {/* Ano Lectivo */}
+        {/* ATALHOS RÁPIDOS DE REGISTO POR TIPO */}
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
+          <span className="text-[11px] font-bold uppercase text-slate-500 mr-1">
+            Registo Rápido:
+          </span>
+          {(Object.keys(CATEGORIAS_CONFIG) as CategoriaRelatorioAcontecimento[]).map(cat => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => abrirModalNovo(cat)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all hover:opacity-90 cursor-pointer flex items-center space-x-1 ${CATEGORIAS_CONFIG[cat].corBadge}`}
+            >
+              <Plus className="w-3 h-3" />
+              <span>{CATEGORIAS_CONFIG[cat].label}</span>
+            </button>
+          ))}
+        </div>
+
+        {feedback && (
+          <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-900 flex items-center justify-between">
+            <span className="flex items-center space-x-2">
+              <CheckCircle className="w-4 h-4 text-emerald-600" />
+              <span>{feedback}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="text-emerald-700 hover:text-emerald-950 font-black px-1"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* FILTROS POR ESCOLA, PERFIL, CATEGORIA E PERÍODO */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mt-5 pt-4 border-t border-slate-100">
+          {isAdminGeral && (
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+                <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                <span>Escola / Âmbito</span>
+              </label>
+              <select
+                value={escolaFiltroAdmin}
+                onChange={e => {
+                  setEscolaFiltroAdmin(e.target.value);
+                  setFiltroTurmaId('TODAS');
+                }}
+                className="w-full bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-purple-950"
+              >
+                <option value="TODAS">Todas as Escolas ({escolas.length})</option>
+                {escolas.map(e => (
+                  <option key={e.id} value={e.id}>
+                    {e.sigla ? `[${e.sigla}] ` : ''}
+                    {e.nomeOficial || e.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <Calendar className="w-3.5 h-3.5 text-blue-600" />
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
               <span>Ano Letivo</span>
             </label>
             <select
               value={filtroAno}
               onChange={e => setFiltroAno(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
             >
-              {isAdminGeral && <option value="TODOS">Todos os Anos Letivos</option>}
-              {anosConfigs.length > 0 ? (
-                anosConfigs.map(a => (
-                  <option key={a.id} value={a.rotulo || a.ano}>{a.rotulo || a.ano}</option>
-                ))
-              ) : escolaExibida.anoLectivoActivo ? (
-                <option value={escolaExibida.anoLectivoActivo}>{escolaExibida.anoLectivoActivo}</option>
-              ) : !isAdminGeral ? (
-                <option value="">Sem ano letivo registado</option>
-              ) : null}
-            </select>
-          </div>
-
-          {/* Trimestre */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <Clock className="w-3.5 h-3.5 text-blue-600" />
-              <span>Trimestre</span>
-            </label>
-            <select
-              value={filtroTrimestre}
-              onChange={e => setFiltroTrimestre(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="1">Iº Trimestre</option>
-              <option value="2">IIº Trimestre</option>
-              <option value="3">IIIº Trimestre</option>
-              <option value="anual">Consolidado Anual Geral</option>
-            </select>
-          </div>
-
-          {/* Ciclo de Ensino */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
-              <span>Ciclo</span>
-            </label>
-            <select
-              value={filtroCiclo}
-              onChange={e => {
-                setFiltroCiclo(e.target.value);
-                setFiltroClasse('TODAS');
-                setFiltroTurmaId('TODAS');
-              }}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="TODOS">Todos os Ciclos</option>
-              <option value="Primário">Ensino Primário</option>
-              <option value="Iº Ciclo">Iº Ciclo Secundário</option>
-              <option value="IIº Ciclo">IIº Ciclo / Técnico</option>
-            </select>
-          </div>
-
-          {/* Curso */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <Filter className="w-3.5 h-3.5 text-blue-600" />
-              <span>Curso</span>
-            </label>
-            <select
-              value={filtroCurso}
-              onChange={e => {
-                setFiltroCurso(e.target.value);
-                setFiltroTurmaId('TODAS');
-              }}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="TODOS">Todos os Cursos ({cursosDisponiveis.length})</option>
-              {cursosDisponiveis.map(cur => (
-                <option key={cur} value={cur}>{cur}</option>
+              <option value="TODOS">Todos os Anos</option>
+              {anosDisponiveis.map(ano => (
+                <option key={ano} value={ano}>
+                  {ano}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* Classe */}
           <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-              <span>Classe</span>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+              <Filter className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Categoria</span>
             </label>
             <select
-              value={filtroClasse}
-              onChange={e => {
-                setFiltroClasse(e.target.value);
-                setFiltroTurmaId('TODAS');
-              }}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
+              value={filtroCategoria}
+              onChange={e => setFiltroCategoria(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
             >
-              <option value="TODAS">Todas as Classes ({classesDisponiveis.length})</option>
-              {classesDisponiveis.map(c => (
-                <option key={c} value={c}>{c}</option>
+              <option value="TODAS">Todas as Categorias</option>
+              {(Object.keys(CATEGORIAS_CONFIG) as CategoriaRelatorioAcontecimento[]).map(cat => (
+                <option key={cat} value={cat}>
+                  {CATEGORIAS_CONFIG[cat].label}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* Turma */}
           <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <Users className="w-3.5 h-3.5 text-blue-600" />
-              <span>Turma</span>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Estado</span>
             </label>
             <select
-              value={filtroTurmaId}
-              onChange={e => setFiltroTurmaId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
+              value={filtroEstado}
+              onChange={e => setFiltroEstado(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
             >
-              <option value="TODAS">
-                {docenteAlvo ? `Todas as Turmas do Docente (${turmasFiltradas.length})` : `Todas as Turmas (${turmasFiltradas.length})`}
-              </option>
-              {turmasFiltradas.map(t => (
-                <option key={t.id} value={t.id}>{t.nome} ({t.classe})</option>
-              ))}
+              <option value="TODOS">Todos os Estados</option>
+              <option value="Registado">Registado</option>
+              <option value="Homologado">Homologado</option>
+              <option value="Rascunho">Rascunho</option>
             </select>
           </div>
 
-          {/* Disciplina */}
           <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-              <span>Disciplina</span>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+              <Layers className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Origem do Registo</span>
             </label>
             <select
-              value={filtroDisciplinaId}
-              onChange={e => setFiltroDisciplinaId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500"
+              value={filtroOrigem}
+              onChange={e => setFiltroOrigem(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
             >
-              <option value="TODAS">Todas as Disciplinas ({disciplinasPermitidas.length})</option>
-              {disciplinasPermitidas.map(d => (
-                <option key={d.id} value={d.id}>{d.nome}</option>
-              ))}
+              <option value="TODAS">Todas as Origens</option>
+              <option value="Relatorio">Relatórios de Acontecimentos</option>
+              <option value="Agenda">Agenda Escolar</option>
+              {isDirecaoOuAdmin && <option value="Conselho_Direcao">Conselho de Direção</option>}
+              <option value="Despacho">Despachos da Direção</option>
+              <option value="Ocorrencia_Aluno">Ocorrências de Turma/Alunos</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              De (Data)
+            </label>
+            <input
+              type="date"
+              value={filtroDataInicio}
+              onChange={e => setFiltroDataInicio(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Pesquisar
+            </label>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+              <input
+                type="text"
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Tema, local, ata..."
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg pl-8 pr-2.5 py-1.5 text-xs font-medium text-slate-800"
+              />
+            </div>
           </div>
         </div>
 
-        {/* NAVEGAÇÃO ENTRE SUB-RELATÓRIOS */}
-        <div className="flex flex-wrap items-center gap-2 mt-5 pt-4 border-t border-slate-100">
-          {isAdminGeral && (
+        {(filtroDataFim || filtroTurmaId !== 'TODAS' || filtroTrimestre !== 'TODOS') && (
+          <div className="flex flex-wrap items-center gap-3 mt-3 text-xs">
             <button
+              type="button"
               onClick={() => {
-                if (!isVisaoRedeTodas) handleSelecionarEscolaAdmin('TODAS');
-                setSubAbaAtiva('resumo_rede');
+                setFiltroDataInicio('');
+                setFiltroDataFim('');
+                setFiltroTurmaId('TODAS');
+                setFiltroTrimestre('TODOS');
+                setFiltroCategoria('TODAS');
+                setFiltroEstado('TODOS');
+                setFiltroOrigem('TODAS');
+                setBusca('');
               }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
-                subAbaAtiva === 'resumo_rede'
-                  ? 'bg-purple-700 text-white shadow-sm'
-                  : 'bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200'
-              }`}
+              className="text-indigo-700 hover:underline font-bold"
             >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Resumo Consolidado por Escola ({escolas.length})</span>
+              Limpar todos os filtros
             </button>
-          )}
+          </div>
+        )}
+      </div>
 
-          <button
-            onClick={() => setSubAbaAtiva('mapa_rendimento')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
-              subAbaAtiva === 'mapa_rendimento'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <FileBarChart className="w-3.5 h-3.5" />
-            <span>{isProfessor ? 'Rendimento das Minhas Turmas' : 'Mapa Geral de Rendimento MED'}</span>
-          </button>
+      {/* KPIs EXECUTIVOS DOS RELATÓRIOS DE ACONTECIMENTOS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase">Total de Relatórios</span>
+            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+              <FileText className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-black text-slate-900 mt-2">{metricasRelatorios.total}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {isAdminGeral
+              ? `Em ${metricasRelatorios.escolasCobertas} instituição(ões) registadas`
+              : `${metricasRelatorios.participantesTotais} participantes contabilizados`}
+          </p>
+        </div>
 
-          <button
-            onClick={() => setSubAbaAtiva('rendimento_disciplina')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
-              subAbaAtiva === 'rendimento_disciplina'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>{isProfessor ? 'Rendimento das Minhas Disciplinas' : 'Rendimento Curricular por Disciplina'}</span>
-          </button>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase">Reuniões & Conselhos</span>
+            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+              <Users className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-black text-blue-900 mt-2">{metricasRelatorios.reunioes}</p>
+          <p className="text-xs text-slate-500 mt-1">Atas, direções, conselhos e encarregados</p>
+        </div>
 
-          <button
-            onClick={() => setSubAbaAtiva('assiduidade_faltas')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
-              subAbaAtiva === 'assiduidade_faltas'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Mapa de Assiduidade & Faltas</span>
-          </button>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase">Palestras & Eventos</span>
+            <div className="p-2 rounded-xl bg-purple-50 text-purple-600">
+              <Megaphone className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-black text-purple-900 mt-2">
+            {metricasRelatorios.palestrasEventos}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">Seminários, jornadas, formações e feiras</p>
+        </div>
 
-          <button
-            onClick={() => setSubAbaAtiva('carga_horaria')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
-              subAbaAtiva === 'carga_horaria'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>{isProfessor ? 'A Minha Carga Horária Docente' : 'Carga Horária & Quadro Docente'}</span>
-          </button>
-
-          <button
-            onClick={() => setSubAbaAtiva('balanco_pedagogico')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-black transition-all flex items-center space-x-1.5 ${
-              subAbaAtiva === 'balanco_pedagogico'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>{isProfessor ? 'Balanço Individual do Docente' : 'Balanço Narrativo & Parecer da Direção'}</span>
-          </button>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase">
+              Desenvolvimentos & Homologação
+            </span>
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+              <Award className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline space-x-2">
+            <span className="text-3xl font-black text-emerald-900">
+              {metricasRelatorios.desenvolvimentosOcorrencias}
+            </span>
+            <span className="text-xs font-bold text-emerald-700">
+              • {metricasRelatorios.taxaHomologacao}% homologados
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            {metricasRelatorios.homologados} de {metricasRelatorios.total} validados
+          </p>
         </div>
       </div>
 
-      {/* DOCUMENTO OFICIAL A4 PARA VISUALIZAÇÃO E IMPRESSÃO */}
-      <div id="relatorio-pedagogico-oficial-doc" className="bg-white rounded-2xl border border-slate-300 shadow-lg p-6 sm:p-10 print:p-0 print:border-none print:shadow-none">
-        {/* CABEÇALHO OFICIAL DO MINISTÉRIO DA EDUCAÇÃO DE ANGOLA */}
-        <div className="text-center space-y-1 mb-8 border-b-2 border-slate-800 pb-5">
-          <div className="flex justify-center mb-2">
-            <InsigniaAngola customUrl={configSistema.insigniaNacionalUrl} className="w-16 h-16 object-contain" />
+      {/* DOCUMENTO OFICIAL DE RELATÓRIOS & CRÓNICA DE ACONTECIMENTOS (A4 / PDF / IMPRESSÃO) */}
+      <div
+        id="relatorio-acontecimentos-oficial-doc"
+        data-doc-root="true"
+        className="documento-oficial-print bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-8 space-y-6 print:p-0 print:border-none print:shadow-none"
+      >
+        {/* CABEÇALHO INSTITUCIONAL OFICIAL MED ANGOLA */}
+        <div
+          data-pdf-fixed-header="true"
+          data-pdf-center-insignia="true"
+          className="text-center space-y-1 border-b-2 border-slate-900 pb-4"
+        >
+          <div className="flex justify-center mb-1.5">
+            {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+              <img
+                src={configSistema.insigniaNacionalUrl}
+                alt="Insígnia da República de Angola"
+                className="h-14 w-14 object-contain mx-auto"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <InsigniaAngola size={52} />
+            )}
           </div>
-          <h2 className="text-xs sm:text-sm font-bold tracking-widest uppercase text-slate-900">
-            República de Angola
-          </h2>
-          <h3 className="text-xs sm:text-sm font-bold tracking-wide uppercase text-slate-800">
-            {isVisaoRedeTodas
-              ? 'Ministério da Educação • Administração Central da Rede Escolar'
-              : `Governo da Província de ${escolaExibida.provincia || 'Luanda'}`}
-          </h3>
-          <h4 className="text-xs sm:text-sm font-bold uppercase text-slate-700">
-            {isVisaoRedeTodas
-              ? `Direcção Nacional de Gestão e Supervisão Escolar (${escolas.length} Instituições)`
-              : `Gabinete Provincial de Educação / Direcção Municipal de ${escolaExibida.municipio || 'Luanda'}`}
-          </h4>
-          <h1 className="text-base sm:text-lg font-black uppercase text-blue-950 mt-1">
-            {isVisaoRedeTodas
-              ? 'RELATÓRIO CONSOLIDADO DE TODAS AS ESCOLAS'
-              : (escolaExibida.nomeOficial || escolaExibida.nome)}
-          </h1>
-          <p className="text-[11px] font-semibold text-slate-600">
-            {isVisaoRedeTodas
-              ? `Escolas Ativas: ${escolas.filter(e => e.ativo !== false && e.estadoEscola !== 'Suspensa').length} • Total na Rede: ${escolas.length}`
-              : `Código da Escola: ${escolaExibida.codigoEscola || 'MED-ANG'} • NIF: ${escolaExibida.nif || '5000000000'}`}
+          <p className="text-xs font-black uppercase tracking-widest text-slate-900">
+            REPÚBLICA DE ANGOLA
           </p>
-
-          <div className="mt-3 inline-block bg-slate-100 px-4 py-1 rounded border border-slate-300">
-            <span className="text-xs font-black uppercase text-slate-900">
-              {isProfessor ? (
-                `RELATÓRIO INDIVIDUAL DO PROFESSOR: ${currentUser?.nomeCompleto?.toUpperCase()} — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}`
-              ) : (
-                subAbaAtiva === 'resumo_rede' ? `RESUMO GERAL CONSOLIDADO POR ESCOLA — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
-                subAbaAtiva === 'mapa_rendimento' ? `MAPA ESTATÍSTICO DE RENDIMENTO ESCOLAR — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
-                subAbaAtiva === 'rendimento_disciplina' ? `MAPA DE RENDIMENTO CURRICULAR POR DISCIPLINA — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
-                subAbaAtiva === 'assiduidade_faltas' ? `MAPA OFICIAL DE ASSIDUIDADE E FREQUÊNCIA — ${filtroTrimestre === 'anual' ? 'GLOBAL ANUAL' : `${filtroTrimestre}º TRIMESTRE`}` :
-                subAbaAtiva === 'carga_horaria' ? `QUADRO OFICIAL DE CARGA HORÁRIA E CORPO DOCENTE` :
-                `BALANÇO PEDAGÓGICO E PARECER OFICIAL DA SUBDIRECÇÃO PEDAGÓGICA`
-              )}
-              {' — '}{filtroAno && filtroAno !== 'TODOS' ? `ANO LECTIVO ${filtroAno}` : 'TODOS OS ANOS LECTIVOS'}
+          <p className="text-[11px] font-bold uppercase text-slate-800">
+            {isVisaoRedeTodas
+              ? 'MINISTÉRIO DA EDUCAÇÃO • ADMINISTRAÇÃO CENTRAL DA REDE ESCOLAR'
+              : escolaExibida.governoProvincial ||
+                `GOVERNO PROVINCIAL DE ${(escolaExibida.provincia || 'ANGOLA').toUpperCase()}`}
+          </p>
+          <p className="text-[11px] font-bold uppercase text-slate-700">
+            {isVisaoRedeTodas
+              ? `SUPERVISÃO GLOBAL DE ACTIVIDADES E ACONTECIMENTOS (${escolas.length} ESCOLAS)`
+              : escolaExibida.gabineteEducacao ||
+                `DIRECÇÃO MUNICIPAL DA EDUCAÇÃO DE ${(escolaExibida.municipio || 'ANGOLA').toUpperCase()}`}
+          </p>
+          <h2 className="text-base sm:text-lg font-black uppercase text-slate-950 pt-0.5">
+            {isVisaoRedeTodas
+              ? 'RELATÓRIO GLOBAL DE ACONTECIMENTOS, REUNIÕES E DESENVOLVIMENTOS'
+              : escolaExibida.nomeOficial || escolaExibida.nome}
+          </h2>
+          <div className="pt-1.5 flex flex-wrap items-center justify-center gap-2 text-[11px] font-bold text-slate-700">
+            <span className="bg-slate-100 border border-slate-300 px-3 py-0.5 rounded">
+              REGISTO DE ACTIVIDADES, REUNIÕES, PALESTRAS &amp; DESENVOLVIMENTOS
+            </span>
+            <span className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-0.5 rounded">
+              Ano Letivo: {filtroAno === 'TODOS' ? 'Todos' : filtroAno} • Perfil:{' '}
+              {currentUser?.nomeCompleto || 'Institucional'}
             </span>
           </div>
         </div>
 
-        {/* SUB-ABA 0 (ADMIN GERAL): RESUMO CONSOLIDADO POR ESCOLA */}
-        {subAbaAtiva === 'resumo_rede' && isAdminGeral && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 print:hidden">
-              <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                <span className="text-xs font-bold text-purple-700 uppercase">Escolas da Rede</span>
-                <p className="text-2xl font-black text-purple-950">{escolas.length}</p>
-                <span className="text-[10px] text-purple-600">
-                  {escolas.filter(e => e.ativo !== false && e.estadoEscola !== 'Suspensa').length} ativas
-                </span>
-              </div>
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                <span className="text-xs font-bold text-slate-500 uppercase">Matrícula Nacional</span>
-                <p className="text-2xl font-black text-slate-800">{totaisGeraisMapa.matriculados}</p>
-                <span className="text-[10px] text-slate-500">{turmas.length} turmas totais</span>
-              </div>
-              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
-                <span className="text-xs font-bold text-indigo-700 uppercase">Funcionários</span>
-                <p className="text-2xl font-black text-indigo-950">{funcionarios.length}</p>
-                <span className="text-[10px] text-indigo-600">{listaDocentes.length} docentes</span>
-              </div>
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                <span className="text-xs font-bold text-emerald-700 uppercase">Aprovação Média</span>
-                <p className="text-2xl font-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</p>
-                <span className="text-[10px] text-emerald-600">{totaisGeraisMapa.aprovados} aprovados de {totaisGeraisMapa.avaliados}</span>
-              </div>
-              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl">
-                <span className="text-xs font-bold text-rose-600 uppercase">Não Transitam</span>
-                <p className="text-2xl font-black text-rose-900">{totaisGeraisMapa.reprovados}</p>
-                <span className="text-[10px] text-rose-600">Em recuperação</span>
-              </div>
-            </div>
+        {/* LISTA / CRONOLOGIA DE RELATÓRIOS */}
+        {itensFiltrados.length > 0 ? (
+          <div className="space-y-4">
+            {itensFiltrados.map((item, idx) => {
+              const catInfo = CATEGORIAS_CONFIG[item.categoria] || CATEGORIAS_CONFIG.Evento;
+              const estInfo = LABEL_ESTADO[item.estado] || LABEL_ESTADO.Registado;
+              const podeEditarEste =
+                !item.somenteLeitura &&
+                (isAdminGeral ||
+                  isDiretorGeral ||
+                  isSubdiretor ||
+                  (item.criadoPorId === currentUser?.id && item.estado !== 'Homologado'));
+              const podeExcluirEste =
+                !item.somenteLeitura &&
+                (isAdminGeral ||
+                  isDiretorGeral ||
+                  isSubdiretor ||
+                  (item.criadoPorId === currentUser?.id && item.estado !== 'Homologado'));
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
-                <thead className="bg-slate-100 font-bold text-center text-[10px]">
-                  <tr>
-                    <th className="p-2 border-r border-black w-8">Nº</th>
-                    <th className="p-2 border-r border-black text-left">ESCOLA / PROVÍNCIA</th>
-                    <th className="p-2 border-r border-black text-left">DIRETOR GERAL</th>
-                    <th className="p-2 border-r border-black w-20">ANO ATIVO</th>
-                    <th className="p-2 border-r border-black w-16">TURMAS</th>
-                    <th className="p-2 border-r border-black w-20">DOCENTES / STAFF</th>
-                    <th className="p-2 border-r border-black w-24 bg-slate-200">MATRÍCULA (M/F)</th>
-                    <th className="p-2 border-r border-black w-16 bg-blue-50">AVAL.</th>
-                    <th className="p-2 border-r border-black w-20 bg-emerald-50">% APROV.</th>
-                    <th className="p-2 border-r border-black w-14">MÉDIA</th>
-                    <th className="p-2 border-r border-black w-16">ASSID.</th>
-                    <th className="p-2 w-24 print:hidden">AÇÃO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black font-mono text-center">
-                  {resumoConsolidadoPorEscola.length > 0 ? (
-                    resumoConsolidadoPorEscola.map((r, idx) => {
-                      const suspensa = r.escola.ativo === false || r.escola.estadoEscola === 'Suspensa';
-                      return (
-                        <tr key={r.escola.id} className="hover:bg-slate-50">
-                          <td className="p-1.5 border-r border-black">{idx + 1}</td>
-                          <td className="p-1.5 border-r border-black text-left font-sans">
-                            <div className="font-bold text-slate-900">
-                              {r.escola.nomeOficial || r.escola.nome}
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-black">{r.escola.sigla || 'ESC'}</span>
-                              {suspensa && <span className="ml-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[9px] font-black">SUSPENSA</span>}
-                            </div>
-                            <div className="text-[10px] text-slate-500">{r.escola.municipio || '—'}, {r.escola.provincia || 'Angola'}</div>
-                          </td>
-                          <td className="p-1.5 border-r border-black text-left font-sans">
-                            <span className={r.temDiretor ? 'font-semibold text-slate-800' : 'text-amber-700 italic font-semibold'}>
-                              {r.diretorNome}
-                            </span>
-                          </td>
-                          <td className="p-1.5 border-r border-black text-[10px]">{r.escola.anoLectivoActivo || '—'}</td>
-                          <td className="p-1.5 border-r border-black font-bold">{r.turmasCount}</td>
-                          <td className="p-1.5 border-r border-black text-[10px]">
-                            <span className="font-bold">{r.professoresCount}</span> / {r.funcionariosCount}
-                          </td>
-                          <td className="p-1.5 border-r border-black bg-slate-50">
-                            <span className="font-bold">{r.matriculadosTotal}</span>
-                            <span className="text-[9px] text-slate-500 block">({r.matriculadosM}M / {r.matriculadosF}F)</span>
-                          </td>
-                          <td className="p-1.5 border-r border-black bg-blue-50/40 font-bold">{r.avaliados}</td>
-                          <td className="p-1.5 border-r border-black bg-emerald-50/40 font-black text-emerald-800">{r.taxaAprovacao}%</td>
-                          <td className="p-1.5 border-r border-black font-black">{r.mediaGeral}</td>
-                          <td className="p-1.5 border-r border-black font-semibold text-indigo-800">{r.taxaAssiduidade}</td>
-                          <td className="p-1.5 font-sans print:hidden">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleSelecionarEscolaAdmin(r.escola.id);
-                                setSubAbaAtiva('mapa_rendimento');
-                              }}
-                              className="px-2 py-1 bg-purple-700 hover:bg-purple-800 text-white rounded text-[10px] font-bold transition-colors"
-                            >
-                              Detalhar
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={12} className="p-6 text-center font-sans text-slate-500 italic">
-                        Nenhuma escola registada na rede nacional.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-                <tfoot className="bg-slate-200 font-bold text-center border-t-2 border-black font-mono">
-                  <tr>
-                    <td colSpan={4} className="p-2 border-r border-black text-right font-sans uppercase">
-                      TOTAIS CONSOLIDADOS DA REDE ({escolas.length} ESCOLAS):
-                    </td>
-                    <td className="p-1.5 border-r border-black">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.turmasCount, 0)}</td>
-                    <td className="p-1.5 border-r border-black">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.professoresCount, 0)} / {resumoConsolidadoPorEscola.reduce((s, r) => s + r.funcionariosCount, 0)}</td>
-                    <td className="p-1.5 border-r border-black">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.matriculadosTotal, 0)}</td>
-                    <td className="p-1.5 border-r border-black text-blue-900">{resumoConsolidadoPorEscola.reduce((s, r) => s + r.avaliados, 0)}</td>
-                    <td className="p-1.5 border-r border-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</td>
-                    <td colSpan={2} className="p-1.5 border-r border-black font-sans text-[10px]">Consolidado MED</td>
-                    <td className="p-1.5 print:hidden">—</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* SUB-ABA 1: MAPA GERAL DE RENDIMENTO MED */}
-        {subAbaAtiva === 'mapa_rendimento' && (
-          <div className="space-y-6">
-            {/* Cards de Resumo Rápido */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:hidden">
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                <span className="text-xs font-bold text-slate-500 uppercase">
-                  {isProfessor ? 'Matrícula das Suas Turmas' : 'Matrícula Total'}
-                </span>
-                <p className="text-2xl font-black text-slate-800">{totaisGeraisMapa.matriculados}</p>
-                <span className="text-[10px] text-slate-400">Estudantes</span>
-              </div>
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <span className="text-xs font-bold text-blue-600 uppercase">Avaliados</span>
-                <p className="text-2xl font-black text-blue-900">{totaisGeraisMapa.avaliados}</p>
-                <span className="text-[10px] text-blue-600">Alunos com Notas</span>
-              </div>
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                <span className="text-xs font-bold text-emerald-600 uppercase">Aprovados / Apto</span>
-                <p className="text-2xl font-black text-emerald-900">{totaisGeraisMapa.aprovados}</p>
-                <span className="text-[10px] text-emerald-600 font-bold">{totaisGeraisMapa.taxaGeral}% de Sucesso</span>
-              </div>
-              <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl">
-                <span className="text-xs font-bold text-rose-600 uppercase">Não Transitam</span>
-                <p className="text-2xl font-black text-rose-900">{totaisGeraisMapa.reprovados}</p>
-                <span className="text-[10px] text-rose-600">Necessitam de Apoio</span>
-              </div>
-            </div>
-
-            {/* TABELA OFICIAL MINISTERIAL MED */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
-                <thead className="bg-slate-100 font-bold text-center text-[10px]">
-                  <tr>
-                    <th rowSpan={2} className="p-2 border-r border-black w-8">Nº</th>
-                    <th rowSpan={2} className="p-2 border-r border-black text-left">TURMA / CLASSE</th>
-                    <th rowSpan={2} className="p-2 border-r border-black text-left">CURSO</th>
-                    <th colSpan={3} className="p-1 border-r border-black bg-slate-200">MATRÍCULA INICIAL</th>
-                    <th rowSpan={2} className="p-2 border-r border-black w-14">DESIST.</th>
-                    <th colSpan={3} className="p-1 border-r border-black bg-blue-50">AVALIADOS</th>
-                    <th colSpan={3} className="p-1 border-r border-black bg-emerald-50">APROVADOS (APTO)</th>
-                    <th colSpan={2} className="p-1 border-r border-black bg-rose-50">NÃO TRANSITAM</th>
-                    <th rowSpan={2} className="p-2 border-r border-black w-14">MÉDIA</th>
-                    <th rowSpan={2} className="p-2 w-16">EXAME</th>
-                  </tr>
-                  <tr className="bg-slate-50 text-[9px]">
-                    <th className="p-1 border-r border-black w-8">MF</th>
-                    <th className="p-1 border-r border-black w-8">M</th>
-                    <th className="p-1 border-r border-black w-8">F</th>
-                    <th className="p-1 border-r border-black w-8 bg-blue-50">MF</th>
-                    <th className="p-1 border-r border-black w-8 bg-blue-50">M</th>
-                    <th className="p-1 border-r border-black w-8 bg-blue-50">F</th>
-                    <th className="p-1 border-r border-black w-8 bg-emerald-50">MF</th>
-                    <th className="p-1 border-r border-black w-8 bg-emerald-50">%</th>
-                    <th className="p-1 border-r border-black w-8 bg-emerald-50">F</th>
-                    <th className="p-1 border-r border-black w-8 bg-rose-50">MF</th>
-                    <th className="p-1 border-r border-black w-8 bg-rose-50">%</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black font-mono">
-                  {mapaRendimentoTurmas.length > 0 ? (
-                    mapaRendimentoTurmas.map((item, idx) => (
-                      <tr key={item.turma.id} className="hover:bg-slate-50 text-center">
-                        <td className="p-1.5 border-r border-black">{idx + 1}</td>
-                        <td className="p-1.5 border-r border-black text-left font-sans font-bold uppercase">
-                          {isVisaoRedeTodas && (
-                            <span className="mr-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 text-[9px] font-black">{item.escolaSigla}</span>
-                          )}
-                          {item.turma.nome}
-                        </td>
-                        <td className="p-1.5 border-r border-black text-left font-sans text-[10px] truncate max-w-[120px]">{item.turma.curso || 'Ensino Geral'}</td>
-                        <td className="p-1 border-r border-black font-bold">{item.matriculadosTotal}</td>
-                        <td className="p-1 border-r border-black text-slate-600">{item.matriculadosM}</td>
-                        <td className="p-1 border-r border-black text-slate-600">{item.matriculadosF}</td>
-                        <td className="p-1 border-r border-black text-rose-700">{item.desistentesTotal}</td>
-                        <td className="p-1 border-r border-black font-bold bg-blue-50/50">{item.avaliadosTotal}</td>
-                        <td className="p-1 border-r border-black bg-blue-50/50 text-slate-600">{item.avaliadosM}</td>
-                        <td className="p-1 border-r border-black bg-blue-50/50 text-slate-600">{item.avaliadosF}</td>
-                        <td className="p-1 border-r border-black font-bold text-emerald-800 bg-emerald-50/50">{item.aprovadosTotal}</td>
-                        <td className="p-1 border-r border-black font-bold text-emerald-800 bg-emerald-50/50">{item.percAprovados}%</td>
-                        <td className="p-1 border-r border-black bg-emerald-50/50 text-slate-600">{item.aprovadosF}</td>
-                        <td className="p-1 border-r border-black font-bold text-rose-800 bg-rose-50/50">{item.reprovadosTotal}</td>
-                        <td className="p-1 border-r border-black bg-rose-50/50 text-rose-800">{item.percReprovados}%</td>
-                        <td className="p-1 border-r border-black font-black bg-slate-100">{item.mediaTurma}</td>
-                        <td className="p-1 font-sans text-[9px] font-bold">
-                          {item.ehTerminal ? (
-                            <span className="text-amber-800 font-black">EXAME</span>
-                          ) : (
-                            <span className="text-slate-400">Transição</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={17} className="p-6 text-center font-sans text-slate-500 italic">
-                        {isProfessor 
-                          ? 'Nenhuma turma atribuída localizada para o professor.' 
-                          : 'Nenhuma turma localizada para os critérios de filtro selecionados.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-                <tfoot className="bg-slate-200 font-bold text-center border-t-2 border-black font-mono">
-                  <tr>
-                    <td colSpan={3} className="p-2 border-r border-black text-right font-sans uppercase">
-                      {isProfessor ? 'TOTAIS DO DOCENTE:' : 'TOTAIS DA INSTITUIÇÃO:'}
-                    </td>
-                    <td className="p-1 border-r border-black">{totaisGeraisMapa.matriculados}</td>
-                    <td colSpan={2} className="p-1 border-r border-black text-[10px] font-sans">—</td>
-                    <td className="p-1 border-r border-black text-rose-800">
-                      {mapaRendimentoTurmas.reduce((acc, i) => acc + i.desistentesTotal, 0)}
-                    </td>
-                    <td className="p-1 border-r border-black font-black text-blue-900">{totaisGeraisMapa.avaliados}</td>
-                    <td colSpan={2} className="p-1 border-r border-black text-[10px] font-sans">—</td>
-                    <td className="p-1 border-r border-black font-black text-emerald-900">{totaisGeraisMapa.aprovados}</td>
-                    <td className="p-1 border-r border-black font-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</td>
-                    <td colSpan={2} className="p-1 border-r border-black text-[10px] font-sans">—</td>
-                    <td className="p-1 border-r border-black font-black text-rose-900">{totaisGeraisMapa.reprovados}</td>
-                    <td colSpan={2} className="p-1 font-sans text-[10px] text-slate-700">Conforme MED</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            <div className="text-[10px] text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
-              <p><strong>Nota Informativa MED:</strong> Conforme o regulamento das Escolas do Ensino Geral de Angola, o aproveitamento escolar positivo exige nota igual ou superior a 10 valores na escala de 0 a 20 (ou 3 valores no Ensino Primário escala 0-5). Para as classes terminais (6ª, 9ª e 12ª/13ª), os resultados finais estão condicionados à realização do Exame Nacional / Prova de Escola.</p>
-            </div>
-          </div>
-        )}
-
-        {/* SUB-ABA 2: RENDIMENTO POR DISCIPLINA */}
-        {subAbaAtiva === 'rendimento_disciplina' && (
-          <div className="space-y-6">
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-xs text-blue-900">
-              <p className="font-bold flex items-center space-x-2">
-                <BookOpen className="w-4 h-4 text-blue-700" />
-                <span>
-                  {isProfessor 
-                    ? `Aproveitamento das Disciplinas do(a) Prof(a). ${currentUser?.nomeCompleto || ''}` 
-                    : 'Grelha Curricular Padronizada MED na Ordem Oficial'}
-                </span>
-              </p>
-              <p className="mt-1 text-slate-600">
-                {isProfessor 
-                  ? 'Exibição detalhada das disciplinas sob a responsabilidade do docente nas suas turmas atribuídas.' 
-                  : 'As disciplinas abaixo respeitam rigorosamente a ordem curricular estabelecida na funcionalidade Disciplinas, permitindo ao Subdirector Pedagógico e à Comissão de Coordenação avaliar o rendimento por área do saber.'}
-              </p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
-                <thead className="bg-slate-100 font-bold text-center text-[10px]">
-                  <tr>
-                    <th className="p-2 border-r border-black w-10">ORD.</th>
-                    <th className="p-2 border-r border-black text-left">DISCIPLINA</th>
-                    <th className="p-2 border-r border-black w-24">CÓDIGO</th>
-                    <th className="p-2 border-r border-black w-24 bg-blue-50">AVALIADOS</th>
-                    <th className="p-2 border-r border-black w-24 bg-emerald-50">POSITIVAS (≥10)</th>
-                    <th className="p-2 border-r border-black w-24 bg-rose-50">NEGATIVAS (&lt;10)</th>
-                    <th className="p-2 border-r border-black w-24 bg-emerald-100">% APROVEIT.</th>
-                    <th className="p-2 border-r border-black w-20">MÉDIA</th>
-                    <th className="p-2 w-32">CLASSIFICAÇÃO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black font-mono">
-                  {rendimentoPorDisciplina.length > 0 ? (
-                    rendimentoPorDisciplina.map((item, idx) => (
-                      <tr key={item.disciplina.id} className="hover:bg-slate-50 text-center">
-                        <td className="p-2 border-r border-black font-bold">{item.ordem !== 999 ? item.ordem : idx + 1}</td>
-                        <td className="p-2 border-r border-black text-left font-sans font-bold uppercase">{item.disciplina.nome}</td>
-                        <td className="p-2 border-r border-black text-slate-600">{item.disciplina.codigo || '—'}</td>
-                        <td className="p-2 border-r border-black font-bold bg-blue-50/50">{item.totalAvaliados}</td>
-                        <td className="p-2 border-r border-black font-bold text-emerald-800 bg-emerald-50/50">{item.totalPositivas}</td>
-                        <td className="p-2 border-r border-black font-bold text-rose-800 bg-rose-50/50">{item.totalNegativas}</td>
-                        <td className="p-2 border-r border-black font-black text-emerald-900 bg-emerald-100/50">{item.taxaAproveitamento}%</td>
-                        <td className="p-2 border-r border-black font-black bg-slate-100">{item.mediaDisciplina}</td>
-                        <td className="p-2 font-sans text-[10px] font-bold">
-                          <span className={`px-2 py-0.5 rounded ${
-                            item.statusQualitativo === 'Excelente' ? 'bg-emerald-100 text-emerald-800' :
-                            item.statusQualitativo === 'Bom' ? 'bg-blue-100 text-blue-800' :
-                            item.statusQualitativo === 'Regular' ? 'bg-amber-100 text-amber-800' :
-                            item.statusQualitativo === 'Crítico / Atenção' ? 'bg-rose-100 text-rose-800' :
-                            'bg-slate-100 text-slate-600'
-                          }`}>
-                            {item.statusQualitativo}
+              return (
+                <article
+                  key={item.id}
+                  className="border border-slate-200 rounded-xl p-4 sm:p-5 bg-white hover:border-indigo-300 transition-all space-y-3 break-inside-avoid"
+                >
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                    <div className="space-y-1.5 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] font-mono font-bold text-slate-400">
+                          #{String(idx + 1).padStart(2, '0')}
+                        </span>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase border ${catInfo.corBadge}`}
+                        >
+                          {catInfo.label}
+                        </span>
+                        {item.subtipo && (
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-bold">
+                            {item.subtipo}
                           </span>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={9} className="p-6 text-center font-sans text-slate-500 italic">
-                        {isProfessor 
-                          ? 'Nenhuma disciplina curricular atribuída a este professor para a turma/classe selecionada.' 
-                          : 'Nenhuma disciplina curricular associada à classe selecionada.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                        )}
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${estInfo.classe}`}
+                        >
+                          {estInfo.label}
+                        </span>
+                        {(isVisaoRedeTodas || item.escolaId === 'REDE') && (
+                          <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 text-[10px] font-black">
+                            {item.escolaNome ||
+                              escolasMap.get(item.escolaId)?.nome ||
+                              'Rede Nacional'}
+                          </span>
+                        )}
+                        {item.turmaNome && (
+                          <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-800 border border-teal-200 text-[10px] font-bold">
+                            Turma: {item.turmaNome}
+                          </span>
+                        )}
+                        {item.somenteLeitura && (
+                          <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                            Sincronizado de{' '}
+                            {item.origem === 'Agenda'
+                              ? 'Agenda Escolar'
+                              : item.origem === 'Conselho_Direcao'
+                              ? 'Conselho de Direção'
+                              : item.origem === 'Despacho'
+                              ? 'Despacho Direção'
+                              : 'Ocorrência de Aluno'}
+                          </span>
+                        )}
+                      </div>
 
-        {/* SUB-ABA 3: ASSIDUIDADE E FALTAS */}
-        {subAbaAtiva === 'assiduidade_faltas' && (
-          <div className="space-y-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
-                <thead className="bg-slate-100 font-bold text-center text-[10px]">
-                  <tr>
-                    <th className="p-2 border-r border-black w-10">Nº</th>
-                    <th className="p-2 border-r border-black text-left">TURMA</th>
-                    <th className="p-2 border-r border-black text-left">CLASSE</th>
-                    <th className="p-2 border-r border-black w-24">ESTUDANTES</th>
-                    <th className="p-2 border-r border-black w-28">TOTAL DE FALTAS</th>
-                    <th className="p-2 border-r border-black w-28">MÉDIA FALTAS/ALUNO</th>
-                    <th className="p-2 border-r border-black w-36 bg-rose-50">EM RISCO (&gt;20 FALTAS)</th>
-                    <th className="p-2 w-32 bg-emerald-50">TAXA DE FREQUÊNCIA</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black font-mono text-center">
-                  {dadosAssiduidade.length > 0 ? (
-                    dadosAssiduidade.map((item, idx) => (
-                      <tr key={item.turma.id} className="hover:bg-slate-50">
-                        <td className="p-2 border-r border-black">{idx + 1}</td>
-                        <td className="p-2 border-r border-black text-left font-sans font-bold uppercase">
-                          {isVisaoRedeTodas && (
-                            <span className="mr-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 text-[9px] font-black">{item.escolaSigla}</span>
-                          )}
-                          {item.turma.nome}
-                        </td>
-                        <td className="p-2 border-r border-black text-left font-sans">{item.turma.classe}</td>
-                        <td className="p-2 border-r border-black font-bold">{item.totalAlunos}</td>
-                        <td className="p-2 border-r border-black font-bold text-slate-700">{item.totalFaltasTurma}</td>
-                        <td className="p-2 border-r border-black text-slate-700">{item.mediaFaltasPorAluno}</td>
-                        <td className="p-2 border-r border-black font-bold text-rose-800 bg-rose-50/50">
-                          {item.alunosEmRiscoFaltas > 0 ? `${item.alunosEmRiscoFaltas} Aluno(s)` : 'Nenhum'}
-                        </td>
-                        <td className="p-2 font-black text-emerald-800 bg-emerald-50/50">{item.taxaAssiduidadeEstimada}%</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8} className="p-6 text-center font-sans text-slate-500 italic">
-                        Sem registos de presenças para o período selecionado.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                      <h3 className="text-base font-black text-slate-900 leading-snug">
+                        {item.titulo}
+                      </h3>
 
-        {/* SUB-ABA 4: DISTRIBUIÇÃO DE CARGA HORÁRIA E QUADRO DOCENTE */}
-        {subAbaAtiva === 'carga_horaria' && (
-          <div className="space-y-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
-                <thead className="bg-slate-100 font-bold text-center text-[10px]">
-                  <tr>
-                    <th className="p-2 border-r border-black w-10">Nº</th>
-                    <th className="p-2 border-r border-black text-left">NOME DO PROFESSOR</th>
-                    <th className="p-2 border-r border-black text-left">DISCIPLINA(S) LECCIONADA(S)</th>
-                    <th className="p-2 border-r border-black w-24">Nº TURMAS</th>
-                    <th className="p-2 border-r border-black text-left">TURMAS ATRIBUÍDAS</th>
-                    <th className="p-2 border-r border-black w-28">CARGA SEMANAL</th>
-                    <th className="p-2 w-32">VÍNCULO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black font-sans text-center">
-                  {distribuicaoCargaDocente.length > 0 ? (
-                    distribuicaoCargaDocente.map((item, idx) => (
-                      <tr key={item.docente.id} className="hover:bg-slate-50">
-                        <td className="p-2 border-r border-black font-mono">{idx + 1}</td>
-                        <td className="p-2 border-r border-black text-left font-bold uppercase">{item.docente.nomeCompleto}</td>
-                        <td className="p-2 border-r border-black text-left text-slate-800">{item.disciplinas}</td>
-                        <td className="p-2 border-r border-black font-mono font-bold">{item.turmasContagem}</td>
-                        <td className="p-2 border-r border-black text-left text-[10px] text-slate-600">{item.turmasNomes}</td>
-                        <td className="p-2 border-r border-black font-mono font-bold text-blue-900">{item.temposSemanais} Tempos</td>
-                        <td className="p-2 text-[10px] font-semibold text-slate-700">{item.regime}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="p-6 text-center text-slate-500 italic">
-                        Nenhum funcionário docente cadastrado no quadro.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 font-medium">
+                        <span className="flex items-center space-x-1">
+                          <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>{item.data || 'Sem data'}</span>
+                        </span>
+                        {item.hora && (
+                          <span className="flex items-center space-x-1">
+                            <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>{item.hora}</span>
+                          </span>
+                        )}
+                        {item.local && (
+                          <span className="flex items-center space-x-1">
+                            <MapPin className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>{item.local}</span>
+                          </span>
+                        )}
+                        <span className="flex items-center space-x-1">
+                          <Users className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>
+                            Responsável: <strong>{item.organizadorNome}</strong>
+                            {item.numeroParticipantes ? ` (${item.numeroParticipantes} part.)` : ''}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
 
-        {/* SUB-ABA 5: BALANÇO NARRATIVO & PARECER DA DIRECÇÃO */}
-        {subAbaAtiva === 'balanco_pedagogico' && (
-          <div className="space-y-6 text-slate-800 text-xs sm:text-sm leading-relaxed">
-            <div className="space-y-3">
-              <h3 className="font-black text-sm uppercase text-slate-900 border-b border-slate-300 pb-1">
-                1. Introdução e Enquadramento Curricular
-              </h3>
-              <p className="text-justify">
-                O presente documento formaliza o Balanço do Rendimento Escolar do <strong>{filtroTrimestre === 'anual' ? 'Consolidado Anual' : `${filtroTrimestre}º Trimestre`}</strong> referente ao <strong>{filtroAno && filtroAno !== 'TODOS' ? `Ano Lectivo ${filtroAno}` : 'Consolidado Multi-Anual'}</strong>, {isVisaoRedeTodas ? <>na <strong>Rede Nacional ({escolas.length} Escolas Cadastradas)</strong></> : <>na instituição <strong>{escolaExibida.nomeOficial || escolaExibida.nome}</strong></>}. {isProfessor ? (
-                  `Este relatório expressa o aproveitamento pedagógico individual nas turmas lecionadas pelo(a) Prof(a). ${currentUser?.nomeCompleto || 'Docente'}.`
-                ) : (
-                  `A rede/instituição operou com um corpo discente de ${totaisGeraisMapa.matriculados} estudantes sob regime pedagógico oficial MED.`
-                )}
-              </p>
-            </div>
+                    {/* AÇÕES DO REGISTO (OCULTAS NA IMPRESSÃO) */}
+                    <div className="flex flex-wrap items-center gap-1.5 print:hidden shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setDetalheItem(item)}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                        title="Ver Relatório Completo"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Ler</span>
+                      </button>
 
-            <div className="space-y-3">
-              <h3 className="font-black text-sm uppercase text-slate-900 border-b border-slate-300 pb-1">
-                2. Síntese do Aproveitamento
-              </h3>
-              <p className="text-justify">
-                Foram submetidos a avaliação contínua e sumativa um total de <strong>{totaisGeraisMapa.avaliados} alunos</strong>, registando-se uma taxa de aproveitamento positivo de <strong>{totaisGeraisMapa.taxaGeral}%</strong> ({totaisGeraisMapa.aprovados} alunos com aproveitamento satisfatório) e {totaisGeraisMapa.reprovados} alunos em regime de recuperação pedagógica.
-              </p>
-            </div>
+                      {podeHomologar && !item.somenteLeitura && item.estado !== 'Homologado' && (
+                        <button
+                          type="button"
+                          onClick={() => handleHomologar(item)}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                          title="Homologar Relatório"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Homologar</span>
+                        </button>
+                      )}
 
-            <div className="space-y-2">
-              <h3 className="font-black text-sm uppercase text-slate-900 border-b border-slate-300 pb-1">
-                3. Dificuldades e Constrangimentos Registados
-              </h3>
-              <textarea
-                value={parecerDificuldades}
-                onChange={e => setParecerDificuldades(e.target.value)}
-                rows={3}
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-sans text-slate-800 focus:ring-2 focus:ring-blue-500 print:bg-transparent print:border-none print:p-0"
-              />
-            </div>
+                      {podeEditarEste && (
+                        <button
+                          type="button"
+                          onClick={() => abrirModalEditar(item)}
+                          className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer"
+                          title="Editar Relatório"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
-            <div className="space-y-2">
-              <h3 className="font-black text-sm uppercase text-slate-900 border-b border-slate-300 pb-1">
-                4. Medidas de Intervenção e Reforço Curricular
-              </h3>
-              <textarea
-                value={parecerMedidas}
-                onChange={e => setParecerMedidas(e.target.value)}
-                rows={3}
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-sans text-slate-800 focus:ring-2 focus:ring-blue-500 print:bg-transparent print:border-none print:p-0"
-              />
-            </div>
+                      {podeExcluirEste && (
+                        <button
+                          type="button"
+                          onClick={() => handleExcluir(item)}
+                          className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 cursor-pointer"
+                          title="Eliminar Relatório"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-            <div className="space-y-2">
-              <h3 className="font-black text-sm uppercase text-slate-900 border-b border-slate-300 pb-1">
-                5. {isProfessor ? 'Parecer Conclusivo do Docente' : 'Parecer Conclusivo da Subdirecção Pedagógica'}
-              </h3>
-              <textarea
-                value={parecerConclusao}
-                onChange={e => setParecerConclusao(e.target.value)}
-                rows={3}
-                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-sans text-slate-800 focus:ring-2 focus:ring-blue-500 print:bg-transparent print:border-none print:p-0"
-              />
-            </div>
-          </div>
-        )}
+                  {/* SÍNTESE DO RELATÓRIO */}
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs text-slate-800 space-y-2 leading-relaxed">
+                    <p className="whitespace-pre-line">{item.resumoAcontecimentos}</p>
+                    {item.deliberacoesEncaminhamentos && (
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="font-black text-[11px] uppercase text-indigo-900 block mb-0.5">
+                          Deliberações &amp; Encaminhamentos:
+                        </span>
+                        <p className="whitespace-pre-line text-slate-700">
+                          {item.deliberacoesEncaminhamentos}
+                        </p>
+                      </div>
+                    )}
+                    {item.resultadosObtidos && (
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="font-black text-[11px] uppercase text-emerald-900 block mb-0.5">
+                          Resultados &amp; Impacto:
+                        </span>
+                        <p className="whitespace-pre-line text-slate-700">{item.resultadosObtidos}</p>
+                      </div>
+                    )}
+                  </div>
 
-        {/* ASSINATURAS MINISTERIAIS NO FINAL DO DOCUMENTO */}
-        <div className="mt-12 pt-8 border-t-2 border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-8 text-center text-xs">
-          <div>
-            <p className="font-bold uppercase text-slate-900">
-              {docenteAlvo ? 'O(A) Professor(a) / Docente Responsável' : 'O Subdirector Pedagógico'}
-            </p>
-            <div className="w-56 h-12 mx-auto border-b border-black mt-6"></div>
-            <p className="text-[11px] font-semibold text-slate-700 mt-1">
-              {docenteAlvo ? docenteAlvo.nomeCompleto : 'Assinatura & Rubrica'}
-            </p>
-          </div>
-          <div>
-            <p className="font-bold uppercase text-slate-900">
-              {docenteAlvo ? 'Visto da Direcção / Subdirecção Pedagógica' : 'O Director Geral da Instituição'}
-            </p>
-            <div className="w-56 h-12 mx-auto border-b border-black mt-6"></div>
-            <p className="text-[11px] font-semibold text-slate-700 mt-1">
-              {isVisaoRedeTodas ? 'Administrador Geral / Supervisão Central MED' : (escolaExibida.diretorGeralNome || 'Homologação e Carimbo Oficial')}
-            </p>
-          </div>
-        </div>
-
-        {/* RODAPÉ DO DOCUMENTO COM QR DE AUTENTICAÇÃO */}
-        <div className="mt-8 pt-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] text-slate-500 font-mono">
-          <div className="text-center sm:text-left">
-            <p>Documento Oficial emitido em {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO')}</p>
-            <p className="font-bold text-slate-700 mt-0.5">
-              {isVisaoRedeTodas ? `Administração Central • Rede de ${escolas.length} Escolas` : (escolaExibida.nomeOficial || escolaExibida.nome)}
-            </p>
-          </div>
-          <OfficialQrCode
-            value={gerarPayloadQrDocumento({
-              docType: 'RELATORIO_OFICIAL',
-              escolaId: isVisaoRedeTodas ? 'REDE_NACIONAL' : escolaExibida.id,
-              docRef: `${subAbaAtiva}-${filtroAno || 'TODOS'}-${filtroTrimestre}`,
-              turmaId: filtroTurmaId !== 'TODAS' ? filtroTurmaId : undefined,
-              anoLectivo: filtroAno || 'TODOS'
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500">
+                    <span>
+                      Público: <strong>{item.publicoAlvo}</strong> • Visibilidade:{' '}
+                      <strong>{LABEL_VISIBILIDADE[item.nivelVisibilidade] || item.nivelVisibilidade}</strong>
+                    </span>
+                    {item.homologadoPorNome && (
+                      <span className="text-emerald-800 font-bold">
+                        Homologado por: {item.homologadoPorNome}
+                      </span>
+                    )}
+                  </div>
+                </article>
+              );
             })}
-            size={54}
-            label="Validar Relatório"
-          />
+          </div>
+        ) : (
+          <div className="text-center py-14 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50 space-y-3">
+            <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
+            <div className="space-y-1">
+              <p className="text-sm font-black text-slate-700">
+                Nenhum relatório de acontecimento encontrado para os filtros selecionados
+              </p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Registe reuniões, palestras, eventos escolares, relatórios de desenvolvimento pedagógico ou ocorrências através do botão &ldquo;Novo Relatório de Acontecimento&rdquo;.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => abrirModalNovo('Reuniao')}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold inline-flex items-center space-x-1.5 print:hidden cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Registar Primeiro Relatório</span>
+            </button>
+          </div>
+        )}
+
+        {/* RODAPÉ OFICIAL & ASSINATURAS */}
+        <div className="mt-8 pt-6 border-t-2 border-slate-900 space-y-6">
+          <div
+            data-pdf-fixed-signatures="true"
+            className="grid grid-cols-1 sm:grid-cols-2 gap-8 text-center text-xs"
+          >
+            <div>
+              <p className="font-bold uppercase text-slate-900">
+                {isDocenteEscopoRestrito ? 'O(A) Docente / Coordenador(a)' : 'O Subdirector Pedagógico'}
+              </p>
+              <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
+              <p className="text-[11px] font-semibold text-slate-700 mt-1">
+                {isDocenteEscopoRestrito
+                  ? currentUser?.nomeCompleto || 'Assinatura'
+                  : escolaExibida.subdiretorPedagogicoNome || 'Assinatura & Rubrica'}
+              </p>
+            </div>
+            <div>
+              <p className="font-bold uppercase text-slate-900">
+                {isVisaoRedeTodas ? 'Supervisão Central da Rede Escolar' : 'O Director Geral da Instituição'}
+              </p>
+              <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
+              <p className="text-[11px] font-semibold text-slate-700 mt-1">
+                {isVisaoRedeTodas
+                  ? 'Administrador Geral / Direcção MED'
+                  : escolaExibida.diretorGeralNome || 'Homologação e Carimbo Oficial'}
+              </p>
+            </div>
+          </div>
+
+          <div
+            data-pdf-fixed-qr="true"
+            className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-[10px] text-slate-600 font-mono"
+          >
+            <div className="text-center sm:text-left">
+              <p>
+                Relatório de Acontecimentos emitido em {formatarDataHoraAngolana(new Date())}
+              </p>
+              <p className="font-bold text-slate-800 mt-0.5">
+                {isVisaoRedeTodas
+                  ? `Administração Central MED • ${escolas.length} Escolas`
+                  : escolaExibida.nomeOficial || escolaExibida.nome}
+              </p>
+            </div>
+            <OfficialQrCode
+              value={gerarPayloadQrDocumento({
+                docType: 'RELATORIO_ACONTECIMENTOS',
+                escolaId: isVisaoRedeTodas ? 'REDE_NACIONAL' : escolaExibida.id,
+                docRef: `${filtroAno}-${filtroCategoria}`,
+                anoLectivo: filtroAno
+              })}
+              size={48}
+              label="Validar Relatório"
+            />
+          </div>
         </div>
       </div>
+
+      {/* MODAL DE LEITURA DETALHADA */}
+      {detalheItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div className="p-5 border-b border-slate-200 flex items-start justify-between gap-4 sticky top-0 bg-white z-10">
+              <div>
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
+                      (CATEGORIAS_CONFIG[detalheItem.categoria] || CATEGORIAS_CONFIG.Evento).corBadge
+                    }`}
+                  >
+                    {(CATEGORIAS_CONFIG[detalheItem.categoria] || CATEGORIAS_CONFIG.Evento).label}
+                  </span>
+                  {detalheItem.subtipo && (
+                    <span className="text-xs font-bold text-slate-500">{detalheItem.subtipo}</span>
+                  )}
+                </div>
+                <h3 className="text-lg font-black text-slate-900">{detalheItem.titulo}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetalheItem(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block">Data &amp; Hora</span>
+                  <span className="font-bold text-slate-900">
+                    {formatarDataAngolana(detalheItem.data, 'curto')} {detalheItem.hora ? `às ${detalheItem.hora}` : ''}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block">Local</span>
+                  <span className="font-bold text-slate-900">{detalheItem.local || 'Instituição'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block">Estado</span>
+                  <span className="font-bold text-slate-900">
+                    {LABEL_ESTADO[detalheItem.estado]?.label || detalheItem.estado}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block">Organizador</span>
+                  <span className="font-bold text-slate-900">{detalheItem.organizadorNome}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block">Público-Alvo</span>
+                  <span className="font-bold text-slate-900">{detalheItem.publicoAlvo}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-500 block">Ano Letivo</span>
+                  <span className="font-bold text-slate-900">{detalheItem.anoLectivo || '—'}</span>
+                </div>
+              </div>
+
+              {detalheItem.participantes && (
+                <div>
+                  <span className="text-[11px] font-black uppercase text-slate-700 block mb-1">
+                    Participantes / Intervenientes
+                  </span>
+                  <p className="text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    {detalheItem.participantes}
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <span className="text-[11px] font-black uppercase text-slate-700 block mb-1">
+                  Síntese &amp; Relato dos Acontecimentos
+                </span>
+                <p className="text-slate-800 whitespace-pre-line leading-relaxed bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+                  {detalheItem.resumoAcontecimentos}
+                </p>
+              </div>
+
+              {detalheItem.deliberacoesEncaminhamentos && (
+                <div>
+                  <span className="text-[11px] font-black uppercase text-indigo-900 block mb-1">
+                    Deliberações, Acordos &amp; Encaminhamentos
+                  </span>
+                  <p className="text-slate-800 whitespace-pre-line leading-relaxed bg-indigo-50/50 p-3.5 rounded-lg border border-indigo-200">
+                    {detalheItem.deliberacoesEncaminhamentos}
+                  </p>
+                </div>
+              )}
+
+              {detalheItem.resultadosObtidos && (
+                <div>
+                  <span className="text-[11px] font-black uppercase text-emerald-900 block mb-1">
+                    Resultados Obtidos &amp; Conclusões
+                  </span>
+                  <p className="text-slate-800 whitespace-pre-line leading-relaxed bg-emerald-50/50 p-3.5 rounded-lg border border-emerald-200">
+                    {detalheItem.resultadosObtidos}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50">
+              {podeHomologar && !detalheItem.somenteLeitura && detalheItem.estado !== 'Homologado' && (
+                <button
+                  type="button"
+                  onClick={() => handleHomologar(detalheItem)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Homologar Relatório
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setDetalheItem(null)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE REGISTO / EDIÇÃO DE RELATÓRIO DE ACONTECIMENTO */}
+      {modalAberto && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200">
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    {editandoId
+                      ? 'Editar Relatório de Acontecimento'
+                      : 'Novo Relatório de Acontecimento / Actividade'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Reuniões, palestras, jornadas, desenvolvimentos pedagógicos/administrativos ou ocorrências.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalAberto(false)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarRelatorio} className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {isAdminGeral && (
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Escola / Âmbito *</label>
+                    <select
+                      value={formEscolaId}
+                      onChange={e => setFormEscolaId(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800"
+                    >
+                      <option value="REDE">Rede Nacional (Todas as Escolas)</option>
+                      {escolas.map(e => (
+                        <option key={e.id} value={e.id}>
+                          {e.sigla ? `[${e.sigla}] ` : ''}
+                          {e.nomeOficial || e.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Categoria *</label>
+                  <select
+                    value={formCategoria}
+                    onChange={e => {
+                      const cat = e.target.value as CategoriaRelatorioAcontecimento;
+                      setFormCategoria(cat);
+                      setFormSubtipo(CATEGORIAS_CONFIG[cat].subtipos[0]);
+                    }}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800"
+                  >
+                    {(Object.keys(CATEGORIAS_CONFIG) as CategoriaRelatorioAcontecimento[]).map(cat => (
+                      <option key={cat} value={cat}>
+                        {CATEGORIAS_CONFIG[cat].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Tipo Específico / Subtipo</label>
+                  <select
+                    value={formSubtipo}
+                    onChange={e => setFormSubtipo(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-800"
+                  >
+                    {CATEGORIAS_CONFIG[formCategoria].subtipos.map(sub => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Título / Assunto Principal *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formTitulo}
+                    onChange={e => setFormTitulo(e.target.value)}
+                    placeholder="Ex: Palestra sobre Orientação Vocacional / Balanço do 1º Trimestre"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Data *</label>
+                  <input
+                    type="date"
+                    required
+                    value={formData}
+                    onChange={e => setFormData(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Hora</label>
+                  <input
+                    type="time"
+                    value={formHora}
+                    onChange={e => setFormHora(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Ano Letivo</label>
+                  <input
+                    type="text"
+                    value={formAnoLectivo}
+                    onChange={e => setFormAnoLectivo(e.target.value)}
+                    placeholder="2025/2026"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Trimestre</label>
+                  <select
+                    value={formTrimestre}
+                    onChange={e => setFormTrimestre(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-800"
+                  >
+                    <option value="1">Iº Trimestre</option>
+                    <option value="2">IIº Trimestre</option>
+                    <option value="3">IIIº Trimestre</option>
+                    <option value="anual">Anual</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Local</label>
+                  <input
+                    type="text"
+                    value={formLocal}
+                    onChange={e => setFormLocal(e.target.value)}
+                    placeholder="Sala, Pátio, Anfiteatro..."
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Nº Participantes</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formNumeroParticipantes}
+                    onChange={e => setFormNumeroParticipantes(e.target.value)}
+                    placeholder="Ex: 45"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Organizador / Orador</label>
+                  <input
+                    type="text"
+                    value={formOrganizadorNome}
+                    onChange={e => setFormOrganizadorNome(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Público-Alvo</label>
+                  <select
+                    value={formPublicoAlvo}
+                    onChange={e => setFormPublicoAlvo(e.target.value as any)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-800"
+                  >
+                    <option value="Toda a Comunidade">Toda a Comunidade</option>
+                    <option value="Professores">Professores &amp; Coordenação</option>
+                    <option value="Estudantes">Estudantes</option>
+                    <option value="Encarregados">Pais e Encarregados</option>
+                    {!isDocenteEscopoRestrito && <option value="Direção">Direção Executiva</option>}
+                    {isAdminGeral && <option value="Rede Nacional">Rede Nacional</option>}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Visibilidade por Perfil</label>
+                  <select
+                    value={formVisibilidade}
+                    onChange={e => setFormVisibilidade(e.target.value as VisibilidadeRelatorioAcontecimento)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-800"
+                  >
+                    <option value="Publico_Escola">Toda a Escola (Professores e Direção)</option>
+                    <option value="Docente_Turma">Turma / Docência Específica</option>
+                    {!isDocenteEscopoRestrito && (
+                      <option value="Direcao">Exclusivo Direção &amp; Administração</option>
+                    )}
+                    {isAdminGeral && (
+                      <option value="Rede_Nacional">Circular Rede Nacional (Todas Escolas)</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Associação opcional a Turma / Disciplina */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Turma Associada (opcional)</label>
+                  <select
+                    value={formTurmaId}
+                    onChange={e => setFormTurmaId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                  >
+                    <option value="">Geral / Sem turma específica</option>
+                    {turmasDisponiveisForm.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.nome} ({t.classe})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Disciplina Associada (opcional)</label>
+                  <select
+                    value={formDisciplinaId}
+                    onChange={e => setFormDisciplinaId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                  >
+                    <option value="">Geral / Sem disciplina específica</option>
+                    {disciplinasDisponiveisForm.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Estado do Registo</label>
+                  <select
+                    value={formEstado}
+                    onChange={e => setFormEstado(e.target.value as EstadoRelatorioAcontecimento)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-bold text-slate-800"
+                  >
+                    <option value="Registado">Registado / Submetido</option>
+                    <option value="Rascunho">Rascunho</option>
+                    {podeHomologar && <option value="Homologado">Homologado pela Direção</option>}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Participantes / Entidades Presentes (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={formParticipantes}
+                  onChange={e => setFormParticipantes(e.target.value)}
+                  placeholder="Nomes dos membros presentes, convidados, palestrantes ou comissões..."
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Relato Detalhado dos Acontecimentos / Ordem de Trabalhos *
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={formResumo}
+                  onChange={e => setFormResumo(e.target.value)}
+                  placeholder="Descreva o que ocorreu na reunião, palestra, evento ou o progresso alcançado no desenvolvimento pedagógico/administrativo..."
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Deliberações, Acordos &amp; Encaminhamentos
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={formDeliberacoes}
+                    onChange={e => setFormDeliberacoes(e.target.value)}
+                    placeholder="Decisões tomadas, prazos e responsáveis..."
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Resultados Obtidos &amp; Recomendações
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={formResultados}
+                    onChange={e => setFormResultados(e.target.value)}
+                    placeholder="Impacto na comunidade escolar, metas cumpridas ou recomendações..."
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalAberto(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  <span>{editandoId ? 'Guardar Alterações' : 'Registar Relatório'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

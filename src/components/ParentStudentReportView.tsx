@@ -18,6 +18,9 @@ import {
 import { Escola, Aluno, Turma, NotaTrimestralConsolidada } from '../types';
 import { dbService } from '../services/storage';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
+import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { isSegundoCiclo } from '../services/academicHierarchyService';
+import { formatarDataHoraAngolana } from '../utils/dateFormat';
 
 interface ParentStudentReportViewProps {
   aluno: Aluno;
@@ -39,7 +42,8 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
   // Obter turma do aluno
   const turma = propsTurma || dbService.getTurmas().find(t => t.id === aluno.turmaId && (t.escolaId === aluno.escolaId || t.escolaId === escola.id));
   const classeNome = aluno.classeId || turma?.classe || 'Não definida';
-  const cursoNome = turma?.curso || aluno.curso || 'Ensino Geral';
+  const ehSegundoCiclo = isSegundoCiclo(classeNome);
+  const cursoNome = ehSegundoCiclo ? (turma?.curso || aluno.curso || '') : '';
   const turnoNome = turma?.turno || 'Manhã';
   const salaNome = turma?.sala || 'Sala 01';
 
@@ -106,15 +110,20 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
     return String(n.trimestre) === String(trimestreConfig);
   });
 
-  // Função para Baixar PDF (Sem assinatura da escola, contendo nome da escola e data de emissão)
-  const handleBaixarRelatorioPDF = () => {
-    const dataHoraBaixado = new Date().toLocaleString('pt-AO', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const handleBaixarRelatorioPDF = async () => {
+    const el = document.getElementById('ficha-educando-encarregado');
+    if (el) {
+      await downloadElementAsPdf(
+        el,
+        `Ficha_Educando_${(aluno.codigoMatricula || aluno.nomeCompleto).replace(/[\/\s]+/g, '_')}`,
+        { orientation: 'portrait', format: 'a4' }
+      );
+    }
+  };
+
+  // Exportação complementar em HTML
+  const handleBaixarRelatorioHTML = () => {
+    const dataHoraBaixado = formatarDataHoraAngolana(new Date());
 
     const html = `
       <!DOCTYPE html>
@@ -221,9 +230,10 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
               <div class="card-stat-num" style="font-size: 13pt; margin-top: 4px; color: #b45309;">${escola.anoLectivoActivo}</div>
             </div>
           </div>
+          ${ehSegundoCiclo && cursoNome ? `
           <div style="margin-top: 8px; font-size: 9.5pt;">
             Curso / Especialidade: <strong>${cursoNome}</strong>
-          </div>
+          </div>` : ''}
         </div>
 
         <!-- 3. ASSIDUIDADE E FREQUÊNCIA -->
@@ -341,7 +351,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden space-y-6 p-5 sm:p-6">
+    <div id="ficha-educando-encarregado" className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden space-y-6 p-5 sm:p-6">
       {/* Cabeçalho do Cartão */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-200">
         <div className="flex items-center space-x-3.5">
@@ -370,7 +380,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 self-start sm:self-auto">
+        <div className="flex items-center space-x-2 self-start sm:self-auto no-print">
           <button
             type="button"
             onClick={handleBaixarRelatorioPDF}
@@ -378,6 +388,13 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           >
             <Download className="h-4 w-4" />
             <span>Baixar Ficha em PDF</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleBaixarRelatorioHTML}
+            className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+          >
+            <span>HTML</span>
           </button>
           {modoModal && onFechar && (
             <button
@@ -397,7 +414,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           <GraduationCap className="h-4 w-4 text-blue-600" />
           <span>Enquadramento Académico</span>
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className={`grid grid-cols-2 ${ehSegundoCiclo && cursoNome ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3`}>
           <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
             <span className="text-[10px] uppercase font-bold text-gray-500 block">Classe</span>
             <span className="text-base font-black text-gray-900">{classeNome}</span>
@@ -408,10 +425,12 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
             <span className="text-base font-black text-gray-900">{turma?.nome || 'A'}</span>
           </div>
 
-          <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
-            <span className="text-[10px] uppercase font-bold text-gray-500 block">Curso</span>
-            <span className="text-xs font-black text-gray-900 truncate block mt-0.5">{cursoNome}</span>
-          </div>
+          {ehSegundoCiclo && cursoNome && (
+            <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
+              <span className="text-[10px] uppercase font-bold text-gray-500 block">Curso</span>
+              <span className="text-xs font-black text-gray-900 truncate block mt-0.5">{cursoNome}</span>
+            </div>
+          )}
 
           <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
             <span className="text-[10px] uppercase font-bold text-gray-500 block">Turno & Sala</span>

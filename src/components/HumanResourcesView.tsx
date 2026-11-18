@@ -38,13 +38,15 @@ import { dbService } from '../services/storage';
 import { securityEngine } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import * as XLSX from 'xlsx';
 import { ModalJustificarFaltaFuncionario } from './ModalJustificarFaltaFuncionario';
 import { AngolaDateInput } from './AngolaDateInput';
 import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
 import { locationService } from '../services/locationService';
+import { formatarDataAngolana, hojeAngolano } from '../utils/dateFormat';
+import { obterNomeDiretorGeral, obterTituloDiretorGeral } from '../utils/directorHelper';
 
 interface HumanResourcesViewProps {
   escola: Escola;
@@ -526,11 +528,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       'Nº Mecanográfico / Agente': func.numeroAgente || '—',
       'Tipo de Contrato': func.tipoContrato || '—',
       'Situação Funcional': func.situacaoFuncional || '—',
-      'Data de Admissão': func.dataAdmissao || '—',
-      'Carga Horária Semanal': `${func.cargaHorariaSemanal || 24} h/sem`,
+      'Data de Admissão': func.dataAdmissao ? formatarDataAngolana(func.dataAdmissao, 'curto') : '—',
+      'Carga Horária Semanal': func.cargaHorariaSemanal ? `${func.cargaHorariaSemanal} h/sem` : '—',
       'Banco': func.banco || '—',
       'IBAN': func.iban || '—',
-      'NIF': func.nif || func.numeroBI,
+      'NIF': func.nif || func.numeroBI || '—',
       'Nº de Segurança Social (INSS)': func.numeroSegurancaSocial || '—'
     }];
     downloadExcelFile('Ficha_Funcionario', dados, `Ficha_${func.nomeCompleto.replace(/\s+/g, '_')}.xlsx`);
@@ -2015,11 +2017,41 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={async () => {
+                    try {
+                      await downloadElementAsPdf(
+                        'ficha-funcionario-dossier',
+                        `Ficha_Individual_${funcParaFicha.nomeCompleto.replace(/\s+/g, '_')}.pdf`,
+                        { format: 'a4', orientation: 'portrait' }
+                      );
+                    } catch {
+                      const el = document.getElementById('ficha-funcionario-dossier');
+                      if (el) {
+                        imprimirElementoDiretamente(el, `Ficha Individual - ${funcParaFicha.nomeCompleto}`);
+                      } else {
+                        window.print();
+                      }
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar PDF (.pdf)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('ficha-funcionario-dossier');
+                    if (el) {
+                      imprimirElementoDiretamente(el, `Ficha Individual - ${funcParaFicha.nomeCompleto}`);
+                    } else {
+                      window.print();
+                    }
+                  }}
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  <span>Imprimir / PDF</span>
+                  <span>Imprimir (A4)</span>
                 </button>
                 <button
                   type="button"
@@ -2069,20 +2101,20 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
                   <div><span className="text-gray-600 font-semibold">Nome Completo:</span> <strong className="uppercase">{funcParaFicha.nomeCompleto}</strong></div>
                   <div><span className="text-gray-600 font-semibold">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{funcParaFicha.numeroBI}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Data Emissão BI:</span> <strong>{funcParaFicha.dataEmissaoBI || '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Data Validade BI:</span> <strong>{funcParaFicha.dataValidadeBI || '—'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Data Emissão BI:</span> <strong>{funcParaFicha.dataEmissaoBI ? formatarDataAngolana(funcParaFicha.dataEmissaoBI, 'curto') : '—'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Data Validade BI:</span> <strong>{funcParaFicha.dataValidadeBI ? formatarDataAngolana(funcParaFicha.dataValidadeBI, 'curto') : '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Local de Emissão:</span> <strong>{funcParaFicha.localEmissaoBI || funcParaFicha.arquivoIdentificacao || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Gênero:</span> <strong>{funcParaFicha.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Data de Nascimento:</span> <strong>{funcParaFicha.dataNascimento || '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Estado Civil:</span> <strong>{funcParaFicha.estadoCivil || 'Casado(a)'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Data de Nascimento:</span> <strong>{funcParaFicha.dataNascimento ? formatarDataAngolana(funcParaFicha.dataNascimento, 'curto') : '—'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Estado Civil:</span> <strong>{funcParaFicha.estadoCivil || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Nacionalidade:</span> <strong>{funcParaFicha.nacionalidade || 'Angolana'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Naturalidade:</span> <strong>{funcParaFicha.naturalidadeMunicipio || funcParaFicha.provincia || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Filiação (Pai):</span> <strong>{funcParaFicha.nomePai || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Filiação (Mãe):</span> <strong>{funcParaFicha.nomeMae || '—'}</strong></div>
                   <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Residência / Bairro:</span> <strong>{funcParaFicha.residencia || funcParaFicha.bairro || '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Telefone Principal:</span> <strong className="font-mono">{funcParaFicha.telefone}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Telefone Principal:</span> <strong className="font-mono">{funcParaFicha.telefone || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Telefone Alternativo:</span> <strong className="font-mono">{funcParaFicha.telefoneAlternativo || '—'}</strong></div>
-                  <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Correio Electrónico:</span> <strong>{funcParaFicha.email}</strong></div>
+                  <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Correio Electrónico:</span> <strong>{funcParaFicha.email || '—'}</strong></div>
                 </div>
               </div>
 
@@ -2090,16 +2122,16 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
               <div className="border-b border-black pb-4 text-xs space-y-1.5">
                 <h4 className="font-black uppercase text-[11px] text-gray-900 border-b border-gray-300 pb-1">Habilitações & Carreira Ministerial (MED)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border border-gray-200">
-                  <div><span className="text-gray-600">Grau Académico:</span> <strong>{funcParaFicha.grauAcademico || 'Licenciado'}</strong></div>
-                  <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcParaFicha.especialidade || funcParaFicha.habilitacoes}</strong></div>
-                  <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcParaFicha.categoriaProfissional || 'Professor do IIº Ciclo do Ensino Secundário - 6º Grau'}</strong></div>
-                  <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcParaFicha.cargo}</strong></div>
+                  <div><span className="text-gray-600">Grau Académico:</span> <strong>{funcParaFicha.grauAcademico || '—'}</strong></div>
+                  <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcParaFicha.especialidade || funcParaFicha.habilitacoes || '—'}</strong></div>
+                  <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcParaFicha.categoriaProfissional || '—'}</strong></div>
+                  <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcParaFicha.cargo || '—'}</strong></div>
                   <div><span className="text-gray-600">Perfil / Categoria Funcional:</span> <strong className="text-blue-900">{funcParaFicha.role}</strong></div>
-                  <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcParaFicha.numeroAgente || 'AG-89412'}</strong></div>
-                  <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcParaFicha.tipoContrato || 'Efetivo (Quadro Definitivo MED)'}</strong></div>
+                  <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcParaFicha.numeroAgente || '—'}</strong></div>
+                  <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcParaFicha.tipoContrato || '—'}</strong></div>
                   <div><span className="text-gray-600">Situação Funcional:</span> <strong className="text-emerald-800">{funcParaFicha.situacaoFuncional || 'Ativo no Efetivo'}</strong></div>
-                  <div><span className="text-gray-600">Data de Admissão:</span> <strong>{funcParaFicha.dataAdmissao || '2020-02-01'}</strong></div>
-                  <div><span className="text-gray-600">Carga Horária Semanal:</span> <strong>{funcParaFicha.cargaHorariaSemanal || 24} horas/semana</strong></div>
+                  <div><span className="text-gray-600">Data de Admissão:</span> <strong>{funcParaFicha.dataAdmissao ? formatarDataAngolana(funcParaFicha.dataAdmissao, 'curto') : '—'}</strong></div>
+                  <div><span className="text-gray-600">Carga Horária Semanal:</span> <strong>{funcParaFicha.cargaHorariaSemanal ? `${funcParaFicha.cargaHorariaSemanal} horas/semana` : '—'}</strong></div>
                 </div>
               </div>
 
@@ -2107,27 +2139,30 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
               <div className="border-b border-black pb-4 text-xs space-y-1.5">
                 <h4 className="font-black uppercase text-[11px] text-gray-900 border-b border-gray-300 pb-1">Dados Bancários & Segurança Social (INSS)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div><span className="text-gray-600 block">Instituição Bancária:</span><strong>{funcParaFicha.banco || 'BFA - Banco de Fomento Angola'}</strong></div>
-                  <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcParaFicha.iban || 'AO06.0006.0000.1234.5678.9012.3'}</strong></div>
-                  <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcParaFicha.numeroSegurancaSocial || 'INSS-481920'}</strong></div>
-                  <div><span className="text-gray-600 block">NIF Fiscal:</span><strong className="font-mono">{funcParaFicha.nif || funcParaFicha.numeroBI}</strong></div>
-                  <div><span className="text-gray-600 block">Data de Registo:</span><strong>{funcParaFicha.dataCriacao || funcParaFicha.dataAdmissao || 'Não definida'}</strong></div>
+                  <div><span className="text-gray-600 block">Instituição Bancária:</span><strong>{funcParaFicha.banco || '—'}</strong></div>
+                  <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcParaFicha.iban || '—'}</strong></div>
+                  <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcParaFicha.numeroSegurancaSocial || '—'}</strong></div>
+                  <div><span className="text-gray-600 block">NIF Fiscal:</span><strong className="font-mono">{funcParaFicha.nif || funcParaFicha.numeroBI || '—'}</strong></div>
+                  <div><span className="text-gray-600 block">Data de Registo:</span><strong>{funcParaFicha.dataCriacao ? formatarDataAngolana(funcParaFicha.dataCriacao, 'curto') : (funcParaFicha.dataAdmissao ? formatarDataAngolana(funcParaFicha.dataAdmissao, 'curto') : '—')}</strong></div>
                 </div>
               </div>
 
-              {/* Assinaturas Oficiais */}
+              {/* Assinaturas Oficiais: Título em cima -> Linha -> Nome por baixo */}
               <div className="pt-6 grid grid-cols-3 gap-4 text-center text-xs">
-                <div className="space-y-6">
-                  <p className="text-gray-700">O(A) Funcionário(a)</p>
-                  <div className="border-b border-black w-40 mx-auto" />
+                <div>
+                  <p className="font-bold text-gray-800">{funcParaFicha.genero === 'F' ? 'A Funcionária' : 'O Funcionário'}</p>
+                  <div className="border-b border-black w-40 mx-auto mt-10 mb-1" />
+                  <p className="text-[11px] font-semibold text-gray-800">{funcParaFicha.nomeCompleto}</p>
                 </div>
-                <div className="space-y-6">
-                  <p className="text-gray-700">O Chefe de Secretaria</p>
-                  <div className="border-b border-black w-40 mx-auto" />
+                <div>
+                  <p className="font-bold text-gray-800">Conferido pela Secretaria / RH</p>
+                  <div className="border-b border-black w-40 mx-auto mt-10 mb-1" />
+                  <p className="text-[11px] font-semibold text-gray-800">{currentUser.nomeCompleto}</p>
                 </div>
-                <div className="space-y-6">
-                  <p className="text-gray-700">O Director Geral</p>
-                  <div className="border-b border-black w-40 mx-auto" />
+                <div>
+                  <p className="font-bold text-gray-800">{obterTituloDiretorGeral(escola)}</p>
+                  <div className="border-b border-black w-40 mx-auto mt-10 mb-1" />
+                  <p className="text-[11px] font-semibold text-gray-800">{obterNomeDiretorGeral(escola)}</p>
                 </div>
               </div>
             </div>
@@ -2239,11 +2274,18 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    const el = document.getElementById('folha-presencas-funcionarios-print');
+                    if (el) {
+                      imprimirElementoDiretamente(el, 'Folha de Presenças — Livro de Ponto');
+                    } else {
+                      window.print();
+                    }
+                  }}
                   className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md cursor-pointer"
                 >
                   <Printer className="h-4 w-4" />
-                  <span>Imprimir</span>
+                  <span>Imprimir (A4)</span>
                 </button>
                 <button
                   type="button"
@@ -2286,15 +2328,15 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   <div className="text-[11px] font-medium text-gray-600 flex justify-center items-center space-x-4 pt-1">
                     {tipoPeriodoPonto === 'intervalo' ? (
                       <>
-                        <span><strong>Período:</strong> {dataSelecionada} até {dataFimSelecionada}</span>
+                        <span><strong>Período:</strong> {formatarDataAngolana(dataSelecionada, 'curto')} até {formatarDataAngolana(dataFimSelecionada, 'curto')}</span>
                         <span>•</span>
                         <span><strong>Ano Letivo:</strong> {escola.anoLectivoActivo}</span>
                         <span>•</span>
-                        <span><strong>Emissão:</strong> {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span><strong>Emissão:</strong> {hojeAngolano('curto')} às {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}</span>
                       </>
                     ) : (
                       <>
-                        <span><strong>Data de Registo:</strong> {dataSelecionada}</span>
+                        <span><strong>Data de Registo:</strong> {formatarDataAngolana(dataSelecionada, 'curto')}</span>
                         <span>•</span>
                         <span><strong>Ano Letivo:</strong> {escola.anoLectivoActivo}</span>
                         <span>•</span>
@@ -2440,7 +2482,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
                 </div>
 
-                {/* Assinaturas Institucionais com traço centrado e gênero do Diretor */}
+                {/* Assinaturas Institucionais com título em cima -> linha -> nome por baixo */}
                 <div className="grid grid-cols-2 gap-8 pt-8 text-center text-xs">
                   <div className="space-y-1">
                     <p className="font-bold text-gray-800">O Responsável dos Recursos Humanos / Secretaria</p>
@@ -2453,11 +2495,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
                   <div className="space-y-1">
                     <p className="font-bold text-gray-800">
-                      {escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição'}
+                      {obterTituloDiretorGeral(escola)}
                     </p>
                     <div className="pt-10">
                       <div className="w-56 mx-auto border-b border-gray-800 mb-1"></div>
-                      <p className="text-[11px] text-gray-700 font-semibold">{escola.diretorGeralNome || 'Direcção Geral'}</p>
+                      <p className="text-[11px] text-gray-700 font-semibold">{obterNomeDiretorGeral(escola)}</p>
                       <p className="text-[10px] text-gray-500">Visto & Homologação</p>
                     </div>
                   </div>

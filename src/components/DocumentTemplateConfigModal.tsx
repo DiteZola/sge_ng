@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Escola, ConfiguracaoDocumentoCustomizado } from '../types';
 import { dbService } from '../services/storage';
+import { formatarDataAngolana } from '../utils/dateFormat';
 import { InsigniaAngola } from '../constants/insignia';
 
 interface DocumentTemplateConfigModalProps {
@@ -555,7 +556,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         </span>
                       </div>
                       <p className="leading-relaxed text-[9px]">
-                        Filho de [Filiação Paterna] e de [Filiação Materna], natural de [Naturalidade], Província de [Província], portador do B.I. n.º [Nº do Documento], concluiu no ano lectivo de {escola.anoLectivoActivo || '[Ano Lectivo]'} o <strong>[Nível / Ciclo de Ensino]</strong>, no Curso de <strong>[Opção de Estudo]</strong>, com a média final de:
+                        Filho de [Filiação Paterna] e de [Filiação Materna], natural de [Naturalidade], Província de [Província], portador do B.I. n.º [Nº do Documento], concluiu no ano lectivo de {escola.anoLectivoActivo || '[Ano Lectivo]'} o <strong>[Nível / Ciclo de Ensino]</strong>, com a média final de:
                       </p>
                       <div className="text-center font-bold font-sans text-xs text-blue-900 bg-white border border-amber-300 py-1 rounded">
                         [CLASSIFICAÇÃO FINAL POR EXTENSO]
@@ -569,7 +570,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   {docSelecionado === 'declaracao_notas' && (
                     <div className="border border-black p-3 bg-white rounded text-[9.5px] space-y-2 mb-3">
                       <p className="leading-relaxed">
-                        Declara-se, para os efeitos convenientes, que <strong>[Nome Completo do Estudante]</strong> obteve o seguinte aproveitamento nas disciplinas curriculares:
+                        Declara-se, para os efeitos convenientes, que <strong>[Nome Completo do Estudante]</strong> obteve o seguinte aproveitamento nas disciplinas curriculares da sua classe:
                       </p>
                       <div className="grid grid-cols-3 gap-2 border border-gray-300 p-2 bg-gray-50 text-center font-mono text-[9px]">
                         <div>[Disciplina 1]: <strong>— val.</strong></div>
@@ -585,7 +586,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   {docSelecionado === 'declaracao_matricula' && (
                     <div className="border border-gray-400 p-3 bg-white rounded text-[10px] space-y-2 mb-3 text-justify">
                       <p className="leading-relaxed">
-                        Declara-se que <strong>[Nome Completo do Estudante]</strong> encontra-se regularmente matriculado nesta instituição no ano lectivo activo, na <strong>[Classe]</strong>, [Turma], no Curso de <strong>[Curso]</strong>, com aproveitamento regular e sem qualquer impedimento de ordem disciplinar.
+                        Declara-se que <strong>[Nome Completo do Estudante]</strong> encontra-se regularmente matriculado nesta instituição no ano lectivo activo, na <strong>[Classe]</strong>, [Turma] (com curso indicado apenas no IIº Ciclo), com aproveitamento regular e sem qualquer impedimento de ordem disciplinar.
                       </p>
                     </div>
                   )}
@@ -629,7 +630,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                     <div className="border border-dashed border-gray-500 p-3 bg-emerald-50/20 rounded text-[9.5px] space-y-2 mb-3">
                       <div className="flex justify-between border-b border-gray-300 pb-1 font-mono text-[9px]">
                         <span>Recibo n.º: <strong>[Nº Recibo]</strong></span>
-                        <span>Data: <strong>{new Date().toLocaleDateString('pt-AO')}</strong></span>
+                        <span>Data: <strong>{formatarDataAngolana(new Date(), 'curto')}</strong></span>
                       </div>
                       <div className="flex justify-between">
                         <span>Aluno: <strong>[Nome do Estudante]</strong></span>
@@ -654,58 +655,93 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                   </div>
                 </div>
 
-                {/* Bloco de Assinaturas e Rodapé */}
+                {/* Bloco de Assinaturas e Rodapé: Título (Cima) -> Traço (Meio) -> Nome do Titular (Baixo) */}
                 <div className="pt-6 border-t border-gray-300 space-y-4">
-                  <div className="flex items-end justify-around text-center text-[10px] gap-2">
-                    {configAtual.disposicao.exibirAssinaturaProfessor && (
-                      <div className="flex-1">
-                        <div className="border-b border-black pb-1 mb-1 font-sans font-bold">
-                          O Professor Titular
-                        </div>
-                        <span className="text-[9px] text-gray-500">Assinatura Reconhecida</span>
+                  {docSelecionado === 'certificado' ? (
+                    <div className="flex items-end justify-between text-center text-[10px] gap-4">
+                      <div className="text-left pb-2">
+                        <span className="font-sans font-bold text-gray-900">Conferido por: ___________________________</span>
                       </div>
-                    )}
 
-                    {configAtual.disposicao.exibirAssinaturaSecretaria && (
-                      <div className="flex-1">
-                        <div className="border-b border-black pb-1 mb-1 font-sans font-bold">
-                          {escola.chefeSecretariaNome || 'A Chefia de Secretaria'}
+                      {configAtual.disposicao.exibirCarimboBranco && (
+                        <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center text-[8px] font-sans font-bold text-gray-500 text-center leading-tight shrink-0">
+                          L.S.<br/>Selo Branco
                         </div>
-                        <span className="text-[9px] text-gray-500">Conferido por</span>
-                      </div>
-                    )}
+                      )}
 
-                    {configAtual.disposicao.exibirAssinaturaSubdiretor && (
-                      <div className="flex-1">
-                        <div className="border-b border-black pb-1 mb-1 font-sans font-bold">
-                          {escola.subdiretorPedagogicoNome || 'O Subdirector Pedagógico'}
+                      {configAtual.disposicao.exibirAssinaturaDiretor && (
+                        <div className="flex-1 max-w-[210px] space-y-1">
+                          <p className="font-sans font-bold text-[9px] uppercase text-gray-900">
+                            {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
+                          </p>
+                          <div className="h-5" />
+                          <div className="border-b border-black w-full" />
+                          <p className="text-[9px] font-sans font-bold text-gray-800 uppercase">
+                            {escola.diretorGeralNome || 'Direcção Geral da Escola'}
+                          </p>
                         </div>
-                        <span className="text-[9px] text-gray-500">Visto Pedagógico</span>
-                      </div>
-                    )}
-
-                    {configAtual.disposicao.exibirAssinaturaDiretor && (
-                      <div className="flex-1">
-                        <div className="border-b border-black pb-1 mb-1 font-sans font-bold">
-                          {escola.diretorGeralNome || 'O Director Geral'}
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-end justify-around text-center text-[10px] gap-2">
+                      {configAtual.disposicao.exibirAssinaturaProfessor && (
+                        <div className="flex-1 space-y-1">
+                          <p className="font-sans font-bold text-[9px] uppercase text-gray-900">O Professor Titular</p>
+                          <div className="h-5" />
+                          <div className="border-b border-black w-full" />
+                          <span className="text-[9px] font-sans font-semibold text-gray-800">[Nome do Docente]</span>
                         </div>
-                        <span className="text-[9px] text-gray-500">Homologado</span>
-                      </div>
-                    )}
+                      )}
 
-                    {configAtual.disposicao.exibirCarimboBranco && (
-                      <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center text-[8px] font-sans font-bold text-gray-500 text-center leading-tight">
-                        L.S.<br/>Selo Branco
-                      </div>
-                    )}
-                  </div>
+                      {configAtual.disposicao.exibirAssinaturaSecretaria && (
+                        <div className="flex-1 space-y-1">
+                          <p className="font-sans font-bold text-[9px] uppercase text-gray-900">A Chefia de Secretaria</p>
+                          <div className="h-5" />
+                          <div className="border-b border-black w-full" />
+                          <span className="text-[9px] font-sans font-semibold text-gray-800">
+                            {escola.chefeSecretariaNome || 'Chefia da Secretaria'}
+                          </span>
+                        </div>
+                      )}
+
+                      {configAtual.disposicao.exibirAssinaturaSubdiretor && (
+                        <div className="flex-1 space-y-1">
+                          <p className="font-sans font-bold text-[9px] uppercase text-gray-900">O Subdirector Pedagógico</p>
+                          <div className="h-5" />
+                          <div className="border-b border-black w-full" />
+                          <span className="text-[9px] font-sans font-semibold text-gray-800">
+                            {escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}
+                          </span>
+                        </div>
+                      )}
+
+                      {configAtual.disposicao.exibirAssinaturaDiretor && (
+                        <div className="flex-1 space-y-1">
+                          <p className="font-sans font-bold text-[9px] uppercase text-gray-900">
+                            {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
+                          </p>
+                          <div className="h-5" />
+                          <div className="border-b border-black w-full" />
+                          <span className="text-[9px] font-sans font-semibold text-gray-800">
+                            {escola.diretorGeralNome || 'Direcção Geral da Escola'}
+                          </span>
+                        </div>
+                      )}
+
+                      {configAtual.disposicao.exibirCarimboBranco && (
+                        <div className="w-16 h-16 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center text-[8px] font-sans font-bold text-gray-500 text-center leading-tight">
+                          L.S.<br/>Selo Branco
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Rodapé e QR */}
                   <div className="flex items-center justify-between text-[8px] text-gray-500 pt-2 border-t border-gray-100">
-                    <span>{configAtual.textoRodape}</span>
+                    <span>{docSelecionado === 'declaracao_notas' ? '' : configAtual.textoRodape}</span>
                     {configAtual.disposicao.exibirCodigoQR && (
-                      <span className="font-mono bg-gray-100 px-1 py-0.5 rounded border border-gray-300">
-                        [QR-CODE AUTH: SGE-{escola.id.slice(0, 6).toUpperCase()}]
+                      <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded border border-gray-300">
+                        [CÓDIGO QR OFICIAL]
                       </span>
                     )}
                   </div>

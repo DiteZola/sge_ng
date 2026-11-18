@@ -59,9 +59,16 @@ import {
   DelegacaoPoderes,
   TipoDelegacao,
   AcaoDelegadaLog,
-  RegistoAcessoBiblioteca
+  RegistoAcessoBiblioteca,
+  RelatorioAcontecimento
 } from '../types';
 import { isClasseFinal } from './macEngine';
+import {
+  getCachedLocal,
+  setCachedLocalEntry,
+  removeCachedLocalEntry,
+  getComputedCache
+} from './localCache';
 
 const STORAGE_KEYS = {
   ESCOLAS: 'sge_escolas',
@@ -112,6 +119,7 @@ const STORAGE_KEYS = {
   DELEGACOES_COBRANCA: 'sge_delegacoes_cobranca',
   EMOLUMENTOS_CONFIG: 'sge_emolumentos_config',
   SESSOES_ATIVAS: 'sge_sessoes_ativas',
+  RELATORIOS_ACONTECIMENTOS: 'sge_relatorios_acontecimentos',
 };
 
 export const DEFAULT_CURSOS: CursoConfig[] = [
@@ -372,36 +380,9 @@ export const DEFAULT_BIBLIOTECA: DocumentoBiblioteca[] = [];
 
 export const DEFAULT_RECIBOS: ReciboPagamento[] = [];
 
-// LocalStorage Helper
+// LocalStorage Helper com Cache em Memória Read-Through / Write-Through
 function getLocal<T>(key: string, fallback: T): T {
-  try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const raw = localStorage.getItem(key);
-    if (!raw || raw === 'undefined' || raw === 'null') {
-      if (raw === 'undefined' || raw === 'null') {
-        try {
-          localStorage.removeItem(key);
-        } catch {
-          // noop
-        }
-      }
-      return fallback;
-    }
-    const parsed = JSON.parse(raw);
-    if (parsed === null || parsed === undefined) {
-      return fallback;
-    }
-    return parsed;
-  } catch (e) {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(key);
-      }
-    } catch {
-      // noop
-    }
-    return fallback;
-  }
+  return getCachedLocal<T>(key, fallback);
 }
 
 function setLocal<T>(key: string, value: T): void {
@@ -409,10 +390,12 @@ function setLocal<T>(key: string, value: T): void {
     if (typeof localStorage === 'undefined') return;
     if (value === undefined || value === null) {
       localStorage.removeItem(key);
+      removeCachedLocalEntry(key);
       return;
     }
 
     const serialized = JSON.stringify(value);
+    setCachedLocalEntry(key, serialized, value);
 
     // Espelhamento imediato para chaves críticas no IndexedDB (sem esperar debounce de 300ms)
     if (
@@ -420,7 +403,8 @@ function setLocal<T>(key: string, value: T): void {
       key === STORAGE_KEYS.ALUNOS ||
       key === STORAGE_KEYS.ESCOLAS ||
       key === STORAGE_KEYS.CURRENT_USER ||
-      key === STORAGE_KEYS.CONFIGURACAO_SISTEMA
+      key === STORAGE_KEYS.CONFIGURACAO_SISTEMA ||
+      key === STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS
     ) {
       offlineStorage.gravarChaveNoIndexedDB(key, serialized);
     }
@@ -442,12 +426,17 @@ function setLocal<T>(key: string, value: T): void {
           return item;
         });
         try {
-          localStorage.setItem(key, JSON.stringify(slimmed));
+          const slimSer = JSON.stringify(slimmed);
+          localStorage.setItem(key, slimSer);
+          setCachedLocalEntry(key, slimSer, slimmed);
         } catch {
           // Último recurso: remover logs antigos para libertar espaço
           try {
             localStorage.removeItem(STORAGE_KEYS.AUDITORIA);
-            localStorage.setItem(key, JSON.stringify(slimmed));
+            removeCachedLocalEntry(STORAGE_KEYS.AUDITORIA);
+            const slimSer = JSON.stringify(slimmed);
+            localStorage.setItem(key, slimSer);
+            setCachedLocalEntry(key, slimSer, slimmed);
           } catch {}
         }
       } else if (key === STORAGE_KEYS.CURRENT_USER && value && typeof value === 'object') {
@@ -456,7 +445,10 @@ function setLocal<T>(key: string, value: T): void {
           offlineStorage.definirMidiaEmCache('funcionario', u.id, u.fotoUrl);
           offlineStorage.salvarMidia('funcionario', u.id, u.fotoUrl, u.atualizadoEm);
           try {
-            localStorage.setItem(key, JSON.stringify({ ...u, fotoUrl: '__idb_media__' }));
+            const slimUser = { ...u, fotoUrl: '__idb_media__' };
+            const slimSer = JSON.stringify(slimUser);
+            localStorage.setItem(key, slimSer);
+            setCachedLocalEntry(key, slimSer, slimUser);
           } catch {}
         }
       }
@@ -1002,7 +994,8 @@ const COLECOES_BACKUP_INCREMENTAL_META: Array<{
   { colecao: 'classesConfigs', rotulo: 'Classes', storageKey: STORAGE_KEYS.CLASSES_CONFIGS },
   { colecao: 'cursos', rotulo: 'Cursos', storageKey: STORAGE_KEYS.CURSOS },
   { colecao: 'solicitacoesApoio', rotulo: 'Apoio Técnico', storageKey: STORAGE_KEYS.SOLICITACOES_APOIO },
-  { colecao: 'alertasSeguranca', rotulo: 'Alertas de Segurança', storageKey: STORAGE_KEYS.ALERTAS_SEGURANCA }
+  { colecao: 'alertasSeguranca', rotulo: 'Alertas de Segurança', storageKey: STORAGE_KEYS.ALERTAS_SEGURANCA },
+  { colecao: 'relatoriosAcontecimentos', rotulo: 'Relatórios de Acontecimentos', storageKey: STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS }
 ];
 
 function hashDeterministicoSge(valor: unknown): string {
@@ -1088,7 +1081,8 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     classesConfigs: dbService.getClassesConfigs(),
     cursos: dbService.getCursos(),
     solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
-    alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
+    alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
+    relatoriosAcontecimentos: getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, [])
   };
 
   const colecoesFiltradasPorEscola = new Set([
@@ -1109,7 +1103,8 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     'recibos',
     'transacoesFinanceiras',
     'despesasEscolares',
-    'patrimonio'
+    'patrimonio',
+    'relatoriosAcontecimentos'
   ]);
 
   const itensPorColecao: Record<string, Record<string, any>> = {};
@@ -1301,55 +1296,57 @@ export const dbService = {
     return alterou;
   },
 
-  // Escolas
+  // Escolas (com cache memoizado por geração de escrita local)
   getEscolas: (): Escola[] => {
-    const escolas = dbService.getEscolasBrutas();
-    const funcs = dbService.getFuncionariosBruto();
     const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
-    const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', 'subdireção pedagógica', 'subdirecao pedagogica', 'chefe da secretaria', 'secretaria', ''];
+    return getComputedCache(`getEscolas_${ocultarAdmin ? '1' : '0'}`, () => {
+      const escolas = dbService.getEscolasBrutas();
+      const funcs = dbService.getFuncionariosBruto();
+      const placeholders = ['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', 'direção geral', 'direcção geral', 'diretor geral', 'director geral', 'subdireção pedagógica', 'subdirecao pedagogica', 'chefe da secretaria', 'secretaria', ''];
 
-    return escolas.map(e => {
-      const mod = { ...e };
-      if (
-        ocultarAdmin ||
-        !mod.sessaoApoioTecnicoAtiva ||
-        typeof mod.sessaoApoioTecnicoAtiva !== 'object' ||
-        !mod.sessaoApoioTecnicoAtiva.dataInicio
-      ) {
-        delete mod.sessaoApoioTecnicoAtiva;
-      }
-      // 1. Diretor Geral (projeção viva do perfil ativo vinculado à escola)
-      const dir = dbService.encontrarDiretorDaEscola(e, funcs);
-      if (dir && dir.nomeCompleto) {
-        mod.diretorGeralId = dir.id;
-        mod.diretorGeralNome = dir.nomeCompleto;
-        mod.diretorGeralGenero = dir.genero || mod.diretorGeralGenero || 'M';
-        mod.diretorGeralEmail = dir.email || mod.diretorGeralEmail;
-        mod.diretorGeralTelefone = dir.telefone || mod.diretorGeralTelefone;
-      }
-      // 2. Subdiretor Pedagógico
-      if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
-        const sub = funcs.find(f =>
-          !isAdminGeralUserObj(f) &&
-          (f.escolaId === e.id || e.id === 'todas') &&
-          (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
-        );
-        if (sub && sub.nomeCompleto) {
-          mod.subdiretorPedagogicoNome = sub.nomeCompleto;
+      return escolas.map(e => {
+        const mod = { ...e };
+        if (
+          ocultarAdmin ||
+          !mod.sessaoApoioTecnicoAtiva ||
+          typeof mod.sessaoApoioTecnicoAtiva !== 'object' ||
+          !mod.sessaoApoioTecnicoAtiva.dataInicio
+        ) {
+          delete mod.sessaoApoioTecnicoAtiva;
         }
-      }
-      // 3. Chefe da Secretaria
-      if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
-        const sec = funcs.find(f =>
-          !isAdminGeralUserObj(f) &&
-          (f.escolaId === e.id || e.id === 'todas') &&
-          (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
-        );
-        if (sec && sec.nomeCompleto) {
-          mod.chefeSecretariaNome = sec.nomeCompleto;
+        // 1. Diretor Geral (projeção viva do perfil ativo vinculado à escola)
+        const dir = dbService.encontrarDiretorDaEscola(e, funcs);
+        if (dir && dir.nomeCompleto) {
+          mod.diretorGeralId = dir.id;
+          mod.diretorGeralNome = dir.nomeCompleto;
+          mod.diretorGeralGenero = dir.genero || mod.diretorGeralGenero || 'M';
+          mod.diretorGeralEmail = dir.email || mod.diretorGeralEmail;
+          mod.diretorGeralTelefone = dir.telefone || mod.diretorGeralTelefone;
         }
-      }
-      return mod;
+        // 2. Subdiretor Pedagógico
+        if (!mod.subdiretorPedagogicoNome || placeholders.includes(mod.subdiretorPedagogicoNome.trim().toLowerCase())) {
+          const sub = funcs.find(f =>
+            !isAdminGeralUserObj(f) &&
+            (f.escolaId === e.id || e.id === 'todas') &&
+            (f.role === 'SubdiretorPedagogico' || f.role === 'CoordenadorPedagogico' || f.cargo?.toLowerCase().includes('pedagóg') || f.cargo?.toLowerCase().includes('subdiretor') || f.cargo?.toLowerCase().includes('subdirector'))
+          );
+          if (sub && sub.nomeCompleto) {
+            mod.subdiretorPedagogicoNome = sub.nomeCompleto;
+          }
+        }
+        // 3. Chefe da Secretaria
+        if (!mod.chefeSecretariaNome || placeholders.includes(mod.chefeSecretariaNome.trim().toLowerCase())) {
+          const sec = funcs.find(f =>
+            !isAdminGeralUserObj(f) &&
+            (f.escolaId === e.id || e.id === 'todas') &&
+            (f.role === 'ChefeSecretaria' || f.role === 'Secretario' || f.role === 'SecretarioEscolar' || f.role === 'Secretaria' || f.cargo?.toLowerCase().includes('secretar'))
+          );
+          if (sec && sec.nomeCompleto) {
+            mod.chefeSecretariaNome = sec.nomeCompleto;
+          }
+        }
+        return mod;
+      });
     });
   },
   getEscolaAtiva: (): Escola => {
@@ -1597,6 +1594,7 @@ export const dbService = {
     filterOutSchool(STORAGE_KEYS.REGRAS_MAC);
     filterOutSchool(STORAGE_KEYS.TIPOS_AVALIACAO);
     filterOutSchool(STORAGE_KEYS.SOLICITACOES_APOIO);
+    filterOutSchool(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS);
 
     // Funcionários: remover apenas funcionários exclusivos desta escola (preservando o AdminGeral)
     try {
@@ -5158,7 +5156,8 @@ export const dbService = {
       delegacoesCobranca: getLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
       presencasAlunos: getLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
       solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
-      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
+      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
+      relatoriosAcontecimentos: isEscolaEspecifica ? dbService.getRelatoriosAcontecimentos(effectiveEscolaId) : dbService.getRelatoriosAcontecimentos()
     };
 
     const nomeSufixo = escolaAlvo?.sigla || (isEscolaEspecifica ? 'Instituicao' : 'Rede_Nacional');
@@ -5605,6 +5604,7 @@ export const dbService = {
       if (data.presencasAlunos) setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, data.presencasAlunos);
       if (data.solicitacoesApoio && !nonAdmin) setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, data.solicitacoesApoio);
       if (data.alertasSeguranca && !nonAdmin) setLocal(STORAGE_KEYS.ALERTAS_SEGURANCA, data.alertasSeguranca);
+      if (data.relatoriosAcontecimentos) setLocal(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, data.relatoriosAcontecimentos);
 
       dbService.registarLog('Restauração de Backup Integral', 'Sistema restaurado a partir de ficheiro de segurança.');
       try {
@@ -5686,7 +5686,8 @@ export const dbService = {
       turnosConfigs: dbService.getTurnosConfigs(),
       classesConfigs: dbService.getClassesConfigs(),
       solicitacoesApoio: dbService.getSolicitacoesApoioTecnico(),
-      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca()
+      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
+      relatoriosAcontecimentos: dbService.getRelatoriosAcontecimentos()
     }, null, 2);
   },
   exportarParaExcel: async () => dbService.exportarExcelCompleto(),
@@ -6641,8 +6642,8 @@ export const dbService = {
           exibirCarimboBranco: true,
           exibirCodigoQR: true,
           exibirAssinaturaDiretor: true,
-          exibirAssinaturaSubdiretor: true,
-          exibirAssinaturaSecretaria: true,
+          exibirAssinaturaSubdiretor: false,
+          exibirAssinaturaSecretaria: false,
           exibirAssinaturaProfessor: false,
           tamanhoFonte: 'padrao',
           corDestaque: '#0f172a'
@@ -6652,13 +6653,13 @@ export const dbService = {
         id: `conf-decl-notas-${escId}`,
         escolaId: escId,
         tipoDocumento: 'declaracao_notas',
-        tituloOficial: 'DECLARAÇÃO DE FREQUÊNCIA COM NOTAS',
-        subtitulo: 'Aproveitamento Escolar Provisório',
+        tituloOficial: 'DECLARAÇÃO DE HABILITAÇÕES (COM NOTAS)',
+        subtitulo: 'Aproveitamento Escolar Curricular',
         textoCabecalho: 'REPÚBLICA DE ANGOLA\nMINISTÉRIO DA EDUCAÇÃO',
-        textoCorpoAbertura: 'Declara-se, a pedido do interessado, para os devidos efeitos legais e escolares, que se encontra matriculado e frequentou com aproveitamento:',
-        textoFechamento: 'A presente declaração é válida para efeitos de transferência, estágio ou matrícula provisória.',
-        textoRodape: 'Válido por 90 dias a contar da data de emissão.',
-        artigoLegalDecreto: 'Diploma Ministerial n.º 18/2021',
+        textoCorpoAbertura: 'Declara-se, a pedido do interessado, para os devidos efeitos legais e escolares, que frequentou e concluiu com aproveitamento:',
+        textoFechamento: 'Por ser verdade e ter sido solicitada pela parte interessada, mandou-se passar a presente declaração que vai por mim assinada e autenticada com o carimbo a óleo e selo branco em uso neste estabelecimento de ensino.',
+        textoRodape: '',
+        artigoLegalDecreto: 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Bases do Sistema de Educação e Ensino)',
         disposicao: {
           orientacao: 'retrato',
           alinhamentoLogo: 'duplo',
@@ -6667,8 +6668,8 @@ export const dbService = {
           exibirCarimboBranco: true,
           exibirCodigoQR: true,
           exibirAssinaturaDiretor: true,
-          exibirAssinaturaSubdiretor: false,
-          exibirAssinaturaSecretaria: true,
+          exibirAssinaturaSubdiretor: true,
+          exibirAssinaturaSecretaria: false,
           exibirAssinaturaProfessor: false,
           tamanhoFonte: 'padrao',
           corDestaque: '#1e3a8a'
@@ -6806,11 +6807,22 @@ export const dbService = {
       }
     };
 
-    // Mesclar o guardado com o padrão
+    // Mesclar o guardado com o padrão garantindo todos os subcampos de disposicao
     const resultado: Record<string, ConfiguracaoDocumentoCustomizado> = { ...padrao };
     Object.keys(todos).forEach(k => {
       if (todos[k].escolaId === escId) {
-        resultado[todos[k].tipoDocumento] = todos[k];
+        const tipo = todos[k].tipoDocumento;
+        const base = padrao[tipo];
+        resultado[tipo] = base
+          ? {
+              ...base,
+              ...todos[k],
+              disposicao: {
+                ...base.disposicao,
+                ...(todos[k].disposicao || {})
+              }
+            }
+          : todos[k];
       }
     });
 
@@ -7082,7 +7094,61 @@ export const dbService = {
     }
 
     return true;
+  },
+
+  // ============================================================================
+  // RELATÓRIOS DE ACONTECIMENTOS, REUNIÕES, PALESTRAS & DESENVOLVIMENTOS
+  // ============================================================================
+  getRelatoriosAcontecimentos: (escolaId?: string): RelatorioAcontecimento[] => {
+    const lista = getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, []);
+    const ordenados = [...lista].sort((a, b) => {
+      const da = a.data || a.criadoEm || '';
+      const db = b.data || b.criadoEm || '';
+      return db.localeCompare(da);
+    });
+    if (!escolaId || escolaId === 'TODAS' || escolaId === 'todas') {
+      return ordenados;
+    }
+    return ordenados.filter(r => r.escolaId === escolaId);
+  },
+
+  salvarRelatorioAcontecimento: (rel: RelatorioAcontecimento): RelatorioAcontecimento => {
+    const lista = getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, []);
+    const agora = new Date().toISOString();
+    const itemFinal: RelatorioAcontecimento = {
+      ...rel,
+      atualizadoEm: agora,
+      criadoEm: rel.criadoEm || agora
+    };
+    const idx = lista.findIndex(r => r.id === itemFinal.id);
+    if (idx >= 0) {
+      lista[idx] = itemFinal;
+    } else {
+      lista.unshift(itemFinal);
+    }
+    setLocal(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, lista);
+    firebaseSyncEngine.salvarRelatorioAcontecimento(itemFinal);
+    dbService.registarLog(
+      'Registo de Relatório Institucional',
+      `${itemFinal.categoria}: "${itemFinal.titulo}" (${itemFinal.data}) — Estado: ${itemFinal.estado}.`
+    );
+    return itemFinal;
+  },
+
+  excluirRelatorioAcontecimento: (id: string): boolean => {
+    const lista = getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, []);
+    const alvo = lista.find(r => r.id === id);
+    if (!alvo) return false;
+    const filtrados = lista.filter(r => r.id !== id);
+    setLocal(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, filtrados);
+    firebaseSyncEngine.eliminarRelatorioAcontecimento(id);
+    dbService.registarLog(
+      'Eliminação de Relatório Institucional',
+      `Removido o relatório "${alvo.titulo}" (${alvo.categoria} - ${alvo.data}).`
+    );
+    return true;
   }
 };
+
 
 

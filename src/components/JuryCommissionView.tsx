@@ -57,8 +57,10 @@ import { exportarPautaJuriExcel, PautaJuriExcelItem } from '../utils/pautaExcelE
 import { InsigniaAngola } from '../constants/insignia';
 import { obterInformacaoEscala } from '../services/macEngine';
 import { downloadExcelFile } from '../utils/curriculoAngola';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
+import { isSegundoCiclo } from '../services/academicHierarchyService';
+import { hojeAngolano, formatarDataHoraAngolana } from '../utils/dateFormat';
 
 interface JuryCommissionViewProps {
   escola: Escola;
@@ -2117,25 +2119,46 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   Documento gerado automaticamente com rigor protocolar e traço de assinatura entre título e nome
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  const el = document.getElementById('ata-juri-documento-oficial');
-                  if (el) {
-                    const numAta = comissaoAtiva?.ata?.numeroAta || comissaoAtiva?.numeroSessao || 'Oficial';
-                    await downloadElementAsPdf(
-                      el,
-                      `Ata_Deliberacao_Juri_${numAta.replace(/[\/\s]/g, '_')}`,
-                      { orientation: 'portrait' }
-                    );
-                  }
-                }}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-sm"
-                title="Transferir documento oficial em formato PDF (.pdf)"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Baixar em PDF (.pdf)</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('ata-juri-documento-oficial');
+                    if (el) {
+                      const numAta = comissaoAtiva?.ata?.numeroAta || comissaoAtiva?.numeroSessao || 'Oficial';
+                      imprimirElementoDiretamente(
+                        el,
+                        `Ata Comissão de Júri - ${numAta}`,
+                        { orientation: 'portrait', format: 'a4' }
+                      );
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                  title="Imprimir Ata Oficial em A4"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Imprimir (A4)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const el = document.getElementById('ata-juri-documento-oficial');
+                    if (el) {
+                      const numAta = comissaoAtiva?.ata?.numeroAta || comissaoAtiva?.numeroSessao || 'Oficial';
+                      await downloadElementAsPdf(
+                        el,
+                        `Ata_Deliberacao_Juri_${numAta.replace(/[\/\s]/g, '_')}`,
+                        { orientation: 'portrait' }
+                      );
+                    }
+                  }}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                  title="Transferir documento oficial em formato PDF (.pdf)"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Baixar em PDF (.pdf)</span>
+                </button>
+              </div>
             </div>
 
             {/* Documento Impresso Oficial da Ata */}
@@ -2170,15 +2193,19 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   <span>Classe: <strong className="text-indigo-900">{comissaoAtiva?.classe || 'Geral'}</strong></span>
                   <span>•</span>
                   <span>Turma(s): <strong className="text-indigo-900">{turmasCorrespondentesNomes}</strong></span>
-                  <span>•</span>
-                  <span>Curso: <strong className="text-indigo-900">{comissaoAtiva?.curso || 'Ensino Geral'}</strong></span>
+                  {isSegundoCiclo(comissaoAtiva?.classe) && comissaoAtiva?.curso && (
+                    <>
+                      <span>•</span>
+                      <span>Curso: <strong className="text-indigo-900">{comissaoAtiva.curso}</strong></span>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Corpo do Texto da Ata */}
               <div className="space-y-4 text-xs">
                 <p>
-                  Aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}, reuniu-se nas instalações do <strong>{escola.nomeOficial}</strong>, a Comissão de Júri de Exame e Homologação de Resultados Escolares, sob a jurisdição da <strong>{comissaoAtiva?.classe || 'Geral'} Classe</strong>, Turma(s) <strong>{turmasCorrespondentesNomes}</strong> do curso de <strong>{comissaoAtiva?.curso || 'Ensino Geral'}</strong>, constituída ao abrigo do despacho oficial da Direcção da Escola e em conformidade com as normas regulamentares vigentes no Ministério da Educação da República de Angola.
+                  Aos {hojeAngolano('extenso')}, reuniu-se nas instalações do <strong>{escola.nomeOficial}</strong>, a Comissão de Júri de Exame e Homologação de Resultados Escolares, sob a jurisdição da <strong>{comissaoAtiva?.classe || 'Geral'} Classe</strong>, Turma(s) <strong>{turmasCorrespondentesNomes}</strong>{isSegundoCiclo(comissaoAtiva?.classe) && comissaoAtiva?.curso ? <> do curso de <strong>{comissaoAtiva.curso}</strong></> : ''}, constituída ao abrigo do despacho oficial da Direcção da Escola e em conformidade com as normas regulamentares vigentes no Ministério da Educação da República de Angola.
                 </p>
 
                 <p>
@@ -2307,7 +2334,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 </p>
 
                 <p className="text-right pt-2">
-                  {escola.municipio || 'Luanda'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+                  {escola.municipio || 'Luanda'}, aos {hojeAngolano('extenso')}.
                 </p>
               </div>
 
@@ -2538,7 +2565,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 <div key={idx} className="p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs space-y-1">
                   <div className="flex items-center justify-between font-bold text-gray-800">
                     <span className="text-indigo-700">{log.acao}</span>
-                    <span className="text-gray-400 font-mono text-[10px]">{new Date(log.dataHora).toLocaleString('pt-AO')}</span>
+                    <span className="text-gray-400 font-mono text-[10px]">{formatarDataHoraAngolana(log.dataHora)}</span>
                   </div>
                   <p className="text-gray-600">{log.detalhes}</p>
                   <span className="text-[10px] text-gray-500 block">Operador: {log.utilizadorNome || log.usuarioNome}</span>

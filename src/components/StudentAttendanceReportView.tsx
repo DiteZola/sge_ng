@@ -48,6 +48,7 @@ import { ModalJustificarFaltaFuncionario } from './ModalJustificarFaltaFuncionar
 import { QrScannerModal } from './QrScannerModal';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { AngolaDateInput } from './AngolaDateInput';
+import { formatarDataAngolana } from '../utils/dateFormat';
 
 interface StudentAttendanceReportViewProps {
   escola: Escola;
@@ -1401,7 +1402,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
               <h2 className="text-sm sm:text-base font-black uppercase text-gray-950 mt-0.5">{escola.nomeOficial}</h2>
               <div className="inline-block bg-gray-100 border border-black px-4 py-1 mt-1 rounded text-xs font-black uppercase tracking-wide">
                 {tipoPeriodo === 'intervalo'
-                  ? `MAPA DE CONTROLO DE ASSIDUIDADE — PERÍODO DE ${dataInicio.split('-').reverse().join('/')} ATÉ ${dataFim.split('-').reverse().join('/')}`
+                  ? `MAPA DE CONTROLO DE ASSIDUIDADE — PERÍODO DE ${formatarDataAngolana(dataInicio, 'curto')} ATÉ ${formatarDataAngolana(dataFim, 'curto')}`
                   : `MAPA DE CONTROLO DE ASSIDUIDADE E PRESENÇAS — MÊS DE ${selectedMes.toUpperCase()}`}
               </div>
               <div className="flex justify-center space-x-6 text-[10px] sm:text-[11px] font-bold text-gray-800 pt-2">
@@ -1519,25 +1520,35 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
             </div>
 
             <div className="grid grid-cols-4 gap-4 items-end pt-8 text-center text-xs mt-6 border-t border-black">
-              <div>
-                <div className="w-40 border-b border-black mx-auto" />
-                <p className="font-bold text-gray-900 mt-1">O(A) Director(a) de Turma</p>
-                <p className="text-gray-700 font-semibold text-[11px]">{turmaSelecionada?.coordenadorNome || 'Director de Turma'}</p>
-                <p className="text-gray-500 text-[10px]">Data e Assinatura</p>
+              <div className="flex flex-col items-center justify-end">
+                <p className="font-bold text-gray-900">O(A) Director(a) de Turma</p>
+                <div className="h-8" />
+                <div className="w-40 border-b border-black mx-auto my-1" />
+                <p className="text-gray-800 font-semibold text-[11px]">{turmaSelecionada?.coordenadorNome || 'Director de Turma'}</p>
               </div>
-              <div>
-                <div className="w-40 border-b border-black mx-auto" />
-                <p className="font-bold text-gray-900 mt-1">O Subdirector Pedagógico</p>
-                <p className="text-gray-700 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
-                <p className="text-gray-500 text-[10px]">Visto em Conformidade</p>
+              <div className="flex flex-col items-center justify-end">
+                <p className="font-bold text-gray-900">O Subdirector Pedagógico</p>
+                <div className="h-8" />
+                <div className="w-40 border-b border-black mx-auto my-1" />
+                <p className="text-gray-800 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
               </div>
-              <div>
-                <div className="w-40 border-b border-black mx-auto" />
-                <p className="font-bold text-gray-900 mt-1">
+              <div className="flex flex-col items-center justify-end">
+                <p className="font-bold text-gray-900">
                   {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
                 </p>
-                <p className="text-gray-700 font-semibold text-[11px]">{escola.diretorGeralNome || 'Direcção da Instituição'}</p>
-                <p className="text-gray-500 text-[10px]">Homologado</p>
+                {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                  <div className="h-9 flex items-center justify-center -mb-1">
+                    <img
+                      src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                      alt="Assinatura do Director"
+                      className="max-h-8 object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="h-8" />
+                )}
+                <div className="w-40 border-b border-black mx-auto my-1" />
+                <p className="text-gray-800 font-semibold text-[11px]">{escola.diretorGeralNome || 'Direcção da Instituição'}</p>
               </div>
               <div className="flex flex-col items-center justify-center">
                 <OfficialQrCode

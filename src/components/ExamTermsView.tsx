@@ -42,6 +42,8 @@ import {
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '../utils/curriculoAngola';
+import { imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import { formatarDataAngolana } from '../utils/dateFormat';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import {
   getTurmasPorClasse,
@@ -650,6 +652,25 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
 
                   <button
                     type="button"
+                    onClick={() => {
+                      const el = document.getElementById('termo-exame-imprimir');
+                      if (el) {
+                        imprimirElementoDiretamente(
+                          el,
+                          `Termo_Exame_${termoVisualizacao.classe}_${termoVisualizacao.disciplinaNome}`,
+                          { orientation: 'landscape', format: 'a4' }
+                        );
+                      }
+                    }}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                    title="Imprimir Termo de Exame em A4"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Imprimir (A4)</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={async () => {
                       const el = document.getElementById('termo-exame-imprimir');
                       if (el) {
@@ -715,7 +736,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                   </div>
                   <div>
                     <span className="text-gray-600 block">Data e Hora:</span>
-                    <strong>{termoVisualizacao.dataExame.split('-').reverse().join('/')} às {termoVisualizacao.horaInicio}</strong>
+                    <strong>{formatarDataAngolana(termoVisualizacao.dataExame, 'curto')} às {termoVisualizacao.horaInicio}</strong>
                   </div>
                   <div>
                     <span className="text-gray-600 block">Sala de Exame:</span>
@@ -791,35 +812,37 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                   </div>
                 </div>
 
-                {/* Assinaturas Oficiais com Chancela do Director Geral */}
-                <div className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs border-t-2 border-black">
+                {/* Assinaturas Oficiais com Chancela do Director Geral (Título -> Linha -> Nome) */}
+                <div className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs border-t-2 border-black items-end">
                   {/* Secretário do Júri */}
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex flex-col items-center justify-end">
                     <p className="font-bold text-gray-900 uppercase text-[11px]">O Secretário do Júri</p>
-                    <div className="w-44 border-b border-black mx-auto my-2" />
+                    <div className="h-10" />
+                    <div className="w-44 border-b border-black mx-auto my-1" />
                     <p className="font-semibold text-gray-800">{termoVisualizacao.secretarioJuriNome}</p>
                   </div>
 
                   {/* Presidente do Júri */}
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex flex-col items-center justify-end">
                     <p className="font-bold text-gray-900 uppercase text-[11px]">O Presidente do Júri</p>
-                    <div className="w-44 border-b border-black mx-auto my-2" />
+                    <div className="h-10" />
+                    <div className="w-44 border-b border-black mx-auto my-1" />
                     <p className="font-semibold text-gray-800">{termoVisualizacao.presidenteJuriNome}</p>
                   </div>
 
                   {/* Director Geral da Instituição */}
-                  <div className="space-y-1">
-                    <p className="font-bold text-gray-900 uppercase text-[11px]">O Director Geral</p>
-                    <div className="h-10 flex items-center justify-center">
+                  <div className="space-y-1 flex flex-col items-center justify-end">
+                    <p className="font-bold text-gray-900 uppercase text-[11px]">
+                      {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
+                    </p>
+                    <div className="h-10 flex items-center justify-center -mb-1">
                       {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                         <img 
                           src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
                           alt="Assinatura Director" 
                           className="max-h-9 object-contain mx-auto" 
                         />
-                      ) : (
-                        <span className="text-[9px] text-gray-400 italic">[Chancela da Direcção]</span>
-                      )}
+                      ) : null}
                     </div>
                     <div className="w-44 border-b border-black mx-auto my-1" />
                     <p className="font-semibold text-gray-800">{escola.diretorGeralNome || 'Não Atribuído'}</p>

@@ -1371,8 +1371,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         <div className="pt-8 border-t-2 border-slate-300 mt-6 grid grid-cols-1 md:grid-cols-2 gap-8 items-end">
           <div className="text-left space-y-1 text-xs text-slate-600">
             <p className="font-semibold">{dataExtensa}</p>
-            <p className="text-[11px] text-slate-400">
-              Documento emitido pelo Sistema de Gestão Escolar (SGE-NG Angola).
+            <p className="text-[11px] text-slate-500">
+              Documento Oficial emitido pela Direcção Pedagógica da Instituição de Ensino.
             </p>
             <p className="text-[10px] text-slate-400">
               Autenticidade assegurada por assinatura diretiva e carimbo institucional.
@@ -1384,22 +1384,23 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             )}
           </div>
 
-          <div className="text-center space-y-2">
+          <div className="text-center space-y-1 flex flex-col items-center">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-800">
-              O Director Geral da Instituição
+              {escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição'}
             </p>
             
-            <div className="h-16 flex items-center justify-center">
-              {escola.assinaturaDiretorUrl && escola.assinaturaDiretorUrl.trim() !== '' ? (
+            {escola.assinaturaDiretorUrl && escola.assinaturaDiretorUrl.trim() !== '' ? (
+              <div className="h-14 flex items-center justify-center -mb-1">
                 <img 
                   src={escola.assinaturaDiretorUrl} 
                   alt="Assinatura do Director" 
-                  className="max-h-14 object-contain mx-auto"
+                  className="max-h-12 object-contain mx-auto"
                 />
-              ) : (
-                <div className="w-56 border-b-2 border-slate-900 mt-8" />
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="h-10" />
+            )}
+            <div className="w-56 border-b-2 border-slate-900 mx-auto my-1" />
 
             <p className="text-xs font-extrabold text-slate-900 uppercase">
               {escola.diretorGeralNome || (escola.diretorGeralEmail ? escola.diretorGeralEmail.split('@')[0].replace(/\./g, ' ') : 'Direção Geral da Escola')}

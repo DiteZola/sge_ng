@@ -74,6 +74,7 @@ import {
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { obterNomeDiretorGeral, obterTituloDiretorGeral } from '../utils/directorHelper';
+import { formatarDataAngolana, formatarDataHoraAngolana } from '../utils/dateFormat';
 
 interface AdministrativeFinanceViewProps {
   escola: Escola;
@@ -590,7 +591,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       metodoPagamento: pagMetodo,
       numeroComprovativo: pagComprovativo || undefined,
       numeroRecibo,
-      dataHora: new Date().toLocaleString('pt-AO'),
+      dataHora: formatarDataHoraAngolana(new Date()),
       operadorId: currentUser.id,
       operadorNome: currentUser.nomeCompleto,
       status: 'Confirmado',
@@ -756,7 +757,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       descricao: despDescricao,
       categoria: despCategoria,
       valorKz: despValor,
-      dataHora: new Date().toLocaleString('pt-AO'),
+      dataHora: formatarDataHoraAngolana(new Date()),
       beneficiario: despBeneficiario || 'Fornecedor Credenciado',
       metodoPagamento: despMetodo,
       numeroComprovativo: despComprovativo || undefined,
@@ -2285,7 +2286,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                           )}
                         </td>
                         <td className="p-3 text-gray-600">
-                          <span className="block">{new Date(del.dataDelegacao).toLocaleDateString('pt-AO')}</span>
+                          <span className="block">{formatarDataAngolana(del.dataDelegacao, 'curto')}</span>
                           <span className="text-[10px] text-gray-400">Por {del.delegadoPorNome}</span>
                         </td>
                         <td className="p-3 text-right">
@@ -2891,7 +2892,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </div>
 
               <div className="pt-2 text-[9px] text-slate-400 text-center border-t border-slate-200 space-y-2">
-                <p>Emitido em {reciboParaImprimir.dataHora} • Operador: {reciboParaImprimir.operadorNome}</p>
+                <p>Emitido em {formatarDataHoraAngolana(reciboParaImprimir.dataHora)} • Operador: {reciboParaImprimir.operadorNome}</p>
                 <p>O presente recibo serve de comprovativo oficial perante a administração escolar.</p>
                 <div className="flex justify-center pt-1">
                   <OfficialQrCode

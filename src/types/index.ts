@@ -1508,3 +1508,60 @@ export interface PreferenciasNotificacaoSW {
   notificarTerminoTempo: boolean;
   avisoPrevio5Min: boolean;
 }
+
+export type CategoriaRelatorioAcontecimento =
+  | 'Reuniao'
+  | 'Palestra'
+  | 'Evento'
+  | 'Desenvolvimento'
+  | 'Ocorrencia';
+
+export type VisibilidadeRelatorioAcontecimento =
+  | 'Publico_Escola'
+  | 'Direcao'
+  | 'Docente_Turma'
+  | 'Rede_Nacional';
+
+export type EstadoRelatorioAcontecimento =
+  | 'Rascunho'
+  | 'Registado'
+  | 'Homologado';
+
+export interface RelatorioAcontecimento {
+  id: string;
+  escolaId: string;
+  escolaNome?: string;
+  anoLectivo: string;
+  trimestre?: string;
+  categoria: CategoriaRelatorioAcontecimento;
+  subtipo?: string; // Ex: "Conselho de Turma", "Seminário", "Jornada Pedagógica", "Infraestrutura", "Inspecção"
+  titulo: string;
+  data: string; // YYYY-MM-DD
+  hora?: string;
+  local?: string;
+  organizadorId?: string;
+  organizadorNome: string;
+  organizadorRole?: UserRole | string;
+  participantes?: string;
+  numeroParticipantes?: number;
+  publicoAlvo: 'Toda a Comunidade' | 'Professores' | 'Encarregados' | 'Estudantes' | 'Direção' | 'Rede Nacional';
+  turmaId?: string;
+  turmaNome?: string;
+  classe?: string;
+  turno?: string;
+  disciplinaId?: string;
+  disciplinaNome?: string;
+  resumoAcontecimentos: string;
+  deliberacoesEncaminhamentos?: string;
+  resultadosObtidos?: string;
+  nivelVisibilidade: VisibilidadeRelatorioAcontecimento;
+  estado: EstadoRelatorioAcontecimento;
+  homologadoPorNome?: string;
+  homologadoEm?: string;
+  criadoPorId: string;
+  criadoPorNome: string;
+  criadoPorRole: UserRole | string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+

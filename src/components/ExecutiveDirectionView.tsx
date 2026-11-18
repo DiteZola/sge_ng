@@ -27,8 +27,10 @@ import {
 } from 'lucide-react';
 import { Escola, Funcionario, Turma, Aluno } from '../types';
 import { dbService } from '../services/storage';
-import { InsigniaAngola } from '../constants/insignia';
+import { InsigniaAngola, DEFAULT_INSIGNIA_SVG_DATA_URL } from '../constants/insignia';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import { formatarDataAngolana } from '../utils/dateFormat';
 import { DelegationsManagementView } from './DelegationsManagementView';
 
 export interface DespachoDirecao {
@@ -128,6 +130,11 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
   // Modal Visualizar / Imprimir Despacho
   const [despachoVisualizado, setDespachoVisualizado] = useState<DespachoDirecao | null>(null);
   const [reuniaoVisualizada, setReuniaoVisualizada] = useState<ReuniaoDirecao | null>(null);
+  const [docParaExportar, setDocParaExportar] = useState<
+    | { tipo: 'despacho'; item: DespachoDirecao }
+    | { tipo: 'ata'; item: ReuniaoDirecao }
+    | null
+  >(null);
 
   // Filtros
   const [termoBusca, setTermoBusca] = useState('');
@@ -258,7 +265,60 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
     notificar(`Ata do Conselho de Direção "${nova.numeroAta}" averbada com sucesso.`);
   };
 
+  const handleBaixarDespachoPDF = async (desp: DespachoDirecao) => {
+    setDocParaExportar({ tipo: 'despacho', item: desp });
+    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    const el = document.getElementById('despacho-direcao-a4-pdf');
+    if (el) {
+      await downloadElementAsPdf(el, `${desp.numeroDespacho.replace(/[\/\s]/g, '_')}`, {
+        orientation: 'portrait',
+        format: 'a4'
+      });
+      notificar('Despacho oficial descarregado em PDF (.pdf) com sucesso.');
+    }
+  };
+
+  const handleImprimirDespachoDiretoA4 = async (desp: DespachoDirecao) => {
+    setDocParaExportar({ tipo: 'despacho', item: desp });
+    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    const el = document.getElementById('despacho-direcao-a4-pdf');
+    if (el) {
+      imprimirElementoDiretamente(el, `${desp.numeroDespacho} - ${escola.nomeOficial}`, {
+        orientation: 'portrait',
+        format: 'a4'
+      });
+    }
+  };
+
+  const handleBaixarAtaPDF = async (reun: ReuniaoDirecao) => {
+    setDocParaExportar({ tipo: 'ata', item: reun });
+    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    const el = document.getElementById('ata-direcao-a4-pdf');
+    if (el) {
+      await downloadElementAsPdf(el, `${reun.numeroAta.replace(/[\/\s]/g, '_')}`, {
+        orientation: 'portrait',
+        format: 'a4'
+      });
+      notificar('Ata do Conselho de Direção descarregada em PDF (.pdf) com sucesso.');
+    }
+  };
+
+  const handleImprimirAtaDiretoA4 = async (reun: ReuniaoDirecao) => {
+    setDocParaExportar({ tipo: 'ata', item: reun });
+    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    const el = document.getElementById('ata-direcao-a4-pdf');
+    if (el) {
+      imprimirElementoDiretamente(el, `${reun.numeroAta} - Conselho de Direção`, {
+        orientation: 'portrait',
+        format: 'a4'
+      });
+    }
+  };
+
   const handleImprimirDespachoOficial = (desp: DespachoDirecao) => {
+    const configSys = dbService.getConfiguracaoSistema();
+    const insigniaSrc = (configSys?.insigniaNacionalUrl || '').trim() || DEFAULT_INSIGNIA_SVG_DATA_URL;
+    const tituloDiretorDoc = escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição';
     const html = `
       <!DOCTYPE html>
       <html lang="pt">
@@ -270,6 +330,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           body { font-family: 'Times New Roman', Times, serif; color: #111; line-height: 1.5; font-size: 13pt; margin: 0; padding: 20px; }
           .header { text-align: center; margin-bottom: 25px; }
           .insignia { width: 70px; height: 70px; margin: 0 auto 8px; }
+          .insignia img { width: 68px; height: 68px; object-fit: contain; }
           .gov { font-size: 11pt; font-weight: bold; text-transform: uppercase; margin: 2px 0; letter-spacing: 0.5px; }
           .inst { font-size: 13pt; font-weight: bold; text-transform: uppercase; margin: 5px 0 15px; border-bottom: 2px solid #000; padding-bottom: 8px; }
           .title-box { text-align: center; margin: 25px 0 20px; }
@@ -279,19 +340,19 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           .conteudo { text-align: justify; margin: 20px 0; white-space: pre-line; line-height: 1.6; }
           .data-box { text-align: right; margin: 40px 0 30px; font-size: 12pt; }
           .sign-box { margin-top: 50px; text-align: center; }
-          .sign-line { width: 320px; border-top: 1px solid #000; margin: 0 auto 5px; }
+          .sign-cargo { font-weight: bold; font-size: 11pt; text-transform: uppercase; margin-bottom: 32px; }
+          .sign-line { width: 320px; border-top: 1px solid #000; margin: 0 auto 6px; }
           .sign-nome { font-weight: bold; font-size: 12pt; text-transform: uppercase; }
-          .sign-cargo { font-size: 10.5pt; color: #444; }
           .footer { margin-top: 40px; font-size: 9pt; text-align: center; color: #666; border-top: 1px dashed #999; padding-top: 8px; }
         </style>
       </head>
       <body>
         <div class="header">
           <div class="insignia">
-            ${InsigniaAngola}
+            <img src="${insigniaSrc}" alt="Insígnia da República de Angola" />
           </div>
           <div class="gov">REPÚBLICA DE ANGOLA</div>
-          <div class="gov">GOVERNO PROVINCIAL • MINISTÉRIO DA EDUCAÇÃO</div>
+          <div class="gov">${escola.governoProvincial || 'GOVERNO PROVINCIAL'} • ${escola.gabineteEducacao || 'MINISTÉRIO DA EDUCAÇÃO'}</div>
           <div class="inst">${escola.nomeOficial}</div>
         </div>
 
@@ -310,13 +371,13 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
         </div>
 
         <div class="data-box">
-          Gabinete do Diretor Geral em ${escola.municipio || 'Luanda'}, aos ${new Date(desp.dataEmissao).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+          Gabinete do Diretor Geral em ${escola.municipio || 'Luanda'}, aos ${formatarDataAngolana(desp.dataEmissao, 'extenso')}.
         </div>
 
         <div class="sign-box">
+          <div class="sign-cargo">${desp.cargoSignatario || tituloDiretorDoc}</div>
           <div class="sign-line"></div>
           <div class="sign-nome">${desp.assinadoPor}</div>
-          <div class="sign-cargo">${desp.cargoSignatario}</div>
         </div>
 
         <div class="footer">
@@ -326,10 +387,13 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
       </html>
     `;
     downloadHtmlDocument(`${desp.numeroDespacho.replace(/[\/\s]/g, '_')}.html`, desp.numeroDespacho, html);
-    notificar('Despacho oficial descarregado para visualização e impressão.');
+    notificar('Despacho oficial descarregado em HTML com sucesso.');
   };
 
   const handleImprimirAtaReuniao = (reun: ReuniaoDirecao) => {
+    const configSys = dbService.getConfiguracaoSistema();
+    const insigniaSrc = (configSys?.insigniaNacionalUrl || '').trim() || DEFAULT_INSIGNIA_SVG_DATA_URL;
+    const tituloDir = escola.diretorGeralGenero === 'F' ? 'A Directora Geral / Presidente' : 'O Director Geral / Presidente';
     const html = `
       <!DOCTYPE html>
       <html lang="pt">
@@ -341,6 +405,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           body { font-family: 'Times New Roman', Times, serif; color: #111; line-height: 1.5; font-size: 12pt; padding: 20px; }
           .header { text-align: center; margin-bottom: 20px; }
           .insignia { width: 65px; height: 65px; margin: 0 auto 6px; }
+          .insignia img { width: 62px; height: 62px; object-fit: contain; }
           .gov { font-size: 11pt; font-weight: bold; text-transform: uppercase; margin: 1px 0; }
           .inst { font-size: 13pt; font-weight: bold; text-transform: uppercase; margin: 5px 0 10px; border-bottom: 2px solid #000; padding-bottom: 5px; }
           .title { text-align: center; font-size: 13pt; font-weight: bold; text-transform: uppercase; margin: 20px 0; }
@@ -348,13 +413,16 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           .section-title { font-weight: bold; text-transform: uppercase; font-size: 11pt; margin-bottom: 6px; }
           ul, ol { margin: 5px 0; padding-left: 25px; }
           li { margin-bottom: 4px; }
-          .sign-grid { margin-top: 50px; display: grid; grid-template-columns: 1fr 1fr; gap: 30px; text-align: center; }
-          .sign-box { border-top: 1px solid #000; padding-top: 5px; font-size: 10.5pt; font-weight: bold; }
+          .sign-grid { margin-top: 50px; display: grid; grid-template-columns: 1fr 1fr; gap: 36px; text-align: center; }
+          .sign-box { font-size: 10.5pt; }
+          .sign-title { font-weight: bold; text-transform: uppercase; margin-bottom: 32px; }
+          .sign-line { border-top: 1px solid #000; width: 220px; margin: 0 auto 5px; }
+          .sign-name { font-weight: bold; }
         </style>
       </head>
       <body>
         <div class="header">
-          <div class="insignia">${InsigniaAngola}</div>
+          <div class="insignia"><img src="${insigniaSrc}" alt="Insígnia da República de Angola" /></div>
           <div class="gov">REPÚBLICA DE ANGOLA</div>
           <div class="gov">MINISTÉRIO DA EDUCAÇÃO</div>
           <div class="inst">${escola.nomeOficial}</div>
@@ -363,7 +431,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
         <div class="title">${reun.numeroAta} • CONSELHO DE DIREÇÃO</div>
 
         <div class="section">
-          Aos ${new Date(reun.data).toLocaleDateString('pt-AO')}, pelas ${reun.hora}, reuniu-se em sessão ${reun.tipo} o Conselho de Direção da instituição, no(a) ${reun.local}, sob a presidência do Diretor Geral <strong>${escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
+          Aos ${formatarDataAngolana(reun.data, 'extenso')}, pelas ${reun.hora}, reuniu-se em sessão ${reun.tipo} o Conselho de Direção da instituição, no(a) ${reun.local}, sob a presidência do(a) Director(a) Geral <strong>${escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
         </div>
 
         <div class="section">
@@ -393,19 +461,21 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
         <div class="sign-grid">
           <div class="sign-box">
-            ${escola.diretorGeralNome || 'Diretor Geral'}<br/>
-            <span style="font-size: 9pt; font-weight: normal;">Diretor Geral / Presidente</span>
+            <div class="sign-title">${tituloDir}</div>
+            <div class="sign-line"></div>
+            <div class="sign-name">${escola.diretorGeralNome || 'Diretor Geral'}</div>
           </div>
           <div class="sign-box">
-            ${escola.subdiretorPedagogicoNome || 'Subdiretor Pedagógico'}<br/>
-            <span style="font-size: 9pt; font-weight: normal;">Subdiretor Pedagógico</span>
+            <div class="sign-title">O Subdirector Pedagógico</div>
+            <div class="sign-line"></div>
+            <div class="sign-name">${escola.subdiretorPedagogicoNome || 'Subdiretor Pedagógico'}</div>
           </div>
         </div>
       </body>
       </html>
     `;
     downloadHtmlDocument(`${reun.numeroAta.replace(/[\/\s]/g, '_')}.html`, reun.numeroAta, html);
-    notificar('Ata do Conselho de Direção gerada e descarregada com sucesso.');
+    notificar('Ata do Conselho de Direção descarregada em HTML com sucesso.');
   };
 
   const despachosFiltrados = despachos.filter(d => {
@@ -841,7 +911,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
                     </h3>
                   </div>
 
-                  <div className="flex items-center space-x-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => setDespachoVisualizado(desp)}
                       className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold transition-all cursor-pointer"
@@ -849,11 +919,26 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
                       Ler Detalhes
                     </button>
                     <button
-                      onClick={() => handleImprimirDespachoOficial(desp)}
+                      onClick={() => handleBaixarDespachoPDF(desp)}
                       className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-sm transition-all cursor-pointer"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Baixar PDF</span>
+                    </button>
+                    <button
+                      onClick={() => handleImprimirDespachoDiretoA4(desp)}
+                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-sm transition-all cursor-pointer"
+                      title="Imprimir diretamente em A4"
                     >
                       <Printer className="h-3.5 w-3.5" />
                       <span>Imprimir A4</span>
+                    </button>
+                    <button
+                      onClick={() => handleImprimirDespachoOficial(desp)}
+                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                      title="Descarregar cópia em HTML"
+                    >
+                      <span>HTML</span>
                     </button>
                   </div>
                 </div>
@@ -864,7 +949,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-gray-500 border-t border-gray-50">
                   <span>Signatário: <strong>{desp.assinadoPor}</strong> ({desp.cargoSignatario})</span>
-                  <span>Data: <strong>{new Date(desp.dataEmissao).toLocaleDateString('pt-AO')}</strong> • Destinatários: <strong>{desp.publicoAlvo}</strong></span>
+                  <span>Data: <strong>{formatarDataAngolana(desp.dataEmissao, 'curto')}</strong> • Destinatários: <strong>{desp.publicoAlvo}</strong></span>
                 </div>
               </div>
             ))}
@@ -917,11 +1002,11 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Data: <strong>{new Date(reun.data).toLocaleDateString('pt-AO')}</strong> às <strong>{reun.hora}</strong> • Local: <strong>{reun.local}</strong>
+                      Data: <strong>{formatarDataAngolana(reun.data, 'curto')}</strong> às <strong>{reun.hora}</strong> • Local: <strong>{reun.local}</strong>
                     </p>
                   </div>
 
-                  <div className="flex items-center space-x-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => setReuniaoVisualizada(reun)}
                       className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold transition-all cursor-pointer"
@@ -929,11 +1014,26 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
                       Ver Ata Completa
                     </button>
                     <button
-                      onClick={() => handleImprimirAtaReuniao(reun)}
+                      onClick={() => handleBaixarAtaPDF(reun)}
                       className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-sm transition-all cursor-pointer"
                     >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Baixar PDF</span>
+                    </button>
+                    <button
+                      onClick={() => handleImprimirAtaDiretoA4(reun)}
+                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center space-x-1 shadow-sm transition-all cursor-pointer"
+                      title="Imprimir ata diretamente em A4"
+                    >
                       <Printer className="h-3.5 w-3.5" />
-                      <span>Descarregar Ata A4</span>
+                      <span>Imprimir A4</span>
+                    </button>
+                    <button
+                      onClick={() => handleImprimirAtaReuniao(reun)}
+                      className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                      title="Descarregar cópia em HTML"
+                    >
+                      <span>HTML</span>
                     </button>
                   </div>
                 </div>
@@ -1343,11 +1443,11 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
               <div className="flex justify-between text-gray-500 text-[11px] pt-2 border-t border-gray-100">
                 <span>Signatário: <strong>{despachoVisualizado.assinadoPor}</strong></span>
-                <span>Data: <strong>{new Date(despachoVisualizado.dataEmissao).toLocaleDateString('pt-AO')}</strong></span>
+                <span>Data: <strong>{formatarDataAngolana(despachoVisualizado.dataEmissao, 'curto')}</strong></span>
               </div>
             </div>
 
-            <div className="flex justify-end space-x-2 pt-2 border-t border-gray-100">
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-gray-100">
               <button
                 onClick={() => setDespachoVisualizado(null)}
                 className="px-4 py-2 border border-gray-300 rounded-xl font-bold text-gray-700 hover:bg-gray-100 cursor-pointer text-xs"
@@ -1356,10 +1456,23 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
               </button>
               <button
                 onClick={() => handleImprimirDespachoOficial(despachoVisualizado)}
-                className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold flex items-center space-x-1.5 text-xs shadow-sm cursor-pointer"
+                className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl font-bold flex items-center space-x-1.5 text-xs cursor-pointer"
+              >
+                <span>Baixar HTML</span>
+              </button>
+              <button
+                onClick={() => handleImprimirDespachoDiretoA4(despachoVisualizado)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold flex items-center space-x-1.5 text-xs shadow-sm cursor-pointer"
               >
                 <Printer className="h-4 w-4" />
-                <span>Imprimir A4 Oficial</span>
+                <span>Imprimir A4</span>
+              </button>
+              <button
+                onClick={() => handleBaixarDespachoPDF(despachoVisualizado)}
+                className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold flex items-center space-x-1.5 text-xs shadow-sm cursor-pointer"
+              >
+                <Download className="h-4 w-4" />
+                <span>Baixar PDF (.pdf)</span>
               </button>
             </div>
           </div>
@@ -1400,11 +1513,11 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
               </div>
 
               <div className="text-[11px] text-gray-500 pt-1">
-                Data: {new Date(reuniaoVisualizada.data).toLocaleDateString('pt-AO')} às {reuniaoVisualizada.hora} • Local: {reuniaoVisualizada.local}
+                Data: {formatarDataAngolana(reuniaoVisualizada.data, 'curto')} às {reuniaoVisualizada.hora} • Local: {reuniaoVisualizada.local}
               </div>
             </div>
 
-            <div className="flex justify-end space-x-2 pt-2 border-t border-gray-100">
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-gray-100">
               <button
                 onClick={() => setReuniaoVisualizada(null)}
                 className="px-4 py-2 border border-gray-300 rounded-xl font-bold text-gray-700 hover:bg-gray-100 cursor-pointer text-xs"
@@ -1413,11 +1526,170 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
               </button>
               <button
                 onClick={() => handleImprimirAtaReuniao(reuniaoVisualizada)}
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold flex items-center space-x-1.5 text-xs shadow-sm cursor-pointer"
+                className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 rounded-xl font-bold flex items-center space-x-1.5 text-xs cursor-pointer"
+              >
+                <span>Baixar HTML</span>
+              </button>
+              <button
+                onClick={() => handleImprimirAtaDiretoA4(reuniaoVisualizada)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold flex items-center space-x-1.5 text-xs shadow-sm cursor-pointer"
               >
                 <Printer className="h-4 w-4" />
-                <span>Imprimir Ata Oficial</span>
+                <span>Imprimir A4</span>
               </button>
+              <button
+                onClick={() => handleBaixarAtaPDF(reuniaoVisualizada)}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold flex items-center space-x-1.5 text-xs shadow-sm cursor-pointer"
+              >
+                <Download className="h-4 w-4" />
+                <span>Baixar PDF (.pdf)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ÁREA OFFSCREEN PARA GERAÇÃO DE PDF / IMPRESSÃO A4 DE DESPACHOS E ATAS */}
+      {docParaExportar?.tipo === 'despacho' && (
+        <div
+          id="despacho-direcao-a4-pdf"
+          style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 1, width: '794px' }}
+          className="bg-white p-10 text-black font-serif space-y-5"
+        >
+          <div className="text-center space-y-1 border-b-2 border-black pb-3">
+            <div className="flex justify-center mb-1">
+              <InsigniaAngola size={56} />
+            </div>
+            <p className="text-xs font-black uppercase tracking-widest">REPÚBLICA DE ANGOLA</p>
+            <p className="text-[11px] font-bold uppercase">
+              {escola.governoProvincial || 'GOVERNO PROVINCIAL'} • {escola.gabineteEducacao || 'MINISTÉRIO DA EDUCAÇÃO'}
+            </p>
+            <h2 className="text-base font-black uppercase pt-1">{escola.nomeOficial}</h2>
+          </div>
+
+          <div className="text-center space-y-1 py-2">
+            <h3 className="text-base font-black uppercase underline">{docParaExportar.item.numeroDespacho}</h3>
+            <p className="text-xs italic">
+              Assunto: <strong>{docParaExportar.item.assunto}</strong>
+            </p>
+          </div>
+
+          <div className="p-3 bg-gray-50 border-l-4 border-gray-800 text-xs text-justify">
+            <strong className="block mb-1">Fundamentação de Direito:</strong>
+            <span>{docParaExportar.item.fundamentacaoLegal}</span>
+          </div>
+
+          <div className="text-xs text-justify whitespace-pre-line leading-relaxed min-h-[180px]">
+            {docParaExportar.item.conteudo}
+          </div>
+
+          <p className="text-right text-xs pt-4">
+            Gabinete do Director Geral em {escola.municipio || 'Luanda'}, aos {formatarDataAngolana(docParaExportar.item.dataEmissao, 'extenso')}.
+          </p>
+
+          <div className="pt-8 text-center text-xs flex flex-col items-center">
+            <p className="font-bold uppercase">
+              {docParaExportar.item.cargoSignatario || (escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição')}
+            </p>
+            {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+              <div className="h-12 flex items-center justify-center -mb-1">
+                <img
+                  src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                  alt="Assinatura do Director"
+                  className="max-h-11 object-contain"
+                />
+              </div>
+            ) : (
+              <div className="h-10" />
+            )}
+            <div className="w-64 border-b border-black my-1" />
+            <p className="font-bold uppercase">{docParaExportar.item.assinadoPor}</p>
+          </div>
+        </div>
+      )}
+
+      {docParaExportar?.tipo === 'ata' && (
+        <div
+          id="ata-direcao-a4-pdf"
+          style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 1, width: '794px' }}
+          className="bg-white p-10 text-black font-serif space-y-5"
+        >
+          <div className="text-center space-y-1 border-b-2 border-black pb-3">
+            <div className="flex justify-center mb-1">
+              <InsigniaAngola size={56} />
+            </div>
+            <p className="text-xs font-black uppercase tracking-widest">REPÚBLICA DE ANGOLA</p>
+            <p className="text-[11px] font-bold uppercase">
+              {escola.governoProvincial || 'GOVERNO PROVINCIAL'} • {escola.gabineteEducacao || 'MINISTÉRIO DA EDUCAÇÃO'}
+            </p>
+            <h2 className="text-base font-black uppercase pt-1">{escola.nomeOficial}</h2>
+          </div>
+
+          <div className="text-center py-2">
+            <h3 className="text-sm font-black uppercase tracking-wider">
+              {docParaExportar.item.numeroAta} • CONSELHO DE DIREÇÃO
+            </h3>
+          </div>
+
+          <p className="text-xs text-justify leading-relaxed">
+            Aos {formatarDataAngolana(docParaExportar.item.data, 'extenso')}, pelas {docParaExportar.item.hora}, reuniu-se em sessão {docParaExportar.item.tipo} o Conselho de Direção da instituição, no(a) {docParaExportar.item.local}, sob a presidência de <strong>{escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
+          </p>
+
+          <div className="text-xs space-y-1">
+            <p className="font-bold uppercase">1. Membros Presentes</p>
+            <ul className="list-disc pl-6 space-y-0.5">
+              {docParaExportar.item.membrosPresentes.map((m, idx) => (
+                <li key={idx}>{m}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="text-xs space-y-1">
+            <p className="font-bold uppercase">2. Ordem de Trabalhos (Pauta da Reunião)</p>
+            <ol className="list-decimal pl-6 space-y-0.5">
+              {docParaExportar.item.ordemDoDia.map((o, idx) => (
+                <li key={idx}>{o}</li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="text-xs space-y-1">
+            <p className="font-bold uppercase">3. Deliberações e Decisões Homologadas</p>
+            <ol className="list-decimal pl-6 space-y-0.5">
+              {docParaExportar.item.deliberacoes.map((d, idx) => (
+                <li key={idx}>{d}</li>
+              ))}
+            </ol>
+          </div>
+
+          <p className="text-xs text-justify leading-relaxed">
+            Nada mais havendo a tratar, foi encerrada a sessão da qual se lavrou a presente ata que, após lida e achada conforme, vai ser assinada pelos membros do Conselho de Direção.
+          </p>
+
+          <div className="grid grid-cols-2 gap-8 pt-8 text-center text-xs items-end">
+            <div className="flex flex-col items-center">
+              <p className="font-bold uppercase">
+                {escola.diretorGeralGenero === 'F' ? 'A Directora Geral / Presidente' : 'O Director Geral / Presidente'}
+              </p>
+              {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                <div className="h-10 flex items-center justify-center -mb-1">
+                  <img
+                    src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                    alt="Assinatura do Director"
+                    className="max-h-9 object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="h-8" />
+              )}
+              <div className="w-48 border-b border-black my-1" />
+              <p className="font-bold uppercase">{escola.diretorGeralNome || 'Direcção da Escola'}</p>
+            </div>
+            <div className="flex flex-col items-center">
+              <p className="font-bold uppercase">O Subdirector Pedagógico</p>
+              <div className="h-8" />
+              <div className="w-48 border-b border-black my-1" />
+              <p className="font-bold uppercase">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
             </div>
           </div>
         </div>

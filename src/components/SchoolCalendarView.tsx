@@ -20,8 +20,10 @@ import {
   MapPin
 } from 'lucide-react';
 import { Escola, Funcionario } from '../types';
-import { InsigniaAngola } from '../constants/insignia';
+import { InsigniaAngola, DEFAULT_INSIGNIA_SVG_DATA_URL } from '../constants/insignia';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
+import { formatarDataAngolana } from '../utils/dateFormat';
 import { dbService } from '../services/storage';
 
 export interface EventoCalendarioEscolar {
@@ -318,7 +320,39 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
     notificar(`Evento "${novo.titulo}" averbado no calendário oficial.`);
   };
 
+  const [renderizarA4Offscreen, setRenderizarA4Offscreen] = useState(false);
+
+  const handleBaixarCalendarioPDF = async () => {
+    setRenderizarA4Offscreen(true);
+    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    const el = document.getElementById('calendario-escolar-a4-pdf');
+    if (el) {
+      await downloadElementAsPdf(
+        el,
+        `Calendario_Escolar_${escola.anoLectivoActivo.replace(/[\/\s]/g, '_')}`,
+        { orientation: 'portrait', format: 'a4' }
+      );
+      notificar('Calendário Escolar Oficial descarregado em PDF (.pdf) com sucesso.');
+    }
+  };
+
+  const handleImprimirCalendarioDiretoA4 = async () => {
+    setRenderizarA4Offscreen(true);
+    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    const el = document.getElementById('calendario-escolar-a4-pdf');
+    if (el) {
+      imprimirElementoDiretamente(
+        el,
+        `Calendário Escolar Oficial - ${escola.nomeOficial}`,
+        { orientation: 'portrait', format: 'a4' }
+      );
+    }
+  };
+
   const handleImprimirCalendarioA4 = () => {
+    const configSys = dbService.getConfiguracaoSistema();
+    const insigniaSrc = (configSys?.insigniaNacionalUrl || '').trim() || DEFAULT_INSIGNIA_SVG_DATA_URL;
+    const tituloDir = escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição';
     const html = `
       <!DOCTYPE html>
       <html lang="pt">
@@ -330,6 +364,7 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
           body { font-family: 'Segoe UI', Arial, sans-serif; color: #111; line-height: 1.4; font-size: 10pt; margin: 0; padding: 10px; }
           .header { text-align: center; margin-bottom: 15px; border-bottom: 2px solid #1e3a8a; padding-bottom: 10px; }
           .insignia { width: 55px; height: 55px; margin: 0 auto 5px; }
+          .insignia img { width: 52px; height: 52px; object-fit: contain; }
           .gov { font-size: 9pt; font-weight: bold; text-transform: uppercase; margin: 1px 0; color: #333; }
           .inst { font-size: 12pt; font-weight: 900; text-transform: uppercase; margin: 4px 0; color: #1e3a8a; }
           .sub { font-size: 10pt; font-weight: bold; margin-top: 4px; }
@@ -344,15 +379,18 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
           .badge-inst { background-color: #e0e7ff; color: #3730a3; }
           .badge-mat { background-color: #d1fae5; color: #065f46; }
           .footer { margin-top: 25px; text-align: center; font-size: 8pt; color: #666; border-top: 1px solid #ccc; padding-top: 8px; }
-          .sign-grid { margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; text-align: center; }
-          .sign-box { border-top: 1px solid #000; padding-top: 4px; font-size: 9pt; font-weight: bold; }
+          .sign-grid { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; text-align: center; }
+          .sign-box { font-size: 9pt; }
+          .sign-title { font-weight: bold; text-transform: uppercase; margin-bottom: 28px; }
+          .sign-line { border-top: 1px solid #000; width: 200px; margin: 0 auto 4px; }
+          .sign-name { font-weight: bold; }
         </style>
       </head>
       <body>
         <div class="header">
-          <div class="insignia">${InsigniaAngola}</div>
+          <div class="insignia"><img src="${insigniaSrc}" alt="Insígnia da República de Angola" /></div>
           <div class="gov">REPÚBLICA DE ANGOLA • MINISTÉRIO DA EDUCAÇÃO</div>
-          <div class="gov">GOVERNO PROVINCIAL • GABINETE DA EDUCAÇÃO</div>
+          <div class="gov">${escola.governoProvincial || 'GOVERNO PROVINCIAL'} • ${escola.gabineteEducacao || 'GABINETE DA EDUCAÇÃO'}</div>
           <div class="inst">${escola.nomeOficial}</div>
           <div class="sub">CALENDÁRIO ESCOLAR OFICIAL • ANO LECTIVO ${escola.anoLectivoActivo}</div>
         </div>
@@ -370,7 +408,7 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
           <tbody>
             ${eventos.map(e => `
               <tr>
-                <td><strong>${new Date(e.dataInicio).toLocaleDateString('pt-AO')}</strong>${e.dataFim ? ` a ${new Date(e.dataFim).toLocaleDateString('pt-AO')}` : ''}</td>
+                <td><strong>${formatarDataAngolana(e.dataInicio, 'curto')}</strong>${e.dataFim ? ` a ${formatarDataAngolana(e.dataFim, 'curto')}` : ''}</td>
                 <td>${e.trimestre === 'Geral' ? 'Ano Todo' : `${e.trimestre}º Trimestre`}</td>
                 <td>
                   <span class="badge ${
@@ -391,12 +429,14 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
 
         <div class="sign-grid">
           <div class="sign-box">
-            ${escola.diretorGeralNome || 'Diretor Geral'}<br/>
-            <span style="font-size: 8pt; font-weight: normal;">Diretor Geral da Instituição</span>
+            <div class="sign-title">${tituloDir}</div>
+            <div class="sign-line"></div>
+            <div class="sign-name">${escola.diretorGeralNome || 'Diretor Geral'}</div>
           </div>
           <div class="sign-box">
-            ${escola.subdiretorPedagogicoNome || 'Subdiretor Pedagógico'}<br/>
-            <span style="font-size: 8pt; font-weight: normal;">Subdiretor Pedagógico</span>
+            <div class="sign-title">O Subdirector Pedagógico</div>
+            <div class="sign-line"></div>
+            <div class="sign-name">${escola.subdiretorPedagogicoNome || 'Subdiretor Pedagógico'}</div>
           </div>
         </div>
 
@@ -411,7 +451,7 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
       `Calendário Escolar Oficial - ${escola.nomeOficial}`,
       html
     );
-    notificar('Calendário Escolar Oficial A4 descarregado com sucesso.');
+    notificar('Calendário Escolar Oficial descarregado em HTML com sucesso.');
   };
 
   const eventosFiltrados = eventos.filter(e => {
@@ -464,11 +504,24 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
               <span>Adicionar Marco Escolar</span>
             </button>
             <button
-              onClick={handleImprimirCalendarioA4}
+              onClick={handleBaixarCalendarioPDF}
               className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center space-x-2 shadow-lg transition-all cursor-pointer"
             >
+              <Download className="h-4 w-4" />
+              <span>Baixar PDF (.pdf)</span>
+            </button>
+            <button
+              onClick={handleImprimirCalendarioDiretoA4}
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center space-x-2 shadow-lg transition-all cursor-pointer"
+            >
               <Printer className="h-4 w-4" />
-              <span>Imprimir Calendário A4</span>
+              <span>Imprimir A4</span>
+            </button>
+            <button
+              onClick={handleImprimirCalendarioA4}
+              className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              <span>HTML</span>
             </button>
           </div>
         </div>
@@ -646,11 +699,11 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
 
               <div className="sm:text-right shrink-0 bg-gray-50 sm:bg-transparent p-3 sm:p-0 rounded-xl">
                 <span className="text-xs font-black text-gray-900 block">
-                  {new Date(evt.dataInicio).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}
+                  {formatarDataAngolana(evt.dataInicio, 'extenso')}
                 </span>
                 {evt.dataFim && (
                   <span className="text-[11px] text-gray-500 block">
-                    até {new Date(evt.dataFim).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}
+                    até {formatarDataAngolana(evt.dataFim, 'extenso')}
                   </span>
                 )}
               </div>
@@ -798,6 +851,72 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* LAYOUT OFFSCREEN PARA PDF / IMPRESSÃO A4 DO CALENDÁRIO */}
+      {renderizarA4Offscreen && (
+        <div
+          id="calendario-escolar-a4-pdf"
+          style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 1, width: '794px' }}
+          className="bg-white p-8 text-black space-y-4"
+        >
+          <div className="text-center space-y-1 border-b-2 border-blue-900 pb-3">
+            <div className="flex justify-center mb-1">
+              <InsigniaAngola size={48} />
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-widest">REPÚBLICA DE ANGOLA • MINISTÉRIO DA EDUCAÇÃO</p>
+            <p className="text-[9.5px] font-bold uppercase text-gray-700">
+              {escola.governoProvincial || 'GOVERNO PROVINCIAL'} • {escola.gabineteEducacao || 'GABINETE DA EDUCAÇÃO'}
+            </p>
+            <h2 className="text-sm font-black uppercase text-blue-950">{escola.nomeOficial}</h2>
+            <p className="text-xs font-bold uppercase pt-1">CALENDÁRIO ESCOLAR OFICIAL • ANO LECTIVO {escola.anoLectivoActivo}</p>
+          </div>
+
+          <table className="w-full border-collapse border border-gray-400 text-[10px]">
+            <thead>
+              <tr className="bg-blue-900 text-white uppercase font-bold text-[9px]">
+                <th className="p-1.5 border border-blue-900 text-left w-28">Período / Data</th>
+                <th className="p-1.5 border border-blue-900 text-center w-20">Trimestre</th>
+                <th className="p-1.5 border border-blue-900 text-center w-24">Tipo</th>
+                <th className="p-1.5 border border-blue-900 text-left">Atividade / Marco Normativo</th>
+                <th className="p-1.5 border border-blue-900 text-left">Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventosFiltrados.map((evt, idx) => (
+                <tr key={evt.id} className={idx % 2 === 1 ? 'bg-slate-50' : 'bg-white'}>
+                  <td className="p-1.5 border border-gray-300 font-bold">
+                    {formatarDataAngolana(evt.dataInicio, 'curto')}
+                    {evt.dataFim && evt.dataFim !== evt.dataInicio ? ` a ${formatarDataAngolana(evt.dataFim, 'curto')}` : ''}
+                  </td>
+                  <td className="p-1.5 border border-gray-300 text-center">
+                    {evt.trimestre === 'Geral' ? 'Anual' : `${evt.trimestre}º Trim.`}
+                  </td>
+                  <td className="p-1.5 border border-gray-300 text-center font-bold">{evt.tipo}</td>
+                  <td className="p-1.5 border border-gray-300 font-bold">{evt.titulo}</td>
+                  <td className="p-1.5 border border-gray-300 text-gray-700">{evt.descricao}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="grid grid-cols-2 gap-8 pt-8 text-center text-xs items-end">
+            <div className="flex flex-col items-center">
+              <p className="font-bold uppercase">
+                {escola.diretorGeralGenero === 'F' ? 'A Directora Geral da Instituição' : 'O Director Geral da Instituição'}
+              </p>
+              <div className="h-8" />
+              <div className="w-48 border-b border-black my-1" />
+              <p className="font-bold uppercase">{escola.diretorGeralNome || 'Direcção da Escola'}</p>
+            </div>
+            <div className="flex flex-col items-center">
+              <p className="font-bold uppercase">O Subdirector Pedagógico</p>
+              <div className="h-8" />
+              <div className="w-48 border-b border-black my-1" />
+              <p className="font-bold uppercase">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
+            </div>
           </div>
         </div>
       )}

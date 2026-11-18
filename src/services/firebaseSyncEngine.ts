@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { firestoreDb } from "./firebaseClient";
 import { offlineStorage } from "./offlineStorage";
+import { invalidateLocalCache } from "./localCache";
 import { Funcionario, ConfiguracaoSistema, Escola, Aluno, Turma, NotaTrimestralConsolidada, SolicitacaoApoioTecnico, Mensagem } from "../types";
 import { comprimirImagemBase64 } from "../utils/imageOptimizer";
 
@@ -72,7 +73,8 @@ const STORAGE_KEYS = {
   DELEGACOES_COBRANCA: 'sge_delegacoes_cobranca',
   DELEGACOES_PODERES: 'sge_delegacoes_poderes',
   ACOES_DELEGADAS_LOGS: 'sge_acoes_delegadas_logs',
-  SESSOES_ATIVAS: 'sge_sessoes_ativas'
+  SESSOES_ATIVAS: 'sge_sessoes_ativas',
+  RELATORIOS_ACONTECIMENTOS: 'sge_relatorios_acontecimentos'
 };
 
 const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
@@ -935,6 +937,7 @@ class FirebaseSyncEngine {
       }
       try {
         localStorage.setItem(storageKey, serialized);
+        invalidateLocalCache(storageKey);
       } catch (quotaErr) {
         console.warn(`[SGE Sync] Quota localStorage excedida ao gravar ${storageKey}, preservando fotos no IndexedDB:`, quotaErr);
         if (colecao === 'funcionarios' || colecao === 'alunos') {
@@ -949,6 +952,7 @@ class FirebaseSyncEngine {
           });
           try {
             localStorage.setItem(storageKey, JSON.stringify(slimmed));
+            invalidateLocalCache(storageKey);
           } catch {}
         }
       }
@@ -1062,6 +1066,7 @@ class FirebaseSyncEngine {
           if (changed) {
             try {
               localStorage.setItem(storageKey, JSON.stringify(localMap));
+              invalidateLocalCache(storageKey);
               localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
             } catch {}
             this.agendarNotificacaoRemota();
@@ -1227,6 +1232,7 @@ class FirebaseSyncEngine {
     registrarEscutaArray<any>("classes_configs", STORAGE_KEYS.CLASSES_CONFIGS, (c) => Boolean(c && c.id));
     registrarEscutaArray<any>("cursos", STORAGE_KEYS.CURSOS, (c) => Boolean(c && c.id));
     registrarEscutaArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, (r) => Boolean(r && r.id));
+    registrarEscutaArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, (r) => Boolean(r && r.id));
 
     registrarEscutaMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId);
     registrarEscutaMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId);
@@ -1893,6 +1899,7 @@ class FirebaseSyncEngine {
           this.puxarColecaoArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, { filterValid: (d) => Boolean(d && d.id) }),
           this.puxarColecaoArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, { filterValid: (p) => Boolean(p && p.id) }),
           this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
+          this.puxarColecaoArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
           this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
           this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
@@ -2033,6 +2040,7 @@ class FirebaseSyncEngine {
             uploadArray(STORAGE_KEYS.DESPESAS_ESCOLARES, "despesas_escolares"),
             uploadArray(STORAGE_KEYS.PATRIMONIO, "patrimonio"),
             uploadArray(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, "alteracoes_notas_direcao"),
+            uploadArray(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, "relatorios_acontecimentos"),
             uploadArray(STORAGE_KEYS.DELEGACOES_PODERES, "delegacoes_poderes"),
             uploadArray(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, "acoes_delegadas_logs"),
             uploadArray(STORAGE_KEYS.AUDITORIA, "auditoria"),
@@ -2641,7 +2649,7 @@ class FirebaseSyncEngine {
           "biblioteca_acessos", "recibos", "delegacoes_poderes", "acoes_delegadas_logs",
           "alteracoes_notas_direcao", "anos_lectivos_configs", "turnos_configs",
           "classes_configs", "cursos", "regras_mac", "tipos_avaliacao",
-          "solicitacoes_nota", "solicitacoes_apoio"
+          "solicitacoes_nota", "solicitacoes_apoio", "relatorios_acontecimentos"
         ];
 
         await Promise.allSettled([
@@ -2893,6 +2901,14 @@ class FirebaseSyncEngine {
     } catch {
       return false;
     }
+  }
+
+  public async salvarRelatorioAcontecimento(rel: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("relatorios_acontecimentos", rel.id, rel, undefined, `Relatório ${rel.titulo || rel.id}`);
+  }
+
+  public async eliminarRelatorioAcontecimento(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("relatorios_acontecimentos", id, undefined, `Eliminação de relatório ${id}`);
   }
 
   public async salvarSessaoAtiva(sessao: any): Promise<boolean> {

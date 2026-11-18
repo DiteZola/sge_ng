@@ -26,6 +26,7 @@ export type QrDocumentType =
   | 'FICHA_FUNCIONARIO'
   | 'FICHA_PRESENCAS'
   | 'RELATORIO_OFICIAL'
+  | 'RELATORIO_ACONTECIMENTOS'
   | 'MAPA_ESTATISTICO'
   | 'LISTA_NOMINAL'
   | 'COMPROVATIVO_MATRICULA';
@@ -207,7 +208,7 @@ export function parseStudentQrPayload(rawInput: string, alunos: Aluno[]): Parsed
 const qrDataUrlCache = new Map<string, string>();
 
 export async function gerarQrCodeDataUrl(value: string, width = 180): Promise<string> {
-  const safeVal = (value || 'SGE-NG-MED').trim();
+  const safeVal = (value || 'MED-ANGOLA').trim();
   const cacheKey = `${width}::${safeVal}`;
   const cached = qrDataUrlCache.get(cacheKey);
   if (cached) return cached;
@@ -247,7 +248,7 @@ export const OfficialQrCode: React.FC<OfficialQrCodeProps> = ({
   alt = 'Código QR de Autenticação Oficial MED',
   label
 }) => {
-  const safeValue = (value || 'SGE-NG-MED').trim();
+  const safeValue = (value || 'MED-ANGOLA').trim();
   const renderPx = Math.max(160, size * 3);
   const cacheKey = `${renderPx}::${safeValue}`;
   const [dataUrl, setDataUrl] = useState<string>(() => qrDataUrlCache.get(cacheKey) || '');

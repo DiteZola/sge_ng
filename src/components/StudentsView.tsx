@@ -58,6 +58,7 @@ import { converterNotaParaCertificadoExtenso, converterNotaParaExtenso } from '.
 import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '../utils/curriculoAngola';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { AngolaDateInput } from './AngolaDateInput';
+import { formatarDataAngolana, formatarDataHoraAngolana } from '../utils/dateFormat';
 import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
 import { locationService } from '../services/locationService';
@@ -4416,7 +4417,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     <span className="text-[10px] text-gray-500 block">Turno:</span>
                     <strong>{alunoConfirmadoComprovativo.aluno.periodo || 'Manhã'}</strong>
                   </div>
-                  {alunoConfirmadoComprovativo.aluno.curso && (
+                  {isSegundoCiclo(alunoConfirmadoComprovativo.aluno.classeId) && alunoConfirmadoComprovativo.aluno.curso && (
                     <div className="col-span-2">
                       <span className="text-[10px] text-gray-500 block">Curso Curricular:</span>
                       <strong>{alunoConfirmadoComprovativo.aluno.curso}</strong>
@@ -4452,7 +4453,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </div>
 
               <div className="text-center pt-2 text-[9px] text-gray-500 font-mono">
-                Emitido em: {new Date().toLocaleDateString('pt-AO')} às {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })} • Secretaria Escolar MED
+                Emitido em: {formatarDataHoraAngolana(new Date())} • Secretaria Escolar MED
               </div>
             </div>
           </div>
@@ -5768,12 +5769,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Data de Emissão:</span>
-                  <strong className="text-gray-900">{alunoDossieModal.dataEmissaoBI ? new Date(alunoDossieModal.dataEmissaoBI).toLocaleDateString('pt-AO') : 'Não averbada'}</strong>
+                  <strong className="text-gray-900">{formatarDataAngolana(alunoDossieModal.dataEmissaoBI, 'curto', 'Não averbada')}</strong>
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Data de Nascimento:</span>
                   <strong className="text-gray-900">
-                    {alunoDossieModal.dataNascimento ? new Date(alunoDossieModal.dataNascimento).toLocaleDateString('pt-AO') : 'Não averbada'}
+                    {formatarDataAngolana(alunoDossieModal.dataNascimento, 'curto', 'Não averbada')}
                   </strong>
                 </div>
                 <div>
@@ -6022,7 +6023,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     <tbody className="divide-y divide-gray-200">
                       {alunoDossieModal.ocorrencias.map((o) => (
                         <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
-                          <td className="p-2 font-mono text-[11px] text-gray-600">{o.data}</td>
+                          <td className="p-2 font-mono text-[11px] text-gray-600">{formatarDataAngolana(o.data, 'curto')}</td>
                           <td className="p-2 font-bold text-gray-900">{o.tipo}</td>
                           <td className="p-2">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -6053,14 +6054,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               )}
             </div>
 
-            {/* Assinaturas Oficiais e Validação Digital QR */}
+            {/* Assinaturas Oficiais (Título -> Linha -> Nome) e Validação Digital QR */}
             <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-3 gap-6 items-end text-center text-xs">
-              <div className="space-y-4">
-                <p className="font-bold text-gray-800">
-                  {escola.chefeSecretariaNome ? `O(A) Chefe da Secretaria: ${escola.chefeSecretariaNome}` : 'O(A) Chefe da Secretaria Pedagógica'}
+              <div className="flex flex-col items-center justify-end space-y-1">
+                <p className="font-bold text-gray-900 uppercase text-[11px]">O(A) Chefe da Secretaria</p>
+                <div className="h-8" />
+                <div className="border-b border-gray-900 w-48 mx-auto" />
+                <p className="font-bold text-gray-800 text-[11px] uppercase">
+                  {escola.chefeSecretariaNome || 'Chefia da Secretaria Pedagógica'}
                 </p>
-                <div className="border-b border-gray-900 w-48 mx-auto pt-6" />
-                <p className="text-[10px] text-gray-500 uppercase">Assinatura e Carimbo Oficial da Secretaria</p>
               </div>
 
               <div className="flex flex-col items-center justify-center">
@@ -6075,12 +6077,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 />
               </div>
 
-              <div className="space-y-4">
-                <p className="font-bold text-gray-800">
-                  {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}: {escola.diretorGeralNome || 'Direcção da Instituição'}
+              <div className="flex flex-col items-center justify-end space-y-1">
+                <p className="font-bold text-gray-900 uppercase text-[11px]">
+                  {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
                 </p>
-                <div className="border-b border-gray-900 w-48 mx-auto pt-6" />
-                <p className="text-[10px] text-gray-500 uppercase">Visto Ministerial & Homologação Institucional</p>
+                <div className="h-8" />
+                <div className="border-b border-gray-900 w-48 mx-auto" />
+                <p className="font-bold text-gray-800 text-[11px] uppercase">
+                  {escola.diretorGeralNome || 'Direcção da Instituição'}
+                </p>
               </div>
             </div>
             </div>

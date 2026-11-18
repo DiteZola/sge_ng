@@ -42,7 +42,9 @@ import {
   X,
   EyeOff,
   Compass,
-  Sparkles
+  Sparkles,
+  Search,
+  CheckSquare
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -77,6 +79,7 @@ import { ParentStudentReportView } from './ParentStudentReportView';
 import { StudentRankingSection } from './StudentRankingSection';
 import * as XLSX from 'xlsx';
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
+import { obterInformacaoEscala } from '../services/macEngine';
 
 interface DashboardViewProps {
   escola: Escola;
@@ -128,6 +131,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [identificadorDesbloqueioRapido, setIdentificadorDesbloqueioRapido] = useState('');
   const [statusBanco, setStatusBanco] = useState(() => dbService.verificarIntegridadeBanco());
   const [syncTick, setSyncTick] = useState(0);
+
+  // Filtros do painel "Resumo Geral" (Exclusivo Admin Geral)
+  const [resumoBusca, setResumoBusca] = useState('');
+  const [resumoProvincia, setResumoProvincia] = useState('TODAS');
+  const [resumoApenasPendencias, setResumoApenasPendencias] = useState(false);
 
   useEffect(() => {
     const refreshLiveData = () => setSyncTick(t => t + 1);
@@ -330,7 +338,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       : 0;
   }, [alunosComNota]);
 
-  // Estatísticas Nacionais Reais para o Administrador Geral
+  // Estatísticas Nacionais Reais para o Administrador Geral (com normalização Primário 0-10 vs Secundário 0-20)
   const estatisticasNacionaisAproveitamento = useMemo(() => {
     if (!todasNotasConsolidadas || todasNotasConsolidadas.length === 0) {
       return {
@@ -341,11 +349,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       };
     }
 
-    const notasValidas = todasNotasConsolidadas
-      .map(n => typeof n.notaFinal === 'number' ? n.notaFinal : (typeof (n as any).mediaTrimestral === 'number' ? (n as any).mediaTrimestral : null))
-      .filter((v): v is number => v !== null && !isNaN(v) && v >= 0);
+    const alunosMap = new Map<string, Aluno>();
+    todosAlunos.forEach(a => alunosMap.set(a.id, a));
+    const turmasMap = new Map<string, Turma>();
+    todasTurmas.forEach(t => turmasMap.set(t.id, t));
 
-    if (notasValidas.length === 0) {
+    let somaNorm20 = 0;
+    let positivas = 0;
+    let totalLancamentos = 0;
+
+    todasNotasConsolidadas.forEach(n => {
+      const val = typeof n.notaFinal === 'number' ? n.notaFinal : (typeof (n as any).mediaTrimestral === 'number' ? (n as any).mediaTrimestral : null);
+      if (val === null || isNaN(val) || val < 0) return;
+      const al = alunosMap.get(n.alunoId);
+      const tm = turmasMap.get(n.turmaId || al?.turmaId || '');
+      const escala = obterInformacaoEscala(tm?.classe || al?.classeId);
+      const norm20 = escala.escalaMaxima === 10 ? val * 2 : val;
+      somaNorm20 += norm20;
+      if (val >= escala.notaAprovacao) positivas++;
+      totalLancamentos++;
+    });
+
+    if (totalLancamentos === 0) {
       return {
         mediaNacional: '—',
         taxaAprovacao: '0%',
@@ -354,18 +379,243 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       };
     }
 
-    const soma = notasValidas.reduce((acc, val) => acc + val, 0);
-    const media = (soma / notasValidas.length).toFixed(1);
-    const positivas = notasValidas.filter(v => v >= 10).length;
-    const taxa = `${Math.round((positivas / notasValidas.length) * 100)}%`;
+    const media = (somaNorm20 / totalLancamentos).toFixed(1);
+    const taxa = `${Math.round((positivas / totalLancamentos) * 100)}%`;
 
     return {
       mediaNacional: media,
       taxaAprovacao: taxa,
       temDados: true,
-      totalLancamentos: notasValidas.length
+      totalLancamentos
     };
-  }, [todasNotasConsolidadas]);
+  }, [todasNotasConsolidadas, todosAlunos, todasTurmas]);
+
+  // RESUMO GERAL CONSOLIDADO DA REDE ESCOLAR (Exclusivo Administrador Geral — Todas as Escolas sem navegação individual)
+  const resumoGeralRede = useMemo(() => {
+    if (currentUser.role !== 'AdminGeral') {
+      return null;
+    }
+
+    const presencasAlunosAll = dbService.obterPresencasAlunos();
+    const presencasFuncsAll = dbService.getPresencas();
+    const solicitacoesNotaAll = dbService.getSolicitacoesNota();
+    const solicitacoesApoioAll = dbService.getSolicitacoesApoioTecnico();
+    const anosConfigsAll = dbService.getAnosLectivosConfigs();
+
+    const alunosMap = new Map<string, Aluno>();
+    todosAlunos.forEach(a => alunosMap.set(a.id, a));
+    const turmasMap = new Map<string, Turma>();
+    todasTurmas.forEach(t => turmasMap.set(t.id, t));
+    const placeholdersDir = new Set(['não atribuído', 'nao atribuido', 'pendente de nomeação', 'pendente de nomeacao', 'pendente', 'a designar', '']);
+
+    let somaNorm20Rede = 0;
+    let totalNotasRede = 0;
+    let totalPositivasRede = 0;
+    let totalPresencasPositivasRede = 0;
+    let totalPresencasRegistosRede = 0;
+
+    const escolasDetalhe = todasEscolas.map((esc) => {
+      const alunosEsc = todosAlunos.filter(a => a.escolaId === esc.id);
+      const alunosIdsSet = new Set(alunosEsc.map(a => a.id));
+      const turmasEsc = todasTurmas.filter(t => t.escolaId === esc.id);
+      const turmasIdsSet = new Set(turmasEsc.map(t => t.id));
+      const funcsEsc = todosFuncionarios.filter(f => f.escolaId === esc.id && f.role !== 'AdminGeral');
+
+      const alunosAtivos = alunosEsc.filter(a => a.estado !== 'Desistente' && a.estado !== 'Transferido').length;
+      const alunosDesistentes = alunosEsc.filter(a => a.estado === 'Desistente').length;
+      const alunosM = alunosEsc.filter(a => a.genero === 'M').length;
+      const alunosF = alunosEsc.filter(a => a.genero === 'F').length;
+
+      // Diretor
+      const dir = dbService.encontrarDiretorDaEscola(esc, todosFuncionarios);
+      const dirNomeBruto = (dir?.nomeCompleto || esc.diretorGeralNome || '').trim();
+      const temDiretor = Boolean(dir || (dirNomeBruto && !placeholdersDir.has(dirNomeBruto.toLowerCase())));
+      const diretorNome = temDiretor ? dirNomeBruto : 'Sem Diretor Nomeado';
+
+      // Ano Letivo Ativo
+      const anosDaEsc = anosConfigsAll.filter(c => c.escolaId === esc.id);
+      const temAnoAtivo = Boolean(
+        (esc.anoLectivoActivo && esc.anoLectivoActivo !== 'Não Definido' && esc.anoLectivoActivo.trim() !== '') ||
+        anosDaEsc.some(c => c.estado === 'Aberto')
+      );
+
+      // Notas da escola (normalizadas para escala /20 para comparação justa)
+      const notasEsc = todasNotasConsolidadas.filter(
+        n => n.escolaId === esc.id || alunosIdsSet.has(n.alunoId) || turmasIdsSet.has(n.turmaId)
+      );
+      let somaEsc20 = 0;
+      let countEscNotas = 0;
+      let posEsc = 0;
+      notasEsc.forEach(n => {
+        const val = typeof n.notaFinal === 'number' ? n.notaFinal : (typeof (n as any).mediaTrimestral === 'number' ? (n as any).mediaTrimestral : null);
+        if (val === null || isNaN(val) || val < 0) return;
+        const al = alunosMap.get(n.alunoId);
+        const tm = turmasMap.get(n.turmaId || al?.turmaId || '');
+        const escala = obterInformacaoEscala(tm?.classe || al?.classeId);
+        const norm20 = escala.escalaMaxima === 10 ? val * 2 : val;
+        somaEsc20 += norm20;
+        if (val >= escala.notaAprovacao) posEsc++;
+        countEscNotas++;
+      });
+
+      somaNorm20Rede += somaEsc20;
+      totalNotasRede += countEscNotas;
+      totalPositivasRede += posEsc;
+
+      const mediaEscola20 = countEscNotas > 0 ? Number((somaEsc20 / countEscNotas).toFixed(1)) : null;
+      const taxaAprovacaoEscola = countEscNotas > 0 ? Math.round((posEsc / countEscNotas) * 100) : null;
+
+      // Assiduidade da escola (Alunos + Funcionários)
+      const presAlEsc = presencasAlunosAll.filter(p => p.escolaId === esc.id || turmasIdsSet.has(p.turmaId) || alunosIdsSet.has(p.alunoId));
+      const presAlOk = presAlEsc.filter(p => p.estado === 'Presente').length;
+      const presFuncEsc = presencasFuncsAll.filter(p => p.escolaId === esc.id);
+      const presFuncOk = presFuncEsc.filter(p => p.estado === 'Presente').length;
+
+      const totalPresEsc = presAlEsc.length + presFuncEsc.length;
+      const okPresEsc = presAlOk + presFuncOk;
+      totalPresencasPositivasRede += okPresEsc;
+      totalPresencasRegistosRede += totalPresEsc;
+
+      const taxaAssiduidadeEscola = totalPresEsc > 0 ? Number(((okPresEsc / totalPresEsc) * 100).toFixed(1)) : null;
+      const taxaAssiduidadeAlunos = presAlEsc.length > 0 ? Number(((presAlOk / presAlEsc.length) * 100).toFixed(1)) : null;
+
+      // Pendências da escola
+      const notasPendentes = solicitacoesNotaAll.filter(s => s.escolaId === esc.id && s.estado === 'Pendente').length;
+      const apoioPendente = solicitacoesApoioAll.filter(s => {
+        if (s.escolaId !== esc.id) return false;
+        const st = String(s.status || s.estado || '').toLowerCase();
+        return st === 'aberto' || st === 'pendente' || st === 'em_atendimento' || st === 'em atendimento';
+      }).length;
+      const semAnoOuTurmas = !temAnoAtivo || turmasEsc.length === 0;
+      const pendenciasLista: string[] = [];
+      if (!temDiretor) pendenciasLista.push('Sem Diretor');
+      if (notasPendentes > 0) pendenciasLista.push(`${notasPendentes} ped. nota`);
+      if (apoioPendente > 0) pendenciasLista.push(`${apoioPendente} apoio DTI`);
+      if (!temAnoAtivo) pendenciasLista.push('Sem Ano Ativo');
+      else if (turmasEsc.length === 0) pendenciasLista.push('Sem Turmas');
+
+      const totalPendenciasEscola = notasPendentes + apoioPendente + (!temDiretor ? 1 : 0) + (semAnoOuTurmas ? 1 : 0);
+
+      return {
+        escola: esc,
+        diretorNome,
+        temDiretor,
+        temAnoAtivo,
+        totalAlunos: alunosEsc.length,
+        alunosAtivos,
+        alunosDesistentes,
+        alunosM,
+        alunosF,
+        turmasCount: turmasEsc.length,
+        funcionariosCount: funcsEsc.length,
+        mediaEscola20,
+        taxaAprovacaoEscola,
+        totalNotasCount: countEscNotas,
+        taxaAssiduidadeEscola,
+        taxaAssiduidadeAlunos,
+        totalPresencasCount: totalPresEsc,
+        notasPendentes,
+        apoioPendente,
+        semAnoOuTurmas,
+        pendenciasLista,
+        totalPendenciasEscola
+      };
+    });
+
+    const totalAlunosRede = escolasDetalhe.reduce((s, e) => s + e.totalAlunos, 0);
+    const totalAtivosRede = escolasDetalhe.reduce((s, e) => s + e.alunosAtivos, 0);
+    const totalDesistentesRede = escolasDetalhe.reduce((s, e) => s + e.alunosDesistentes, 0);
+    const totalMRede = escolasDetalhe.reduce((s, e) => s + e.alunosM, 0);
+    const totalFRede = escolasDetalhe.reduce((s, e) => s + e.alunosF, 0);
+    const totalNotasPendentes = escolasDetalhe.reduce((s, e) => s + e.notasPendentes, 0);
+    const totalApoioPendente = escolasDetalhe.reduce((s, e) => s + e.apoioPendente, 0);
+    const escolasSemDiretor = escolasDetalhe.filter(e => !e.temDiretor).length;
+    const escolasSemEstrutura = escolasDetalhe.filter(e => e.semAnoOuTurmas).length;
+    const totalPendencias = escolasDetalhe.reduce((s, e) => s + e.totalPendenciasEscola, 0);
+
+    const mediaGlobal20 = totalNotasRede > 0 ? Number((somaNorm20Rede / totalNotasRede).toFixed(1)) : null;
+    const taxaAprovacaoGlobal = totalNotasRede > 0 ? Math.round((totalPositivasRede / totalNotasRede) * 100) : null;
+    const taxaAssiduidadeGlobal = totalPresencasRegistosRede > 0
+      ? Number(((totalPresencasPositivasRede / totalPresencasRegistosRede) * 100).toFixed(1))
+      : null;
+
+    const provincias = Array.from(new Set(todasEscolas.map(e => (e.provincia || 'Não Definida').trim()))).sort();
+
+    return {
+      escolasDetalhe,
+      provincias,
+      totais: {
+        totalEscolas: todasEscolas.length,
+        escolasAtivas: todasEscolas.filter(e => e.ativo && e.estadoEscola !== 'Suspensa').length,
+        totalAlunosRede,
+        totalAtivosRede,
+        totalDesistentesRede,
+        totalMRede,
+        totalFRede,
+        mediaGlobal20,
+        taxaAprovacaoGlobal,
+        totalNotasRede,
+        taxaAssiduidadeGlobal,
+        totalPresencasRegistosRede,
+        totalPendencias,
+        totalNotasPendentes,
+        totalApoioPendente,
+        escolasSemDiretor,
+        escolasSemEstrutura
+      }
+    };
+  }, [currentUser.role, todasEscolas, todosAlunos, todasTurmas, todosFuncionarios, todasNotasConsolidadas, syncTick]);
+
+  const escolasResumoFiltradas = useMemo(() => {
+    if (!resumoGeralRede) return [];
+    const termo = resumoBusca.trim().toLowerCase();
+    return resumoGeralRede.escolasDetalhe.filter(item => {
+      if (resumoProvincia !== 'TODAS' && (item.escola.provincia || 'Não Definida').trim() !== resumoProvincia) {
+        return false;
+      }
+      if (resumoApenasPendencias && item.totalPendenciasEscola === 0) {
+        return false;
+      }
+      if (termo) {
+        const match =
+          (item.escola.nomeOficial || '').toLowerCase().includes(termo) ||
+          (item.escola.codigoEscola || '').toLowerCase().includes(termo) ||
+          (item.escola.municipio || '').toLowerCase().includes(termo) ||
+          item.diretorNome.toLowerCase().includes(termo);
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [resumoGeralRede, resumoBusca, resumoProvincia, resumoApenasPendencias]);
+
+  const handleExportarResumoGeralRedeExcel = () => {
+    if (!resumoGeralRede) return;
+    const wb = XLSX.utils.book_new();
+    const linhasEscolas = resumoGeralRede.escolasDetalhe.map((item, idx) => ({
+      'Nº': idx + 1,
+      'Código': item.escola.codigoEscola || '—',
+      'Instituição de Ensino': item.escola.nomeOficial,
+      'Província': item.escola.provincia || '—',
+      'Município': item.escola.municipio || '—',
+      'Diretor Geral': item.diretorNome,
+      'Ano Letivo': item.escola.anoLectivoActivo || 'Não Definido',
+      'Turmas': item.turmasCount,
+      'Total Alunos': item.totalAlunos,
+      'Ativos': item.alunosAtivos,
+      'Masculino': item.alunosM,
+      'Feminino': item.alunosF,
+      'Média Global (/20)': item.mediaEscola20 !== null ? item.mediaEscola20 : 'Sem Pautas',
+      'Taxa Aprovação (%)': item.taxaAprovacaoEscola !== null ? `${item.taxaAprovacaoEscola}%` : '—',
+      'Assiduidade (%)': item.taxaAssiduidadeEscola !== null ? `${item.taxaAssiduidadeEscola}%` : 'Sem Chamada',
+      'Total Pendências': item.totalPendenciasEscola,
+      'Detalhe das Pendências': item.pendenciasLista.length > 0 ? item.pendenciasLista.join('; ') : 'Sem pendências'
+    }));
+    const ws = XLSX.utils.json_to_sheet(linhasEscolas);
+    XLSX.utils.book_append_sheet(wb, ws, 'Resumo_Geral_Escolas');
+    XLSX.writeFile(wb, `Resumo_Geral_Rede_Escolar_${new Date().toISOString().split('T')[0]}.xlsx`);
+    setAvisoSucesso('Resumo Geral consolidado de todas as escolas exportado em Excel (.xlsx)!');
+    setTimeout(() => setAvisoSucesso(null), 4000);
+  };
 
   // Distribuição Nacional Real por Nível de Ensino (MED Angola)
   const distribuicaoNacionalPorNivel = useMemo(() => {
@@ -1529,6 +1779,250 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
           </div>
+
+          {/* ========================================================================= */}
+          {/* PAINEL RESUMO GERAL DE TODAS AS ESCOLAS (SEM NAVEGAÇÃO INDIVIDUAL)       */}
+          {/* ========================================================================= */}
+          {resumoGeralRede && (
+            <div className="bg-white rounded-2xl border-2 border-blue-200 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-slate-50 via-blue-50/70 to-indigo-50/60 p-5 border-b border-blue-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider bg-blue-700 text-white rounded-md">
+                      Resumo Geral da Rede
+                    </span>
+                    <span className="text-xs font-bold text-blue-900">
+                      Visão Agregada de {resumoGeralRede.totais.totalEscolas} Escola(s)
+                    </span>
+                  </div>
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 mt-1">
+                    Consolidação Executiva: Alunos, Notas, Assiduidade e Pendências
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    Indicadores agregados em tempo real de todas as escolas cadastradas, sem necessidade de aceder individualmente a cada instituição.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportarResumoGeralRedeExcel}
+                    className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    <span>Exportar Resumo (.xlsx)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('estatisticas')}
+                    className="px-3.5 py-2 text-xs font-bold text-blue-800 bg-blue-100/80 hover:bg-blue-200/80 border border-blue-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    <span>Estatísticas Globais</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('relatorios')}
+                    className="px-3.5 py-2 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    <span>Relatórios de Acontecimentos</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Cartões Síntese do Resumo Geral */}
+              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 border-b border-slate-100">
+                <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/80">
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                    <span>Total de Alunos na Rede</span>
+                    <Users className="h-4 w-4 text-blue-700" />
+                  </div>
+                  <div className="mt-2 flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-slate-950">{resumoGeralRede.totais.totalAlunosRede}</span>
+                    <span className="text-xs font-bold text-emerald-700">{resumoGeralRede.totais.totalAtivosRede} ativos</span>
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-600 flex items-center justify-between">
+                    <span>M: {resumoGeralRede.totais.totalMRede} · F: {resumoGeralRede.totais.totalFRede}</span>
+                    <span className="text-amber-700 font-semibold">{resumoGeralRede.totais.totalDesistentesRede} desist.</span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80">
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-950">
+                    <span>Média Global de Notas</span>
+                    <Award className="h-4 w-4 text-amber-700" />
+                  </div>
+                  <div className="mt-2 flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-slate-950">
+                      {resumoGeralRede.totais.mediaGlobal20 !== null ? `${resumoGeralRede.totais.mediaGlobal20}` : '—'}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-600">/ 20 val. (normalizada)</span>
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-600 flex items-center justify-between">
+                    <span>
+                      Aprovação: <strong className="text-emerald-700">{resumoGeralRede.totais.taxaAprovacaoGlobal !== null ? `${resumoGeralRede.totais.taxaAprovacaoGlobal}%` : '—'}</strong>
+                    </span>
+                    <span>{resumoGeralRede.totais.totalNotasRede} pautas</span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                    <span>Assiduidade Global</span>
+                    <CheckSquare className="h-4 w-4 text-emerald-700" />
+                  </div>
+                  <div className="mt-2 flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-slate-950">
+                      {resumoGeralRede.totais.taxaAssiduidadeGlobal !== null ? `${resumoGeralRede.totais.taxaAssiduidadeGlobal}%` : '—'}
+                    </span>
+                    <span className="text-xs font-semibold text-emerald-700">frequência média</span>
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-600">
+                    {resumoGeralRede.totais.totalPresencasRegistosRede > 0
+                      ? `${resumoGeralRede.totais.totalPresencasRegistosRede} registos de chamada (alunos e pessoal)`
+                      : 'Aguardando chamadas registadas nas escolas'}
+                  </div>
+                </div>
+
+                <div className={`p-4 rounded-xl border ${
+                  resumoGeralRede.totais.totalPendencias > 0
+                    ? 'bg-red-50/70 border-red-200'
+                    : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="flex items-center justify-between text-xs font-bold text-red-950">
+                    <span>Pendências Consolidadas</span>
+                    <AlertTriangle className={`h-4 w-4 ${resumoGeralRede.totais.totalPendencias > 0 ? 'text-red-600' : 'text-slate-400'}`} />
+                  </div>
+                  <div className="mt-2 flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-slate-950">{resumoGeralRede.totais.totalPendencias}</span>
+                    <span className="text-xs font-bold text-red-700">ocorrências pendentes</span>
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-700 space-y-0.5">
+                    <div>
+                      {resumoGeralRede.totais.totalNotasPendentes} notas · {resumoGeralRede.totais.totalApoioPendente} apoio DTI · {resumoGeralRede.totais.escolasSemDiretor} s/ diretor · {resumoGeralRede.totais.escolasSemEstrutura} s/ ano ou turmas
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filtros do Resumo Geral por Escola */}
+              <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5 flex-1">
+                  <div className="relative flex-1 min-w-[200px] max-w-xs">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={resumoBusca}
+                      onChange={(e) => setResumoBusca(e.target.value)}
+                      placeholder="Filtrar escola, município ou diretor..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <select
+                    value={resumoProvincia}
+                    onChange={(e) => setResumoProvincia(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="TODAS">Todas as Províncias ({resumoGeralRede.provincias.length})</option>
+                    {resumoGeralRede.provincias.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                  <label className="inline-flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer select-none bg-white px-3 py-1.5 rounded-lg border border-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={resumoApenasPendencias}
+                      onChange={(e) => setResumoApenasPendencias(e.target.checked)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Apenas escolas com pendências</span>
+                  </label>
+                </div>
+                <span className="text-[11px] font-bold text-slate-500">
+                  A apresentar {escolasResumoFiltradas.length} de {resumoGeralRede.escolasDetalhe.length} instituições
+                </span>
+              </div>
+
+              {/* Tabela Consolidada do Resumo Geral por Escola */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200 uppercase">
+                    <tr>
+                      <th className="py-2.5 px-4">Instituição / Província</th>
+                      <th className="py-2.5 px-4">Diretor Geral</th>
+                      <th className="py-2.5 px-4 text-center">Alunos (Ativos)</th>
+                      <th className="py-2.5 px-4 text-center">Média / Aprov.</th>
+                      <th className="py-2.5 px-4 text-center">Assiduidade</th>
+                      <th className="py-2.5 px-4">Pendências Identificadas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {escolasResumoFiltradas.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-slate-500 italic">
+                          Nenhuma escola encontrada para os filtros aplicados no Resumo Geral.
+                        </td>
+                      </tr>
+                    ) : (
+                      escolasResumoFiltradas.map(item => (
+                        <tr key={`resumo-${item.escola.id}`} className="hover:bg-blue-50/30 transition-colors">
+                          <td className="py-2.5 px-4">
+                            <div className="font-bold text-slate-900">{item.escola.nomeOficial}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {item.escola.codigoEscola || 'MED'} · {item.escola.provincia || '—'}{item.escola.municipio ? `, ${item.escola.municipio}` : ''} · {item.turmasCount} turmas
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span className={item.temDiretor ? 'font-semibold text-slate-800' : 'font-bold text-amber-700'}>
+                              {item.diretorNome}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            <div className="font-black text-slate-900">{item.totalAlunos}</div>
+                            <div className="text-[10px] text-slate-500">{item.alunosAtivos} ativos · M:{item.alunosM} F:{item.alunosF}</div>
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            {item.mediaEscola20 !== null ? (
+                              <div>
+                                <span className={`font-black ${item.mediaEscola20 >= 10 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                  {item.mediaEscola20} / 20
+                                </span>
+                                <div className="text-[10px] text-slate-500">{item.taxaAprovacaoEscola}% aprov.</div>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">Sem notas</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            {item.taxaAssiduidadeEscola !== null ? (
+                              <div>
+                                <span className={`font-black ${item.taxaAssiduidadeEscola >= 80 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                  {item.taxaAssiduidadeEscola}%
+                                </span>
+                                <div className="text-[10px] text-slate-500">{item.totalPresencasCount} reg.</div>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">Sem reg.</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            {item.pendenciasLista.length === 0 ? (
+                              <span className="text-[11px] font-bold text-emerald-700">Sem pendências</span>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-red-700">
+                                {item.pendenciasLista.join(' · ')}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* GRÁFICOS E DETALHES DE ESTADO DO SISTEMA NACIONAL */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

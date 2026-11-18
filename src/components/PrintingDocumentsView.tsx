@@ -48,12 +48,14 @@ import {
   CURSOS_SEGUNDO_CICLO,
   getSalaDaTurma,
   getCursoDaTurma,
-  filtrarDisciplinasDaClasse
+  filtrarDisciplinasDaClasse,
+  getDisciplinasMatrizOficial
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { Escola, Aluno, Turma, Disciplina, NotaTrimestralConsolidada, ComissaoJuri, Funcionario } from '../types';
-import { formatarTextoPorGenero, validarElegibilidadeCertificado, converterComportamentoParaConceito, isClasseFinal } from '../services/macEngine';
+import { formatarTextoPorGenero, validarElegibilidadeCertificado, converterComportamentoParaConceito, isClasseFinal, obterInformacaoEscala } from '../services/macEngine';
 import { converterNotaParaExtensoMED, numeroParaExtenso, converterNotaParaCertificadoExtenso } from '../utils/numberToWords';
+import { formatarDataAngolana, formatarDataHoraAngolana, hojeAngolano } from '../utils/dateFormat';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadHtmlDocument, downloadExcelFile } from '../utils/curriculoAngola';
@@ -379,12 +381,20 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   );
   const [selectedFuncionarioId, setSelectedFuncionarioId] = useState<string>(funcionariosLista[0]?.id || '');
   const funcionarioSelecionado = funcionariosLista.find(f => f.id === selectedFuncionarioId) || funcionariosLista[0];
-  const [dataInicioPresencas, setDataInicioPresencas] = useState<string>('2026-03-01');
-  const [dataFimPresencas, setDataFimPresencas] = useState<string>('2026-03-31');
+  const [dataInicioPresencas, setDataInicioPresencas] = useState<string>(() => {
+    const hoje = new Date();
+    return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [dataFimPresencas, setDataFimPresencas] = useState<string>(() => {
+    const hoje = new Date();
+    const ultimoDia = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+    return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+  });
+  const [selectedReciboId, setSelectedReciboId] = useState<string>('');
 
   // Selecionar aluno ativo estritamente dentro da turma e classe selecionadas
   const alunoSelecionado = alunosFiltradosIndividual.find(a => a.id === selectedAlunoId) || alunosFiltradosIndividual[0] || alunos[0];
-  const turmaDoAluno = turmas.find(t => t.id === alunoSelecionado?.turmaId) || turmas[0];
+  const turmaDoAluno = turmas.find(t => t.id === alunoSelecionado?.turmaId);
 
   // Sincronizar turma selecionada sempre que o filtro de classe/curso mudar
   useEffect(() => {
@@ -487,33 +497,85 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
   const [modalConfigDocOpen, setModalConfigDocOpen] = useState(false);
 
-  // Disciplinas estritas da classe/curso selecionado para documentos oficiais
+  // Contexto académico real do aluno selecionado (para Boletim, Declaração e Certificado)
+  const classeAlunoDoc = turmaDoAluno?.classe || alunoSelecionado?.classeId || selectedClasse || '';
+  const cursoAlunoDoc = (turmaDoAluno?.curso || alunoSelecionado?.curso || '').trim();
+  const ehSegundoCicloAlunoDoc = isSegundoCiclo(classeAlunoDoc);
+  const escalaAlunoDoc = useMemo(
+    () => obterInformacaoEscala(classeAlunoDoc, turmaDoAluno?.nivelEnsino),
+    [classeAlunoDoc, turmaDoAluno?.nivelEnsino]
+  );
+
+  // Disciplinas estritas da classe/curso selecionado para documentos de turma (Pautas / Termos)
   const classeEfetivaDocumento = turmaSelecionada?.classe || alunoSelecionado?.classeId || selectedClasse;
-  const cursoEfetivoDocumento = turmaSelecionada?.curso || alunoSelecionado?.curso;
+  const cursoEfetivoDocumento = isSegundoCiclo(classeEfetivaDocumento)
+    ? (turmaSelecionada?.curso || alunoSelecionado?.curso)
+    : undefined;
 
   const disciplinasDaClasseDocumento = useMemo(() => {
-    return filtrarDisciplinasDaClasse(disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento);
-  }, [disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento]);
+    const filtradas = filtrarDisciplinasDaClasse(disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento);
+    if (filtradas.length > 0) return filtradas;
+    const nomesMatriz = getDisciplinasMatrizOficial(classeEfetivaDocumento, cursoEfetivoDocumento);
+    return nomesMatriz.map((nome, idx) => ({
+      id: `matriz-doc-${normalizarClasse(classeEfetivaDocumento)}-${idx}`,
+      nome,
+      sigla: nome.substring(0, 4).toUpperCase(),
+      escolaId: escola.id
+    } as Disciplina));
+  }, [disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento, escola.id]);
 
-  // Notas consolidadas do aluno filtradas estritamente pelas disciplinas daquela classe e ano lectivo
-  const notasDoAluno = useMemo(() => {
-    const raw = notasConsolidadas.filter(n => 
-      n.alunoId === alunoSelecionado?.id &&
-      (!n.anoLectivo || n.anoLectivo === selectedAnoLectivo)
+  // Disciplinas estritas da classe real do aluno selecionado (Declaração, Boletim, Certificado)
+  const disciplinasDaClasseAluno = useMemo(() => {
+    const filtradas = filtrarDisciplinasDaClasse(
+      disciplinas,
+      classeAlunoDoc,
+      ehSegundoCicloAlunoDoc ? cursoAlunoDoc : undefined
     );
-    return raw.filter(n => disciplinasDaClasseDocumento.some(d => d.id === n.disciplinaId));
-  }, [notasConsolidadas, alunoSelecionado?.id, disciplinasDaClasseDocumento, selectedAnoLectivo]);
+    if (filtradas.length > 0) return filtradas;
+    const nomesMatriz = getDisciplinasMatrizOficial(
+      classeAlunoDoc,
+      ehSegundoCicloAlunoDoc ? cursoAlunoDoc : undefined
+    );
+    return nomesMatriz.map((nome, idx) => ({
+      id: `matriz-al-${normalizarClasse(classeAlunoDoc)}-${idx}`,
+      nome,
+      sigla: nome.substring(0, 4).toUpperCase(),
+      escolaId: escola.id
+    } as Disciplina));
+  }, [disciplinas, classeAlunoDoc, ehSegundoCicloAlunoDoc, cursoAlunoDoc, escola.id]);
+
+  // Histórico escolar completo do aluno (inclui 1ª a 13ª classe gravadas no histórico)
+  const historicoCompletoAluno = useMemo(() => {
+    if (!alunoSelecionado?.id) return null;
+    return dbService.getHistoricoEscolarCompleto(alunoSelecionado.id);
+  }, [alunoSelecionado?.id, alunoSelecionado?.historicoAnterior]);
+
+  // Notas consolidadas do aluno filtradas estritamente pelas disciplinas da classe real do aluno e ano lectivo
+  const notasDoAluno = useMemo(() => {
+    if (!alunoSelecionado) return [];
+    const anoAluno = alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno?.anoLectivo || selectedAnoLectivo;
+    const raw = notasConsolidadas.filter(n =>
+      n.alunoId === alunoSelecionado.id &&
+      (!n.anoLectivo || !anoAluno || n.anoLectivo === anoAluno)
+    );
+    return raw.filter(n =>
+      disciplinasDaClasseAluno.some(d =>
+        d.id === n.disciplinaId ||
+        ((n as any).disciplinaNome && (n as any).disciplinaNome.trim().toLowerCase() === d.nome.trim().toLowerCase())
+      )
+    );
+  }, [notasConsolidadas, alunoSelecionado, turmaDoAluno?.anoLectivo, disciplinasDaClasseAluno, selectedAnoLectivo]);
 
   // Determinar dinamicamente o nível e modelo do certificado para classes terminais
   const tipoCertificadoEfetivo = useMemo(() => {
     if (tipoCertificadoSelecionado !== 'auto') return tipoCertificadoSelecionado;
-    const classe = (alunoSelecionado?.classeId || turmaSelecionada?.classe || '').toLowerCase();
-    const curso = (alunoSelecionado?.curso || turmaSelecionada?.curso || '').toLowerCase();
-    if (classe.includes('6') || classe.includes('primário') || classe.includes('primario')) return 'primario_6';
-    if (classe.includes('7') || classe.includes('8') || classe.includes('9') || classe.includes('i ciclo') || classe.includes('iº')) return 'iciclo_9';
-    if (classe.includes('13') || curso.includes('técnico') || curso.includes('tecnico') || curso.includes('magistério') || curso.includes('magisterio')) return 'tecnico_12_13';
+    const clNorm = normalizarClasse(alunoSelecionado?.classeId || turmaDoAluno?.classe || turmaSelecionada?.classe || '');
+    const curso = (alunoSelecionado?.curso || turmaDoAluno?.curso || turmaSelecionada?.curso || '').toLowerCase();
+    if (['iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª'].includes(clNorm.toLowerCase()) || clNorm.includes('6')) return 'primario_6';
+    if (['7ª', '8ª', '9ª'].includes(clNorm.toLowerCase()) || clNorm.includes('9')) return 'iciclo_9';
+    if (clNorm.includes('13') || curso.includes('técnico') || curso.includes('tecnico') || curso.includes('magistério') || curso.includes('magisterio')) return 'tecnico_12_13';
     return 'iiciclo_12';
-  }, [tipoCertificadoSelecionado, alunoSelecionado, turmaSelecionada]);
+  }, [tipoCertificadoSelecionado, alunoSelecionado, turmaDoAluno, turmaSelecionada]);
 
   // Verificação de Pauta Homologada pelo Júri para a turma/aluno
   const juris = dbService.getJuris();
@@ -532,8 +594,165 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return dbService.obterNotasHomologadasAluno(alunoSelecionado.id);
   }, [alunoSelecionado, notasConsolidadas]);
 
+  // Helper unificado para resolver a nota real do aluno numa disciplina & classe específica
+  const resolverNotaRealAluno = (
+    disc: Pick<Disciplina, 'id' | 'nome'>,
+    classeAlvo?: string
+  ): { mac: number | null; npp: number | null; npt: number | null; valorFinal: number | null } => {
+    if (!alunoSelecionado) return { mac: null, npp: null, npt: null, valorFinal: null };
+    const alvoNorm = normalizarClasse(classeAlvo || classeAlunoDoc);
+    const nomeNorm = disc.nome.trim().toLowerCase();
+    const isClasseAtualDoAluno = !classeAlvo || alvoNorm === normalizarClasse(classeAlunoDoc);
+
+    // 1) Se for a classe actual do aluno, consultar notas homologadas e consolidadas
+    if (isClasseAtualDoAluno) {
+      const no = notasOficiaisAluno.find((n: any) =>
+        n.disciplinaId === disc.id ||
+        (n.disciplinaNome && n.disciplinaNome.trim().toLowerCase() === nomeNorm)
+      );
+      const notasDisc = notasDoAluno.filter((n: any) =>
+        n.disciplinaId === disc.id ||
+        (n.disciplinaNome && n.disciplinaNome.trim().toLowerCase() === nomeNorm)
+      );
+      const nLast = notasDisc[notasDisc.length - 1];
+      const macVal = no?.mac ?? nLast?.mac;
+      const nppVal = no?.npp ?? nLast?.npp;
+      const nptVal = (no as any)?.npt ?? no?.provaTrimestral ?? (nLast as any)?.npt ?? nLast?.provaTrimestral;
+      const val = no?.notaFinal ?? no?.mediaTrimestral ?? nLast?.notaFinal ?? nLast?.mediaTrimestral;
+      if (val !== undefined && val !== null && !isNaN(Number(val))) {
+        return {
+          mac: typeof macVal === 'number' ? macVal : null,
+          npp: typeof nppVal === 'number' ? nppVal : null,
+          npt: typeof nptVal === 'number' ? nptVal : null,
+          valorFinal: Number(val)
+        };
+      }
+    }
+
+    // 2) Consultar Histórico Escolar Completo (inclui 1ª à 6ª, 7ª–9ª, 10ª–13ª)
+    const histClasse = historicoCompletoAluno?.classes?.find(
+      c => normalizarClasse(c.classe) === alvoNorm
+    );
+    if (histClasse?.notasDisciplinas?.length) {
+      const nd = histClasse.notasDisciplinas.find(n => {
+        const hn = (n.disciplinaNome || '').trim().toLowerCase();
+        return hn === nomeNorm || hn.includes(nomeNorm) || nomeNorm.includes(hn);
+      });
+      if (nd && typeof nd.notaFinal === 'number') {
+        return { mac: null, npp: null, npt: null, valorFinal: nd.notaFinal };
+      }
+    }
+
+    // 3) Consultar matriz tabular do Histórico Completo (disciplinas.notasPorClasse)
+    const discTab = historicoCompletoAluno?.disciplinas?.find(d => {
+      const dn = (d.disciplinaNome || '').trim().toLowerCase();
+      return dn === nomeNorm || dn.includes(nomeNorm) || nomeNorm.includes(dn);
+    });
+    if (discTab?.notasPorClasse) {
+      const keyMatch = Object.keys(discTab.notasPorClasse).find(k => normalizarClasse(k) === alvoNorm);
+      const valTab = keyMatch ? Number(discTab.notasPorClasse[keyMatch]) : NaN;
+      if (!isNaN(valTab)) {
+        return { mac: null, npp: null, npt: null, valorFinal: valTab };
+      }
+    }
+
+    // 4) Consultar historicoMultiAno
+    const multi = alunoSelecionado.historicoMultiAno?.find(m => {
+      const mn = (m.disciplinaNome || '').trim().toLowerCase();
+      return mn === nomeNorm || mn.includes(nomeNorm) || nomeNorm.includes(mn);
+    });
+    if (multi) {
+      let multiVal: number | undefined;
+      if (alvoNorm === '10ª' && typeof multi.nota10 === 'number') multiVal = multi.nota10;
+      else if (alvoNorm === '11ª' && typeof multi.nota11 === 'number') multiVal = multi.nota11;
+      else if (alvoNorm === '12ª' && typeof multi.nota12 === 'number') multiVal = multi.nota12;
+      else if (!classeAlvo && typeof multi.mediaFinal === 'number') multiVal = multi.mediaFinal;
+      if (typeof multiVal === 'number') {
+        return { mac: null, npp: null, npt: null, valorFinal: multiVal };
+      }
+    }
+
+    return { mac: null, npp: null, npt: null, valorFinal: null };
+  };
+
+  // Presenças reais da turma no período seleccionado (para Ficha de Presenças)
+  const presencasTurmaPeriodo = useMemo(() => {
+    if (!turmaSelecionada?.id) return [];
+    const todas = dbService.obterPresencasAlunos(turmaSelecionada.id);
+    return todas.filter(p => {
+      if (dataInicioPresencas && p.data < dataInicioPresencas) return false;
+      if (dataFimPresencas && p.data > dataFimPresencas) return false;
+      return true;
+    });
+  }, [turmaSelecionada?.id, dataInicioPresencas, dataFimPresencas]);
+
+  // Recibos e transações reais do estudante selecionado (para Recibos POS)
+  const recibosReaisDoAluno = useMemo(() => {
+    if (!alunoSelecionado) return [];
+    const lista: Array<{
+      id: string;
+      numeroRecibo: string;
+      dataHora: string;
+      descricao: string;
+      valorKz: number;
+      multaKz?: number;
+      valorTotalKz: number;
+      metodoPagamento: string;
+      operadorNome?: string;
+      numeroComprovativo?: string;
+    }> = [];
+
+    const transacoes = dbService
+      .getTransacoesFinanceiras(escola.id)
+      .filter(t => t.alunoId === alunoSelecionado.id && t.status !== 'Anulado');
+
+    transacoes.forEach(t => {
+      lista.push({
+        id: `tx-${t.id}`,
+        numeroRecibo: t.numeroRecibo,
+        dataHora: t.dataHora,
+        descricao: `${t.tipo}${t.mesReferencia ? ` (${t.mesReferencia})` : ''}`,
+        valorKz: t.valorKz,
+        multaKz: t.multaKz,
+        valorTotalKz: t.valorTotalKz,
+        metodoPagamento: t.metodoPagamento,
+        operadorNome: t.operadorNome,
+        numeroComprovativo: t.numeroComprovativo
+      });
+    });
+
+    const recibos = dbService
+      .getRecibos()
+      .filter(r => r.escolaId === escola.id && r.alunoId === alunoSelecionado.id);
+
+    recibos.forEach(r => {
+      if (!lista.some(item => item.numeroRecibo === r.numeroRecibo)) {
+        lista.push({
+          id: `rec-${r.id}`,
+          numeroRecibo: r.numeroRecibo,
+          dataHora: r.dataHora,
+          descricao: `Propina / Emolumento${r.mesReferencia ? ` (${r.mesReferencia})` : ''}`,
+          valorKz: r.valorPagoKz,
+          valorTotalKz: r.valorPagoKz,
+          metodoPagamento: r.metodoPagamento,
+          operadorNome: r.operadorNome
+        });
+      }
+    });
+
+    return lista;
+  }, [escola.id, alunoSelecionado]);
+
+  const reciboAtivoAluno = useMemo(() => {
+    if (recibosReaisDoAluno.length === 0) return null;
+    return recibosReaisDoAluno.find(r => r.id === selectedReciboId) || recibosReaisDoAluno[0];
+  }, [recibosReaisDoAluno, selectedReciboId]);
+
   // Configurações personalizadas de dizeres, carimbos, insígnia e assinaturas salvas pelo Diretor
   const [configuracoesDoc, setConfiguracoesDoc] = useState(() => dbService.getConfiguracoesDocumentos(escola.id));
+  useEffect(() => {
+    setConfiguracoesDoc(dbService.getConfiguracoesDocumentos(escola.id));
+  }, [escola.id]);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfSuccessToast, setPdfSuccessToast] = useState<string | null>(null);
 
@@ -620,6 +839,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     setConfiguracoesDoc(dbService.getConfiguracoesDocumentos(escola.id));
   };
 
+  useEffect(() => {
+    const onRemotoSync = () => setConfiguracoesDoc(dbService.getConfiguracoesDocumentos(escola.id));
+    window.addEventListener('sge_dados_atualizados_remoto', onRemotoSync);
+    return () => window.removeEventListener('sge_dados_atualizados_remoto', onRemotoSync);
+  }, [escola.id]);
+
   const configAtual = useMemo(() => {
     const chaveTipo = 
       docType === 'boletim_oficial' ? 'boletim_oficial' :
@@ -636,12 +861,47 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   // Orientação recomendada oficial conforme norma do MED Angola
   const orientacaoRecomendada = useMemo<'portrait' | 'landscape'>(() => {
     if (orientacaoPdfOverride !== 'auto') return orientacaoPdfOverride;
-    if (configAtual?.disposicao?.orientacao) return configAtual.disposicao.orientacao as any;
+    const ori = configAtual?.disposicao?.orientacao as string | undefined;
+    if (ori === 'paisagem' || ori === 'landscape') return 'landscape';
+    if (ori === 'retrato' || ori === 'portrait') return 'portrait';
     if (docType === 'pautas' || docType === 'termos_exame' || docType === 'ficha_presencas') {
       return 'landscape';
     }
     return 'portrait';
   }, [orientacaoPdfOverride, configAtual, docType]);
+
+  const limparTextoSistema = (texto?: string): string => {
+    if (!texto) return '';
+    return texto
+      .replace(/Sistema de Gest[aã]o Escolar\s*\(?SGE-NG(?:\s*Angola)?\)?/gi, '')
+      .replace(/\bSGE-NG(?:\s*Angola)?\b/gi, '')
+      .replace(/\[QR-CODE[^\]]*\]/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+
+  const dispConfig = configAtual?.disposicao;
+  const exibirInsigniaDoc = dispConfig?.exibirInsigniaRepublica !== false;
+  const exibirLogoEscolaDoc =
+    dispConfig?.exibirLogoEscola !== false && Boolean((escola.logotipoUrl || escola.logotipo)?.trim());
+  const exibirCarimboBrancoDoc = dispConfig?.exibirCarimboBranco !== false;
+  const exibirCodigoQrDoc = dispConfig?.exibirCodigoQR !== false;
+  const exibirAssinDiretorDoc = dispConfig?.exibirAssinaturaDiretor !== false;
+  const exibirAssinSubdiretorDoc = dispConfig?.exibirAssinaturaSubdiretor !== false;
+  const corDestaqueDoc = dispConfig?.corDestaque || '#1e3a8a';
+  const fontScaleClassDoc =
+    dispConfig?.tamanhoFonte === 'compacto'
+      ? 'text-[11px]'
+      : dispConfig?.tamanhoFonte === 'grande'
+      ? 'text-[13.5px]'
+      : '';
+  const cabecalhoLinhasDoc = useMemo(() => {
+    const raw = (configAtual?.textoCabecalho || '')
+      .split('\n')
+      .map(l => limparTextoSistema(l))
+      .filter(Boolean);
+    return raw.length > 0 ? raw : null;
+  }, [configAtual?.textoCabecalho]);
 
   const geometriaPdfAtual = useMemo(
     () =>
@@ -840,12 +1100,23 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     }
   };
 
-  // Cálculo da média geral
-  const mediaGeralCalculada = notasOficiaisAluno.length > 0
-    ? (notasOficiaisAluno.reduce((acc: number, curr: any) => acc + (curr.notaFinal || curr.mediaTrimestral || 0), 0) / notasOficiaisAluno.length).toFixed(1)
-    : notasDoAluno.length > 0
-      ? (notasDoAluno.reduce((acc: number, curr: any) => acc + (curr.mediaTrimestral || 0), 0) / notasDoAluno.length).toFixed(1)
-      : '—';
+  // Cálculo da média geral real baseada nas disciplinas da classe real do aluno
+  const mediaGeralCalculada = useMemo(() => {
+    if (!alunoSelecionado) return '—';
+    const valores = disciplinasDaClasseAluno
+      .map(d => resolverNotaRealAluno(d).valorFinal)
+      .filter((v): v is number => v !== null && !isNaN(v));
+    if (valores.length > 0) {
+      return (valores.reduce((acc, v) => acc + v, 0) / valores.length).toFixed(1);
+    }
+    if (notasOficiaisAluno.length > 0) {
+      return (notasOficiaisAluno.reduce((acc: number, curr: any) => acc + (curr.notaFinal || curr.mediaTrimestral || 0), 0) / notasOficiaisAluno.length).toFixed(1);
+    }
+    if (notasDoAluno.length > 0) {
+      return (notasDoAluno.reduce((acc: number, curr: any) => acc + (curr.mediaTrimestral || 0), 0) / notasDoAluno.length).toFixed(1);
+    }
+    return '—';
+  }, [alunoSelecionado, disciplinasDaClasseAluno, notasOficiaisAluno, notasDoAluno, historicoCompletoAluno]);
 
   return (
     <div className="space-y-6">
@@ -1741,43 +2012,45 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-4 print:border-2 print:border-gray-900">
+        <div id="documento-para-impressao" data-doc-root="true" className={`documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-4 print:border-2 print:border-gray-900 ${fontScaleClassDoc}`}>
           {/* Cabeçalho Oficial MED Angola com Posicionamento Fixo da Insígnia */}
           <div data-pdf-fixed-header="true" className="relative border-b-2 border-black pb-3 min-h-[128px]">
             {/* VISTO DO DIRECTOR GERAL na parte superior esquerda */}
-            <div data-pdf-corner-left="true" className="absolute left-0 top-0 text-left border border-black p-1.5 rounded bg-white w-36 print:w-32 z-10 block print:block shadow-2xs">
-              <div className="flex items-center justify-between">
-                <p className="font-black uppercase tracking-wider text-[8px] text-gray-900">VISTO</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAssinaturaPreview(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl || '');
-                    setShowAssinaturaModal(true);
-                  }}
-                  className="no-print text-[7.5px] text-blue-700 font-bold hover:underline cursor-pointer"
-                  title="Alterar chancela/assinatura digital do Director"
-                >
-                  Alterar
-                </button>
+            {exibirAssinDiretorDoc && (
+              <div data-pdf-corner-left="true" className="absolute left-0 top-0 text-left border border-black p-1.5 rounded bg-white w-36 print:w-32 z-10 block print:block shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <p className="font-black uppercase tracking-wider text-[8px] text-gray-900">VISTO</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAssinaturaPreview(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl || '');
+                      setShowAssinaturaModal(true);
+                    }}
+                    className="no-print text-[7.5px] text-blue-700 font-bold hover:underline cursor-pointer"
+                    title="Alterar chancela/assinatura digital do Director"
+                  >
+                    Alterar
+                  </button>
+                </div>
+                <p className="text-[7.5px] font-bold text-gray-700 leading-tight">{tituloDiretorGeral}</p>
+                <div className="h-8 my-0.5 flex items-center justify-center border-b border-gray-400">
+                  {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                    <img 
+                      src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
+                      alt="Assinatura Diretor" 
+                      className="max-h-7 object-contain" 
+                    />
+                  ) : (
+                    <span className="text-[7px] text-gray-400 italic font-mono">[Assinatura]</span>
+                  )}
+                </div>
+                <p className="text-[7px] text-gray-800 truncate font-bold">{nomeDiretorGeral}</p>
+                <p className="text-[6.5px] text-gray-500 font-mono">Data: ___/___/_____</p>
               </div>
-              <p className="text-[7.5px] font-bold text-gray-700 leading-tight">{tituloDiretorGeral}</p>
-              <div className="h-8 my-0.5 flex items-center justify-center border-b border-gray-400">
-                {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
-                  <img 
-                    src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
-                    alt="Assinatura Diretor" 
-                    className="max-h-7 object-contain" 
-                  />
-                ) : (
-                  <span className="text-[7px] text-gray-400 italic font-mono">[Chancela / Assinatura]</span>
-                )}
-              </div>
-              <p className="text-[7px] text-gray-800 truncate font-bold">{nomeDiretorGeral}</p>
-              <p className="text-[6.5px] text-gray-500 font-mono">Data: ___/___/20___</p>
-            </div>
+            )}
 
             {/* Logotipo da Escola na parte superior direita */}
-            {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) && (
+            {exibirLogoEscolaDoc && (
               <div data-pdf-corner-right="true" className="absolute right-0 top-0 block print:block z-10">
                 <img 
                   src={escola.logotipoUrl || escola.logotipo} 
@@ -1788,33 +2061,47 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
             )}
 
-            {/* Insígnia Nacional da República de Angola Centralizada antes de REPÚBLICA DE ANGOLA */}
+            {/* Insígnia Nacional da República de Angola Centralizada */}
             <div data-pdf-center-insignia="true" className="text-center space-y-0.5 px-36 sm:px-40">
-              <div className="flex justify-center mb-1">
-                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                  <img 
-                    src={configSistema.insigniaNacionalUrl} 
-                    alt="Insígnia da República de Angola" 
-                    className="h-14 w-14 object-contain mx-auto" 
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <InsigniaAngola size={52} />
-                )}
-              </div>
-              <p className="text-[11px] font-black uppercase tracking-wider">REPÚBLICA DE ANGOLA</p>
-              <p className="text-[10px] font-bold uppercase tracking-wide">
-                {escola.governoProvincial || `GOVERNO PROVINCIAL DE ${escola.provincia?.toUpperCase()}`}
-              </p>
-              <p className="text-[10px] font-bold uppercase tracking-wide">
-                {escola.gabineteEducacao || 'GABINETE DA EDUCAÇÃO'}
-              </p>
-              <h1 className="text-sm sm:text-base font-black uppercase text-gray-950 pt-1">
+              {exibirInsigniaDoc && (
+                <div className="flex justify-center mb-1">
+                  {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                    <img 
+                      src={configSistema.insigniaNacionalUrl} 
+                      alt="Insígnia da República de Angola" 
+                      className="h-14 w-14 object-contain mx-auto" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <InsigniaAngola size={52} />
+                  )}
+                </div>
+              )}
+              {cabecalhoLinhasDoc ? (
+                cabecalhoLinhasDoc.map((linha, idx) => (
+                  <p key={idx} className={idx === 0 ? 'text-[11px] font-black uppercase tracking-wider' : 'text-[10px] font-bold uppercase tracking-wide'}>
+                    {linha}
+                  </p>
+                ))
+              ) : (
+                <>
+                  <p className="text-[11px] font-black uppercase tracking-wider">REPÚBLICA DE ANGOLA</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wide">
+                    {escola.governoProvincial || `GOVERNO PROVINCIAL DE ${escola.provincia?.toUpperCase() || 'LUANDA'}`}
+                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-wide">
+                    {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
+                  </p>
+                </>
+              )}
+              <h1 className="text-sm sm:text-base font-black uppercase pt-1" style={{ color: corDestaqueDoc }}>
                 {escola.nomeOficial}
               </h1>
               <div className="pt-2">
                 <span className="text-xs sm:text-sm font-black uppercase border border-black px-4 py-1 inline-block bg-gray-50">
-                  BOLETIM DE NOTAS — {escola.trimestreActivo || 'II'}º TRIMESTRE • ANO LECTIVO {alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
+                  {(limparTextoSistema(configAtual?.tituloOficial) && configAtual?.tituloOficial !== 'BOLETIM OFICIAL')
+                    ? limparTextoSistema(configAtual?.tituloOficial)
+                    : 'BOLETIM DE NOTAS'} — {escola.trimestreActivo || 'II'}º TRIMESTRE • ANO LECTIVO {alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
                 </span>
               </div>
             </div>
@@ -1824,15 +2111,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           <div data-pdf-fixed-student="true" data-pdf-student-grid="4" className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] sm:text-[11px] py-3 border-b border-black">
             <div>
               <span className="text-gray-600 block">Ano Lectivo:</span>
-              <strong className="text-blue-900 font-bold">{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
+              <strong className="font-bold" style={{ color: corDestaqueDoc }}>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>
             </div>
             <div>
               <span className="text-gray-600 block">N.º de Ordem:</span>
-              <strong className="font-mono text-sm">{alunoSelecionado.numeroOrdem || '1'}</strong>
+              <strong className="font-mono text-sm">{alunoSelecionado.numeroOrdem || '—'}</strong>
             </div>
             <div>
               <span className="text-gray-600 block">N.º de Matrícula:</span>
-              <strong className="font-mono">{alunoSelecionado.codigoMatricula || alunoSelecionado.numeroInterno}</strong>
+              <strong className="font-mono">{alunoSelecionado.codigoMatricula || alunoSelecionado.numeroInterno || '—'}</strong>
             </div>
             <div>
               <span className="text-gray-600 block">Nome do(a) Aluno(a):</span>
@@ -1841,32 +2128,38 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
             <div>
               <span className="text-gray-600 block">Classe:</span>
-              <strong>{alunoSelecionado.classeId || turmaDoAluno.classe}</strong>
+              <strong>{classeAlunoDoc || '—'}</strong>
             </div>
             <div>
               <span className="text-gray-600 block">Turma:</span>
-              <strong>{turmaDoAluno.nome}</strong>
+              <strong>{turmaDoAluno?.nome || '—'}</strong>
             </div>
             <div>
               <span className="text-gray-600 block">Turno:</span>
-              <strong>{turmaDoAluno.turno || 'Manhã'}</strong>
+              <strong>{turmaDoAluno?.turno || alunoSelecionado.periodo || '—'}</strong>
             </div>
             <div>
               <span className="text-gray-600 block">Sala:</span>
-              <strong>{turmaDoAluno.sala || 'Sala 01'}</strong>
+              <strong>{turmaDoAluno?.sala || '—'}</strong>
             </div>
 
-            <div className="sm:col-span-2">
-              <span className="text-gray-600 block">Curso:</span>
-              <strong>{alunoSelecionado.curso || turmaDoAluno.curso || 'Ensino Secundário Geral'}</strong>
-            </div>
-            <div className="sm:col-span-2">
-              <span className="text-gray-600 block">Opção:</span>
-              <strong>{alunoSelecionado.opcaoCurso || 'Formação Geral'}</strong>
-            </div>
+            {ehSegundoCicloAlunoDoc && cursoAlunoDoc && (
+              <>
+                <div className="sm:col-span-2">
+                  <span className="text-gray-600 block">Curso:</span>
+                  <strong>{cursoAlunoDoc}</strong>
+                </div>
+                {alunoSelecionado.opcaoCurso && (
+                  <div className="sm:col-span-2">
+                    <span className="text-gray-600 block">Opção:</span>
+                    <strong>{alunoSelecionado.opcaoCurso}</strong>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
-          {/* Tabela de Notas Trimestrais com MAC, NPP (se ativo), NPT, MT, Faltas, Comportamento, Assiduidade */}
+          {/* Tabela de Notas Trimestrais */}
           <div className="pt-3 overflow-x-auto">
             <table className="w-full min-w-[560px] text-[10px] sm:text-[11px] border border-black text-left">
               <thead className="bg-gray-100 font-bold border-b border-black text-center text-[9px] sm:text-[10px]">
@@ -1884,27 +2177,38 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-black">
-                {disciplinasDaClasseDocumento.length > 0 ? (
-                  disciplinasDaClasseDocumento.map((disc) => {
-                    const nota = notasDoAluno.find(n => n.disciplinaId === disc.id);
+                {disciplinasDaClasseAluno.length > 0 ? (
+                  disciplinasDaClasseAluno.map((disc) => {
+                    const real = resolverNotaRealAluno(disc, classeAlunoDoc);
+                    const nomeNorm = disc.nome.trim().toLowerCase();
+                    const nota = notasDoAluno.find(
+                      n => n.disciplinaId === disc.id || (n as any).disciplinaNome?.trim().toLowerCase() === nomeNorm
+                    );
+                    const macNum = typeof nota?.mac === 'number' ? nota.mac : real.mac;
+                    const nppNum = typeof nota?.npp === 'number' ? nota.npp : real.npp;
+                    const nptNum =
+                      typeof (nota as any)?.npt === 'number'
+                        ? (nota as any).npt
+                        : typeof nota?.provaTrimestral === 'number'
+                        ? nota.provaTrimestral
+                        : real.npt;
+                    const mtNum = typeof nota?.mediaTrimestral === 'number' ? nota.mediaTrimestral : real.valorFinal;
                     return (
                       <tr key={disc.id} className="hover:bg-gray-50">
                         <td className="p-1.5 border-r border-black font-semibold uppercase">{disc.nome}</td>
                         <td className="p-1 border-r border-black text-center font-mono">
-                          {typeof nota?.mac === 'number' ? nota.mac.toFixed(1) : '—'}
+                          {macNum !== null && typeof macNum === 'number' ? macNum.toFixed(1) : '—'}
                         </td>
                         {provaProfessorAtiva && (
                           <td className="p-1 border-r border-black text-center font-mono">
-                            {typeof nota?.npp === 'number' ? nota.npp.toFixed(1) : '—'}
+                            {nppNum !== null && typeof nppNum === 'number' ? nppNum.toFixed(1) : '—'}
                           </td>
                         )}
                         <td className="p-1 border-r border-black text-center font-mono">
-                          {typeof nota?.npt === 'number'
-                            ? nota.npt.toFixed(1)
-                            : (typeof nota?.provaTrimestral === 'number' ? nota.provaTrimestral.toFixed(1) : '—')}
+                          {nptNum !== null && typeof nptNum === 'number' ? nptNum.toFixed(1) : '—'}
                         </td>
                         <td className="p-1 border-r border-black text-center font-mono font-black bg-gray-50">
-                          {typeof nota?.mediaTrimestral === 'number' ? nota.mediaTrimestral.toFixed(1) : '—'}
+                          {mtNum !== null && typeof mtNum === 'number' ? mtNum.toFixed(1) : '—'}
                         </td>
                         <td className="p-1 border-r border-black text-center font-mono">{nota?.faltas || 0}</td>
                         <td className="p-1 border-r border-black text-center text-[9px] font-semibold">{nota?.comportamentoConceito || '—'}</td>
@@ -1929,35 +2233,45 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <div className="flex items-center space-x-2">
                 <span className="font-bold">Média Geral do {escola.trimestreActivo}º Trimestre:</span>
                 <span className="text-base font-mono font-black text-blue-900 bg-blue-50 px-2 py-0.5 border border-blue-400 rounded">
-                  {mediaGeralCalculada !== '—' ? `${mediaGeralCalculada} Valores` : '—'}
+                  {mediaGeralCalculada !== '—' ? `${mediaGeralCalculada} / ${escalaAlunoDoc.escalaMaxima} Valores` : '—'}
                 </span>
               </div>
               <p className="text-gray-700">
-                <strong>Observação Pedagógica:</strong> {mediaGeralCalculada === '—' ? 'Sem notas lançadas' : Number(mediaGeralCalculada) >= 10 ? 'Aproveitamento Positivo (Apto)' : 'Necessita de Apoio Pedagógico'}
+                <strong>Observação Pedagógica:</strong>{' '}
+                {mediaGeralCalculada === '—'
+                  ? 'Sem notas lançadas'
+                  : Number(mediaGeralCalculada) >= escalaAlunoDoc.notaAprovacao
+                  ? 'Aproveitamento Positivo (Apto)'
+                  : 'Necessita de Apoio Pedagógico'}
               </p>
               <p className="text-gray-500 text-[9px] pt-1">
-                Data de emissão: {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+                Data de emissão: {hojeAngolano('extenso')}.
               </p>
+              {limparTextoSistema(configAtual?.textoRodape) && (
+                <p className="text-gray-600 text-[9px] italic">{limparTextoSistema(configAtual?.textoRodape)}</p>
+              )}
             </div>
 
-            <div className="flex items-center justify-end space-x-4">
-              <OfficialQrCode
-                value={gerarPayloadQrDocumento({
-                  docType: 'BOLETIM_OFICIAL',
-                  escolaId: escola.id,
-                  docRef: `${alunoSelecionado.codigoMatricula}-${escola.trimestreActivo || 'II'}T`,
-                  alunoId: alunoSelecionado.id,
-                  alunoNome: alunoSelecionado.nomeCompleto,
-                  turmaId: turmaDoAluno.id,
-                  anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
-                })}
-                size={60}
-                label="Código de Autenticação"
-              />
-            </div>
+            {exibirCodigoQrDoc && (
+              <div className="flex items-center justify-end space-x-4">
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'BOLETIM_OFICIAL',
+                    escolaId: escola.id,
+                    docRef: `${alunoSelecionado.codigoMatricula}-${escola.trimestreActivo || 'II'}T`,
+                    alunoId: alunoSelecionado.id,
+                    alunoNome: alunoSelecionado.nomeCompleto,
+                    turmaId: turmaDoAluno?.id,
+                    anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                  })}
+                  size={60}
+                  label="Autenticação"
+                />
+              </div>
+            )}
           </div>
 
-          {/* Assinaturas Oficiais */}
+          {/* Assinaturas Oficiais: Título -> Traço -> Nome */}
           <div className="grid grid-cols-2 gap-8 pt-8 text-[10px] sm:text-[11px] text-center mt-6">
             <div className="space-y-1">
               <p className="font-bold text-gray-950 uppercase text-xs">{obterTituloCoordenadorTurma(turmaDoAluno, funcionariosEscola)}</p>
@@ -1967,14 +2281,16 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {obterNomeCoordenadorTurma(turmaDoAluno, funcionariosEscola)}
               </p>
             </div>
-            <div className="space-y-1">
-              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloSubPedagogico(escola)}</p>
-              <div className="h-6" />
-              <div className="w-56 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">
-                {subdirectorPedagogicoNome}
-              </p>
-            </div>
+            {exibirAssinSubdiretorDoc && (
+              <div className="space-y-1">
+                <p className="font-bold text-gray-950 uppercase text-xs">{getTituloSubPedagogico(escola)}</p>
+                <div className="h-6" />
+                <div className="w-56 border-b border-black mx-auto my-1.5" />
+                <p className="font-bold text-gray-900 text-xs uppercase">
+                  {subdirectorPedagogicoNome}
+                </p>
+              </div>
+            )}
           </div>
         </div>
         )
@@ -1993,29 +2309,51 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-5 sm:p-8 rounded-xl shadow-md max-w-6xl mx-auto text-black print:shadow-none print:p-4 print:border-2 print:border-gray-900 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className={`documento-oficial-print bg-white border-2 border-gray-900 p-5 sm:p-8 rounded-xl shadow-md max-w-6xl mx-auto text-black print:shadow-none print:p-4 print:border-2 print:border-gray-900 space-y-6 ${fontScaleClassDoc}`}>
           {/* Cabeçalho Oficial com Insígnia Centralizada Fixa */}
-          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1 border-b-2 border-black pb-3">
-            <div className="flex justify-center mb-1">
-              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                <img 
-                  src={configSistema.insigniaNacionalUrl} 
-                  alt="Insígnia da República de Angola" 
-                  className="h-16 w-16 object-contain mx-auto" 
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="relative text-center space-y-1 border-b-2 border-black pb-3">
+            {exibirLogoEscolaDoc && (
+              <div data-pdf-corner-right="true" className="absolute right-0 top-0 z-10">
+                <img
+                  src={escola.logotipoUrl || escola.logotipo}
+                  alt={`Logotipo ${escola.nomeOficial}`}
+                  className="h-14 w-14 object-contain rounded-md"
                   referrerPolicy="no-referrer"
                 />
-              ) : (
-                <InsigniaAngola size={56} />
-              )}
-            </div>
-            <p className="text-xs font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
-            <p className="text-[11px] font-bold uppercase text-gray-800">
-              {escola.governoProvincial || `GOVERNO PROVINCIAL DE ${escola.provincia?.toUpperCase() || 'LUANDA'}`}
-            </p>
-            <p className="text-[11px] font-bold uppercase text-gray-800">
-              {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
-            </p>
-            <h2 className="text-base sm:text-lg font-black uppercase text-gray-950 pt-1">
+              </div>
+            )}
+            {exibirInsigniaDoc && (
+              <div className="flex justify-center mb-1">
+                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                  <img 
+                    src={configSistema.insigniaNacionalUrl} 
+                    alt="Insígnia da República de Angola" 
+                    className="h-16 w-16 object-contain mx-auto" 
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <InsigniaAngola size={56} />
+                )}
+              </div>
+            )}
+            {cabecalhoLinhasDoc ? (
+              cabecalhoLinhasDoc.map((linha, idx) => (
+                <p key={idx} className={idx === 0 ? 'text-xs font-black uppercase tracking-widest text-gray-900' : 'text-[11px] font-bold uppercase text-gray-800'}>
+                  {linha}
+                </p>
+              ))
+            ) : (
+              <>
+                <p className="text-xs font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
+                <p className="text-[11px] font-bold uppercase text-gray-800">
+                  {escola.governoProvincial || `GOVERNO PROVINCIAL DE ${escola.provincia?.toUpperCase() || 'LUANDA'}`}
+                </p>
+                <p className="text-[11px] font-bold uppercase text-gray-800">
+                  {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
+                </p>
+              </>
+            )}
+            <h2 className="text-base sm:text-lg font-black uppercase pt-1" style={{ color: corDestaqueDoc }}>
               {escola.nomeOficial}
             </h2>
 
@@ -2050,10 +2388,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           </div>
 
           {/* Dados da Turma & Classe Fixos */}
-          <div data-pdf-fixed-student="true" data-pdf-student-grid="6" className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs py-2 border-b border-black">
+          <div data-pdf-fixed-student="true" data-pdf-student-grid={isSegundoCiclo(turmaSelecionada.classe) ? '6' : '5'} className={`grid grid-cols-2 ${isSegundoCiclo(turmaSelecionada.classe) ? 'sm:grid-cols-6' : 'sm:grid-cols-5'} gap-2 text-xs py-2 border-b border-black`}>
             <div>
               <span className="text-gray-600 block text-[10px]">Ano Lectivo:</span>
-              <strong className="text-sm text-blue-900">{turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
+              <strong className="text-sm" style={{ color: corDestaqueDoc }}>{turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
             </div>
             <div>
               <span className="text-gray-600 block text-[10px]">Classe:</span>
@@ -2071,16 +2409,19 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <span className="text-gray-600 block text-[10px]">Sala:</span>
               <strong>{turmaSelecionada.sala}</strong>
             </div>
-            <div>
-              <span className="text-gray-600 block text-[10px]">Curso:</span>
-              <strong className="truncate block">{turmaSelecionada.curso || 'Ensino Geral'}</strong>
-            </div>
+            {isSegundoCiclo(turmaSelecionada.classe) && (
+              <div>
+                <span className="text-gray-600 block text-[10px]">Curso:</span>
+                <strong className="truncate block">{turmaSelecionada.curso || '—'}</strong>
+              </div>
+            )}
           </div>
 
           {/* TABELA DA PAUTA: 1. CASO PAUTA POR DISCIPLINA */}
           {pautaSubTipo === 'disciplina' ? (() => {
             const discAtual = disciplinasDaClasseDocumento.find(d => d.id === pautaDisciplinaId) || disciplinasDaClasseDocumento[0];
-            const escalaAprovacao = 10;
+            const escalaAprovacao = obterInformacaoEscala(turmaSelecionada.classe, turmaSelecionada.nivelEnsino).notaAprovacao;
+            const limiarRecurso = escalaAprovacao <= 5 ? Math.max(3, escalaAprovacao - 2) : 7;
             let totalPos = 0;
             let totalNeg = 0;
 
@@ -2166,9 +2507,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                                 <span className={`px-2 py-0.5 text-[9px] font-black rounded-full ${
                                   mfd >= escalaAprovacao 
                                     ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
-                                    : mfd >= 7 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-rose-100 text-rose-900 border border-rose-300'
+                                    : mfd >= limiarRecurso ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-rose-100 text-rose-900 border border-rose-300'
                                 }`}>
-                                  {mfd >= escalaAprovacao ? 'Aprovado' : mfd >= 7 ? 'Recurso' : 'Não Transita'}
+                                  {mfd >= escalaAprovacao ? 'Aprovado' : mfd >= limiarRecurso ? 'Recurso' : 'Não Transita'}
                                 </span>
                               ) : (
                                 <span className="text-gray-400 text-[10px]">Sem Notas</span>
@@ -2217,7 +2558,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       let totalNegativas = 0;
                       let somaNotas = 0;
                       let disciplinasComNota = 0;
-                      const escalaAprovacao = 10;
+                      const escalaAprovacao = obterInformacaoEscala(turmaSelecionada.classe, turmaSelecionada.nivelEnsino).notaAprovacao;
 
                       return (
                         <tr key={aluno.id} className="hover:bg-gray-50">
@@ -2312,25 +2653,26 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* Sumário Estatístico e Percentagens Oficiais da Turma */}
           {(() => {
+            const escalaAprovPauta = obterInformacaoEscala(turmaSelecionada.classe, turmaSelecionada.nivelEnsino).notaAprovacao;
             const totalMatriculados = alunosDaTurma.length;
             const alunosAvaliados = alunosDaTurma.filter(a => a.estado !== 'Desistente' && notasConsolidadas.some(nc => nc.alunoId === a.id));
             const totalAvaliados = alunosAvaliados.length;
             const alunosAprovados = alunosAvaliados.filter(a => {
               const n = notasConsolidadas.filter(nc => nc.alunoId === a.id);
               if (n.length === 0) return false;
-              const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < 10).length;
+              const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < escalaAprovPauta).length;
               return neg <= 2;
             });
             const alunosRecurso = alunosAvaliados.filter(a => {
               const n = notasConsolidadas.filter(nc => nc.alunoId === a.id);
               if (n.length === 0) return false;
-              const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < 10).length;
+              const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < escalaAprovPauta).length;
               return neg === 3;
             });
             const alunosReprovados = alunosAvaliados.filter(a => {
               const n = notasConsolidadas.filter(nc => nc.alunoId === a.id);
               if (n.length === 0) return false;
-              const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < 10).length;
+              const neg = n.filter(x => (x.notaFinal ?? x.mediaTrimestral ?? 0) < escalaAprovPauta).length;
               return neg > 3;
             });
             const semNotas = totalMatriculados - totalAvaliados;
@@ -2371,7 +2713,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Data Oficial da Pauta Conforme Normas do Ministério da Educação */}
           <div className="flex justify-end my-4 pr-3">
             <p className="text-right text-xs font-serif italic text-gray-800">
-              {escola.municipio ? `${escola.municipio}` : (escola.provincia || 'Luanda')}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+              {escola.municipio ? `${escola.municipio}` : (escola.provincia || 'Luanda')}, aos {hojeAngolano('extenso')}.
             </p>
           </div>
 
@@ -2496,23 +2838,27 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
             )}
 
-            <div className="mt-5 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600">
-              <div className="text-left">
-                <p className="font-bold uppercase text-gray-800">Autenticidade da Pauta Oficial</p>
-                <p>Verifique a validade deste registo escolar digitalizando o código QR ao lado.</p>
+            {exibirCodigoQrDoc && (
+              <div className="mt-5 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+                <div className="text-left">
+                  <p className="font-bold uppercase text-gray-800">Autenticidade da Pauta Oficial</p>
+                  {limparTextoSistema(configAtual?.textoRodape) && (
+                    <p>{limparTextoSistema(configAtual?.textoRodape)}</p>
+                  )}
+                </div>
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'PAUTA_OFICIAL',
+                    escolaId: escola.id,
+                    docRef: `${turmaSelecionada?.id || 'turma'}-${pautaDisciplinaId}`,
+                    turmaId: turmaSelecionada?.id,
+                    anoLectivo: turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                  })}
+                  size={54}
+                  label="Validar Pauta"
+                />
               </div>
-              <OfficialQrCode
-                value={gerarPayloadQrDocumento({
-                  docType: 'PAUTA_OFICIAL',
-                  escolaId: escola.id,
-                  docRef: `${turmaSelecionada?.id || 'turma'}-${pautaDisciplinaId}`,
-                  turmaId: turmaSelecionada?.id,
-                  anoLectivo: turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
-                })}
-                size={54}
-                label="Validar Pauta"
-              />
-            </div>
+            )}
           </div>
         </div>
         )
@@ -2531,102 +2877,172 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-6 print:border-2 print:border-gray-900 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className={`documento-oficial-print bg-white border-2 border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-md max-w-4xl mx-auto text-black print:shadow-none print:p-6 print:border-2 print:border-gray-900 space-y-6 ${fontScaleClassDoc}`}>
           {/* Cabeçalho Oficial com Insígnia Centralizada Fixa */}
-          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
-            <div className="flex justify-center mb-1">
-              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                <img 
-                  src={configSistema.insigniaNacionalUrl} 
-                  alt="Insígnia da República de Angola" 
-                  className="h-16 w-16 object-contain mx-auto" 
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="relative text-center space-y-1">
+            {exibirLogoEscolaDoc && (
+              <div data-pdf-corner-right="true" className="absolute right-0 top-0 z-10">
+                <img
+                  src={escola.logotipoUrl || escola.logotipo}
+                  alt={`Logotipo ${escola.nomeOficial}`}
+                  className="h-14 w-14 object-contain rounded-md"
                   referrerPolicy="no-referrer"
                 />
-              ) : (
-                <InsigniaAngola size={56} />
-              )}
-            </div>
-            <p className="text-xs font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
-            <p className="text-[11px] font-bold uppercase text-gray-800">
-              {escola.governoProvincial || `GOVERNO PROVINCIAL DO ${escola.provincia?.toUpperCase()}`}
-            </p>
-            <p className="text-[11px] font-bold uppercase text-gray-800">
-              {escola.gabineteEducacao || 'GABINETE DA EDUCAÇÃO'}
-            </p>
-            <h2 className="text-sm sm:text-base font-black uppercase text-gray-950 pt-1">
+              </div>
+            )}
+            {exibirInsigniaDoc && (
+              <div className="flex justify-center mb-1">
+                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                  <img 
+                    src={configSistema.insigniaNacionalUrl} 
+                    alt="Insígnia da República de Angola" 
+                    className="h-16 w-16 object-contain mx-auto" 
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <InsigniaAngola size={56} />
+                )}
+              </div>
+            )}
+            {cabecalhoLinhasDoc ? (
+              cabecalhoLinhasDoc.map((linha, idx) => (
+                <p key={idx} className={idx === 0 ? 'text-xs font-black uppercase tracking-widest text-gray-900' : 'text-[11px] font-bold uppercase text-gray-800'}>
+                  {linha}
+                </p>
+              ))
+            ) : (
+              <>
+                <p className="text-xs font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
+                <p className="text-[11px] font-bold uppercase text-gray-800">
+                  {escola.governoProvincial || `GOVERNO PROVINCIAL DO ${(escola.provincia || 'LUANDA').toUpperCase()}`}
+                </p>
+                <p className="text-[11px] font-bold uppercase text-gray-800">
+                  {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
+                </p>
+              </>
+            )}
+            <h2 className="text-sm sm:text-base font-black uppercase pt-1" style={{ color: corDestaqueDoc }}>
               {escola.nomeOficial}
             </h2>
           </div>
 
           {/* Título da Declaração */}
           <div className="text-center py-2">
-            <h3 className="text-base sm:text-lg font-serif font-black uppercase tracking-wide border-b-2 border-black inline-block px-4 pb-1">
-              DECLARAÇÃO DE HABILITAÇÕES (COM NOTAS)
+            <h3 className="text-base sm:text-lg font-serif font-black uppercase tracking-wide border-b-2 border-black inline-block px-4 pb-1" style={{ color: corDestaqueDoc, borderColor: corDestaqueDoc }}>
+              {limparTextoSistema(configAtual?.tituloOficial) || 'DECLARAÇÃO DE HABILITAÇÕES (COM NOTAS)'}
             </h3>
+            {limparTextoSistema(configAtual?.subtitulo) && configAtual?.subtitulo !== 'Ministério da Educação de Angola' && (
+              <p className="text-xs font-semibold text-gray-700 mt-1">{limparTextoSistema(configAtual?.subtitulo)}</p>
+            )}
           </div>
 
           {/* Texto Legal e Identificação Completa do Aluno */}
           <div data-pdf-fixed-student="true" className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
             <p>
-              {nomeDiretorGeral}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da <strong>{escola.artigoLegal || 'alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Bases do Sistema de Educação e Ensino)'}</strong>:
+              <strong>{nomeDiretorGeral}</strong>, {tituloDiretorGeral} do(a) <strong>{escola.nomeOficial}</strong>, criado(a) sob o <strong>{limparTextoSistema(escola.decretoCriacao || configAtual?.artigoLegalDecreto) || 'Decreto de Criação da Instituição'}</strong>, ao abrigo da <strong>{limparTextoSistema(escola.artigoLegal || configAtual?.artigoLegalDecreto) || 'Lei n.º 32/20 de 12 de Agosto (Lei de Bases do Sistema de Educação e Ensino)'}</strong>
+              {limparTextoSistema(configAtual?.textoCorpoAbertura) ? `: ${limparTextoSistema(configAtual?.textoCorpoAbertura)}` : ':'}
             </p>
 
             <p>
-              Declara que <strong>{alunoSelecionado.nomeCompleto.toUpperCase()}</strong>, filho de <strong>{alunoSelecionado.nomePai || '—'}</strong> e de <strong>{alunoSelecionado.nomeMae || '—'}</strong>, nascido aos <strong>{alunoSelecionado.dataNascimento ? new Date(alunoSelecionado.dataNascimento).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</strong>, natural de <strong>{alunoSelecionado.naturalidade || '—'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || '—'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong>, portador do Bilhete de Identidade n.º <strong>{alunoSelecionado.numeroBI || '—'}</strong>, emitido aos <strong>{alunoSelecionado.dataEmissaoBI || '—'}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || '—'}</strong>.
+              Declara que <strong>{alunoSelecionado.nomeCompleto.toUpperCase()}</strong>, {alunoSelecionado.genero === 'F' ? 'filha' : 'filho'} de <strong>{alunoSelecionado.nomePai || '—'}</strong> e de <strong>{alunoSelecionado.nomeMae || '—'}</strong>, {alunoSelecionado.genero === 'F' ? 'nascida' : 'nascido'} aos <strong>{formatarDataAngolana(alunoSelecionado.dataNascimento, 'extenso')}</strong>, natural de <strong>{alunoSelecionado.naturalidade || '—'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || '—'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong>, {alunoSelecionado.genero === 'F' ? 'portadora' : 'portador'} do {alunoSelecionado.tipoDocumento || 'Bilhete de Identidade'} n.º <strong>{alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—'}</strong>, emitido aos <strong>{formatarDataAngolana(alunoSelecionado.dataEmissaoBI, 'extenso')}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || '—'}</strong>.
             </p>
 
             <p>
-              Concluiu com aproveitamento a <strong>{alunoSelecionado.classeId || 'Décima (10ª) Classe'}</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>, no Curso de <strong>{alunoSelecionado.curso || 'Ciências Humanas'}</strong>, no Período <strong>{alunoSelecionado.periodo || 'Matinal'}</strong>, com a seguinte classificação curricular:
+              {(() => {
+                const mediaNum = mediaGeralCalculada !== '—' && !isNaN(Number(mediaGeralCalculada)) ? Number(mediaGeralCalculada) : null;
+                const situacaoTexto =
+                  mediaNum === null
+                    ? `Frequentou a`
+                    : mediaNum >= escalaAlunoDoc.notaAprovacao
+                    ? `Concluiu com aproveitamento a`
+                    : `Frequentou com aproveitamento insuficiente a`;
+                const turnoReal = turmaDoAluno?.turno || alunoSelecionado.periodo;
+                const anoReal =
+                  alunoSelecionado.anoLectivo ||
+                  alunoSelecionado.anoMatricula ||
+                  turmaDoAluno?.anoLectivo ||
+                  selectedAnoLectivo ||
+                  escola.anoLectivoActivo ||
+                  '—';
+                return (
+                  <>
+                    {situacaoTexto} <strong>{classeAlunoDoc ? `${classeAlunoDoc} Classe` : '—'}</strong>, no Ano Lectivo de <strong>{anoReal}</strong>
+                    {ehSegundoCicloAlunoDoc && cursoAlunoDoc ? (
+                      <>, no Curso de <strong>{cursoAlunoDoc}</strong></>
+                    ) : null}
+                    {turnoReal ? (
+                      <>, no Período <strong>{turnoReal}</strong></>
+                    ) : null}
+                    , com a seguinte classificação curricular:
+                  </>
+                );
+              })()}
             </p>
           </div>
 
-          {/* Tabela de Disciplinas & Classificação por Extenso */}
+          {/* Tabela de Disciplinas & Classificação Real da Classe do Aluno */}
           <div className="pt-2 overflow-x-auto">
             <table className="w-full min-w-[580px] text-xs border border-black">
               <thead className="bg-gray-100 font-bold border-b border-black text-left">
                 <tr>
-                  <th className="p-2 border-r border-black">DISCIPLINAS</th>
-                  <th className="p-2 text-center w-48">CLASSIFICAÇÃO CURRICULAR</th>
+                  <th className="p-2 border-r border-black">DISCIPLINAS ({classeAlunoDoc || '—'})</th>
+                  <th className="p-2 text-center w-56">CLASSIFICAÇÃO CURRICULAR</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black">
-                {/* Formação Geral */}
-                <tr className="bg-gray-50 font-bold text-[11px]">
-                  <td colSpan={2} className="p-1.5 uppercase text-gray-800">I. Componente de Formação Geral</td>
-                </tr>
-                {disciplinasDaClasseDocumento.filter(d => (d as any).componente !== 'Específica').map(disc => {
-                  const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-                  const val = n?.notaFinal ?? n?.mediaTrimestral;
-                  const notaArredondada = val !== undefined && val !== null ? Math.round(val) : null;
-                  return (
-                    <tr key={disc.id}>
-                      <td className="p-1.5 border-r border-black pl-4 font-medium">{disc.nome}</td>
-                      <td className="p-1.5 text-center font-semibold">
-                        {notaArredondada !== null ? `${notaArredondada} (${converterNotaParaExtensoMED(notaArredondada)})` : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {/* Formação Específica */}
-                {disciplinasDaClasseDocumento.some(d => (d as any).componente === 'Específica') && (
+                {disciplinasDaClasseAluno.length === 0 ? (
+                  <tr>
+                    <td colSpan={2} className="p-4 text-center text-gray-500 italic">
+                      Nenhuma disciplina curricular registada para a {classeAlunoDoc || 'classe selecionada'}.
+                    </td>
+                  </tr>
+                ) : (
                   <>
-                    <tr className="bg-gray-50 font-bold text-[11px]">
-                      <td colSpan={2} className="p-1.5 uppercase text-gray-800">II. Componente de Formação Específica</td>
-                    </tr>
-                    {disciplinasDaClasseDocumento.filter(d => (d as any).componente === 'Específica').map(disc => {
-                      const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-                      const val = n?.notaFinal ?? n?.mediaTrimestral;
-                      const notaArredondada = val !== undefined && val !== null ? Math.round(val) : null;
-                      return (
-                        <tr key={disc.id}>
-                          <td className="p-1.5 border-r border-black pl-4 font-medium">{disc.nome}</td>
-                          <td className="p-1.5 text-center font-semibold">
-                            {notaArredondada !== null ? `${notaArredondada} (${converterNotaParaExtensoMED(notaArredondada)})` : '—'}
-                          </td>
+                    {disciplinasDaClasseAluno.some(d => (d as any).componente === 'Específica') && (
+                      <tr className="bg-gray-50 font-bold text-[11px]">
+                        <td colSpan={2} className="p-1.5 uppercase text-gray-800">I. Componente de Formação Geral</td>
+                      </tr>
+                    )}
+                    {disciplinasDaClasseAluno
+                      .filter(d => (d as any).componente !== 'Específica')
+                      .map(disc => {
+                        const { valorFinal } = resolverNotaRealAluno(disc, classeAlunoDoc);
+                        const notaArredondada = valorFinal !== null ? Math.round(valorFinal) : null;
+                        return (
+                          <tr key={disc.id}>
+                            <td className="p-1.5 border-r border-black pl-4 font-medium">{disc.nome}</td>
+                            <td className="p-1.5 text-center font-semibold">
+                              {notaArredondada !== null
+                                ? `${notaArredondada} (${converterNotaParaExtensoMED(notaArredondada)})`
+                                : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                    {disciplinasDaClasseAluno.some(d => (d as any).componente === 'Específica') && (
+                      <>
+                        <tr className="bg-gray-50 font-bold text-[11px]">
+                          <td colSpan={2} className="p-1.5 uppercase text-gray-800">II. Componente de Formação Específica</td>
                         </tr>
-                      );
-                    })}
+                        {disciplinasDaClasseAluno
+                          .filter(d => (d as any).componente === 'Específica')
+                          .map(disc => {
+                            const { valorFinal } = resolverNotaRealAluno(disc, classeAlunoDoc);
+                            const notaArredondada = valorFinal !== null ? Math.round(valorFinal) : null;
+                            return (
+                              <tr key={disc.id}>
+                                <td className="p-1.5 border-r border-black pl-4 font-medium">{disc.nome}</td>
+                                <td className="p-1.5 text-center font-semibold">
+                                  {notaArredondada !== null
+                                    ? `${notaArredondada} (${converterNotaParaExtensoMED(notaArredondada)})`
+                                    : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </>
+                    )}
                   </>
                 )}
 
@@ -2649,58 +3065,61 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               Consta no livro de registo n.º <strong>{alunoSelecionado.livroRegisto || '—'}</strong>, à folha <strong>{alunoSelecionado.folhaRegisto || '—'}</strong>, com o processo n.º <strong>{alunoSelecionado.numeroProcesso || alunoSelecionado.codigoMatricula || '—'}</strong>.
             </p>
             <p>
-              Por ser verdade e ter sido solicitada pela parte interessada, mandou-se passar a presente declaração que vai por mim assinada e autenticada com o carimbo a óleo e selo branco em uso neste estabelecimento de ensino.
+              {limparTextoSistema(configAtual?.textoFechamento) ||
+                'Por ser verdade e ter sido solicitada pela parte interessada, mandou-se passar a presente declaração que vai por mim assinada e autenticada com o carimbo a óleo e selo branco em uso neste estabelecimento de ensino.'}
             </p>
             <p className="text-right pt-2 font-medium">
-              {escola.municipio || escola.provincia || 'Angola'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+              {escola.municipio || escola.provincia || 'Angola'}, aos {hojeAngolano('extenso')}.
             </p>
           </div>
 
-          {/* Assinaturas Oficiais com Sub-Directora e Director */}
-          <div className="grid grid-cols-2 gap-8 pt-8 text-xs text-center border-t border-gray-300">
-            <div className="space-y-1">
-              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloSubPedagogico(escola)}</p>
-              <div className="h-8" />
-              <div className="w-56 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{subdirectorPedagogicoNome}</p>
-            </div>
-            <div className="space-y-1 flex flex-col items-center justify-end">
-              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloDiretor(escola)}</p>
-              {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
-                <div className="h-10 flex items-center justify-center -mb-1">
-                  <img 
-                    src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
-                    alt="Assinatura do Director" 
-                    className="max-h-9 max-w-[140px] object-contain mix-blend-multiply" 
-                  />
-                </div>
-              ) : (
+          {/* Assinaturas Oficiais: Título (topo) -> Traço (+ assinatura) -> Nome (baixo) */}
+          <div className={`grid ${exibirAssinSubdiretorDoc && exibirAssinDiretorDoc ? 'grid-cols-2' : 'grid-cols-1'} gap-8 pt-8 text-xs text-center border-t border-gray-300`}>
+            {exibirAssinSubdiretorDoc && (
+              <div className="space-y-1 flex flex-col items-center justify-end">
+                <p className="font-bold text-gray-950 uppercase text-xs">{getTituloSubPedagogico(escola)}</p>
                 <div className="h-8" />
-              )}
-              <div className="w-56 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{nomeDiretorGeral}</p>
-            </div>
+                <div className="w-56 border-b border-black mx-auto my-1.5" />
+                <p className="font-bold text-gray-900 text-xs uppercase">{subdirectorPedagogicoNome}</p>
+              </div>
+            )}
+            {exibirAssinDiretorDoc && (
+              <div className="space-y-1 flex flex-col items-center justify-end">
+                <p className="font-bold text-gray-950 uppercase text-xs">{getTituloDiretor(escola)}</p>
+                {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                  <div className="h-10 flex items-center justify-center -mb-1">
+                    <img 
+                      src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
+                      alt="Assinatura do Director" 
+                      className="max-h-9 max-w-[140px] object-contain mix-blend-multiply" 
+                    />
+                  </div>
+                ) : (
+                  <div className="h-8" />
+                )}
+                <div className="w-56 border-b border-black mx-auto my-1.5" />
+                <p className="font-bold text-gray-900 text-xs uppercase">{nomeDiretorGeral}</p>
+              </div>
+            )}
           </div>
 
-          <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
-            <div className="text-left">
-              <p className="font-bold uppercase text-gray-800">Verificação Oficial da Declaração</p>
-              <p>Código QR vinculado ao processo individual n.º {alunoSelecionado.codigoMatricula}.</p>
+          {/* Após as assinaturas: deixar APENAS o Código QR, sem dizeres adicionais */}
+          {exibirCodigoQrDoc && (
+            <div className="pt-3 flex items-center justify-end">
+              <OfficialQrCode
+                value={gerarPayloadQrDocumento({
+                  docType: 'DECLARACAO_NOTAS',
+                  escolaId: escola.id,
+                  docRef: `DECL-${alunoSelecionado.codigoMatricula}`,
+                  alunoId: alunoSelecionado.id,
+                  alunoNome: alunoSelecionado.nomeCompleto,
+                  turmaId: turmaDoAluno?.id,
+                  anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                })}
+                size={56}
+              />
             </div>
-            <OfficialQrCode
-              value={gerarPayloadQrDocumento({
-                docType: 'DECLARACAO_NOTAS',
-                escolaId: escola.id,
-                docRef: `DECL-${alunoSelecionado.codigoMatricula}`,
-                alunoId: alunoSelecionado.id,
-                alunoNome: alunoSelecionado.nomeCompleto,
-                turmaId: turmaDoAluno?.id,
-                anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
-              })}
-              size={56}
-              label="Validar Declaração"
-            />
-          </div>
+          )}
         </div>
         )
       )}
@@ -2718,37 +3137,61 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (
-        <div id="documento-para-impressao" data-doc-root="true" className="documento-oficial-print bg-white border-4 border-double border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:shadow-none print:p-6 print:border-4 print:border-double print:border-gray-900 space-y-6">
+        <div id="documento-para-impressao" data-doc-root="true" className={`documento-oficial-print bg-white border-4 border-double border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:shadow-none print:p-6 print:border-4 print:border-double print:border-gray-900 space-y-6 ${fontScaleClassDoc}`}>
           {/* Cabeçalho Oficial com Insígnia Centralizada Fixa */}
-          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
-            <div className="flex justify-center mb-1">
-              {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                <img 
-                  src={configSistema.insigniaNacionalUrl} 
-                  alt="Insígnia da República de Angola" 
-                  className="h-16 w-16 object-contain mx-auto" 
+          <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="relative text-center space-y-1">
+            {exibirLogoEscolaDoc && (
+              <div data-pdf-corner-right="true" className="absolute right-0 top-0 z-10">
+                <img
+                  src={escola.logotipoUrl || escola.logotipo}
+                  alt={`Logotipo ${escola.nomeOficial}`}
+                  className="h-14 w-14 object-contain rounded-md"
                   referrerPolicy="no-referrer"
                 />
-              ) : (
-                <InsigniaAngola size={56} />
-              )}
-            </div>
-            <p className="text-xs font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
-            <p className="text-[11px] font-bold uppercase text-gray-800">
-              {escola.governoProvincial || `GOVERNO PROVINCIAL DO ${escola.provincia?.toUpperCase()}`}
-            </p>
-            <p className="text-[11px] font-bold uppercase text-gray-800">
-              {escola.gabineteEducacao || 'GABINETE DA EDUCAÇÃO'}
-            </p>
-            <h2 className="text-sm sm:text-base font-black uppercase text-gray-950 pt-1">
+              </div>
+            )}
+            {exibirInsigniaDoc && (
+              <div className="flex justify-center mb-1">
+                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                  <img 
+                    src={configSistema.insigniaNacionalUrl} 
+                    alt="Insígnia da República de Angola" 
+                    className="h-16 w-16 object-contain mx-auto" 
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <InsigniaAngola size={56} />
+                )}
+              </div>
+            )}
+            {cabecalhoLinhasDoc ? (
+              cabecalhoLinhasDoc.map((linha, idx) => (
+                <p key={idx} className={idx === 0 ? 'text-xs font-black uppercase tracking-widest text-gray-900' : 'text-[11px] font-bold uppercase text-gray-800'}>
+                  {linha}
+                </p>
+              ))
+            ) : (
+              <>
+                <p className="text-xs font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
+                <p className="text-[11px] font-bold uppercase text-gray-800">
+                  {escola.governoProvincial || `GOVERNO PROVINCIAL DO ${(escola.provincia || 'LUANDA').toUpperCase()}`}
+                </p>
+                <p className="text-[11px] font-bold uppercase text-gray-800">
+                  {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
+                </p>
+              </>
+            )}
+            <h2 className="text-sm sm:text-base font-black uppercase pt-1" style={{ color: corDestaqueDoc }}>
               {escola.nomeOficial}
             </h2>
           </div>
 
           {/* Título do Certificado Oficial Dinâmico por Nível de Ensino */}
           <div className="text-center py-2">
-            <h3 className="text-base sm:text-lg font-serif font-black uppercase tracking-wider border-b-2 border-black inline-block px-6 pb-1">
-              {tipoCertificadoEfetivo === 'primario_6' 
+            <h3 className="text-base sm:text-lg font-serif font-black uppercase tracking-wider border-b-2 border-black inline-block px-6 pb-1" style={{ color: corDestaqueDoc, borderColor: corDestaqueDoc }}>
+              {limparTextoSistema(configAtual?.tituloOficial) && configAtual?.tituloOficial !== 'CERTIFICADO DE HABILITAÇÕES'
+                ? limparTextoSistema(configAtual?.tituloOficial)
+                : tipoCertificadoEfetivo === 'primario_6' 
                 ? 'CERTIFICADO DE CONCLUSÃO DO ENSINO PRIMÁRIO (6.ª CLASSE)' 
                 : tipoCertificadoEfetivo === 'iciclo_9'
                   ? 'CERTIFICADO DE CONCLUSÃO DO Iº CICLO DO ENSINO SECUNDÁRIO GERAL (9.ª CLASSE)'
@@ -2761,42 +3204,49 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           {/* Texto de Certificação */}
           <div data-pdf-fixed-student="true" className="text-xs sm:text-[13px] leading-relaxed text-justify space-y-3">
             <p>
-              {nomeDiretorGeral}, Director do <strong>{escola.nomeOficial}</strong>, criado sob o <strong>{escola.decretoCriacao || 'Decreto Executivo n.º 250/18 de 06 de Outubro'}</strong>, ao abrigo da alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Lei de Bases do Sistema de Educação e Ensino):
+              <strong>{nomeDiretorGeral}</strong>, {tituloDiretorGeral} do(a) <strong>{escola.nomeOficial}</strong>, criado(a) sob o <strong>{limparTextoSistema(escola.decretoCriacao || configAtual?.artigoLegalDecreto) || 'Decreto de Criação da Instituição'}</strong>, ao abrigo da alínea e) do artigo 109º da Lei n.º 32/20 de 12 de Agosto (Lei de Bases do Sistema de Educação e Ensino)
+              {limparTextoSistema(configAtual?.textoCorpoAbertura) ? `: ${limparTextoSistema(configAtual?.textoCorpoAbertura)}` : ':'}
             </p>
 
             <p>
-              Certifica que <strong>{(alunoSelecionado.nomeCompleto || '[NOME DO ESTUDANTE]').toUpperCase()}</strong>, filho(a) de <strong>{alunoSelecionado.nomePai || '—'}</strong> e de <strong>{alunoSelecionado.nomeMae || '—'}</strong>, nascido(a) aos <strong>{alunoSelecionado.dataNascimento ? new Date(alunoSelecionado.dataNascimento).toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'}</strong>, natural de <strong>{alunoSelecionado.naturalidade || '—'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || '—'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong>, portador(a) do Bilhete de Identidade n.º <strong>{alunoSelecionado.numeroBI || '—'}</strong>, emitido aos <strong>{alunoSelecionado.dataEmissaoBI || '—'}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || '—'}</strong>.
+              Certifica que <strong>{(alunoSelecionado.nomeCompleto || '[NOME DO ESTUDANTE]').toUpperCase()}</strong>, {alunoSelecionado.genero === 'F' ? 'filha' : 'filho'} de <strong>{alunoSelecionado.nomePai || '—'}</strong> e de <strong>{alunoSelecionado.nomeMae || '—'}</strong>, {alunoSelecionado.genero === 'F' ? 'nascida' : 'nascido'} aos <strong>{formatarDataAngolana(alunoSelecionado.dataNascimento, 'extenso')}</strong>, natural de <strong>{alunoSelecionado.naturalidade || '—'}</strong>, Município de <strong>{alunoSelecionado.municipioNascimento || '—'}</strong>, Província de <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong>, {alunoSelecionado.genero === 'F' ? 'portadora' : 'portador'} do {alunoSelecionado.tipoDocumento || 'Bilhete de Identidade'} n.º <strong>{alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—'}</strong>, emitido aos <strong>{formatarDataAngolana(alunoSelecionado.dataEmissaoBI, 'extenso')}</strong>, pelo <strong>{alunoSelecionado.arquivoIdentificacao || '—'}</strong>.
             </p>
 
             <p>
-              {tipoCertificadoEfetivo === 'primario_6' && (
-                <>Concluiu a <strong>6.ª Classe do Ensino Primário</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, nos termos da matriz curricular nacional do Ensino Primário, tendo obtido as seguintes classificações:</>
-              )}
-              {tipoCertificadoEfetivo === 'iciclo_9' && (
-                <>Concluiu a <strong>9.ª Classe do Iº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, tendo obtido aproveitamento no Exame de Saída e as seguintes classificações:</>
-              )}
-              {tipoCertificadoEfetivo === 'iiciclo_12' && (
-                <>Concluiu a <strong>12.ª Classe do IIº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, na Área de <strong>{alunoSelecionado.curso || 'Ciências Económicas e Jurídicas'}</strong>, tendo obtido as seguintes classificações:</>
-              )}
-              {tipoCertificadoEfetivo === 'tecnico_12_13' && (
-                <>Concluiu a Formação Técnico-Profissional (<strong>{alunoSelecionado.classeId || '12.ª / 13.ª classe'}</strong>), no Ano Lectivo de <strong>{alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo || '—'}</strong>, no Curso de Técnico Médio de <strong>{alunoSelecionado.curso || 'Técnico de Informática'}</strong>, tendo obtido as seguintes classificações:</>
-              )}
+              {(() => {
+                const anoReal =
+                  alunoSelecionado.anoLectivo ||
+                  alunoSelecionado.anoMatricula ||
+                  turmaDoAluno?.anoLectivo ||
+                  selectedAnoLectivo ||
+                  escola.anoLectivoActivo ||
+                  '—';
+                if (tipoCertificadoEfetivo === 'primario_6') {
+                  return <>Concluiu a <strong>6.ª Classe do Ensino Primário</strong>, no Ano Lectivo de <strong>{anoReal}</strong>, nos termos da matriz curricular nacional do Ensino Primário, tendo obtido as seguintes classificações:</>;
+                }
+                if (tipoCertificadoEfetivo === 'iciclo_9') {
+                  return <>Concluiu a <strong>9.ª Classe do Iº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{anoReal}</strong>, tendo obtido aproveitamento no Exame de Saída e as seguintes classificações:</>;
+                }
+                if (tipoCertificadoEfetivo === 'tecnico_12_13') {
+                  return <>Concluiu a Formação Técnico-Profissional (<strong>{classeAlunoDoc || alunoSelecionado.classeId || '12.ª / 13.ª Classe'}</strong>), no Ano Lectivo de <strong>{anoReal}</strong>{cursoAlunoDoc ? <>, no Curso de Técnico Médio de <strong>{cursoAlunoDoc}</strong></> : null}, tendo obtido as seguintes classificações:</>;
+                }
+                return <>Concluiu a <strong>12.ª Classe do IIº Ciclo do Ensino Secundário Geral</strong>, no Ano Lectivo de <strong>{anoReal}</strong>{cursoAlunoDoc ? <>, na Área de <strong>{cursoAlunoDoc}</strong></> : null}, tendo obtido as seguintes classificações:</>;
+              })()}
             </p>
           </div>
 
           {/* TABELA 1: ENSINO PRIMÁRIO (6ª CLASSE) */}
           {tipoCertificadoEfetivo === 'primario_6' && (() => {
-            const discs = disciplinasDaClasseDocumento.length > 0
-              ? disciplinasDaClasseDocumento
-              : disciplinas.filter(d => d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao');
+            const discsMatriz = getDisciplinasMatrizOficial('6ª');
+            const discs =
+              discsMatriz.length > 0
+                ? discsMatriz.map((nome, i) => ({ id: `cert-prim-${i}`, nome }))
+                : disciplinasDaClasseAluno;
             const linhas = discs.map(disc => {
-              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-              const mac = n && n.mac !== undefined ? Math.round(n.mac) : null;
-              const provaVal = n ? (n.provaTrimestral ?? n.npt) : undefined;
-              const pe = provaVal !== undefined ? Math.round(provaVal) : null;
-              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : undefined;
-              const cf = val !== undefined && val !== null ? Math.round(val) : null;
-              return { disc: disc.nome, mac, pe, cf };
+              const real = resolverNotaRealAluno(disc, '6ª');
+              const mac = real.mac !== null ? Math.round(real.mac) : null;
+              const cf = real.valorFinal !== null ? Math.round(real.valorFinal) : null;
+              return { disc: disc.nome, mac, cf };
             });
             const comNota = linhas.filter(l => l.cf !== null);
             const mediaFinalCalc = comNota.length > 0 ? Math.round(comNota.reduce((a, b) => a + (b.cf || 0), 0) / comNota.length) : null;
@@ -2835,23 +3285,22 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 2: Iº CICLO DO ENSINO SECUNDÁRIO (7ª, 8ª e 9ª CLASSES) */}
           {tipoCertificadoEfetivo === 'iciclo_9' && (() => {
-            const discs = disciplinasDaClasseDocumento.length > 0
-              ? disciplinasDaClasseDocumento
-              : disciplinas.filter(d => d.nivelEnsino === 'ICiclo');
-            const histMulti = alunoSelecionado?.historicoMultiAno || [];
+            const discsMatriz = getDisciplinasMatrizOficial('9ª');
+            const discs =
+              discsMatriz.length > 0
+                ? discsMatriz.map((nome, i) => ({ id: `cert-ic-${i}`, nome }))
+                : disciplinasDaClasseAluno;
             const linhas = discs.map(disc => {
-              const hItem = histMulti.find(h => h.disciplinaNome.toLowerCase() === disc.nome.toLowerCase() || disc.nome.toLowerCase().includes(h.disciplinaNome.toLowerCase()));
-              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : (hItem?.notaFinal || hItem?.mediaFinal);
-              const mf = val !== undefined && val !== null && (val as any) !== '—' ? Math.round(Number(val)) : null;
-              const n9 = n?.notaFinal ?? n?.mediaTrimestral ?? hItem?.nota12 ?? '—';
-              const n7 = hItem?.nota10 ?? '—';
-              const n8 = hItem?.nota11 ?? '—';
+              const r7 = resolverNotaRealAluno(disc, '7ª').valorFinal;
+              const r8 = resolverNotaRealAluno(disc, '8ª').valorFinal;
+              const r9 = resolverNotaRealAluno(disc, '9ª').valorFinal;
+              const nums = [r7, r8, r9].filter((v): v is number => v !== null);
+              const mf = nums.length > 0 ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null;
               return {
                 disc: disc.nome,
-                n7,
-                n8,
-                n9: n9 !== '—' && n9 !== undefined ? Math.round(Number(n9)) : '—',
+                n7: r7 !== null ? Math.round(r7) : '—',
+                n8: r8 !== null ? Math.round(r8) : '—',
+                n9: r9 !== null ? Math.round(r9) : '—',
                 mf
               };
             });
@@ -2896,22 +3345,27 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 3: IIº CICLO GERAL (10ª, 11ª e 12ª CLASSES) */}
           {tipoCertificadoEfetivo === 'iiciclo_12' && (() => {
-            const temHistorico = alunoSelecionado?.historicoMultiAno && alunoSelecionado.historicoMultiAno.length > 0;
-            const itens = temHistorico ? alunoSelecionado.historicoMultiAno! : disciplinasDaClasseDocumento.map(disc => {
-              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-              const val = n?.notaFinal ?? n?.mediaTrimestral;
-              const mf = val !== undefined && val !== null ? Math.round(val) : null;
+            const discsMatriz = getDisciplinasMatrizOficial('12ª', cursoAlunoDoc);
+            const discs =
+              discsMatriz.length > 0
+                ? discsMatriz.map((nome, i) => ({ id: `cert-ii-${i}`, nome }))
+                : disciplinasDaClasseAluno;
+            const linhas = discs.map(disc => {
+              const r10 = resolverNotaRealAluno(disc, '10ª').valorFinal;
+              const r11 = resolverNotaRealAluno(disc, '11ª').valorFinal;
+              const r12 = resolverNotaRealAluno(disc, '12ª').valorFinal;
+              const nums = [r10, r11, r12].filter((v): v is number => v !== null);
+              const mf = nums.length > 0 ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null;
               return {
                 disciplinaNome: disc.nome,
-                categoria: (disc as any).componente === 'Específica' ? 'Formação Específica' : 'Formação Geral',
-                nota10: '—',
-                nota11: '—',
-                nota12: n?.mediaTrimestral !== undefined ? Math.round(n.mediaTrimestral) : '—',
-                mediaFinal: mf !== null ? mf : ('—' as any)
+                nota10: r10 !== null ? Math.round(r10) : '—',
+                nota11: r11 !== null ? Math.round(r11) : '—',
+                nota12: r12 !== null ? Math.round(r12) : '—',
+                mediaFinal: mf
               };
             });
-            const validas = itens.filter(i => typeof i.mediaFinal === 'number');
-            const mediaFinalCiclo = validas.length > 0 ? Math.round(validas.reduce((a, b) => a + (Number(b.mediaFinal) || 0), 0) / validas.length) : null;
+            const validas = linhas.filter(i => i.mediaFinal !== null);
+            const mediaFinalCiclo = validas.length > 0 ? Math.round(validas.reduce((a, b) => a + (b.mediaFinal || 0), 0) / validas.length) : null;
 
             return (
               <div className="pt-2 overflow-x-auto">
@@ -2927,15 +3381,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black text-[11px]">
-                    {itens.map((item, idx) => (
+                    {linhas.map((item, idx) => (
                       <tr key={idx} className="hover:bg-gray-50">
                         <td className="p-1.5 border-r border-black font-medium">{item.disciplinaNome}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota10 ?? '—'}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota11 ?? '—'}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota12 ?? '—'}</td>
-                        <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{item.mediaFinal ?? '—'}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota10}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota11}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono">{item.nota12}</td>
+                        <td className="p-1.5 border-r border-black text-center font-mono font-bold bg-gray-50">{item.mediaFinal !== null ? item.mediaFinal : '—'}</td>
                         <td className="p-1.5 text-center font-medium">
-                          {typeof item.mediaFinal === 'number' ? converterNotaParaCertificadoExtenso(item.mediaFinal) : '—'}
+                          {item.mediaFinal !== null ? converterNotaParaCertificadoExtenso(item.mediaFinal) : '—'}
                         </td>
                       </tr>
                     ))}
@@ -2953,20 +3407,24 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 4: ENSINO TÉCNICO-PROFISSIONAL / MAGISTÉRIO (10ª A 13ª CLASSES) */}
           {tipoCertificadoEfetivo === 'tecnico_12_13' && (() => {
-            const discs = disciplinasDaClasseDocumento.length > 0
-              ? disciplinasDaClasseDocumento
-              : disciplinas.filter(d => d.nivelEnsino === 'EnsinoTecnico' || d.ehTecnica);
+            const discsMatriz = getDisciplinasMatrizOficial(classeAlunoDoc || '12ª', cursoAlunoDoc);
+            const discs =
+              discsMatriz.length > 0
+                ? discsMatriz.map((nome, i) => ({ id: `cert-tec-${i}`, nome }))
+                : disciplinasDaClasseAluno;
             const linhas = discs.map(disc => {
-              const n = notasOficiaisAluno.find((no: any) => no.disciplinaId === disc.id) || notasDoAluno.find((nd: any) => nd.disciplinaId === disc.id);
-              const val = n ? (n.notaFinal ?? n.mediaTrimestral) : undefined;
-              const mf = val !== undefined && val !== null ? Math.round(val) : null;
-              const mediaTrim = n && n.mediaTrimestral !== undefined ? Math.round(n.mediaTrimestral) : '—';
+              const r10 = resolverNotaRealAluno(disc, '10ª').valorFinal;
+              const r11 = resolverNotaRealAluno(disc, '11ª').valorFinal;
+              const r12 = resolverNotaRealAluno(disc, '12ª').valorFinal;
+              const r13 = resolverNotaRealAluno(disc, '13ª').valorFinal;
+              const nums = [r10, r11, r12, r13].filter((v): v is number => v !== null);
+              const mf = nums.length > 0 ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null;
               return {
                 disc: disc.nome,
-                n10: '—',
-                n11: '—',
-                n12: mediaTrim,
-                n13: '—',
+                n10: r10 !== null ? Math.round(r10) : '—',
+                n11: r11 !== null ? Math.round(r11) : '—',
+                n12: r12 !== null ? Math.round(r12) : '—',
+                n13: r13 !== null ? Math.round(r13) : '—',
                 pap: '—',
                 mf
               };
@@ -3020,54 +3478,57 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               Registado no Livro de Matrícula sob o n.º <strong>{alunoSelecionado.livroRegisto || '—'}</strong>, Processo n.º <strong>{alunoSelecionado.numeroProcesso || alunoSelecionado.codigoMatricula || '—'}</strong>, Folha n.º <strong>{alunoSelecionado.folhaRegisto || '—'}</strong>.
             </p>
             <p>
-              Por ser verdade e ter sido requerido, mandou-se passar o presente Certificado que vai assinado pelas entidades competentes e autenticado com o carimbo a óleo em uso nesta Instituição de Ensino.
+              {limparTextoSistema(configAtual?.textoFechamento) ||
+                'Por ser verdade e ter sido requerido, mandou-se passar o presente Certificado que vai assinado e autenticado com o carimbo a óleo e selo branco em uso nesta Instituição de Ensino.'}
             </p>
             <p className="text-right pt-2 font-medium">
-              {escola.municipio || escola.provincia || 'Angola'}, aos {new Date().toLocaleDateString('pt-AO', { day: '2-digit', month: 'long', year: 'numeric' })}.
+              {escola.municipio || escola.provincia || 'Angola'}, aos {hojeAngolano('extenso')}.
             </p>
           </div>
 
-          {/* Assinaturas Oficiais com QR Code de Autenticidade e Assinatura do Director */}
-          <div className="grid grid-cols-3 gap-4 pt-6 text-xs text-center border-t border-gray-300">
-            <div className="space-y-1">
-              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloChefeSecretaria(escola)}</p>
-              <div className="h-8" />
-              <div className="w-44 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{chefeSecretariaNome}</p>
+          {/* Conferência + QR Code + Apenas Assinatura do Director da Escola (Sem Secretário Geral) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6 text-xs items-end border-t border-gray-300">
+            <div className="flex flex-col items-start justify-end pb-2">
+              <p className="font-bold text-gray-900">
+                Conferido por: ___________________________
+              </p>
             </div>
 
             <div className="flex flex-col items-center justify-center">
-              <OfficialQrCode
-                value={gerarPayloadQrDocumento({
-                  docType: 'CERTIFICADO_CICLO',
-                  escolaId: escola.id,
-                  docRef: `CERT-${alunoSelecionado.codigoMatricula}`,
-                  alunoId: alunoSelecionado.id,
-                  alunoNome: alunoSelecionado.nomeCompleto,
-                  turmaId: turmaDoAluno?.id,
-                  anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
-                })}
-                size={62}
-                label="Certificação MED"
-              />
+              {exibirCodigoQrDoc && (
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'CERTIFICADO_CICLO',
+                    escolaId: escola.id,
+                    docRef: `CERT-${alunoSelecionado.codigoMatricula}`,
+                    alunoId: alunoSelecionado.id,
+                    alunoNome: alunoSelecionado.nomeCompleto,
+                    turmaId: turmaDoAluno?.id,
+                    anoLectivo: alunoSelecionado.anoLectivo || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                  })}
+                  size={62}
+                />
+              )}
             </div>
 
-            <div className="space-y-1 flex flex-col items-center justify-end">
-              <p className="font-bold text-gray-950 uppercase text-xs">{getTituloDiretor(escola)}</p>
-              {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
-                <div className="h-10 flex items-center justify-center -mb-1">
-                  <img 
-                    src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
-                    alt="Assinatura do Director" 
-                    className="max-h-9 max-w-[140px] object-contain mix-blend-multiply" 
-                  />
-                </div>
-              ) : (
-                <div className="h-8" />
-              )}
-              <div className="w-48 border-b border-black mx-auto my-1.5" />
-              <p className="font-bold text-gray-900 text-xs uppercase">{nomeDiretorGeral}</p>
-            </div>
+            {exibirAssinDiretorDoc && (
+              <div className="space-y-1 flex flex-col items-center justify-end text-center">
+                <p className="font-bold text-gray-950 uppercase text-xs">{getTituloDiretor(escola)}</p>
+                {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                  <div className="h-10 flex items-center justify-center -mb-1">
+                    <img 
+                      src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
+                      alt="Assinatura do Director" 
+                      className="max-h-9 max-w-[140px] object-contain mix-blend-multiply" 
+                    />
+                  </div>
+                ) : (
+                  <div className="h-8" />
+                )}
+                <div className="w-48 border-b border-black mx-auto my-1.5" />
+                <p className="font-bold text-gray-900 text-xs uppercase">{nomeDiretorGeral}</p>
+              </div>
+            )}
           </div>
         </div>
         )
@@ -3243,11 +3704,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                               <img 
                                 src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl} 
                                 alt="Assinatura do Director" 
-                                className="h-4 w-auto max-w-[75px] object-contain my-0.5" 
+                                className="h-4 w-auto max-w-[75px] object-contain -mb-0.5" 
                               />
                             ) : (
-                              <div className="border-b border-gray-400 w-24 my-1" />
+                              <div className="h-2.5" />
                             )}
+                            <div className="border-b border-gray-500 w-24 my-0.5" />
                             <span className="font-bold text-gray-950 text-[7px] leading-tight truncate max-w-full">
                               {nomeDiretorGeral}
                             </span>
@@ -3295,7 +3757,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             <h2 className="text-base font-black uppercase text-gray-950 pt-1">{escola.nomeOficial}</h2>
             <div className="pt-2">
               <span className="text-xs sm:text-sm font-black uppercase border-2 border-black px-6 py-1.5 inline-block bg-blue-50">
-                FICHA INDIVIDUAL DO ALUNO — ANO LECTIVO {alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
+                FICHA INDIVIDUAL DO ALUNO — ANO LECTIVO {alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}
               </span>
             </div>
           </div>
@@ -3334,7 +3796,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <div><span className="text-gray-600">Nome Completo:</span> <strong className="uppercase">{alunoSelecionado.nomeCompleto}</strong></div>
               <div><span className="text-gray-600">Gênero:</span> <strong>{alunoSelecionado.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
               <div><span className="text-gray-600">Documento de Identificação:</span> <strong className="font-mono">{alunoSelecionado.tipoDocumento || 'BI'} nº {alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—'}</strong></div>
-              <div><span className="text-gray-600">Data de Nascimento:</span> <strong>{alunoSelecionado.dataNascimento || '—'}</strong></div>
+              <div><span className="text-gray-600">Data de Nascimento:</span> <strong>{formatarDataAngolana(alunoSelecionado.dataNascimento, 'curto')}</strong></div>
               <div><span className="text-gray-600">Naturalidade:</span> <strong>{alunoSelecionado.naturalidade || '—'}</strong></div>
               <div><span className="text-gray-600">Província de Origem:</span> <strong>{alunoSelecionado.provinciaOrigem || '—'}</strong></div>
               <div className="sm:col-span-2"><span className="text-gray-600">Residência / Bairro:</span> <strong>{alunoSelecionado.endereco || '—'}</strong></div>
@@ -3356,12 +3818,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           <div data-pdf-fixed-student="true" className="border-b border-black pb-4 text-xs space-y-1">
             <h4 className="font-black uppercase text-[11px] text-gray-800">Enquadramento Pedagógico</h4>
             <div data-pdf-student-grid="4" className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-3 rounded">
-              <div><span className="text-gray-600 block">Classe:</span><strong>{alunoSelecionado.classeId || turmaDoAluno?.classe || '—'}</strong></div>
+              <div><span className="text-gray-600 block">Classe:</span><strong>{classeAlunoDoc || '—'}</strong></div>
               <div><span className="text-gray-600 block">Turma:</span><strong>{turmaDoAluno?.nome || '—'}</strong></div>
               <div><span className="text-gray-600 block">Turno:</span><strong>{turmaDoAluno?.turno || '—'}</strong></div>
               <div><span className="text-gray-600 block">Sala:</span><strong>{turmaDoAluno?.sala || '—'}</strong></div>
-              {alunoSelecionado.curso && (
-                <div className="col-span-2 sm:col-span-4 pt-1"><span className="text-gray-600">Curso:</span> <strong>{alunoSelecionado.curso}</strong></div>
+              {ehSegundoCicloAlunoDoc && cursoAlunoDoc && (
+                <div className="col-span-2 sm:col-span-4 pt-1"><span className="text-gray-600">Curso:</span> <strong>{cursoAlunoDoc}</strong></div>
               )}
             </div>
           </div>
@@ -3374,7 +3836,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {alunoSelecionado.ocorrencias.map((ocorr, oIdx) => (
                   <div key={ocorr.id || oIdx} className="bg-gray-50 border border-gray-300 p-2.5 rounded text-[11px] space-y-0.5">
                     <div className="flex justify-between items-center font-bold">
-                      <span className="text-gray-900">[{ocorr.data}] {ocorr.tipo} {ocorr.gravidade ? `(Gravidade: ${ocorr.gravidade})` : ''}</span>
+                      <span className="text-gray-900">[{formatarDataAngolana(ocorr.data, 'curto')}] {ocorr.tipo} {ocorr.gravidade ? `(Gravidade: ${ocorr.gravidade})` : ''}</span>
                       <span className="text-gray-600 font-normal">Averbado por: {ocorr.registadoPor} ({ocorr.cargo})</span>
                     </div>
                     <p className="text-gray-800">{ocorr.descricao}</p>
@@ -3502,7 +3964,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   <div><span className="text-gray-600">N.º Mecanográfico / Agente:</span> <strong className="font-mono">{funcionarioSelecionado.numeroAgente || (funcionarioSelecionado as any).numeroMecanografico || '—'}</strong></div>
                   <div><span className="text-gray-600">Tipo de Contrato:</span> <strong>{funcionarioSelecionado.tipoContrato || '—'}</strong></div>
                   <div><span className="text-gray-600">Situação Funcional:</span> <strong className="text-emerald-800">{funcionarioSelecionado.situacaoFuncional || 'Ativo no Efetivo'}</strong></div>
-                  <div><span className="text-gray-600">Data de Admissão:</span> <strong>{funcionarioSelecionado.dataAdmissao || '—'}</strong></div>
+                  <div><span className="text-gray-600">Data de Admissão:</span> <strong>{formatarDataAngolana(funcionarioSelecionado.dataAdmissao, 'curto')}</strong></div>
                   <div><span className="text-gray-600">Carga Horária Semanal:</span> <strong>{funcionarioSelecionado.cargaHorariaSemanal ? `${funcionarioSelecionado.cargaHorariaSemanal} horas/semana` : '—'}</strong></div>
                 </div>
               </div>
@@ -3517,19 +3979,35 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 </div>
               </div>
 
-              {/* Assinaturas Oficiais */}
-              <div className="pt-6 grid grid-cols-3 gap-4 text-center text-xs">
-                <div className="space-y-6">
-                  <p className="text-gray-700">O(A) Funcionário(a)</p>
+              {/* Assinaturas Oficiais: Título -> Traço -> Nome */}
+              <div className="pt-6 grid grid-cols-3 gap-4 text-center text-xs items-end">
+                <div className="space-y-1">
+                  <p className="text-gray-900 font-bold uppercase text-[11px]">O(A) Funcionário(a)</p>
+                  <div className="h-6" />
                   <div className="border-b border-black w-40 mx-auto" />
+                  <p className="font-semibold text-gray-800 text-[11px] uppercase">{funcionarioSelecionado.nomeCompleto}</p>
                 </div>
-                <div className="space-y-6">
-                  <p className="text-gray-700">O Chefe de Secretaria</p>
+                <div className="space-y-1">
+                  <p className="text-gray-900 font-bold uppercase text-[11px]">{getTituloChefeSecretaria(escola)}</p>
+                  <div className="h-6" />
                   <div className="border-b border-black w-40 mx-auto" />
+                  <p className="font-semibold text-gray-800 text-[11px] uppercase">{chefeSecretariaNome}</p>
                 </div>
-                <div className="space-y-6">
-                  <p className="text-gray-700">O Director Geral</p>
+                <div className="space-y-1 flex flex-col items-center justify-end">
+                  <p className="text-gray-900 font-bold uppercase text-[11px]">{getTituloDiretor(escola)}</p>
+                  {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                    <div className="h-9 flex items-center justify-center -mb-1">
+                      <img
+                        src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                        alt="Assinatura do Director"
+                        className="max-h-8 max-w-[120px] object-contain mix-blend-multiply"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-6" />
+                  )}
                   <div className="border-b border-black w-40 mx-auto" />
+                  <p className="font-semibold text-gray-800 text-[11px] uppercase">{nomeDiretorGeral}</p>
                 </div>
               </div>
 
@@ -3612,18 +4090,18 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               <h2 className="text-base font-black uppercase text-gray-950 pt-1">{escola.nomeOficial}</h2>
               <div className="pt-2">
                 <span className="text-xs sm:text-sm font-black uppercase border-2 border-black px-6 py-1.5 inline-block bg-emerald-50">
-                  FOLHA OFICIAL DE PRESENÇAS E ASSIDUIDADE — PERÍODO DE {dataInicioPresencas} A {dataFimPresencas}
+                  FOLHA OFICIAL DE PRESENÇAS E ASSIDUIDADE — PERÍODO DE {formatarDataAngolana(dataInicioPresencas, 'curto')} A {formatarDataAngolana(dataFimPresencas, 'curto')}
                 </span>
               </div>
             </div>
 
             <div data-pdf-fixed-student="true" className="flex justify-between items-center text-xs font-bold bg-gray-50 p-2.5 rounded border border-gray-300">
-              <div>Turma: <span className="text-blue-900 font-extrabold">{turmaSelecionada?.nome}</span> ({turmaSelecionada?.classe})</div>
-              <div>Turno: <span>{turmaSelecionada?.turno || 'Manhã'}</span> • Sala: <span>{turmaSelecionada?.sala || '01'}</span></div>
+              <div>Turma: <span className="text-blue-900 font-extrabold">{turmaSelecionada?.nome || '—'}</span> ({turmaSelecionada?.classe || '—'})</div>
+              <div>Turno: <span>{turmaSelecionada?.turno || '—'}</span> • Sala: <span>{turmaSelecionada?.sala || '—'}</span></div>
               <div>Ano Lectivo: <span>{turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</span></div>
             </div>
 
-            {/* Tabela de Presenças */}
+            {/* Tabela de Presenças Reais */}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[700px] text-[10px] border border-black">
                 <thead>
@@ -3639,198 +4117,309 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {alunosDaTurma.map((aluno, idx) => (
-                    <tr key={aluno.id} className="border-b border-gray-300">
-                      <td className="p-1 border-r border-gray-300 text-center font-bold">{idx + 1}</td>
-                      <td className="p-1 border-r border-gray-300 font-mono text-center">{aluno.codigoMatricula}</td>
-                      <td className="p-1 border-r border-gray-300 font-bold uppercase">{aluno.nomeCompleto}</td>
-                      <td className="p-1 border-r border-gray-300 text-center font-bold text-emerald-800">18</td>
-                      <td className="p-1 border-r border-gray-300 text-center">0</td>
-                      <td className="p-1 border-r border-gray-300 text-center text-red-700">1</td>
-                      <td className="p-1 border-r border-gray-300 text-center font-bold">95%</td>
-                      <td className="p-1 text-center font-serif italic text-gray-400">Visto</td>
+                  {alunosDaTurma.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-gray-500 italic">
+                        Nenhum estudante matriculado nesta turma.
+                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    alunosDaTurma.map((aluno, idx) => {
+                      const regsAluno = presencasTurmaPeriodo.filter(p => p.alunoId === aluno.id);
+                      const qtdP = regsAluno.filter(p => p.estado === 'Presente').length;
+                      const qtdFJ = regsAluno.filter(p => p.estado === 'Falta_Justificada').length;
+                      const qtdFI = regsAluno.filter(p => p.estado === 'Falta_Injustificada').length;
+                      const totalRegs = qtdP + qtdFJ + qtdFI;
+                      const perc = totalRegs > 0 ? `${Math.round((qtdP / totalRegs) * 100)}%` : '—';
+                      return (
+                        <tr key={aluno.id} className="border-b border-gray-300">
+                          <td className="p-1 border-r border-gray-300 text-center font-bold">{idx + 1}</td>
+                          <td className="p-1 border-r border-gray-300 font-mono text-center">{aluno.codigoMatricula}</td>
+                          <td className="p-1 border-r border-gray-300 font-bold uppercase">{aluno.nomeCompleto}</td>
+                          <td className="p-1 border-r border-gray-300 text-center font-bold text-emerald-800">{totalRegs > 0 ? qtdP : '—'}</td>
+                          <td className="p-1 border-r border-gray-300 text-center">{totalRegs > 0 ? qtdFJ : '—'}</td>
+                          <td className="p-1 border-r border-gray-300 text-center text-red-700">{totalRegs > 0 ? qtdFI : '—'}</td>
+                          <td className="p-1 border-r border-gray-300 text-center font-bold">{perc}</td>
+                          <td className="p-1 text-center font-serif italic text-gray-400">Visto</td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
 
             {/* Assinaturas Oficiais com Coordenador, Subdirector e Director Geral */}
-            <div className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs">
-              <div className="space-y-4">
+            <div className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs items-end">
+              <div className="space-y-1">
                 <p className="font-bold text-gray-900">{obterTituloCoordenadorTurma(turmaSelecionada, funcionariosEscola)}</p>
+                <div className="h-6" />
                 <div className="border-b border-black w-44 mx-auto" />
                 <p className="font-semibold text-gray-800 text-[11px]">{obterNomeCoordenadorTurma(turmaSelecionada, funcionariosEscola)}</p>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-1">
                 <p className="font-bold text-gray-900">{getTituloSubPedagogico(escola)}</p>
+                <div className="h-6" />
                 <div className="border-b border-black w-44 mx-auto" />
                 <p className="font-semibold text-gray-800 text-[11px]">{subdirectorPedagogicoNome}</p>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-1 flex flex-col items-center justify-end">
                 <p className="font-bold text-gray-900">{getTituloDiretor(escola)}</p>
+                {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                  <div className="h-9 flex items-center justify-center -mb-1">
+                    <img
+                      src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                      alt="Assinatura do Director"
+                      className="max-h-8 max-w-[120px] object-contain mix-blend-multiply"
+                    />
+                  </div>
+                ) : (
+                  <div className="h-6" />
+                )}
                 <div className="border-b border-black w-44 mx-auto" />
                 <p className="font-semibold text-gray-800 text-[11px]">{nomeDiretorGeral}</p>
               </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
-              <div className="text-left">
-                <p className="font-bold uppercase text-gray-800">Autenticação da Folha de Presenças</p>
-                <p>Período: {dataInicioPresencas} a {dataFimPresencas} • {turmaSelecionada?.nome}.</p>
+            {exibirCodigoQrDoc && (
+              <div className="mt-4 pt-3 border-t border-gray-200 flex items-center justify-between gap-4 text-[9px] text-gray-600">
+                <div className="text-left">
+                  <p className="font-bold uppercase text-gray-800">Autenticação da Folha de Presenças</p>
+                  <p>Período: {formatarDataAngolana(dataInicioPresencas, 'curto')} a {formatarDataAngolana(dataFimPresencas, 'curto')} • {turmaSelecionada?.nome || 'Turma'}.</p>
+                </div>
+                <OfficialQrCode
+                  value={gerarPayloadQrDocumento({
+                    docType: 'FICHA_PRESENCAS',
+                    escolaId: escola.id,
+                    docRef: `${turmaSelecionada?.id || 'turma'}-${dataInicioPresencas}-${dataFimPresencas}`,
+                    turmaId: turmaSelecionada?.id,
+                    anoLectivo: turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                  })}
+                  size={50}
+                  label="Validar Folha"
+                />
               </div>
-              <OfficialQrCode
-                value={gerarPayloadQrDocumento({
-                  docType: 'FICHA_PRESENCAS',
-                  escolaId: escola.id,
-                  docRef: `${turmaSelecionada?.id || 'turma'}-${dataInicioPresencas}-${dataFimPresencas}`,
-                  turmaId: turmaSelecionada?.id,
-                  anoLectivo: turmaSelecionada?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
-                })}
-                size={50}
-                label="Validar Folha"
-              />
-            </div>
+            )}
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 7. RECIBOS TÉRMICOS (POS 58MM / 80MM) */}
+      {/* 7. RECIBOS TÉRMICOS (POS 58MM / 80MM)                                     */}
       {/* ========================================================================= */}
       {docType === 'recibos' && (
         <div className="flex flex-col items-center justify-center space-y-4">
-          <div className="p-3 bg-gray-100 border border-gray-300 rounded-lg text-xs text-gray-700 max-w-md w-full no-print">
-            <strong>Impressão Térmica POS:</strong> Compatível com mini impressoras térmicas Bluetooth portáteis de 58mm ou 80mm para recibos imediatos de propinas e confirmação de matrícula.
+          <div className="p-3 bg-gray-100 border border-gray-300 rounded-lg text-xs text-gray-700 max-w-md w-full no-print space-y-2">
+            <div>
+              <strong>Impressão Térmica POS:</strong> Compatível com impressoras térmicas portáteis de 58mm ou 80mm para recibos reais de propinas e emolumentos.
+            </div>
+            {recibosReaisDoAluno.length > 0 && (
+              <div>
+                <label className="text-[10px] font-bold uppercase text-gray-600 block mb-1">
+                  Recibo Registado do Estudante ({recibosReaisDoAluno.length}):
+                </label>
+                <select
+                  value={reciboAtivoAluno?.id || ''}
+                  onChange={(e) => setSelectedReciboId(e.target.value)}
+                  className="w-full p-1.5 border border-gray-300 rounded bg-white text-xs font-bold text-gray-900"
+                >
+                  {recibosReaisDoAluno.map(rec => (
+                    <option key={rec.id} value={rec.id}>
+                      {rec.numeroRecibo} • {rec.descricao} • {rec.valorTotalKz.toLocaleString('pt-AO')} Kz ({formatarDataAngolana(rec.dataHora, 'curto')})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          <div 
-            id="documento-para-impressao"
-            data-doc-root="true"
-            className={`documento-oficial-print bg-white border border-gray-400 p-4 shadow-md font-mono text-[11px] leading-tight text-gray-950 space-y-3 ${
-              larguraTermica === '58mm' ? 'w-[280px]' : 'w-[360px]'
-            }`}
-          >
-            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-0.5 border-b border-dashed border-gray-400 pb-2">
-              <div className="flex justify-center mb-1">
-                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                  <img 
-                    src={configSistema.insigniaNacionalUrl} 
-                    alt="Insígnia" 
-                    className="h-8 w-8 object-contain" 
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <InsigniaAngola size={28} />
+          {!alunoSelecionado || !reciboAtivoAluno ? (
+            <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-10 text-center text-gray-500 max-w-md w-full">
+              <Receipt className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+              <h3 className="text-sm font-bold text-gray-800">Nenhum Pagamento Registado</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                {alunoSelecionado
+                  ? `O estudante ${alunoSelecionado.nomeCompleto} não possui recibos ou transações financeiras lançadas na tesouraria.`
+                  : 'Selecione um estudante com pagamento registado para emitir o recibo.'}
+              </p>
+            </div>
+          ) : (
+            <div 
+              id="documento-para-impressao"
+              data-doc-root="true"
+              className={`documento-oficial-print bg-white border border-gray-400 p-4 shadow-md font-mono text-[11px] leading-tight text-gray-950 space-y-3 ${
+                larguraTermica === '58mm' ? 'w-[280px]' : 'w-[360px]'
+              }`}
+            >
+              <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-0.5 border-b border-dashed border-gray-400 pb-2">
+                {exibirInsigniaDoc && (
+                  <div className="flex justify-center mb-1">
+                    {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                      <img 
+                        src={configSistema.insigniaNacionalUrl} 
+                        alt="Insígnia" 
+                        className="h-8 w-8 object-contain" 
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <InsigniaAngola size={28} />
+                    )}
+                  </div>
+                )}
+                <p className="font-bold uppercase text-[10px]">{escola.nomeOficial}</p>
+                <p className="text-[9px] text-gray-600">NIF: {escola.nif || '—'}</p>
+                <p className="text-[9px] text-gray-600">{escola.municipio}, {escola.provincia} - Angola</p>
+                <p className="font-bold text-[10px] mt-1">{limparTextoSistema(configAtual?.tituloOficial) || 'COMPROVATIVO DE PAGAMENTO'}</p>
+              </div>
+
+              <div data-pdf-fixed-student="true" className="space-y-1 text-[10px]">
+                <div className="flex justify-between">
+                  <span>Data:</span>
+                  <span>{formatarDataHoraAngolana(reciboAtivoAluno.dataHora)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Recibo Nº:</span>
+                  <span className="font-bold">{reciboAtivoAluno.numeroRecibo}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Aluno:</span>
+                  <span className="font-bold truncate max-w-[160px]">{alunoSelecionado.nomeCompleto}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Matrícula:</span>
+                  <span>{alunoSelecionado.codigoMatricula}</span>
+                </div>
+                {reciboAtivoAluno.operadorNome && (
+                  <div className="flex justify-between">
+                    <span>Operador:</span>
+                    <span className="truncate max-w-[160px]">{reciboAtivoAluno.operadorNome}</span>
+                  </div>
                 )}
               </div>
-              <p className="font-bold uppercase text-[10px]">{escola.nomeOficial}</p>
-              <p className="text-[9px] text-gray-600">NIF: {escola.nif}</p>
-              <p className="text-[9px] text-gray-600">{escola.municipio}, {escola.provincia} - Angola</p>
-              <p className="font-bold text-[10px] mt-1">COMPROVATIVO DE PAGAMENTO</p>
-            </div>
 
-            <div data-pdf-fixed-student="true" className="space-y-1 text-[10px]">
-              <div className="flex justify-between">
-                <span>Data:</span>
-                <span>{new Date().toLocaleDateString('pt-AO')} {new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}</span>
+              <div className="border-t border-b border-dashed border-gray-400 py-1 space-y-1 text-[10px]">
+                <div className="flex justify-between font-bold">
+                  <span>DESCRIÇÃO</span>
+                  <span>VALOR</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="pr-2">{reciboAtivoAluno.descricao}</span>
+                  <span className="shrink-0">{reciboAtivoAluno.valorKz.toLocaleString('pt-AO', { minimumFractionDigits: 2 })} Kz</span>
+                </div>
+                {Boolean(reciboAtivoAluno.multaKz && reciboAtivoAluno.multaKz > 0) && (
+                  <div className="flex justify-between text-gray-600 text-[9px]">
+                    <span>Acréscimo / Multa</span>
+                    <span>{reciboAtivoAluno.multaKz!.toLocaleString('pt-AO', { minimumFractionDigits: 2 })} Kz</span>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span>Recibo Nº:</span>
-                <span className="font-bold">REC-2025/{Math.floor(1000 + Math.random() * 9000)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Aluno:</span>
-                <span className="font-bold truncate max-w-[160px]">{alunoSelecionado.nomeCompleto}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Matrícula:</span>
-                <span>{alunoSelecionado.codigoMatricula}</span>
-              </div>
-            </div>
 
-            <div className="border-t border-b border-dashed border-gray-400 py-1 space-y-1 text-[10px]">
-              <div className="flex justify-between font-bold">
-                <span>DESCRIÇÃO</span>
-                <span>VALOR</span>
+              <div className="space-y-1 text-[11px] pt-1">
+                <div className="flex justify-between font-extrabold text-sm">
+                  <span>TOTAL PAGO:</span>
+                  <span>{reciboAtivoAluno.valorTotalKz.toLocaleString('pt-AO', { minimumFractionDigits: 2 })} Kz</span>
+                </div>
+                <div className="flex justify-between text-[9px] text-gray-600">
+                  <span>Forma de Pagamento:</span>
+                  <span>{reciboAtivoAluno.metodoPagamento}</span>
+                </div>
+                {reciboAtivoAluno.numeroComprovativo && (
+                  <div className="flex justify-between text-[9px] text-gray-600">
+                    <span>Ref. Comprovativo:</span>
+                    <span>{reciboAtivoAluno.numeroComprovativo}</span>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span>Propina Mês Corrente</span>
-                <span>12.500,00 Kz</span>
-              </div>
-              <div className="flex justify-between text-gray-600 text-[9px]">
-                <span>Emissão de Cartão</span>
-                <span>1.500,00 Kz</span>
-              </div>
-            </div>
 
-            <div className="space-y-1 text-[11px] pt-1">
-              <div className="flex justify-between font-extrabold text-sm">
-                <span>TOTAL PAGO:</span>
-                <span>14.000,00 Kz</span>
-              </div>
-              <div className="flex justify-between text-[9px] text-gray-600">
-                <span>Forma de Pagamento:</span>
-                <span>TPA / Multicaixa</span>
+              <div className="text-center pt-2 border-t border-dashed border-gray-400 space-y-1.5 text-[9px]">
+                <p className="font-bold">OBRIGADO PELA PREFERÊNCIA</p>
+                <p className="text-[8px] text-gray-500">Documento Oficial de Tesouraria Escolar</p>
+                {exibirCodigoQrDoc && (
+                  <div className="flex justify-center pt-1">
+                    <OfficialQrCode
+                      value={gerarPayloadQrDocumento({
+                        docType: 'RECIBO_TESOURARIA',
+                        escolaId: escola.id,
+                        docRef: reciboAtivoAluno.numeroRecibo,
+                        alunoId: alunoSelecionado.id,
+                        alunoNome: alunoSelecionado.nomeCompleto,
+                        turmaId: turmaDoAluno?.id,
+                        anoLectivo: escola.anoLectivoActivo
+                      })}
+                      size={52}
+                      label="Validar Recibo"
+                    />
+                  </div>
+                )}
+                <p className="pt-1">--------------------------------</p>
               </div>
             </div>
-
-            <div className="text-center pt-2 border-t border-dashed border-gray-400 space-y-1.5 text-[9px]">
-              <p className="font-bold">OBRIGADO PELA SUA PREFERÊNCIA</p>
-              <p className="text-[8px] text-gray-500">Documento Oficial de Tesouraria Escolar</p>
-              <div className="flex justify-center pt-1">
-                <OfficialQrCode
-                  value={gerarPayloadQrDocumento({
-                    docType: 'RECIBO_TESOURARIA',
-                    escolaId: escola.id,
-                    docRef: `REC-${alunoSelecionado.codigoMatricula}`,
-                    alunoId: alunoSelecionado.id,
-                    alunoNome: alunoSelecionado.nomeCompleto,
-                    turmaId: turmaDoAluno?.id,
-                    anoLectivo: escola.anoLectivoActivo
-                  })}
-                  size={52}
-                  label="Validar Recibo"
-                />
-              </div>
-              <p className="pt-1">--------------------------------</p>
-              <p className="text-[8px] text-gray-400">[CORTE DO TALÃO AQUI]</p>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 8. TERMOS DE EXAME & DELIBERAÇÃO OFICIAL DO JÚRI */}
+      {/* 8. TERMOS DE EXAME & DELIBERAÇÃO OFICIAL DO JÚRI                          */}
       {/* ========================================================================= */}
       {docType === 'termos_exame' && (
+        !turmaSelecionada ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
+            <ClipboardList className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-gray-800">Nenhuma Turma Selecionada</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Selecione uma turma para visualizar o Termo de Exame e Deliberação do Júri.
+            </p>
+          </div>
+        ) : (
         <div className="flex justify-center">
           <div 
             id="documento-para-impressao"
             data-doc-root="true"
-            className="documento-oficial-print bg-white border border-gray-400 p-8 shadow-lg max-w-[950px] w-full text-black space-y-5 print:border-none print:shadow-none print:p-0 print:max-w-none"
+            className={`documento-oficial-print bg-white border border-gray-400 p-8 shadow-lg max-w-[950px] w-full text-black space-y-5 print:border-none print:shadow-none print:p-0 print:max-w-none ${fontScaleClassDoc}`}
           >
             {/* Topo Oficial com Brasão Oficial da República de Angola Fixo */}
-            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
-              <div className="flex justify-center mb-1">
-                {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                  <img 
-                    src={configSistema.insigniaNacionalUrl} 
-                    alt="Insígnia" 
-                    className="h-16 w-16 object-contain" 
+            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="relative text-center space-y-1">
+              {exibirLogoEscolaDoc && (
+                <div data-pdf-corner-right="true" className="absolute right-0 top-0 z-10">
+                  <img
+                    src={escola.logotipoUrl || escola.logotipo}
+                    alt={`Logotipo ${escola.nomeOficial}`}
+                    className="h-14 w-14 object-contain rounded-md"
                     referrerPolicy="no-referrer"
                   />
-                ) : (
-                  <InsigniaAngola size={56} />
-                )}
-              </div>
-              <p className="font-serif font-black text-xs uppercase tracking-widest text-gray-800">
-                REPÚBLICA DE ANGOLA
-              </p>
-              <p className="font-serif font-bold text-xs uppercase text-gray-700">
-                GOVERNO PROVINCIAL • GABINETE PROVINCIAL DA EDUCAÇÃO
-              </p>
-              <h3 className="font-serif font-black text-base uppercase text-blue-950 mt-1 print:text-black">
+                </div>
+              )}
+              {exibirInsigniaDoc && (
+                <div className="flex justify-center mb-1">
+                  {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
+                    <img 
+                      src={configSistema.insigniaNacionalUrl} 
+                      alt="Insígnia" 
+                      className="h-16 w-16 object-contain" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <InsigniaAngola size={56} />
+                  )}
+                </div>
+              )}
+              {cabecalhoLinhasDoc ? (
+                cabecalhoLinhasDoc.map((linha, idx) => (
+                  <p key={idx} className={idx === 0 ? 'font-serif font-black text-xs uppercase tracking-widest text-gray-800' : 'font-serif font-bold text-xs uppercase text-gray-700'}>
+                    {linha}
+                  </p>
+                ))
+              ) : (
+                <>
+                  <p className="font-serif font-black text-xs uppercase tracking-widest text-gray-800">
+                    REPÚBLICA DE ANGOLA
+                  </p>
+                  <p className="font-serif font-bold text-xs uppercase text-gray-700">
+                    {escola.governoProvincial || `GOVERNO PROVINCIAL DE ${(escola.provincia || 'LUANDA').toUpperCase()}`} • {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
+                  </p>
+                </>
+              )}
+              <h3 className="font-serif font-black text-base uppercase mt-1 print:text-black" style={{ color: corDestaqueDoc }}>
                 {escola.nomeOficial}
               </h3>
               <p className="text-[11px] text-gray-600 font-serif italic">
@@ -3838,7 +4427,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </p>
               <div className="pt-2">
                 <span className="font-bold text-sm tracking-wider uppercase bg-gray-100 px-4 py-1 rounded border border-gray-300 inline-block">
-                  TERMO DE EXAME &amp; DELIBERAÇÃO FINAL DO JÚRI
+                  {limparTextoSistema(configAtual?.tituloOficial) || 'TERMO DE EXAME & DELIBERAÇÃO FINAL DO JÚRI'}
                 </span>
               </div>
             </div>
@@ -3846,8 +4435,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             {/* Metadados Oficiais Fixos */}
             <div data-pdf-fixed-student="true" data-pdf-student-grid="4" className="bg-gray-50 border border-black p-3 text-xs grid grid-cols-2 sm:grid-cols-4 gap-2 font-medium">
               <div>
-                <span className="text-gray-600 block text-[10px]">Classe / Curso:</span>
-                <strong className="text-gray-900">{turmaSelecionada.classe} • {turmaSelecionada.curso || 'Geral'}</strong>
+                <span className="text-gray-600 block text-[10px]">
+                  {isSegundoCiclo(turmaSelecionada.classe) ? 'Classe / Curso:' : 'Classe:'}
+                </span>
+                <strong className="text-gray-900">
+                  {turmaSelecionada.classe}
+                  {isSegundoCiclo(turmaSelecionada.classe) && turmaSelecionada.curso ? ` • ${turmaSelecionada.curso}` : ''}
+                </strong>
               </div>
               <div>
                 <span className="text-gray-600 block text-[10px]">Turma / Turno:</span>
@@ -3855,11 +4449,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               </div>
               <div>
                 <span className="text-gray-600 block text-[10px]">Ano Lectivo:</span>
-                <strong className="text-gray-900">{turmaSelecionada.anoLectivo || selectedAnoLectivo}</strong>
+                <strong className="text-gray-900">{turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo}</strong>
               </div>
               <div>
                 <span className="text-gray-600 block text-[10px]">Data do Termo:</span>
-                <strong className="text-gray-900">{new Date().toLocaleDateString('pt-AO')}</strong>
+                <strong className="text-gray-900">{hojeAngolano('curto')}</strong>
               </div>
             </div>
 
@@ -3880,88 +4474,108 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black text-center">
-                  {alunosDaTurma.map((aluno, idx) => {
-                    const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
-                    const medias = notasAluno.map(n => n.mediaTrimestral || n.notaFinal || 0).filter(v => v > 0);
-                    const mfd = medias.length > 0 ? (medias.reduce((a, b) => a + b, 0) / medias.length) : null;
-                    const notaExame = notasAluno.find(n => n.provaTrimestral && n.provaTrimestral > 0)?.provaTrimestral || null;
-                    const notaRecurso = (notasAluno.find(n => (n as any).notaRecurso && (n as any).notaRecurso > 0) as any)?.notaRecurso || null;
-                    const notaFinal = notaRecurso !== null ? Math.max(notaRecurso, mfd || 0) : notaExame !== null && mfd !== null ? Math.round((mfd * 0.4 + notaExame * 0.6) * 10) / 10 : (mfd !== null ? Math.round(mfd * 10) / 10 : null);
-                    const aprovado = notaFinal !== null && notaFinal >= 10;
+                  {(() => {
+                    const escalaAprovTermo = obterInformacaoEscala(turmaSelecionada.classe, turmaSelecionada.nivelEnsino).notaAprovacao;
+                    return alunosDaTurma.map((aluno, idx) => {
+                      const notasAluno = notasConsolidadas.filter(n => n.alunoId === aluno.id && (n.turmaId === turmaSelecionada.id || !n.turmaId));
+                      const medias = notasAluno.map(n => n.mediaTrimestral || n.notaFinal || 0).filter(v => v > 0);
+                      const mfd = medias.length > 0 ? (medias.reduce((a, b) => a + b, 0) / medias.length) : null;
+                      const notaExame = notasAluno.find(n => n.provaTrimestral && n.provaTrimestral > 0)?.provaTrimestral || null;
+                      const notaRecurso = (notasAluno.find(n => (n as any).notaRecurso && (n as any).notaRecurso > 0) as any)?.notaRecurso || null;
+                      const notaFinal = notaRecurso !== null ? Math.max(notaRecurso, mfd || 0) : notaExame !== null && mfd !== null ? Math.round((mfd * 0.4 + notaExame * 0.6) * 10) / 10 : (mfd !== null ? Math.round(mfd * 10) / 10 : null);
+                      const aprovado = notaFinal !== null && notaFinal >= escalaAprovTermo;
 
-                    return (
-                      <tr key={aluno.id} className="hover:bg-gray-50">
-                        <td className="p-1.5 border-r border-black font-bold">{idx + 1}</td>
-                        <td className="p-1.5 border-r border-black font-mono text-[10px]">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
-                        <td className="p-1.5 border-r border-black text-left font-bold uppercase truncate max-w-[220px]">{aluno.nomeCompleto}</td>
-                        <td className="p-1.5 border-r border-black font-mono">{mfd !== null ? mfd.toFixed(1) : '—'}</td>
-                        <td className="p-1.5 border-r border-black font-mono">{notaExame !== null ? notaExame.toFixed(1) : '—'}</td>
-                        <td className="p-1.5 border-r border-black font-mono">{notaRecurso !== null ? notaRecurso.toFixed(1) : '—'}</td>
-                        <td className="p-1.5 border-r border-black font-mono font-black bg-gray-50">{notaFinal !== null ? notaFinal.toFixed(1) : '—'}</td>
-                        <td className="p-1.5 border-r border-black font-bold text-[10px]">
-                          {notaFinal !== null ? (
-                            <span className={aprovado ? 'text-emerald-800' : 'text-red-700'}>
-                              {aprovado ? 'Aprovado' : 'Não Aprovado'}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td className="p-1.5 font-serif italic text-gray-400 text-[10px]">Rubrica</td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr key={aluno.id} className="hover:bg-gray-50">
+                          <td className="p-1.5 border-r border-black font-bold">{idx + 1}</td>
+                          <td className="p-1.5 border-r border-black font-mono text-[10px]">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
+                          <td className="p-1.5 border-r border-black text-left font-bold uppercase truncate max-w-[220px]">{aluno.nomeCompleto}</td>
+                          <td className="p-1.5 border-r border-black font-mono">{mfd !== null ? mfd.toFixed(1) : '—'}</td>
+                          <td className="p-1.5 border-r border-black font-mono">{notaExame !== null ? notaExame.toFixed(1) : '—'}</td>
+                          <td className="p-1.5 border-r border-black font-mono">{notaRecurso !== null ? notaRecurso.toFixed(1) : '—'}</td>
+                          <td className="p-1.5 border-r border-black font-mono font-black bg-gray-50">{notaFinal !== null ? notaFinal.toFixed(1) : '—'}</td>
+                          <td className="p-1.5 border-r border-black font-bold text-[10px]">
+                            {notaFinal !== null ? (
+                              <span className={aprovado ? 'text-emerald-800' : 'text-red-700'}>
+                                {aprovado ? 'Aprovado' : 'Não Aprovado'}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className="p-1.5 font-serif italic text-gray-400 text-[10px]">Rubrica</td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
 
-            {/* Termo e Assinaturas */}
+            {/* Termo e Assinaturas: Título -> Traço -> Nome */}
             <div className="pt-4 space-y-4 text-xs font-serif">
               <p className="leading-relaxed text-justify">
-                Aos {new Date().getDate()} dias do mês de {new Date().toLocaleDateString('pt-AO', { month: 'long' })} de {new Date().getFullYear()}, reuniu-se a Comissão de Júri devidamente credenciada para deliberação final das provas de exame e recurso dos discentes acima identificados. Nada mais havendo a constar, lavrou-se o presente Termo oficial que vai assinado pela comissão e homologado pela Direcção da Escola.
+                Em {hojeAngolano('extenso')}, reuniu-se a Comissão de Júri devidamente credenciada para deliberação final das provas de exame e recurso dos discentes acima identificados. Nada mais havendo a constar, lavrou-se o presente Termo oficial que vai assinado pela comissão e homologado pela Direcção da Escola.
               </p>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center pt-4">
-                <div className="space-y-3">
-                  <p className="font-bold text-gray-900 font-sans">{obterPresidenteJuri(juriTurmaSelecionada, funcionariosEscola)}</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center pt-4 items-end">
+                <div className="space-y-1">
+                  <p className="text-[11px] text-gray-900 font-sans uppercase font-bold">O Presidente do Júri</p>
+                  <div className="h-6" />
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">O Presidente do Júri</p>
+                  <p className="font-bold text-gray-800 font-sans text-[11px]">{obterPresidenteJuri(juriTurmaSelecionada, funcionariosEscola)}</p>
                 </div>
-                <div className="space-y-3">
-                  <p className="font-bold text-gray-900 font-sans">{obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola).primeiroVogal}</p>
+                <div className="space-y-1">
+                  <p className="text-[11px] text-gray-900 font-sans uppercase font-bold">O 1º Vogal do Júri</p>
+                  <div className="h-6" />
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">O 1º Vogal do Júri</p>
+                  <p className="font-bold text-gray-800 font-sans text-[11px]">{obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola).primeiroVogal}</p>
                 </div>
-                <div className="space-y-3">
-                  <p className="font-bold text-gray-900 font-sans">{obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola).segundoVogal}</p>
+                <div className="space-y-1">
+                  <p className="text-[11px] text-gray-900 font-sans uppercase font-bold">O 2º Vogal do Júri</p>
+                  <div className="h-6" />
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">O 2º Vogal do Júri</p>
+                  <p className="font-bold text-gray-800 font-sans text-[11px]">{obterVogaisJuri(juriTurmaSelecionada, funcionariosEscola).segundoVogal}</p>
                 </div>
-                <div className="space-y-3">
-                  <p className="font-bold text-gray-900 font-sans">{nomeDiretorGeral}</p>
+                <div className="space-y-1 flex flex-col items-center justify-end">
+                  <p className="text-[11px] text-gray-900 font-sans uppercase font-bold">{tituloDiretorGeral} (Homologação)</p>
+                  {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                    <div className="h-9 flex items-center justify-center -mb-1">
+                      <img
+                        src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                        alt="Assinatura do Director"
+                        className="max-h-8 max-w-[120px] object-contain mix-blend-multiply"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-6" />
+                  )}
                   <div className="border-b border-black w-40 mx-auto" />
-                  <p className="text-[11px] text-gray-700 font-sans uppercase font-bold">{tituloDiretorGeral} (Homologação)</p>
+                  <p className="font-bold text-gray-800 font-sans text-[11px]">{nomeDiretorGeral}</p>
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600 font-sans">
-                <div className="text-left">
-                  <p className="font-bold uppercase text-gray-800">Autenticação Oficial do Termo de Exame</p>
-                  <p>Verifique a validade deste documento oficial digitalizando o código QR.</p>
+              {exibirCodigoQrDoc && (
+                <div className="mt-4 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600 font-sans">
+                  <div className="text-left">
+                    <p className="font-bold uppercase text-gray-800">Autenticação Oficial do Termo de Exame</p>
+                    <p>Verifique a validade deste documento oficial digitalizando o código QR.</p>
+                  </div>
+                  <OfficialQrCode
+                    value={gerarPayloadQrDocumento({
+                      docType: 'TERMO_EXAME',
+                      escolaId: escola.id,
+                      docRef: `TERMO-${turmaSelecionada.id}`,
+                      turmaId: turmaSelecionada.id,
+                      anoLectivo: turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
+                    })}
+                    size={54}
+                    label="Validar Termo"
+                  />
                 </div>
-                <OfficialQrCode
-                  value={gerarPayloadQrDocumento({
-                    docType: 'TERMO_EXAME',
-                    escolaId: escola.id,
-                    docRef: `TERMO-${turmaSelecionada.id}`,
-                    turmaId: turmaSelecionada.id,
-                    anoLectivo: turmaSelecionada.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo
-                  })}
-                  size={54}
-                  label="Validar Termo"
-                />
-              </div>
+              )}
             </div>
           </div>
         </div>
+        )
       )}
 
       {docType === 'lista_nominal' && (

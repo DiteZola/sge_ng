@@ -325,10 +325,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         {
           id: 'relatorios',
-          label: 'Relatórios Oficiais MED',
+          label: 'Relatórios & Acontecimentos',
           icon: FileSpreadsheet,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'TecnicoTI'],
-          badge: userRole === 'AdminGeral' ? 'Todas Escolas' : 'Balanços'
+          badge: userRole === 'AdminGeral' ? 'Todas Escolas' : 'Actas & Eventos'
         },
         {
           id: 'estatisticas',

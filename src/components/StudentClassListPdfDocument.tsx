@@ -14,6 +14,7 @@ import {
 import { downloadElementAsPdf, imprimirElementoDiretamente, PdfMarginsMm } from '../utils/pdfGenerator';
 import { formatarParaDataAngola } from './AngolaDateInput';
 import { dbService } from '../services/storage';
+import { hojeAngolano } from '../utils/dateFormat';
 
 interface StudentClassListPdfDocumentProps {
   escola: Escola;
@@ -597,7 +598,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
           <span>Total de Alunos Matriculados: <strong className="font-black text-black">{totalAlunos}</strong></span>
           <span>Masculino: <strong className="font-black text-black">{totalM}</strong></span>
           <span>Feminino: <strong className="font-black text-black">{totalF}</strong></span>
-          <span>Data de Emissão: <strong className="font-black text-black">{new Date().toLocaleDateString('pt-AO')}</strong></span>
+          <span>Data de Emissão: <strong className="font-black text-black">{hojeAngolano('curto')}</strong></span>
         </div>
 
         {/* Assinaturas Oficiais com Traço Centrado e Gênero Correto */}
