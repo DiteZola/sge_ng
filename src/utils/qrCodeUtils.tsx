@@ -29,7 +29,8 @@ export type QrDocumentType =
   | 'RELATORIO_ACONTECIMENTOS'
   | 'MAPA_ESTATISTICO'
   | 'LISTA_NOMINAL'
-  | 'COMPROVATIVO_MATRICULA';
+  | 'COMPROVATIVO_MATRICULA'
+  | 'COMPROVATIVO_CONFIRMACAO';
 
 export interface ParsedQrResult {
   validFormat: boolean;

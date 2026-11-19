@@ -3173,6 +3173,8 @@ export const dbService = {
     novoCurso?: string;
     novoNumeroMatricula?: string;
     anoLectivo: string;
+    mediaFinalAnterior?: number | null;
+    aprovadoAnterior?: boolean;
   }): Aluno | null => {
     const alunos = dbService.getAlunos();
     const idx = alunos.findIndex(a => a.id === dados.alunoId);
@@ -3181,13 +3183,20 @@ export const dbService = {
 
     const historicoAntigo = [...(aluno.historicoAnterior || [])];
     if (aluno.classeId && (aluno.anoLectivo || aluno.anoMatricula)) {
-      historicoAntigo.push({
-        classe: aluno.classeId,
-        anoLectivo: aluno.anoLectivo || aluno.anoMatricula || '2024/2025',
-        mediaFinal: 14,
-        aprovado: true,
-        concluido: true
-      });
+      const anoAnt = aluno.anoLectivo || aluno.anoMatricula || '';
+      const aprovReal = dados.aprovadoAnterior ?? (aluno.estado !== 'Desistente');
+      const jaExiste = historicoAntigo.some(
+        h => h.classe === aluno.classeId && h.anoLectivo === anoAnt
+      );
+      if (!jaExiste && anoAnt) {
+        historicoAntigo.push({
+          classe: aluno.classeId,
+          anoLectivo: anoAnt,
+          mediaFinal: typeof dados.mediaFinalAnterior === 'number' ? dados.mediaFinalAnterior : 0,
+          aprovado: aprovReal,
+          concluido: aprovReal
+        });
+      }
     }
 
     const alunoAtualizado: Aluno = {

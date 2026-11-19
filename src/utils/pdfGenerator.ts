@@ -133,7 +133,8 @@ const FIXED_PDF_LAYOUT_CSS = `
   }
 `;
 
-const MODERN_COLOR_FN_RE = /(?:oklch|oklab|lab|lch|color-mix|color)\([^)]*(?:\([^)]*\)[^)]*)*\)/gi;
+const UNSUPPORTED_COLOR_RE = /(?:oklch|oklab|lab|lch|color-mix|color)\s*\(/i;
+const COLOR_FN_START_RE = /(?:^|[^a-zA-Z0-9_-])(oklch|oklab|lab|lch|color-mix|color)\s*\(/gi;
 
 let colorSamplerCtx: CanvasRenderingContext2D | null = null;
 const colorCache = new Map<string, string>();
@@ -152,11 +153,92 @@ function getColorSamplerContext(): CanvasRenderingContext2D | null {
 }
 
 /**
- * Converte qualquer expressão de cor moderna (oklch, lab, oklab, color-mix, var) para rgba(...)
- * através de rasterização em canvas 1x1 — compatível 100% com html2canvas v1.4.
+ * Encontra e substitui funções de cor modernas (incluindo parênteses aninhados de qualquer profundidade,
+ * ex: color-mix(in oklab, oklch(...) 50%, transparent)).
+ */
+function replaceModernColorFunctions(
+  input: string,
+  replacer: (expr: string) => string
+): string {
+  if (!input || !UNSUPPORTED_COLOR_RE.test(input)) return input;
+
+  let out = '';
+  let cursor = 0;
+  COLOR_FN_START_RE.lastIndex = 0;
+
+  while (cursor < input.length) {
+    COLOR_FN_START_RE.lastIndex = cursor;
+    const match = COLOR_FN_START_RE.exec(input);
+    if (!match) {
+      out += input.slice(cursor);
+      break;
+    }
+
+    const fullMatch = match[0];
+    const fnName = match[1];
+    const fnOffsetInMatch = fullMatch.toLowerCase().indexOf(fnName.toLowerCase());
+    const fnStart = match.index + fnOffsetInMatch;
+    const openParenIdx = input.indexOf('(', fnStart);
+    if (openParenIdx === -1) {
+      out += input.slice(cursor);
+      break;
+    }
+
+    let depth = 0;
+    let endIdx = -1;
+    let quote: string | null = null;
+    for (let i = openParenIdx; i < input.length; i++) {
+      const ch = input[i];
+      if (quote) {
+        if (ch === '\\') {
+          i++;
+          continue;
+        }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) {
+          endIdx = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (endIdx === -1) {
+      out += input.slice(cursor);
+      break;
+    }
+
+    out += input.slice(cursor, fnStart);
+    const expr = input.slice(fnStart, endIdx);
+    out += replacer(expr);
+    cursor = endIdx;
+  }
+
+  return out;
+}
+
+/**
+ * Converte qualquer expressão de cor moderna (oklch, lab, oklab, color-mix, color(, var) para rgba(...)
+ * através de resolução CSS + rasterização em canvas 1x1 — compatível 100% com html2canvas v1.4.
  */
 function normalizeColorForCanvas(colorStr: string): string {
-  if (!colorStr || colorStr === 'transparent' || colorStr === 'inherit' || colorStr === 'initial' || colorStr === 'none') {
+  if (
+    !colorStr ||
+    colorStr === 'transparent' ||
+    colorStr === 'inherit' ||
+    colorStr === 'initial' ||
+    colorStr === 'unset' ||
+    colorStr === 'none' ||
+    colorStr.toLowerCase() === 'currentcolor'
+  ) {
     return colorStr;
   }
   const trimmed = colorStr.trim();
@@ -164,25 +246,26 @@ function normalizeColorForCanvas(colorStr: string): string {
   if (cached) return cached;
 
   try {
-    // Primeiro tenta deixar o browser resolver via div temporária (resolve variáveis CSS)
     let resolved = trimmed;
     if (trimmed.includes('var(') || !trimmed.startsWith('rgb')) {
       const probe = document.createElement('div');
       probe.style.position = 'fixed';
       probe.style.left = '-9999px';
+      probe.style.color = 'rgb(17, 24, 39)';
       probe.style.color = trimmed;
       document.body.appendChild(probe);
       resolved = window.getComputedStyle(probe).color || trimmed;
       document.body.removeChild(probe);
     }
 
-    // Se ainda contiver oklch/lab/oklab/color-mix/color(, amostra o pixel num canvas 1x1
-    if (/(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(resolved)) {
+    if (UNSUPPORTED_COLOR_RE.test(resolved) || resolved.includes('var(')) {
       const ctx = getColorSamplerContext();
       if (ctx) {
         ctx.clearRect(0, 0, 1, 1);
-        ctx.fillStyle = '#000000';
-        ctx.fillStyle = resolved;
+        ctx.fillStyle = '#111827';
+        try {
+          ctx.fillStyle = resolved;
+        } catch {}
         ctx.fillRect(0, 0, 1, 1);
         const data = ctx.getImageData(0, 0, 1, 1).data;
         const alpha = Number((data[3] / 255).toFixed(3));
@@ -192,26 +275,245 @@ function normalizeColorForCanvas(colorStr: string): string {
       }
     }
 
+    if (UNSUPPORTED_COLOR_RE.test(resolved)) {
+      const fallback = 'rgba(17, 24, 39, 1)';
+      colorCache.set(trimmed, fallback);
+      return fallback;
+    }
+
     colorCache.set(trimmed, resolved);
     return resolved;
   } catch {
-    return trimmed;
+    return UNSUPPORTED_COLOR_RE.test(trimmed) ? 'rgba(17, 24, 39, 1)' : trimmed;
   }
 }
 
 /**
- * Substitui expressões oklch/lab/oklab/color-mix dentro de blocos CSS compilados
+ * Substitui expressões oklch/lab/oklab/color-mix/color() dentro de blocos CSS ou propriedades compostas
  */
 function sanitizeCssForCanvas(cssText: string): string {
-  if (!cssText || !/(?:oklch|oklab|lab|lch|color-mix)/i.test(cssText)) {
+  if (!cssText || !UNSUPPORTED_COLOR_RE.test(cssText)) {
     return cssText;
   }
-  return cssText.replace(MODERN_COLOR_FN_RE, (match) => {
-    const converted = normalizeColorForCanvas(match);
-    if (/(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(converted)) {
-      return '#1f2937';
+  return replaceModernColorFunctions(cssText, (expr) => {
+    const converted = normalizeColorForCanvas(expr);
+    if (UNSUPPORTED_COLOR_RE.test(converted)) {
+      return 'rgba(17, 24, 39, 1)';
     }
     return converted;
+  });
+}
+
+function sanitizeClonedDocumentForCanvas(
+  clonedDoc: Document,
+  options: {
+    captureWidthPx: number;
+    isLandscape: boolean;
+    passesMode?: boolean;
+  }
+): void {
+  const { captureWidthPx, isLandscape, passesMode = false } = options;
+
+  // 1. Extrair e sanitizar todas as regras CSSOM reais (eliminando oklch/oklab/color-mix do Tailwind v4)
+  let compiledCss = '';
+  Array.from(document.styleSheets).forEach((sheet) => {
+    try {
+      const rules = sheet.cssRules || sheet.rules;
+      if (rules) {
+        for (let i = 0; i < rules.length; i++) {
+          compiledCss += sanitizeCssForCanvas(rules[i].cssText) + '\n';
+        }
+      }
+    } catch {}
+  });
+
+  // Remover links externos crus e sanitizar todos os <style> presentes no clone
+  clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+    if (node.tagName === 'STYLE') {
+      node.textContent = sanitizeCssForCanvas(node.textContent || '');
+    } else {
+      node.remove();
+    }
+  });
+
+  if (compiledCss.trim().length > 0) {
+    const fullStyle = clonedDoc.createElement('style');
+    fullStyle.setAttribute('data-sge-compiled-styles', 'true');
+    fullStyle.textContent = compiledCss;
+    clonedDoc.head.appendChild(fullStyle);
+  }
+
+  // 2. Estilos normativos de impressão exata
+  const overrideStyle = clonedDoc.createElement('style');
+  overrideStyle.innerHTML = `
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+      box-sizing: border-box !important;
+    }
+    body {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .no-print, button, input[type="button"], input[type="submit"], nav {
+      display: none !important;
+    }
+    .print\\:block, .print-only {
+      display: block !important;
+    }
+    .print\\:flex {
+      display: flex !important;
+    }
+    .documento-oficial-print {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      display: block !important;
+      visibility: visible !important;
+    }
+    ${FIXED_PDF_LAYOUT_CSS}
+  `;
+  clonedDoc.head.appendChild(overrideStyle);
+
+  // 3. Normalizar viewport e alvo no clone
+  if (!passesMode) {
+    clonedDoc.documentElement.style.width = `${captureWidthPx}px`;
+    clonedDoc.documentElement.style.minWidth = `${captureWidthPx}px`;
+    clonedDoc.body.style.width = `${captureWidthPx}px`;
+    clonedDoc.body.style.minWidth = `${captureWidthPx}px`;
+    clonedDoc.body.style.margin = '0';
+    clonedDoc.body.style.padding = '0';
+    clonedDoc.body.style.overflow = 'visible';
+    clonedDoc.body.style.backgroundColor = '#ffffff';
+  }
+
+  const targetEl = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
+  if (targetEl) {
+    let ancestor: HTMLElement | null = targetEl;
+    while (ancestor && ancestor !== clonedDoc.body && ancestor !== clonedDoc.documentElement) {
+      ancestor.classList.remove('no-print');
+      if (ancestor.style.display === 'none') {
+        ancestor.style.display = 'block';
+      }
+      ancestor.style.visibility = 'visible';
+      ancestor = ancestor.parentElement;
+    }
+    targetEl.style.width = `${captureWidthPx}px`;
+    targetEl.style.minWidth = `${captureWidthPx}px`;
+    targetEl.style.maxWidth = `${captureWidthPx}px`;
+    (targetEl.style as any).zoom = '1';
+    targetEl.style.transform = 'none';
+    if (!passesMode) {
+      targetEl.style.margin = '0 auto';
+      targetEl.style.boxSizing = 'border-box';
+      targetEl.style.overflow = 'visible';
+    }
+    targetEl.style.backgroundColor = '#ffffff';
+  }
+
+  clonedDoc.querySelectorAll('[style*="zoom"]').forEach((node) => {
+    (node as HTMLElement).style.zoom = '1';
+  });
+
+  clonedDoc.querySelectorAll('[data-passes-grid="true"] .grid, .passes-grid-container, .passes-sheet-grid').forEach((pg) => {
+    const el = pg as HTMLElement;
+    el.style.display = 'grid';
+    el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
+    el.style.gap = '10px';
+    el.style.width = '100%';
+  });
+
+  clonedDoc.querySelectorAll('.boletins-grid-4').forEach((bg) => {
+    const el = bg as HTMLElement;
+    el.style.display = 'grid';
+    el.style.gridTemplateColumns = 'repeat(2, 1fr)';
+    el.style.gap = '10px';
+    el.style.width = '100%';
+  });
+
+  if (!passesMode) {
+    clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"], .overflow-y-auto, .max-h-\\[75vh\\]').forEach((w) => {
+      const el = w as HTMLElement;
+      el.style.overflow = 'visible';
+      el.style.maxHeight = 'none';
+      el.style.width = '100%';
+      el.style.maxWidth = 'none';
+    });
+  }
+
+  // Garantir dimensões explícitas em SVGs e limpar atributos vetoriais modernos
+  clonedDoc.querySelectorAll('svg').forEach((svg) => {
+    const rect = svg.getBoundingClientRect();
+    if (!svg.getAttribute('width') && rect.width > 0) {
+      svg.setAttribute('width', String(Math.round(rect.width)));
+    }
+    if (!svg.getAttribute('height') && rect.height > 0) {
+      svg.setAttribute('height', String(Math.round(rect.height)));
+    }
+  });
+
+  // 4. Sanitizar TODAS as cores computadas (HTML e SVG, incluindo textDecorationColor,
+  // webkitTextStrokeColor, boxShadow, textShadow, backgroundImage, fill, stroke, etc.)
+  const view = clonedDoc.defaultView || window;
+  const singleColorProps: Array<[string, string]> = [
+    ['color', 'color'],
+    ['backgroundColor', 'background-color'],
+    ['borderTopColor', 'border-top-color'],
+    ['borderRightColor', 'border-right-color'],
+    ['borderBottomColor', 'border-bottom-color'],
+    ['borderLeftColor', 'border-left-color'],
+    ['outlineColor', 'outline-color'],
+    ['textDecorationColor', 'text-decoration-color'],
+    ['webkitTextStrokeColor', '-webkit-text-stroke-color'],
+    ['caretColor', 'caret-color'],
+    ['accentColor', 'accent-color'],
+    ['columnRuleColor', 'column-rule-color'],
+    ['fill', 'fill'],
+    ['stroke', 'stroke'],
+    ['stopColor', 'stop-color'],
+    ['floodColor', 'flood-color'],
+    ['lightingColor', 'lighting-color']
+  ];
+  const multiColorProps: Array<[string, string, string]> = [
+    ['backgroundImage', 'background-image', 'none'],
+    ['boxShadow', 'box-shadow', 'none'],
+    ['textShadow', 'text-shadow', 'none'],
+    ['borderColor', 'border-color', 'rgba(17, 24, 39, 1)'],
+    ['listStyleImage', 'list-style-image', 'none'],
+    ['filter', 'filter', 'none'],
+    ['backdropFilter', 'backdrop-filter', 'none']
+  ];
+  const svgAttrs = ['fill', 'stroke', 'stop-color', 'color', 'style'];
+
+  clonedDoc.querySelectorAll('*').forEach((node) => {
+    const el = node as HTMLElement | SVGElement;
+    for (const attr of svgAttrs) {
+      const attrVal = el.getAttribute?.(attr);
+      if (attrVal && UNSUPPORTED_COLOR_RE.test(attrVal)) {
+        el.setAttribute(attr, sanitizeCssForCanvas(attrVal));
+      }
+    }
+    if (!el.style) return;
+    try {
+      const comp = view.getComputedStyle(el);
+      if (!comp) return;
+      for (const [camel, kebab] of singleColorProps) {
+        const raw = (comp as any)[camel] || comp.getPropertyValue(kebab);
+        if (raw && UNSUPPORTED_COLOR_RE.test(raw)) {
+          const safe = normalizeColorForCanvas(raw);
+          el.style.setProperty(kebab, UNSUPPORTED_COLOR_RE.test(safe) ? 'rgba(17, 24, 39, 1)' : safe, 'important');
+        }
+      }
+      for (const [camel, kebab, fallback] of multiColorProps) {
+        const raw = (comp as any)[camel] || comp.getPropertyValue(kebab);
+        if (raw && UNSUPPORTED_COLOR_RE.test(raw)) {
+          const sanitized = sanitizeCssForCanvas(raw);
+          el.style.setProperty(kebab, UNSUPPORTED_COLOR_RE.test(sanitized) ? fallback : sanitized, 'important');
+        }
+      }
+    } catch {}
   });
 }
 
@@ -372,74 +674,14 @@ export async function downloadElementAsPdf(
             windowWidth: Math.max(captureWidthPx + 80, isLandscape ? 1280 : 1024),
             onclone: (clonedDoc) => {
               try {
-                let compiledCss = '';
-                Array.from(document.styleSheets).forEach((sheet) => {
-                  try {
-                    const rules = sheet.cssRules || sheet.rules;
-                    if (rules) {
-                      for (let i = 0; i < rules.length; i++) {
-                        compiledCss += sanitizeCssForCanvas(rules[i].cssText) + '\n';
-                      }
-                    }
-                  } catch {}
+                sanitizeClonedDocumentForCanvas(clonedDoc, {
+                  captureWidthPx,
+                  isLandscape,
+                  passesMode: true
                 });
-                clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
-                  if (node.tagName === 'STYLE') {
-                    node.textContent = sanitizeCssForCanvas(node.textContent || '');
-                  } else {
-                    node.remove();
-                  }
-                });
-                if (compiledCss.trim().length > 0) {
-                  const fullStyle = clonedDoc.createElement('style');
-                  fullStyle.textContent = compiledCss;
-                  clonedDoc.head.appendChild(fullStyle);
-                }
-                const overrideStyle = clonedDoc.createElement('style');
-                overrideStyle.innerHTML = `
-                  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box !important; }
-                  body { background: #ffffff !important; color: #000000 !important; margin: 0 !important; padding: 0 !important; }
-                  .no-print, button, nav { display: none !important; }
-                  ${FIXED_PDF_LAYOUT_CSS}
-                `;
-                clonedDoc.head.appendChild(overrideStyle);
-                const clonedTarget = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
-                if (clonedTarget) {
-                  let anc: HTMLElement | null = clonedTarget;
-                  while (anc && anc !== clonedDoc.body && anc !== clonedDoc.documentElement) {
-                    anc.classList.remove('no-print');
-                    if (anc.style.display === 'none') anc.style.display = 'block';
-                    anc.style.visibility = 'visible';
-                    anc = anc.parentElement;
-                  }
-                  clonedTarget.style.width = `${captureWidthPx}px`;
-                  clonedTarget.style.minWidth = `${captureWidthPx}px`;
-                  clonedTarget.style.maxWidth = `${captureWidthPx}px`;
-                  clonedTarget.style.backgroundColor = '#ffffff';
-                }
-                clonedDoc.querySelectorAll('.passes-grid-container, .passes-sheet-grid').forEach((pg) => {
-                  const el = pg as HTMLElement;
-                  el.style.display = 'grid';
-                  el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
-                  el.style.gap = '10px';
-                  el.style.width = '100%';
-                });
-                const colorProps = ['color', 'backgroundColor', 'borderColor', 'borderTopColor', 'borderBottomColor', 'borderLeftColor', 'borderRightColor'];
-                clonedDoc.querySelectorAll('*').forEach((node) => {
-                  const el = node as HTMLElement;
-                  if (!el.style) return;
-                  try {
-                    const comp = window.getComputedStyle(el);
-                    if (!comp) return;
-                    for (const prop of colorProps) {
-                      const val = (comp as any)[prop];
-                      if (val && /(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(val)) {
-                        (el.style as any)[prop] = normalizeColorForCanvas(val);
-                      }
-                    }
-                  } catch {}
-                });
-              } catch {}
+              } catch (cloneErr) {
+                console.warn('[PDF Generator] Aviso no ajuste do clone:', cloneErr);
+              }
             }
           });
 
@@ -480,168 +722,10 @@ export async function downloadElementAsPdf(
       windowWidth: Math.max(captureWidthPx + 80, isLandscape ? 1280 : 1024),
       onclone: (clonedDoc) => {
         try {
-          // 1. Extrair e sanitizar todas as regras CSSOM reais (eliminando oklch/lab do Tailwind v4)
-          let compiledCss = '';
-          Array.from(document.styleSheets).forEach((sheet) => {
-            try {
-              const rules = sheet.cssRules || sheet.rules;
-              if (rules) {
-                for (let i = 0; i < rules.length; i++) {
-                  compiledCss += sanitizeCssForCanvas(rules[i].cssText) + '\n';
-                }
-              }
-            } catch {}
-          });
-
-          // Remover links/styles crus que possam conter oklch bruto no clone e injetar CSS já sanitizado
-          clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
-            if (node.tagName === 'STYLE') {
-              node.textContent = sanitizeCssForCanvas(node.textContent || '');
-            } else {
-              node.remove();
-            }
-          });
-
-          if (compiledCss.trim().length > 0) {
-            const fullStyle = clonedDoc.createElement('style');
-            fullStyle.setAttribute('data-sge-compiled-styles', 'true');
-            fullStyle.textContent = compiledCss;
-            clonedDoc.head.appendChild(fullStyle);
-          }
-
-          // 2. Estilos normativos de impressão exata + travamento de cabeçalho/insígnia e dados do aluno
-          const overrideStyle = clonedDoc.createElement('style');
-          overrideStyle.innerHTML = `
-            * {
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-              color-adjust: exact !important;
-              box-sizing: border-box !important;
-            }
-            body {
-              background-color: #ffffff !important;
-              color: #000000 !important;
-              margin: 0 !important;
-              padding: 0 !important;
-            }
-            .no-print, button, input[type="button"], input[type="submit"], nav {
-              display: none !important;
-            }
-            .print\\:block, .print-only {
-              display: block !important;
-            }
-            .print\\:flex {
-              display: flex !important;
-            }
-            .documento-oficial-print {
-              background-color: #ffffff !important;
-              color: #000000 !important;
-              display: block !important;
-              visibility: visible !important;
-            }
-            ${FIXED_PDF_LAYOUT_CSS}
-          `;
-          clonedDoc.head.appendChild(overrideStyle);
-
-          // 3. Normalizar viewport do documento clonado
-          clonedDoc.documentElement.style.width = `${captureWidthPx}px`;
-          clonedDoc.documentElement.style.minWidth = `${captureWidthPx}px`;
-          clonedDoc.body.style.width = `${captureWidthPx}px`;
-          clonedDoc.body.style.minWidth = `${captureWidthPx}px`;
-          clonedDoc.body.style.margin = '0';
-          clonedDoc.body.style.padding = '0';
-          clonedDoc.body.style.overflow = 'visible';
-          clonedDoc.body.style.backgroundColor = '#ffffff';
-
-          // 4. Localizar exatamente o elemento marcado antes do clone e impedir que ancestral .no-print o esconda
-          const targetEl = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
-          if (targetEl) {
-            let ancestor: HTMLElement | null = targetEl;
-            while (ancestor && ancestor !== clonedDoc.body && ancestor !== clonedDoc.documentElement) {
-              ancestor.classList.remove('no-print');
-              if (ancestor.style.display === 'none') {
-                ancestor.style.display = 'block';
-              }
-              ancestor.style.visibility = 'visible';
-              ancestor = ancestor.parentElement;
-            }
-            targetEl.style.width = `${captureWidthPx}px`;
-            targetEl.style.minWidth = `${captureWidthPx}px`;
-            targetEl.style.maxWidth = `${captureWidthPx}px`;
-            (targetEl.style as any).zoom = '1';
-            targetEl.style.transform = 'none';
-            targetEl.style.margin = '0 auto';
-            targetEl.style.boxSizing = 'border-box';
-            targetEl.style.overflow = 'visible';
-            targetEl.style.backgroundColor = '#ffffff';
-          }
-
-          // Resetar zoom/transform em ancestrais ou filhos
-          clonedDoc.querySelectorAll('[style*="zoom"]').forEach((node) => {
-            (node as HTMLElement).style.zoom = '1';
-          });
-
-          // Garantir que grades de passes (8/folha) e boletins (4/folha) mantêm colunas nítidas
-          clonedDoc.querySelectorAll('[data-passes-grid="true"] .grid, .passes-grid-container, .passes-sheet-grid').forEach((pg) => {
-            const el = pg as HTMLElement;
-            el.style.display = 'grid';
-            el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
-            el.style.gap = '10px';
-            el.style.width = '100%';
-          });
-
-          clonedDoc.querySelectorAll('.boletins-grid-4').forEach((bg) => {
-            const el = bg as HTMLElement;
-            el.style.display = 'grid';
-            el.style.gridTemplateColumns = 'repeat(2, 1fr)';
-            el.style.gap = '10px';
-            el.style.width = '100%';
-          });
-
-          // Expandir containers com scroll horizontal para não cortar nenhuma coluna da pauta
-          clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"], .overflow-y-auto, .max-h-\\[75vh\\]').forEach((w) => {
-            const el = w as HTMLElement;
-            el.style.overflow = 'visible';
-            el.style.maxHeight = 'none';
-            el.style.width = '100%';
-            el.style.maxWidth = 'none';
-          });
-
-          // Garantir dimensões explícitas em SVGs (Insígnia vetorial / ícones)
-          clonedDoc.querySelectorAll('svg').forEach((svg) => {
-            const rect = svg.getBoundingClientRect();
-            if (!svg.getAttribute('width') && rect.width > 0) {
-              svg.setAttribute('width', String(Math.round(rect.width)));
-            }
-            if (!svg.getAttribute('height') && rect.height > 0) {
-              svg.setAttribute('height', String(Math.round(rect.height)));
-            }
-          });
-
-          // Normalizar cores computadas inline no clone
-          const colorProps = [
-            'color',
-            'backgroundColor',
-            'borderColor',
-            'borderTopColor',
-            'borderBottomColor',
-            'borderLeftColor',
-            'borderRightColor',
-            'outlineColor'
-          ];
-          clonedDoc.querySelectorAll('*').forEach((node) => {
-            const el = node as HTMLElement;
-            if (!el.style) return;
-            try {
-              const comp = window.getComputedStyle(el);
-              if (!comp) return;
-              for (const prop of colorProps) {
-                const val = (comp as any)[prop];
-                if (val && /(?:oklch|oklab|lab|lch|color-mix|color\()/i.test(val)) {
-                  (el.style as any)[prop] = normalizeColorForCanvas(val);
-                }
-              }
-            } catch {}
+          sanitizeClonedDocumentForCanvas(clonedDoc, {
+            captureWidthPx,
+            isLandscape,
+            passesMode: false
           });
         } catch (cloneErr) {
           console.warn('[PDF Generator] Aviso no ajuste do clone:', cloneErr);

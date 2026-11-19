@@ -32,7 +32,8 @@ import {
   MessageSquare,
   DollarSign,
   Edit2,
-  Trophy
+  Trophy,
+  Receipt
 } from 'lucide-react';
 import { StudentRankingSection } from './StudentRankingSection';
 import { 
@@ -66,6 +67,17 @@ import { InsigniaAngola } from '../constants/insignia';
 import { OfficialQrCode, gerarPayloadQrDocumento, gerarPayloadQrEstudante } from '../utils/qrCodeUtils';
 import { downloadElementAsPdf as downloadExactPdf } from '../utils/pdfGenerator';
 import { StudentClassListPdfDocument } from './StudentClassListPdfDocument';
+import {
+  EnrollmentReceiptSheetModal,
+  ReciboMatriculaSlot,
+  converterAlunoParaSlot
+} from './EnrollmentReceiptSheetModal';
+import {
+  avaliarProgressaoAluno,
+  AvaliacaoProgressaoAluno,
+  ordenarClassesMED,
+  CLASSES_ORDEM_MED
+} from '../utils/enrollmentProgression';
 import { 
   sanitizeSearchInput, 
   safeSearchMatch, 
@@ -479,11 +491,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [confirmAlunoId, setConfirmAlunoId] = useState('');
   const [confirmClasse, setConfirmClasse] = useState('');
   const [confirmTurmaId, setConfirmTurmaId] = useState('');
-  const [confirmTurno, setConfirmTurno] = useState<'Manhã' | 'Tarde' | 'Noite'>('Manhã');
+  const [confirmTurno, setConfirmTurno] = useState<string>('Manhã');
   const [confirmCurso, setConfirmCurso] = useState('');
   const [confirmCodigoMatricula, setConfirmCodigoMatricula] = useState('');
-  const [alunoConfirmadoComprovativo, setAlunoConfirmadoComprovativo] = useState<{ aluno: Aluno; turmaAnterior?: string; turmaNova?: Turma } | null>(null);
-  const [showComprovativoModal, setShowComprovativoModal] = useState(false);
+  const [confirmSearchTerm, setConfirmSearchTerm] = useState('');
+  const [confirmFiltroClasseAnterior, setConfirmFiltroClasseAnterior] = useState('TODAS');
+  const [confirmFiltroAnoAnterior, setConfirmFiltroAnoAnterior] = useState('ANTERIORES');
+  const [confirmAvaliacao, setConfirmAvaliacao] = useState<AvaliacaoProgressaoAluno | null>(null);
+  const [showReceiptSheetModal, setShowReceiptSheetModal] = useState(false);
+  const [receiptSheetInitialSlots, setReceiptSheetInitialSlots] = useState<Partial<ReciboMatriculaSlot>[] | undefined>(undefined);
+  const [emitirReciboAoSalvarMatricula, setEmitirReciboAoSalvarMatricula] = useState(false);
 
   // Sub-abas do Histórico Escolar Completo
   const [subAbaHistorico, setSubAbaHistorico] = useState<'notas' | 'ocorrencias' | 'faltas' | 'dividas' | 'resumo'>('notas');
@@ -557,6 +574,151 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   }, [turmas, modalAnoLectivo, modalClasse]);
 
   const turmaSelecionadaModal = turmas.find(t => t.id === turmaId) || turmasDoModal[0];
+
+  // Reconhecimento completo de Classes, Turmas, Turnos e Cursos do Ano Letivo Ativo para Confirmação
+  const anoConfirmacaoEfetivo = confirmAnoLectivo || escola.anoLectivoActivo || '';
+
+  const turmasAnoConfirmacao = useMemo(() => {
+    if (!anoConfirmacaoEfetivo) return turmas;
+    return turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoConfirmacaoEfetivo);
+  }, [turmas, anoConfirmacaoEfetivo]);
+
+  const classesConfiguradasEscola = useMemo(
+    () => dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome),
+    [escola.id]
+  );
+
+  const classesComTurmasNoAnoDestino = useMemo(() => {
+    return ordenarClassesMED(turmasAnoConfirmacao.map(t => t.classe));
+  }, [turmasAnoConfirmacao]);
+
+  const classesConfirmacaoDisponiveis = useMemo(() => {
+    const combinadas = ordenarClassesMED([
+      ...classesComTurmasNoAnoDestino,
+      ...classesConfiguradasEscola,
+      ...CLASSES_ORDEM_MED
+    ]);
+    return combinadas;
+  }, [classesComTurmasNoAnoDestino, classesConfiguradasEscola]);
+
+  const turnosAnoConfirmacao = useMemo(() => {
+    const fromCfg = dbService
+      .getTurnosConfigs(escola.id)
+      .filter(t => t.ativo !== false)
+      .map(t => t.nome)
+      .filter(Boolean);
+    const fromTurmas = turmasAnoConfirmacao.map(t => t.turno).filter(Boolean);
+    return Array.from(new Set([...fromCfg, ...fromTurmas, 'Manhã', 'Tarde', 'Noite']));
+  }, [escola.id, turmasAnoConfirmacao]);
+
+  const cursosAnoConfirmacao = useMemo(() => {
+    const fromCfg = dbService.getCursos(escola.id).filter(c => c.ativo !== false).map(c => c.nome).filter(Boolean);
+    const fromTurmas = turmasAnoConfirmacao
+      .filter(t => isSegundoCiclo(t.classe) && t.curso)
+      .map(t => t.curso!)
+      .filter(Boolean);
+    return Array.from(new Set([...fromTurmas, ...fromCfg, ...CURSOS_SEGUNDO_CICLO]));
+  }, [escola.id, turmasAnoConfirmacao]);
+
+  const anosAnterioresDisponiveisConfirmacao = useMemo(() => {
+    const set = new Set<string>();
+    alunos.forEach(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const anoAl = a.anoLectivo || a.anoMatricula || t?.anoLectivo || '';
+      if (anoAl && anoAl !== anoConfirmacaoEfetivo) {
+        set.add(anoAl);
+      }
+    });
+    anosLectivosDisponiveis.forEach(ano => {
+      if (ano && ano !== anoConfirmacaoEfetivo) set.add(ano);
+    });
+    return Array.from(set).sort().reverse();
+  }, [alunos, turmas, anosLectivosDisponiveis, anoConfirmacaoEfetivo]);
+
+  const classesAnterioresComAlunos = useMemo(() => {
+    const cls = alunos.map(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      return a.classeId || t?.classe || '';
+    }).filter(Boolean);
+    return ordenarClassesMED(cls);
+  }, [alunos, turmas]);
+
+  const alunosElegiveisConfirmacao = useMemo(() => {
+    const temAnosAnteriores = alunos.some(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const anoAl = a.anoLectivo || a.anoMatricula || t?.anoLectivo || '';
+      return Boolean(anoAl && anoConfirmacaoEfetivo && anoAl !== anoConfirmacaoEfetivo);
+    });
+
+    return alunos.filter(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const anoAl = a.anoLectivo || a.anoMatricula || t?.anoLectivo || '';
+      const classeAl = normalizarClasse(a.classeId || t?.classe || '');
+
+      if (confirmFiltroAnoAnterior === 'ANTERIORES') {
+        if (temAnosAnteriores && anoConfirmacaoEfetivo && anoAl === anoConfirmacaoEfetivo) {
+          return false;
+        }
+      } else if (confirmFiltroAnoAnterior !== 'TODOS') {
+        if (anoAl !== confirmFiltroAnoAnterior) return false;
+      }
+
+      if (confirmFiltroClasseAnterior !== 'TODAS') {
+        if (classeAl !== normalizarClasse(confirmFiltroClasseAnterior)) return false;
+      }
+
+      if (confirmSearchTerm.trim()) {
+        const matchNome = safeSearchMatch(a.nomeCompleto, confirmSearchTerm);
+        const matchMatr = safeSearchMatch(a.codigoMatricula, confirmSearchTerm);
+        const matchProc = safeSearchMatch(a.numeroProcesso, confirmSearchTerm);
+        const matchDoc = safeSearchMatch(a.numeroDocumento || a.numeroBI, confirmSearchTerm);
+        const matchClasse = safeSearchMatch(classeAl, confirmSearchTerm);
+        const matchTurma = safeSearchMatch(t?.nome, confirmSearchTerm);
+        if (!matchNome && !matchMatr && !matchProc && !matchDoc && !matchClasse && !matchTurma) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [
+    alunos,
+    turmas,
+    anoConfirmacaoEfetivo,
+    confirmFiltroAnoAnterior,
+    confirmFiltroClasseAnterior,
+    confirmSearchTerm
+  ]);
+
+  const mapaAvaliacaoConfirmacao = useMemo(() => {
+    const notas = showConfirmacaoModal ? dbService.getNotasConsolidadas() : [];
+    const juris = showConfirmacaoModal ? dbService.getJuris() : [];
+    const map = new Map<string, AvaliacaoProgressaoAluno>();
+    if (!showConfirmacaoModal) return map;
+
+    alunos.forEach(al => {
+      const histComp = dbService.getHistoricoEscolarCompleto(al.id);
+      map.set(
+        al.id,
+        avaliarProgressaoAluno({
+          aluno: al,
+          turmas,
+          notasConsolidadas: notas,
+          juris,
+          historicoCompleto: histComp,
+          anoDestino: anoConfirmacaoEfetivo,
+          classesDisponiveisAnoDestino: classesComTurmasNoAnoDestino
+        })
+      );
+    });
+    return map;
+  }, [
+    showConfirmacaoModal,
+    alunos,
+    turmas,
+    anoConfirmacaoEfetivo,
+    classesComTurmasNoAnoDestino
+  ]);
 
   const filteredAlunos = alunos.filter(a => {
     const turmaDoAluno = turmas.find(t => t.id === a.turmaId);
@@ -987,44 +1149,114 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     setShowAlunoModal(false);
     setEditingAluno(null);
+
+    if (emitirReciboAoSalvarMatricula) {
+      setEmitirReciboAoSalvarMatricula(false);
+      setReceiptSheetInitialSlots([
+        converterAlunoParaSlot(
+          novoAluno,
+          turmas,
+          escola,
+          0,
+          editingAluno ? 'Confirmacao' : 'Matricula'
+        )
+      ]);
+      setShowReceiptSheetModal(true);
+    }
   };
 
   // Funções de Confirmação de Matrícula (Renovação de Alunos já Cadastrados)
+  const handleSelectAlunoConfirmacao = (alunoId: string, anoDestinoOverride?: string) => {
+    setConfirmAlunoId(alunoId);
+    const al = alunos.find(a => a.id === alunoId);
+    if (!al) return;
+
+    const anoAlvo = anoDestinoOverride ?? (confirmAnoLectivo || escola.anoLectivoActivo || '');
+    const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === anoAlvo);
+    const classesDoAno = ordenarClassesMED(turmasAno.map(t => t.classe));
+
+    const avaliacao = avaliarProgressaoAluno({
+      aluno: al,
+      turmas,
+      notasConsolidadas: dbService.getNotasConsolidadas(),
+      juris: dbService.getJuris(),
+      historicoCompleto: dbService.getHistoricoEscolarCompleto(al.id),
+      anoDestino: anoAlvo,
+      classesDisponiveisAnoDestino: classesDoAno
+    });
+    setConfirmAvaliacao(avaliacao);
+
+    const proxClasse = avaliacao.classeSugerida;
+    setConfirmClasse(proxClasse);
+
+    // Sugerir turma do ano letivo ativo correspondente à classe (respeitando aprovação ou repetência)
+    const turmasDaClasseNoAno = getTurmasPorClasse(turmasAno, proxClasse);
+    const turmaSugerida =
+      turmasDaClasseNoAno.find(t => !isSegundoCiclo(proxClasse) || !al.curso || t.curso === al.curso) ||
+      turmasDaClasseNoAno[0] ||
+      null;
+
+    setConfirmTurmaId(turmaSugerida?.id || '');
+    const turnoPadrao =
+      turmaSugerida?.turno ||
+      (al.periodo === 'Matinal'
+        ? 'Manhã'
+        : al.periodo === 'Vespertino'
+        ? 'Tarde'
+        : al.periodo === 'Noturno'
+        ? 'Noite'
+        : al.periodo || 'Manhã');
+    setConfirmTurno(turnoPadrao);
+
+    if (isSegundoCiclo(proxClasse)) {
+      setConfirmCurso(turmaSugerida?.curso || al.curso || cursosAnoConfirmacao[0] || '');
+    } else {
+      setConfirmCurso('');
+    }
+
+    const prefixoAno = anoAlvo ? anoAlvo.split('/')[0] : String(new Date().getFullYear());
+    setConfirmCodigoMatricula(
+      al.codigoMatricula || `${prefixoAno}/MED-${Math.floor(1000 + Math.random() * 9000)}`
+    );
+  };
+
+  useEffect(() => {
+    if (!showConfirmacaoModal) return;
+    if (alunosElegiveisConfirmacao.length === 0) {
+      if (confirmAlunoId !== '') {
+        setConfirmAlunoId('');
+        setConfirmAvaliacao(null);
+      }
+      return;
+    }
+    const jaEstaNaLista = alunosElegiveisConfirmacao.some(a => a.id === confirmAlunoId);
+    if (!jaEstaNaLista) {
+      handleSelectAlunoConfirmacao(alunosElegiveisConfirmacao[0].id, anoConfirmacaoEfetivo);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showConfirmacaoModal, alunosElegiveisConfirmacao]);
+
   const handleOpenConfirmacao = () => {
     if (alunos.length === 0) {
       alert('Não há alunos cadastrados no sistema para confirmação de matrícula.');
       return;
     }
-    const anoDestino = selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : (escola.anoLectivoActivo || '');
+    const anoDestino = escola.anoLectivoActivo || (selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : '') || anosLectivosDisponiveis[0] || '';
     setConfirmAnoLectivo(anoDestino);
-    const primeiro = alunos[0];
+    setConfirmSearchTerm('');
+    setConfirmFiltroClasseAnterior('TODAS');
+
+    const alunosAnosAnteriores = alunos.filter(a => {
+      const t = turmas.find(tm => tm.id === a.turmaId);
+      const anoAl = a.anoLectivo || a.anoMatricula || t?.anoLectivo || '';
+      return Boolean(anoAl && anoDestino && anoAl !== anoDestino);
+    });
+    setConfirmFiltroAnoAnterior(alunosAnosAnteriores.length > 0 ? 'ANTERIORES' : 'TODOS');
+
+    const primeiro = alunosAnosAnteriores[0] || alunos[0];
     setConfirmAlunoId(primeiro.id);
-    handleSelectAlunoConfirmacao(primeiro.id);
+    handleSelectAlunoConfirmacao(primeiro.id, anoDestino);
     setShowConfirmacaoModal(true);
-  };
-
-  const handleSelectAlunoConfirmacao = (alunoId: string) => {
-    setConfirmAlunoId(alunoId);
-    const al = alunos.find(a => a.id === alunoId);
-    if (!al) return;
-    const turmaAtual = turmas.find(t => t.id === al.turmaId);
-    
-    // Sugerir progressão de classe (ex: 10ª -> 11ª)
-    const classeAtual = al.classeId || turmaAtual?.classe || '1ª';
-    const num = parseInt(classeAtual.replace(/\D/g, ''), 10);
-    let proxClasse = classeAtual;
-    if (!isNaN(num) && num < 13) {
-      proxClasse = `${num + 1}ª`;
-    }
-    setConfirmClasse(proxClasse);
-
-    // Sugerir turma correspondente do ano letivo de confirmação
-    const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === confirmAnoLectivo);
-    const turmaSugerida = turmasAno.find(t => t.classe === proxClasse) || turmas.find(t => t.classe === proxClasse) || turmas[0];
-    setConfirmTurmaId(turmaSugerida?.id || turmas[0]?.id || '');
-    setConfirmTurno(turmaSugerida?.turno || al.periodo || 'Manhã');
-    setConfirmCurso(al.curso || turmaSugerida?.curso || '');
-    setConfirmCodigoMatricula(al.codigoMatricula || `2026/MED-${Math.floor(1000 + Math.random() * 9000)}`);
   };
 
   const handleExecutarConfirmacao = (e: React.FormEvent) => {
@@ -1032,20 +1264,51 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const al = alunos.find(a => a.id === confirmAlunoId);
     if (!al) return;
 
+    const anoAlvo = confirmAnoLectivo || escola.anoLectivoActivo || '';
     const turmaNova = turmas.find(t => t.id === confirmTurmaId);
-    const turmaAnterior = turmas.find(t => t.id === al.turmaId)?.nome || al.classeId;
+    const turmaAnteriorObj = turmas.find(t => t.id === al.turmaId);
+    const classeAnteriorNorm = normalizarClasse(al.classeId || turmaAnteriorObj?.classe || '');
+    const anoAnteriorReal = al.anoLectivo || al.anoMatricula || turmaAnteriorObj?.anoLectivo || '';
+
+    const historicoAtualizado = [...(al.historicoAnterior || [])];
+    if (classeAnteriorNorm && anoAnteriorReal && anoAnteriorReal !== anoAlvo) {
+      const jaTem = historicoAtualizado.some(
+        h => normalizarClasse(h.classe) === classeAnteriorNorm && h.anoLectivo === anoAnteriorReal
+      );
+      if (!jaTem) {
+        const aprov =
+          confirmAvaliacao?.situacao === 'Aprovado' ||
+          (confirmAvaliacao?.situacao === 'SemRegisto' && confirmAvaliacao.deveAvancar);
+        historicoAtualizado.push({
+          classe: classeAnteriorNorm,
+          anoLectivo: anoAnteriorReal,
+          mediaFinal: confirmAvaliacao?.mediaCalculada ?? 0,
+          aprovado: Boolean(aprov),
+          concluido: Boolean(aprov)
+        });
+      }
+    }
+
+    const turnoLower = String(confirmTurno || '').toLowerCase();
+    const periodoMapeado: 'Matinal' | 'Vespertino' | 'Noturno' =
+      turnoLower.includes('tarde') || turnoLower.includes('vesp')
+        ? 'Vespertino'
+        : turnoLower.includes('noite') || turnoLower.includes('notur')
+        ? 'Noturno'
+        : 'Matinal';
 
     const alunoAtualizado: Aluno = {
       ...al,
-      classeId: confirmClasse,
-      turmaId: confirmTurmaId,
-      periodo: confirmTurno === 'Manhã' ? 'Matinal' : confirmTurno === 'Tarde' ? 'Vespertino' : 'Noturno',
-      curso: confirmCurso || al.curso,
+      classeId: normalizarClasse(confirmClasse),
+      turmaId: confirmTurmaId || al.turmaId,
+      periodo: periodoMapeado,
+      curso: isSegundoCiclo(confirmClasse) ? confirmCurso || turmaNova?.curso || al.curso : '',
       codigoMatricula: confirmCodigoMatricula.trim() || al.codigoMatricula,
       estado: 'Ativo',
-      anoLectivo: confirmAnoLectivo,
-      anoMatricula: confirmAnoLectivo,
-      propinaStatus: 'Regularizada'
+      anoLectivo: anoAlvo,
+      anoMatricula: anoAlvo,
+      propinaStatus: 'Regularizada',
+      historicoAnterior: historicoAtualizado
     };
 
     onSalvarAluno(alunoAtualizado);
@@ -1065,19 +1328,24 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             acao: 'Confirmacao',
             alunoNome: alunoAtualizado.nomeCompleto,
             alunoId: alunoAtualizado.id,
-            detalhes: `Reconfirmação de matrícula do aluno ${alunoAtualizado.nomeCompleto} para a ${alunoAtualizado.classeId} Classe por operador delegado.`
+            detalhes: `Reconfirmação de matrícula do aluno ${alunoAtualizado.nomeCompleto} para a ${alunoAtualizado.classeId} Classe (${anoAlvo}) por operador delegado.`
           });
         }
       }
     } catch {}
 
     setShowConfirmacaoModal(false);
-    setAlunoConfirmadoComprovativo({
-      aluno: alunoAtualizado,
-      turmaAnterior,
-      turmaNova
-    });
-    setShowComprovativoModal(true);
+    setReceiptSheetInitialSlots([
+      converterAlunoParaSlot(
+        alunoAtualizado,
+        turmas,
+        escola,
+        0,
+        'Confirmacao',
+        classeAnteriorNorm
+      )
+    ]);
+    setShowReceiptSheetModal(true);
   };
 
   // Exportar Lista Completa de Alunos com Todos os Dados Pessoais, Saúde, Todas as Notas e Médias em Excel (.xlsx)
@@ -2158,6 +2426,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               >
                 <Search className="h-4 w-4 text-blue-600" />
                 <span>Portal dos Pais</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setReceiptSheetInitialSlots(undefined);
+                  setShowReceiptSheetModal(true);
+                }}
+                className="px-3.5 py-2 text-xs font-bold text-indigo-950 bg-indigo-50 border-2 border-indigo-500 rounded-lg hover:bg-indigo-100 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                title="Inserir até 3 nomes e baixar os recibos de matrícula/confirmação numa única folha A4"
+              >
+                <Receipt className="h-4 w-4 text-indigo-700" />
+                <span>Recibos (3 por A4)</span>
               </button>
 
               <button
@@ -3377,7 +3658,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    handleSelectAlunoConfirmacao(aluno.id);
+                    const anoAlvo = escola.anoLectivoActivo || (selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : '') || anosLectivosDisponiveis[0] || '';
+                    setConfirmAnoLectivo(anoAlvo);
+                    setConfirmSearchTerm('');
+                    setConfirmFiltroClasseAnterior('TODAS');
+                    setConfirmFiltroAnoAnterior('TODOS');
+                    handleSelectAlunoConfirmacao(aluno.id, anoAlvo);
                     setShowConfirmacaoModal(true);
                   }}
                   className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
@@ -3385,6 +3671,20 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 >
                   <FileCheck2 className="h-3 w-3 text-emerald-600" />
                   <span>Confirmar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReceiptSheetInitialSlots([
+                      converterAlunoParaSlot(aluno, turmas, escola, 0, 'Matricula')
+                    ]);
+                    setShowReceiptSheetModal(true);
+                  }}
+                  className="px-2 py-1 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                  title="Emitir recibo deste estudante (até 3 por folha A4)"
+                >
+                  <Receipt className="h-3 w-3 text-indigo-600" />
+                  <span>Recibo</span>
                 </button>
                 <button
                   type="button"
@@ -3770,7 +4070,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         onChange={(e) => setModalCurso(e.target.value)}
                         className="text-xs font-bold p-2 border border-purple-300 rounded-md bg-white text-purple-900"
                       >
-                        {CURSOS_SEGUNDO_CICLO.map(c => (
+                        {Array.from(new Set([...cursosAnoConfirmacao, ...CURSOS_SEGUNDO_CICLO])).map(c => (
                           <option key={`modal-cr-${c}`} value={c}>{c}</option>
                         ))}
                       </select>
@@ -4020,17 +4320,29 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-4 border-t border-gray-200">
+              <div className="flex flex-wrap justify-end gap-2 pt-4 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowAlunoModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg"
+                  onClick={() => {
+                    setEmitirReciboAoSalvarMatricula(false);
+                    setShowAlunoModal(false);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm"
+                  onClick={() => setEmitirReciboAoSalvarMatricula(true)}
+                  className="px-4 py-2 text-xs font-bold text-emerald-900 bg-emerald-100 border border-emerald-400 rounded-lg hover:bg-emerald-200 shadow-2xs inline-flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Receipt className="h-3.5 w-3.5 text-emerald-700" />
+                  <span>Salvar e Emitir Recibo (3 por A4)</span>
+                </button>
+                <button
+                  type="submit"
+                  onClick={() => setEmitirReciboAoSalvarMatricula(false)}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm cursor-pointer"
                 >
                   Salvar Ficha de Matrícula
                 </button>
@@ -4045,7 +4357,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       {/* ========================================================================= */}
       {showConfirmacaoModal && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 border-2 border-emerald-600 shadow-2xl space-y-4 my-8 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 border-2 border-emerald-600 shadow-2xl space-y-4 my-8 max-h-[92vh] overflow-y-auto">
             <div className="border-b pb-3 border-gray-200 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg">
@@ -4056,94 +4368,214 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     Confirmação de Matrícula (Renovação Oficial)
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Aproveita dados do aluno já existente no sistema, alterando apenas classe, turma, turno, curso ou n.º de matrícula.
+                    Pesquise pelo nome ou classe anterior. O sistema reconhece automaticamente aprovação, reprovação ou desistência e carrega classes, turmas, turnos e cursos do ano letivo ativo.
                   </p>
                 </div>
               </div>
-              <button 
+              <button
+                type="button"
                 onClick={() => setShowConfirmacaoModal(false)}
-                className="text-gray-400 hover:text-gray-600 font-bold text-sm"
+                className="text-gray-400 hover:text-gray-600 font-bold text-sm cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            {/* 1. Selecionar o Aluno Existente no Sistema */}
-            <div>
-              <label className="block text-xs font-bold text-gray-800 mb-1">
-                Selecionar Aluno Já Cadastrado na Escola *
-              </label>
-              <select
-                value={confirmAlunoId}
-                onChange={(e) => handleSelectAlunoConfirmacao(e.target.value)}
-                className="w-full p-2.5 text-xs font-bold bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-              >
-                {alunos.map(al => {
-                  const t = turmas.find(tm => tm.id === al.turmaId);
-                  return (
-                    <option key={al.id} value={al.id}>
-                      {al.nomeCompleto} • {al.codigoMatricula} ({al.classeId || t?.classe || ''} - {t?.nome || ''})
-                    </option>
-                  );
-                })}
-              </select>
+            {/* 1. Pesquisa por Nome ou Classe do Ano Letivo Passado */}
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="sm:col-span-1">
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                    Pesquisar Aluno (Nome / Matrícula / BI)
+                  </label>
+                  <div className="relative">
+                    <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+                    <input
+                      type="text"
+                      value={confirmSearchTerm}
+                      onChange={(e) => {
+                        const novoTermo = e.target.value;
+                        setConfirmSearchTerm(novoTermo);
+                      }}
+                      placeholder="Nome ou classe passada..."
+                      className="w-full pl-8 pr-2 py-2 text-xs border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                    Classe do Ano Passado
+                  </label>
+                  <select
+                    value={confirmFiltroClasseAnterior}
+                    onChange={(e) => setConfirmFiltroClasseAnterior(e.target.value)}
+                    className="w-full p-2 text-xs font-semibold border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  >
+                    <option value="TODAS">Todas as Classes ({alunos.length})</option>
+                    {classesAnterioresComAlunos.map(cls => (
+                      <option key={`conf-filt-cls-${cls}`} value={cls}>
+                        {cls === 'Iniciação' ? 'Iniciação' : `${cls} Classe`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                    Ano Letivo de Origem
+                  </label>
+                  <select
+                    value={confirmFiltroAnoAnterior}
+                    onChange={(e) => setConfirmFiltroAnoAnterior(e.target.value)}
+                    className="w-full p-2 text-xs font-semibold border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  >
+                    <option value="ANTERIORES">Apenas Anos Letivos Anteriores</option>
+                    <option value="TODOS">Todos os Anos Letivos</option>
+                    {anosAnterioresDisponiveisConfirmacao.map(ano => (
+                      <option key={`conf-orig-ano-${ano}`} value={ano}>
+                        Ano {ano}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-gray-800">
+                    Selecionar Aluno ({alunosElegiveisConfirmacao.length} encontrado{alunosElegiveisConfirmacao.length === 1 ? '' : 's'}) *
+                  </label>
+                </div>
+                <select
+                  value={confirmAlunoId}
+                  onChange={(e) => handleSelectAlunoConfirmacao(e.target.value)}
+                  className="w-full p-2.5 text-xs font-bold bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                >
+                  {alunosElegiveisConfirmacao.length === 0 ? (
+                    <option value="">Nenhum aluno corresponde aos filtros — ajuste a pesquisa ou mude para Todos os Anos</option>
+                  ) : (
+                    alunosElegiveisConfirmacao.map(al => {
+                      const t = turmas.find(tm => tm.id === al.turmaId);
+                      const av = mapaAvaliacaoConfirmacao.get(al.id);
+                      const rotuloSituacao =
+                        av?.situacao === 'Aprovado'
+                          ? `Aprovou → ${av.classeSugerida}`
+                          : av?.situacao === 'Reprovado'
+                          ? `Reprovou → Mantém ${av.classeAnterior}`
+                          : av?.situacao === 'Desistente'
+                          ? `Desistiu → Mantém ${av.classeAnterior}`
+                          : `Sugerida ${av?.classeSugerida || ''}`;
+                      return (
+                        <option key={al.id} value={al.id}>
+                          {al.nomeCompleto} • {al.codigoMatricula} | {al.classeId || t?.classe || ''} ({t?.nome || 'S/T'} • {al.anoLectivo || al.anoMatricula || t?.anoLectivo || '—'}) [{rotuloSituacao}]
+                        </option>
+                      );
+                    })
+                  )}
+                </select>
+              </div>
             </div>
 
-            {/* 2. Visualização dos Dados do Aluno (Bloqueados para reutilização fidedigna) */}
+            {/* 2. Cartão de Identificação + Diagnóstico Automático de Progressão do Ano Passado */}
             {(() => {
               const al = alunos.find(a => a.id === confirmAlunoId);
               if (!al) return null;
               const tAtual = turmas.find(tm => tm.id === al.turmaId);
+              const av = confirmAvaliacao || mapaAvaliacaoConfirmacao.get(al.id);
+
+              const badgeBg =
+                av?.situacao === 'Aprovado'
+                  ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                  : av?.situacao === 'Reprovado'
+                  ? 'bg-rose-50 border-rose-400 text-rose-950'
+                  : av?.situacao === 'Desistente'
+                  ? 'bg-amber-50 border-amber-400 text-amber-950'
+                  : 'bg-blue-50 border-blue-300 text-blue-950';
+
               return (
-                <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center space-x-3 text-xs">
-                  {al.fotoUrl && al.fotoUrl.trim() !== '' ? (
-                    <img
-                      src={al.fotoUrl}
-                      alt={al.nomeCompleto}
-                      className="h-14 w-14 rounded-lg object-cover border-2 border-emerald-600 shrink-0"
-                    />
-                  ) : (
-                    <div className="h-14 w-14 rounded-lg bg-emerald-100 border-2 border-emerald-600 flex items-center justify-center font-bold text-emerald-800 text-xs shrink-0">
-                      {al.nomeCompleto.slice(0, 2).toUpperCase()}
+                <div className="space-y-2.5">
+                  <div className="p-3 bg-emerald-50/50 border border-emerald-200 rounded-xl flex items-center space-x-3 text-xs">
+                    {al.fotoUrl && al.fotoUrl.trim() !== '' ? (
+                      <img
+                        src={al.fotoUrl}
+                        alt={al.nomeCompleto}
+                        className="h-14 w-14 rounded-lg object-cover border-2 border-emerald-600 shrink-0"
+                      />
+                    ) : (
+                      <div className="h-14 w-14 rounded-lg bg-emerald-100 border-2 border-emerald-600 flex items-center justify-center font-bold text-emerald-800 text-xs shrink-0">
+                        {al.nomeCompleto.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      <h4 className="font-black text-gray-900 truncate">{al.nomeCompleto}</h4>
+                      <p className="text-gray-600">
+                        Doc.: <strong className="font-mono">{al.numeroDocumento || al.numeroBI || '—'}</strong> • Gênero: <strong>{al.genero === 'M' ? 'Masculino' : 'Feminino'}</strong>
+                      </p>
+                      <p className="text-gray-600">
+                        Enc.: {al.nomeEncarregado || al.encarregadoNome || '—'} ({al.telefoneEncarregado || al.telefone || '—'})
+                      </p>
+                      <span className="inline-block text-[10px] font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded">
+                        Enquadramento Anterior ({al.anoLectivo || al.anoMatricula || tAtual?.anoLectivo || '—'}): {al.classeId || tAtual?.classe} • {tAtual?.nome || 'Sem Turma'} ({tAtual?.turno || 'Manhã'}) • Estado: {al.estado}
+                      </span>
+                    </div>
+                  </div>
+
+                  {av && (
+                    <div className={`p-3 rounded-xl border-2 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${badgeBg}`}>
+                      <div className="space-y-0.5">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-black uppercase tracking-wide text-[11px]">
+                            {av.situacao === 'Aprovado'
+                              ? 'Aprovado no Ano Passado — Transita para Classe Superior'
+                              : av.situacao === 'Reprovado'
+                              ? 'Reprovado no Ano Passado — Continua na Classe Anterior'
+                              : av.situacao === 'Desistente'
+                              ? 'Desistente no Ano Passado — Continua na Classe Anterior'
+                              : 'Avaliação de Progressão'}
+                          </span>
+                          {av.mediaCalculada !== null && (
+                            <span className="px-2 py-0.5 bg-white/80 border border-current/20 rounded font-mono font-bold text-[10px]">
+                              Média: {av.mediaCalculada.toFixed(1)}/{av.escalaMaxima}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] font-medium">{av.motivo}</p>
+                      </div>
+                      <div className="shrink-0 text-right bg-white/80 px-3 py-1.5 rounded-lg border border-current/20">
+                        <span className="text-[9.5px] uppercase font-bold block opacity-75">Progressão Definida</span>
+                        <strong className="text-xs font-black">
+                          {av.classeAnterior} → {av.classeSugerida}
+                        </strong>
+                      </div>
                     </div>
                   )}
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <h4 className="font-black text-gray-900 truncate">{al.nomeCompleto}</h4>
-                    <p className="text-gray-600">
-                      Doc.: <strong className="font-mono">{al.numeroDocumento || al.numeroBI || '—'}</strong> • Gênero: <strong>{al.genero === 'M' ? 'Masculino' : 'Feminino'}</strong>
-                    </p>
-                    <p className="text-gray-600">
-                      Filiação: {al.nomeMae || al.nomePai || '—'} • Enc.: {al.nomeEncarregado || al.encarregadoNome || '—'} ({al.telefoneEncarregado || al.telefone || '—'})
-                    </p>
-                    <span className="inline-block text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.2 rounded">
-                      Enquadramento Anterior: {al.classeId || tAtual?.classe} - {tAtual?.nome || 'Turma Base'} ({tAtual?.turno || 'Manhã'})
-                    </span>
-                  </div>
                 </div>
               );
             })()}
 
-            {/* 3. Campos Alteráveis na Confirmação: Classe, Turma, Turno, Curso, Matrícula */}
+            {/* 3. Campos do Ano Letivo Ativo: Ano, Classe, Turma, Turno, Curso, Matrícula */}
             <form onSubmit={handleExecutarConfirmacao} className="space-y-4 pt-2 border-t border-gray-100 text-xs">
-              <div className="bg-white p-3 border border-emerald-300 rounded-xl space-y-3">
-                <span className="text-[11px] font-black uppercase text-emerald-900 block">
-                  Novos Dados Académicos para Confirmação:
-                </span>
+              <div className="bg-white p-3.5 border border-emerald-300 rounded-xl space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-black uppercase text-emerald-900">
+                    Enquadramento no Ano Letivo de Destino ({anoConfirmacaoEfetivo || 'Ativo'})
+                  </span>
+                  <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    {turmasAnoConfirmacao.length} turma(s) • {classesComTurmasNoAnoDestino.length} classe(s) • {turnosAnoConfirmacao.length} turno(s) no ano ativo
+                  </span>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block font-bold text-gray-700 mb-1">Ano Lectivo da Renovação *</label>
+                    <label className="block font-bold text-gray-700 mb-1">Ano Lectivo Ativo / Destino *</label>
                     <select
                       value={confirmAnoLectivo}
                       onChange={(e) => {
                         const novoAno = e.target.value;
                         setConfirmAnoLectivo(novoAno);
-                        const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === novoAno);
-                        const tNova = turmasAno.find(t => t.classe === confirmClasse) || turmas.find(t => t.classe === confirmClasse);
-                        if (tNova) {
-                          setConfirmTurmaId(tNova.id);
-                          setConfirmTurno(tNova.turno || 'Manhã');
-                          if (tNova.curso) setConfirmCurso(tNova.curso);
+                        if (confirmAlunoId) {
+                          handleSelectAlunoConfirmacao(confirmAlunoId, novoAno);
                         }
                       }}
                       className="w-full p-2 border border-emerald-400 rounded-lg font-bold bg-emerald-50/50 text-emerald-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
@@ -4153,7 +4585,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       ) : (
                         anosLectivosDisponiveis.map((ano: string) => (
                           <option key={`conf-ano-${ano}`} value={ano}>
-                            Ano {ano} {ano === escola.anoLectivoActivo ? '(Vigente)' : ''}
+                            Ano {ano} {ano === escola.anoLectivoActivo ? '(Ativo)' : ''}
                           </option>
                         ))
                       )}
@@ -4167,71 +4599,117 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       onChange={(e) => {
                         const novaClasse = e.target.value;
                         setConfirmClasse(novaClasse);
-                        const turmasAno = turmas.filter(t => !t.anoLectivo || t.anoLectivo === confirmAnoLectivo);
-                        const tNova = turmasAno.find(t => t.classe === novaClasse) || turmas.find(t => t.classe === novaClasse);
-                        if (tNova) {
-                          setConfirmTurmaId(tNova.id);
-                          setConfirmTurno(tNova.turno || 'Manhã');
-                          if (tNova.curso) setConfirmCurso(tNova.curso);
+                        const turmasCls = getTurmasPorClasse(turmasAnoConfirmacao, novaClasse);
+                        const tNova = turmasCls[0];
+                        setConfirmTurmaId(tNova?.id || '');
+                        if (tNova?.turno) setConfirmTurno(tNova.turno);
+                        if (isSegundoCiclo(novaClasse)) {
+                          setConfirmCurso(tNova?.curso || cursosAnoConfirmacao[0] || '');
+                        } else {
+                          setConfirmCurso('');
                         }
                       }}
                       className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     >
-                      {['Iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '7ª', '8ª', '9ª', '10ª', '11ª', '12ª', '13ª'].map(c => (
-                        <option key={c} value={c}>{c} Classe</option>
-                      ))}
+                      {classesConfirmacaoDisponiveis.map(c => {
+                        const qtdTurmas = getTurmasPorClasse(turmasAnoConfirmacao, c).length;
+                        return (
+                          <option key={c} value={c}>
+                            {c === 'Iniciação' ? 'Iniciação' : `${c} Classe`}
+                            {qtdTurmas > 0 ? ` (${qtdTurmas} turma${qtdTurmas > 1 ? 's' : ''})` : ' (sem turma no ano ativo)'}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block font-bold text-gray-700 mb-1">Turma Atribuída *</label>
+                    <label className="block font-bold text-gray-700 mb-1">
+                      Turma do Ano Letivo Ativo *
+                    </label>
                     <select
                       value={confirmTurmaId}
                       onChange={(e) => {
                         setConfirmTurmaId(e.target.value);
-                        const tSel = turmas.find(t => t.id === e.target.value);
+                        const tSel = turmasAnoConfirmacao.find(t => t.id === e.target.value) || turmas.find(t => t.id === e.target.value);
                         if (tSel?.turno) setConfirmTurno(tSel.turno);
-                        if (tSel?.curso) setConfirmCurso(tSel.curso);
+                        if (isSegundoCiclo(confirmClasse) && tSel?.curso) {
+                          setConfirmCurso(tSel.curso);
+                        }
                       }}
                       className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     >
-                      {turmas
-                        .filter((t: Turma) => (!confirmClasse || t.classe === confirmClasse) && (!t.anoLectivo || t.anoLectivo === confirmAnoLectivo))
-                        .map((t: Turma) => (
+                      {(() => {
+                        const turmasDaClasse = getTurmasPorClasse(turmasAnoConfirmacao, confirmClasse);
+                        if (turmasDaClasse.length === 0) {
+                          return (
+                            <option value="">
+                              Nenhuma turma criada para {confirmClasse} em {anoConfirmacaoEfetivo}
+                            </option>
+                          );
+                        }
+                        return turmasDaClasse.map((t: Turma) => (
                           <option key={t.id} value={t.id}>
-                            {t.nome} ({t.classe} - {t.turno} • Sala {t.sala})
+                            {t.nome} ({t.turno} • Sala {t.sala || '01'}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''})
                           </option>
-                        ))}
+                        ));
+                      })()}
                     </select>
                   </div>
 
                   <div>
-                    <label className="block font-bold text-gray-700 mb-1">Turno *</label>
+                    <label className="block font-bold text-gray-700 mb-1">Turno (Ano Ativo) *</label>
                     <select
                       value={confirmTurno}
-                      onChange={(e) => setConfirmTurno(e.target.value as any)}
-                      className="w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                      onChange={(e) => {
+                        const novoTurno = e.target.value;
+                        setConfirmTurno(novoTurno);
+                        const match = getTurmasPorClasse(turmasAnoConfirmacao, confirmClasse).find(
+                          t => t.turno === novoTurno && (!isSegundoCiclo(confirmClasse) || !confirmCurso || t.curso === confirmCurso)
+                        );
+                        if (match) setConfirmTurmaId(match.id);
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     >
-                      <option value="Manhã">Manhã</option>
-                      <option value="Tarde">Tarde</option>
-                      <option value="Noite">Noite</option>
+                      {turnosAnoConfirmacao.map(tr => (
+                        <option key={`conf-turno-${tr}`} value={tr}>
+                          {tr}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-1">Curso (Ensino Secundário)</label>
-                    <input
-                      type="text"
-                      value={confirmCurso}
-                      onChange={(e) => setConfirmCurso(e.target.value)}
-                      placeholder="Ex: Ciências Físicas e Biológicas, Geral"
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-                    />
-                  </div>
+                  {isSegundoCiclo(confirmClasse) && (
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">Curso (IIº Ciclo — Ano Ativo) *</label>
+                      <select
+                        value={confirmCurso}
+                        onChange={(e) => {
+                          const novoCurso = e.target.value;
+                          setConfirmCurso(novoCurso);
+                          const match = getTurmasPorClasse(turmasAnoConfirmacao, confirmClasse).find(
+                            t => t.curso === novoCurso
+                          );
+                          if (match) {
+                            setConfirmTurmaId(match.id);
+                            if (match.turno) setConfirmTurno(match.turno);
+                          }
+                        }}
+                        className="w-full p-2 border border-purple-300 rounded-lg bg-purple-50/40 font-semibold text-purple-950 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                      >
+                        <option value="">Selecionar Curso...</option>
+                        {cursosAnoConfirmacao.map(cur => (
+                          <option key={`conf-curso-${cur}`} value={cur}>
+                            {cur}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
-                  <div className="sm:col-span-2">
+                  <div className={isSegundoCiclo(confirmClasse) ? '' : 'sm:col-span-2'}>
                     <label className="block font-bold text-gray-800 mb-1">
-                      N.º de Matrícula (Código Oficial para o Ano Letivo) *
+                      N.º de Matrícula (Ano Letivo {anoConfirmacaoEfetivo}) *
                     </label>
                     <input
                       type="text"
@@ -4239,30 +4717,43 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       value={confirmCodigoMatricula}
                       onChange={(e) => setConfirmCodigoMatricula(e.target.value)}
                       placeholder="Ex: 2026/MED-8910"
-                      className="w-full p-2.5 border-2 border-emerald-500 bg-emerald-50 font-mono font-black text-sm text-emerald-950 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                      className="w-full p-2 border-2 border-emerald-500 bg-emerald-50 font-mono font-black text-xs text-emerald-950 rounded-lg focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     />
-                    <span className="text-[10px] text-gray-500 mt-0.5 block">
-                      O número de matrícula é exibido no comprovativo de confirmação e nos passes escolares oficiais.
-                    </span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowConfirmacaoModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
+                  onClick={() => {
+                    setShowConfirmacaoModal(false);
+                    setReceiptSheetInitialSlots(undefined);
+                    setShowReceiptSheetModal(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1.5 cursor-pointer"
                 >
-                  Cancelar
+                  <Receipt className="h-3.5 w-3.5" />
+                  <span>Emitir 3 Recibos numa Folha A4</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm flex items-center space-x-1.5 cursor-pointer"
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Gravar Confirmação de Matrícula</span>
-                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmacaoModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!confirmAlunoId}
+                    className="px-6 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg shadow-sm flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Gravar Confirmação & Gerar Recibo (3/A4)</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -4270,195 +4761,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL COMPROVATIVO OFICIAL DE CONFIRMAÇÃO DE MATRÍCULA (IMPRESSÃO / BAIXAR) */}
+      {/* MODAL DE RECIBOS DE MATRÍCULA E CONFIRMAÇÃO (3 POR FOLHA A4)              */}
       {/* ========================================================================= */}
-      {showComprovativoModal && alunoConfirmadoComprovativo && (
-        <div className="fixed inset-0 bg-gray-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 my-8 max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b pb-3 border-gray-200 no-print">
-              <div className="flex items-center space-x-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                <h3 className="text-base font-black text-gray-900">
-                  Comprovativo de Confirmação de Matrícula Emitido
-                </h3>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const el = document.getElementById('comprovativo-confirmacao-doc');
-                    if (el) {
-                      await downloadElementAsPdf(
-                        el,
-                        `Comprovativo_Confirmacao_${alunoConfirmadoComprovativo.aluno.codigoMatricula.replace(/[\/\\]/g, '_')}`,
-                        { orientation: 'portrait' }
-                      );
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-xs"
-                  title="Descarregar documento oficial em formato PDF (.pdf)"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  <span>Baixar em PDF (.pdf)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById('comprovativo-confirmacao-doc');
-                    if (el) {
-                      downloadHtmlDocument(
-                        `Comprovativo_Confirmacao_${alunoConfirmadoComprovativo.aluno.codigoMatricula.replace(/[\/\\]/g, '_')}`,
-                        'Comprovativo de Confirmação de Matrícula',
-                        el.outerHTML
-                      );
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Baixar HTML</span>
-                </button>
-                <button 
-                  onClick={() => setShowComprovativoModal(false)}
-                  className="text-gray-400 hover:text-gray-600 font-bold px-2 py-1"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            {/* Documento Formatado MED */}
-            <div id="comprovativo-confirmacao-doc" className="p-6 border-2 border-gray-800 rounded-xl space-y-4 bg-white text-gray-950 font-serif">
-              {/* Cabeçalho */}
-              <div className="text-center space-y-1 border-b-2 border-black pb-3">
-                <div className="flex justify-center mb-1">
-                  {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
-                    <img
-                      src={configSistema.insigniaNacionalUrl}
-                      alt="Insígnia da República de Angola"
-                      className="h-14 w-14 object-contain mx-auto"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <InsigniaAngola size={48} />
-                  )}
-                </div>
-                <p className="text-[10px] font-black uppercase tracking-widest">REPÚBLICA DE ANGOLA</p>
-                <p className="text-[9px] font-bold uppercase tracking-wider text-gray-700">
-                  {escola.governoProvincial || `GOVERNO PROVINCIAL DE ${(escola.provincia || 'LUANDA').toUpperCase()}`}
-                </p>
-                <p className="text-[8.5px] font-bold uppercase tracking-wide text-gray-600">
-                  {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
-                </p>
-                <h2 className="text-sm sm:text-base font-black uppercase text-gray-900 pt-0.5">
-                  {escola.nomeOficial}
-                </h2>
-                <div className="pt-1">
-                  <span className="inline-block text-[11px] font-black uppercase px-4 py-1 border-2 border-black bg-gray-50">
-                    TALÃO / COMPROVATIVO DE CONFIRMAÇÃO DE MATRÍCULA
-                  </span>
-                </div>
-              </div>
-
-              {/* Destaque do Nº de Matrícula */}
-              <div className="bg-gray-100 border-2 border-gray-400 p-3 rounded-lg flex items-center justify-between font-sans">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-gray-600 block">N.º OFICIAL DE MATRÍCULA:</span>
-                  <strong className="text-base font-mono font-black text-blue-950 tracking-wider">
-                    {alunoConfirmadoComprovativo.aluno.codigoMatricula}
-                  </strong>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase font-bold text-gray-600 block">Nº de Processo:</span>
-                  <span className="font-mono font-bold text-xs text-gray-900">
-                    {alunoConfirmadoComprovativo.aluno.numeroProcesso || 'PROC-MED'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Foto e Dados Pessoais do Aluno */}
-              <div className="flex items-start space-x-4 border-b border-gray-300 pb-3 font-sans text-xs">
-                {alunoConfirmadoComprovativo.aluno.fotoUrl && alunoConfirmadoComprovativo.aluno.fotoUrl.trim() !== '' ? (
-                  <img
-                    src={alunoConfirmadoComprovativo.aluno.fotoUrl}
-                    alt={alunoConfirmadoComprovativo.aluno.nomeCompleto}
-                    className="h-20 w-16 object-cover rounded border-2 border-black shrink-0"
-                  />
-                ) : (
-                  <div className="h-20 w-16 border-2 border-dashed border-gray-400 bg-gray-50 flex flex-col items-center justify-center text-[9px] text-gray-500 font-bold shrink-0">
-                    <span>FOTO</span>
-                    <span>3x4</span>
-                  </div>
-                )}
-                <div className="flex-1 space-y-1">
-                  <p><span className="text-gray-600 font-semibold">Nome Completo:</span> <strong className="uppercase">{alunoConfirmadoComprovativo.aluno.nomeCompleto}</strong></p>
-                  <p><span className="text-gray-600 font-semibold">Bilhete de Identidade (BI):</span> <strong className="font-mono">{alunoConfirmadoComprovativo.aluno.numeroDocumento || alunoConfirmadoComprovativo.aluno.numeroBI || '—'}</strong></p>
-                  <p><span className="text-gray-600 font-semibold">Gênero:</span> <strong>{alunoConfirmadoComprovativo.aluno.genero === 'M' ? 'Masculino' : 'Feminino'}</strong> • <span className="text-gray-600 font-semibold">Data de Nascimento:</span> <strong>{alunoConfirmadoComprovativo.aluno.dataNascimento}</strong></p>
-                  <p><span className="text-gray-600 font-semibold">Encarregado de Educação:</span> <strong>{alunoConfirmadoComprovativo.aluno.nomeEncarregado || alunoConfirmadoComprovativo.aluno.encarregadoNome || '—'}</strong> ({alunoConfirmadoComprovativo.aluno.telefoneEncarregado || alunoConfirmadoComprovativo.aluno.telefone || '—'})</p>
-                </div>
-              </div>
-
-              {/* Detalhes da Renovação Académica */}
-              <div className="font-sans text-xs space-y-2 border-b border-gray-300 pb-3">
-                <div className="grid grid-cols-2 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200">
-                  <div>
-                    <span className="text-[10px] text-gray-500 block">Enquadramento Anterior:</span>
-                    <strong>{alunoConfirmadoComprovativo.turmaAnterior || '—'}</strong>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-gray-500 block">Classe Confirmada:</span>
-                    <strong className="text-emerald-900 font-black">{alunoConfirmadoComprovativo.aluno.classeId} Classe</strong>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-gray-500 block">Turma & Sala Atribuída:</span>
-                    <strong>{alunoConfirmadoComprovativo.turmaNova?.nome || 'Turma Atribuída'} (Sala {alunoConfirmadoComprovativo.turmaNova?.sala || '01'})</strong>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-gray-500 block">Turno:</span>
-                    <strong>{alunoConfirmadoComprovativo.aluno.periodo || 'Manhã'}</strong>
-                  </div>
-                  {isSegundoCiclo(alunoConfirmadoComprovativo.aluno.classeId) && alunoConfirmadoComprovativo.aluno.curso && (
-                    <div className="col-span-2">
-                      <span className="text-[10px] text-gray-500 block">Curso Curricular:</span>
-                      <strong>{alunoConfirmadoComprovativo.aluno.curso}</strong>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Autenticação, QR Code Oficial & Assinaturas */}
-              <div className="pt-4 grid grid-cols-3 gap-4 items-end text-center font-sans text-[11px]">
-                <div className="space-y-6">
-                  <p className="text-gray-600">O(A) Encarregado(a) de Educação</p>
-                  <div className="w-36 border-b border-black mx-auto" />
-                </div>
-                <div className="flex flex-col items-center justify-center">
-                  <OfficialQrCode
-                    value={gerarPayloadQrDocumento({
-                      docType: 'COMPROVATIVO_MATRICULA',
-                      escolaId: escola.id,
-                      docRef: alunoConfirmadoComprovativo.aluno.codigoMatricula,
-                      alunoId: alunoConfirmadoComprovativo.aluno.id,
-                      alunoNome: alunoConfirmadoComprovativo.aluno.nomeCompleto,
-                      anoLectivo: alunoConfirmadoComprovativo.aluno.anoLectivo || escola.anoLectivoActivo
-                    })}
-                    size={54}
-                    label="Validar Matrícula"
-                  />
-                </div>
-                <div className="space-y-6">
-                  <p className="text-gray-600">O Secretário / A Direcção Escolar</p>
-                  <div className="w-36 border-b border-black mx-auto" />
-                </div>
-              </div>
-
-              <div className="text-center pt-2 text-[9px] text-gray-500 font-mono">
-                Emitido em: {formatarDataHoraAngolana(new Date())} • Secretaria Escolar MED
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <EnrollmentReceiptSheetModal
+        isOpen={showReceiptSheetModal}
+        onClose={() => setShowReceiptSheetModal(false)}
+        escola={escola}
+        alunos={alunos}
+        turmas={turmas}
+        currentUser={currentUser}
+        initialSlots={receiptSheetInitialSlots}
+      />
 
       {/* Modal Histórico Escolar Completo: Notas Finais de Cada Disciplina em Cada Classe */}
       {showHistoricoModal && historicoAluno && historicoCompleto && (
