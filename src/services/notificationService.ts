@@ -117,30 +117,28 @@ class NotificationService {
 
     const isDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
 
-    window.setTimeout(() => {
-      try {
-        if (isDev) {
-          navigator.serviceWorker
-            .register('/sw-notifications.js')
-            .then((reg) => {
+    try {
+      if (isDev) {
+        navigator.serviceWorker
+          .register('/sw-notifications.js')
+          .then((reg) => {
+            this.swRegistration = reg;
+          })
+          .catch(() => {});
+      } else {
+        registerSW({
+          immediate: true,
+          onRegisteredSW: (_swUrl, reg) => {
+            if (reg) {
               this.swRegistration = reg;
-            })
-            .catch(() => {});
-        } else {
-          registerSW({
-            immediate: false,
-            onRegisteredSW: (_swUrl, reg) => {
-              if (reg) {
-                this.swRegistration = reg;
-              }
-            },
-            onRegisterError: () => {
-              // Fallback silencioso em ambientes sem suporte a SW
             }
-          });
-        }
-      } catch {}
-    }, 1500);
+          },
+          onRegisterError: () => {
+            // Fallback silencioso em ambientes sem suporte a SW
+          }
+        });
+      }
+    } catch {}
 
     navigator.serviceWorker.ready
       .then((reg) => {
@@ -180,6 +178,29 @@ class NotificationService {
   public isServiceWorkerAtivo(): boolean {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
     return Boolean(this.swRegistration?.active || navigator.serviceWorker.controller);
+  }
+
+  public warmOfflineCache(urls?: string[]): void {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    try {
+      const origin = window.location.origin;
+      const collected = new Set<string>(Array.isArray(urls) ? urls : []);
+      if (typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function') {
+        const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+        for (const e of entries) {
+          if (e?.name && e.name.startsWith(origin) && !e.name.includes('.hot-update.') && !e.name.startsWith(`${origin}/api/`)) {
+            collected.add(e.name);
+          }
+        }
+      }
+      if (collected.size === 0) return;
+      const payload = { type: 'SGE_WARM_CACHE', urls: Array.from(collected) };
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage(payload);
+      } else if (this.swRegistration?.active) {
+        this.swRegistration.active.postMessage(payload);
+      }
+    } catch {}
   }
 
   public obterEstadoPermissao(): NotificationPermission | 'unsupported' {

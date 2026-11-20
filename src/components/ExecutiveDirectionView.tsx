@@ -267,7 +267,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
   const handleBaixarDespachoPDF = async (desp: DespachoDirecao) => {
     setDocParaExportar({ tipo: 'despacho', item: desp });
-    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    await new Promise<void>(resolve => setTimeout(resolve, 220));
     const el = document.getElementById('despacho-direcao-a4-pdf');
     if (el) {
       await downloadElementAsPdf(el, `${desp.numeroDespacho.replace(/[\/\s]/g, '_')}`, {
@@ -280,7 +280,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
   const handleImprimirDespachoDiretoA4 = async (desp: DespachoDirecao) => {
     setDocParaExportar({ tipo: 'despacho', item: desp });
-    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    await new Promise<void>(resolve => setTimeout(resolve, 220));
     const el = document.getElementById('despacho-direcao-a4-pdf');
     if (el) {
       imprimirElementoDiretamente(el, `${desp.numeroDespacho} - ${escola.nomeOficial}`, {
@@ -292,7 +292,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
   const handleBaixarAtaPDF = async (reun: ReuniaoDirecao) => {
     setDocParaExportar({ tipo: 'ata', item: reun });
-    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    await new Promise<void>(resolve => setTimeout(resolve, 220));
     const el = document.getElementById('ata-direcao-a4-pdf');
     if (el) {
       await downloadElementAsPdf(el, `${reun.numeroAta.replace(/[\/\s]/g, '_')}`, {
@@ -305,7 +305,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
   const handleImprimirAtaDiretoA4 = async (reun: ReuniaoDirecao) => {
     setDocParaExportar({ tipo: 'ata', item: reun });
-    await new Promise<void>(resolve => setTimeout(resolve, 160));
+    await new Promise<void>(resolve => setTimeout(resolve, 220));
     const el = document.getElementById('ata-direcao-a4-pdf');
     if (el) {
       imprimirElementoDiretamente(el, `${reun.numeroAta} - Conselho de Direção`, {
@@ -1553,6 +1553,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
       {docParaExportar?.tipo === 'despacho' && (
         <div
           id="despacho-direcao-a4-pdf"
+          data-doc-root="true"
           style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 1, width: '794px' }}
           className="bg-white p-10 text-black font-serif space-y-5"
         >
@@ -1611,6 +1612,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
       {docParaExportar?.tipo === 'ata' && (
         <div
           id="ata-direcao-a4-pdf"
+          data-doc-root="true"
           style={{ position: 'fixed', left: '-10000px', top: 0, opacity: 1, width: '794px' }}
           className="bg-white p-10 text-black font-serif space-y-5"
         >

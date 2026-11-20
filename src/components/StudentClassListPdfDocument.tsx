@@ -135,6 +135,9 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
   // Classes disponíveis na escola / alunos
   const classesDisponiveis = useMemo(() => {
     const set = new Set<string>();
+    dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).forEach((c) => {
+      if (c.nome) set.add(normalizarClasse(c.nome));
+    });
     turmasBase.forEach((t) => {
       if (t.classe) set.add(normalizarClasse(t.classe));
     });
@@ -149,11 +152,14 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
       if (iB === -1) return -1;
       return iA - iB;
     });
-  }, [turmasBase, todosAlunos, alunos]);
+  }, [escola.id, turmasBase, todosAlunos, alunos]);
 
-  // Cursos disponíveis para a classe selecionada (2º Ciclo / Técnico)
+  // Cursos disponíveis para a classe selecionada (dinâmicos da Direção + Turmas + MED)
   const cursosDisponiveis = useMemo(() => {
     const set = new Set<string>();
+    dbService.getCursos(escola.id).filter(c => c.ativo !== false).forEach((c) => {
+      if (c.nome && c.nome.trim()) set.add(c.nome.trim());
+    });
     turmasBase.forEach((t) => {
       if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return;
       if (t.curso && t.curso.trim()) set.add(t.curso.trim());
@@ -165,8 +171,8 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
     if (filtroClasse === 'TODAS' || isSegundoCiclo(filtroClasse)) {
       CURSOS_SEGUNDO_CICLO.forEach((c) => set.add(c));
     }
-    return Array.from(set).sort();
-  }, [turmasBase, todosAlunos, alunos, filtroClasse]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [escola.id, turmasBase, todosAlunos, alunos, filtroClasse]);
 
   // Turmas filtradas por Classe e Curso
   const turmasFiltradas = useMemo(() => {
@@ -253,7 +259,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
   const temCurso =
     (classeCabecalho !== 'Todas as Classes' && isSegundoCiclo(classeCabecalho)) ||
     filtroCurso !== 'TODOS' ||
-    Boolean(turmaSelecionadaObj?.curso && isSegundoCiclo(turmaSelecionadaObj.classe));
+    Boolean(turmaSelecionadaObj?.curso && turmaSelecionadaObj.curso.trim());
   const cursoExibicao =
     filtroCurso !== 'TODOS'
       ? filtroCurso
@@ -462,7 +468,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
             Governo Provincial de {escola.provincia || 'Luanda'}
           </h2>
           <h3 className="text-xs font-bold uppercase tracking-wide text-gray-900">
-            {escola.municipio ? `Administração Municipal de ${escola.municipio}` : 'Direcção Municipal da Educação'}
+            {escola.municipio ? `Administração Municipal de ${escola.municipio}` : (escola.gabineteEducacao || 'Administração Municipal')}
           </h3>
           <h4 className="text-sm font-black uppercase text-blue-950 pt-0.5">
             {escola.nomeOficial}
@@ -501,21 +507,21 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
         </div>
 
         {/* Tabela Nominal com Numeração, Fotografia, Nome Completo, Sexo e Idade */}
-        <div className="overflow-x-auto mb-4">
-          <table className="w-full border-collapse border border-black text-[10px] text-left">
+        <div className="mb-4 overflow-x-auto">
+          <table className="w-full table-auto border-collapse border border-black text-[9.5px] text-left">
             <thead>
-              <tr className="bg-gray-200 text-black uppercase font-black text-[9px] border-b-2 border-black">
-                <th className="p-1.5 border border-black text-center w-8">Nº</th>
-                <th className="p-1 border border-black text-center w-12">Foto</th>
-                <th className="p-1.5 border border-black text-center w-20">Nº Proc.</th>
-                <th className="p-1.5 border border-black">Nome Completo do(a) Estudante</th>
+              <tr className="bg-gray-200 text-black uppercase font-black text-[8.5px] border-b-2 border-black">
+                <th className="p-1 border border-black text-center min-w-[28px]">Nº</th>
+                <th className="p-1 border border-black text-center min-w-[44px]">Foto</th>
+                <th className="p-1 border border-black text-center min-w-[74px]">Nº Proc.</th>
+                <th className="p-1.5 border border-black min-w-[160px]">Nome Completo do(a) Estudante</th>
                 {mostrarColunaTurma && (
-                  <th className="p-1.5 border border-black text-center w-20">Classe / Turma</th>
+                  <th className="p-1 border border-black text-center min-w-[74px]">Classe/Turma</th>
                 )}
-                <th className="p-1.5 border border-black text-center w-12">Sexo</th>
-                <th className="p-1.5 border border-black text-center w-16">Idade</th>
-                <th className="p-1.5 border border-black text-center w-24">Data Nasc.</th>
-                <th className="p-1.5 border border-black text-center w-28">Assinatura / Obs.</th>
+                <th className="p-1 border border-black text-center min-w-[34px]">Sexo</th>
+                <th className="p-1 border border-black text-center min-w-[44px]">Idade</th>
+                <th className="p-1 border border-black text-center min-w-[68px]">Data Nasc.</th>
+                <th className="p-1 border border-black text-center min-w-[72px]">Estado / Rub.</th>
               </tr>
             </thead>
             <tbody>
@@ -539,7 +545,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
 
                       {/* Fotografia 3x4 em miniatura de alta definição */}
                       <td className="p-1 border border-black text-center">
-                        <div className="w-9 h-11 mx-auto bg-gray-100 border border-gray-400 rounded overflow-hidden flex items-center justify-center">
+                        <div className="w-8 h-10 mx-auto bg-gray-100 border border-gray-400 rounded overflow-hidden flex items-center justify-center">
                           {aluno.fotoUrl ? (
                             <img
                               src={aluno.fotoUrl}
@@ -549,23 +555,23 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
                             />
                           ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                              <User className="w-5 h-5 text-gray-300" />
+                              <User className="w-4 h-4 text-gray-300" />
                               <span className="text-[6px] text-gray-400 font-bold uppercase">Foto</span>
                             </div>
                           )}
                         </div>
                       </td>
 
-                      <td className="p-1 border border-black text-center font-mono font-medium text-[9px]">
+                      <td className="p-1 border border-black text-center font-mono font-medium text-[8.5px] break-words">
                         {aluno.numeroProcesso || aluno.codigoMatricula}
                       </td>
 
-                      <td className="p-1.5 border border-black font-bold uppercase text-[10.5px]">
+                      <td className="p-1.5 border border-black font-bold uppercase text-[10px] leading-snug break-words whitespace-normal">
                         {aluno.nomeCompleto}
                       </td>
 
                       {mostrarColunaTurma && (
-                        <td className="p-1 border border-black text-center font-semibold text-[9px]">
+                        <td className="p-1 border border-black text-center font-semibold text-[8.5px] break-words">
                           {tAluno ? `${tAluno.classe} ${tAluno.nome}` : (aluno.classeId || '—')}
                         </td>
                       )}
@@ -578,11 +584,11 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
                         {idade}
                       </td>
 
-                      <td className="p-1 border border-black text-center font-mono text-[9px]">
+                      <td className="p-1 border border-black text-center font-mono text-[8.5px]">
                         {dataFormatada || '—'}
                       </td>
 
-                      <td className="p-1 border border-black text-center text-gray-400 text-[8px]">
+                      <td className="p-1 border border-black text-center text-gray-500 text-[8px] break-words">
                         {aluno.estado || 'Activo'}
                       </td>
                     </tr>
@@ -594,7 +600,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
         </div>
 
         {/* Resumo Estatístico da Turma */}
-        <div className="flex justify-between items-center p-2 bg-gray-100 border border-black rounded text-[10px] font-bold mb-8">
+        <div className="flex flex-wrap justify-between items-center gap-2 p-2 bg-gray-100 border border-black rounded text-[10px] font-bold mb-6">
           <span>Total de Alunos Matriculados: <strong className="font-black text-black">{totalAlunos}</strong></span>
           <span>Masculino: <strong className="font-black text-black">{totalM}</strong></span>
           <span>Feminino: <strong className="font-black text-black">{totalF}</strong></span>
@@ -603,35 +609,35 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
 
         {/* Assinaturas Oficiais com Traço Centrado e Gênero Correto */}
         <div data-pdf-fixed-signatures="true" className="grid grid-cols-3 gap-4 pt-4 text-center text-[10px]">
-          <div>
-            <p className="font-bold text-gray-900 mb-8">O(A) Director(a) de Turma</p>
-            <div className="w-40 border-b border-black mx-auto mb-1" />
-            <p className="font-bold text-gray-900">{turmaSelecionadaObj?.coordenadorNome || 'Coordenação de Turma'}</p>
+          <div className="min-w-0">
+            <p className="font-bold text-gray-900 mb-7">O(A) Director(a) de Turma</p>
+            <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
+            <p className="font-bold text-gray-900 break-words">{turmaSelecionadaObj?.coordenadorNome || 'Coordenação de Turma'}</p>
             <p className="text-gray-500 text-[9px]">Docente Responsável</p>
           </div>
 
-          <div>
-            <p className="font-bold text-gray-900 mb-8">
+          <div className="min-w-0">
+            <p className="font-bold text-gray-900 mb-7">
               {escola.subdiretorPedagogicoNome ? 'O Subdirector Pedagógico' : 'A Subdirecção Pedagógica'}
             </p>
-            <div className="w-40 border-b border-black mx-auto mb-1" />
-            <p className="font-bold text-gray-900">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
+            <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
+            <p className="font-bold text-gray-900 break-words">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
             <p className="text-gray-500 text-[9px]">Área Pedagógica</p>
           </div>
 
-          <div>
-            <p className="font-bold text-gray-900 mb-8">
+          <div className="min-w-0">
+            <p className="font-bold text-gray-900 mb-7">
               {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
             </p>
-            <div className="w-40 border-b border-black mx-auto mb-1" />
-            <p className="font-bold text-gray-900">{escola.diretorGeralNome || 'Direcção da Escola'}</p>
+            <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
+            <p className="font-bold text-gray-900 break-words">{escola.diretorGeralNome || 'Direcção da Escola'}</p>
             <p className="text-gray-500 text-[9px]">Visto & Homologado</p>
           </div>
         </div>
 
         <div className="mt-5 pt-3 border-t border-gray-300 flex items-center justify-between text-[9px] text-gray-600">
           <div>
-            <p className="font-bold text-gray-800">Documento Oficial • Secretaria Escolar MED</p>
+            <p className="font-bold text-gray-800">{escola.nomeOficial}</p>
             <p>{turmaCabecalho} ({classeCabecalho}) • {totalAlunos} estudantes listados</p>
           </div>
           <OfficialQrCode
@@ -643,7 +649,6 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
               anoLectivo: anoBase
             })}
             size={48}
-            label="Validar Lista"
           />
         </div>
       </div>

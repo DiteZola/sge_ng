@@ -15,6 +15,28 @@ export { isClasseFinal } from './macEngine';
 export const CLASSES_ENSINO_PRIMARIO = ['Iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
 export const CLASSES_PRIMEIRO_CICLO = ['7ª', '8ª', '9ª'];
 export const CLASSES_SEGUNDO_CICLO = ['10ª', '11ª', '12ª', '13ª'];
+export const TODAS_CLASSES_OFICIAIS_MED = [
+  'Iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª',
+  '7ª', '8ª', '9ª',
+  '10ª', '11ª', '12ª', '13ª'
+];
+
+export const AREAS_FORMACAO_SUGERIDAS_MED = [
+  'Educação Básica',
+  'Ciências Físicas e Biológicas',
+  'Ciências Económicas e Jurídicas',
+  'Ciências Humanas',
+  'Ciências Exatas',
+  'Ciências Sociais',
+  'Técnico-Profissional',
+  'Informática e Telecomunicações',
+  'Construção Civil e Mecânica',
+  'Electricidade e Electrónica',
+  'Saúde',
+  'Pedagógica / Magistério',
+  'Administração, Contabilidade e Gestão',
+  'Agrária e Veterinária'
+];
 
 export const CURSOS_SEGUNDO_CICLO = [
   'Ciências Físicas e Biológicas (PUNIV)',
@@ -248,12 +270,13 @@ export function getSalaDaTurma(turma?: Turma | null): string {
 }
 
 /**
- * Obtém o curso associado a uma turma com validação de ciclo
+ * Obtém o curso associado a uma turma com validação de ciclo (preservando cursos personalizados da escola)
  */
 export function getCursoDaTurma(turma?: Turma | null): string {
   if (!turma) return 'Geral';
+  if (turma.curso && turma.curso.trim()) return turma.curso.trim();
   if (isSegundoCiclo(turma.classe)) {
-    return turma.curso && turma.curso.trim() ? turma.curso.trim() : 'Ciências Físicas e Biológicas (PUNIV)';
+    return 'Ciências Físicas e Biológicas (PUNIV)';
   }
   if (isPrimeiroCiclo(turma.classe)) {
     return 'Iº Ciclo do Ensino Secundário Geral';
@@ -309,18 +332,19 @@ export function validarCriacaoTurma(dados: {
     if (!dados.curso || !dados.curso.trim() || dados.curso === 'Geral') {
       return {
         valida: false,
-        erro: `Para turmas do 2º Ciclo (${dados.classe}), é obrigatório associar um Curso oficial (ex: Ciências Físicas e Biológicas, Ciências Económicas e Jurídicas, Informática, etc.).`,
+        erro: `Para turmas do 2º Ciclo (${dados.classe}), é obrigatório associar um Curso (oficial ou criado pela Direção).`,
         cursoAjustado: 'Ciências Físicas e Biológicas (PUNIV)',
         salaAjustada
       };
     }
   }
 
+  const cursoInformado = dados.curso && dados.curso.trim() && dados.curso !== 'Geral' ? dados.curso.trim() : '';
   const cursoAjustado = isSegundoCiclo(dados.classe)
-    ? (dados.curso || 'Ciências Físicas e Biológicas (PUNIV)')
-    : isPrimeiroCiclo(dados.classe)
+    ? (cursoInformado || 'Ciências Físicas e Biológicas (PUNIV)')
+    : cursoInformado || (isPrimeiroCiclo(dados.classe)
       ? 'Iº Ciclo do Ensino Secundário Geral'
-      : 'Ensino Primário Geral';
+      : 'Ensino Primário Geral');
 
   return { valida: true, cursoAjustado, salaAjustada };
 }
@@ -342,47 +366,88 @@ export function formatarCicloPorClasse(classe: string): string {
 export function getDisciplinasPorClasseECiclo(
   disciplinas: Disciplina[],
   classeSelecionada?: string,
-  cicloSelecionado?: string
+  cicloSelecionado?: string,
+  cursoSelecionado?: string
 ): Disciplina[] {
-  if (!classeSelecionada && !cicloSelecionado) return ordenarDisciplinas(disciplinas);
   const cSel = classeSelecionada && classeSelecionada !== 'TODAS' && classeSelecionada !== 'todas' ? classeSelecionada : null;
   const ciSel = cicloSelecionado && cicloSelecionado !== 'TODOS' && cicloSelecionado !== 'todos' ? cicloSelecionado : null;
+  const cuSel = cursoSelecionado && cursoSelecionado !== 'TODOS' && cursoSelecionado !== 'todos' ? cursoSelecionado : null;
 
-  if (!cSel && !ciSel) return ordenarDisciplinas(disciplinas);
+  if (!cSel && !ciSel && !cuSel) return ordenarDisciplinas(disciplinas);
 
   if (cSel) {
-    return filtrarDisciplinasDaClasse(disciplinas, cSel);
+    return filtrarDisciplinasDaClasse(disciplinas, cSel, cuSel);
   }
 
-  // Filtro puramente por ciclo
-  if (!ciSel) return ordenarDisciplinas(disciplinas);
-  const cicloLower = ciSel.toLowerCase();
-  const filtradasCiclo = disciplinas.filter(d => {
-    if (d.ciclo && d.ciclo.toLowerCase().includes(cicloLower)) return true;
-    if (ciSel.includes('Primário')) {
-      if (d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao') return true;
-      if (d.classe && isEnsinoPrimario(d.classe)) return true;
-      if (d.classes && d.classes.some(c => isEnsinoPrimario(c))) return true;
-    }
-    if (ciSel.includes('Iº Ciclo')) {
-      if (d.nivelEnsino === 'ICiclo') return true;
-      if (d.classe && isPrimeiroCiclo(d.classe)) return true;
-      if (d.classes && d.classes.some(c => isPrimeiroCiclo(c))) return true;
-    }
-    if (ciSel.includes('IIº Ciclo') || ciSel.includes('Secundário')) {
-      if (d.nivelEnsino === 'IICiclo' || d.nivelEnsino === 'EnsinoTecnico') return true;
-      if (d.classe && isSegundoCiclo(d.classe)) return true;
-      if (d.classes && d.classes.some(c => isSegundoCiclo(c))) return true;
-    }
-    return false;
-  });
+  // Filtro por ciclo e/ou curso
+  let base = [...disciplinas];
+  if (ciSel) {
+    const cicloLower = ciSel.toLowerCase();
+    base = base.filter(d => {
+      if (d.ciclo && d.ciclo.toLowerCase().includes(cicloLower)) return true;
+      if (ciSel.includes('Primário')) {
+        if (d.nivelEnsino === 'Primario' || d.nivelEnsino === 'Iniciacao') return true;
+        if (d.classe && isEnsinoPrimario(d.classe)) return true;
+        if (d.classes && d.classes.some(c => isEnsinoPrimario(c))) return true;
+      }
+      if (ciSel.includes('Iº Ciclo')) {
+        if (d.nivelEnsino === 'ICiclo') return true;
+        if (d.classe && isPrimeiroCiclo(d.classe)) return true;
+        if (d.classes && d.classes.some(c => isPrimeiroCiclo(c))) return true;
+      }
+      if (ciSel.includes('IIº Ciclo') || ciSel.includes('Secundário')) {
+        if (d.nivelEnsino === 'IICiclo' || d.nivelEnsino === 'EnsinoTecnico') return true;
+        if (d.classe && isSegundoCiclo(d.classe)) return true;
+        if (d.classes && d.classes.some(c => isSegundoCiclo(c))) return true;
+      }
+      return false;
+    });
+  }
 
-  return ordenarDisciplinas(filtradasCiclo);
+  if (cuSel) {
+    const cuNorm = cuSel.trim().toLowerCase();
+    base = base.filter(d => {
+      const temCursosArray = Array.isArray(d.cursos) && d.cursos.length > 0;
+      const temCursoStr = Boolean(d.curso && d.curso.trim() && d.curso.trim().toUpperCase() !== 'TODOS');
+      if (!temCursosArray && !temCursoStr) return true; // Tronco comum
+      if (temCursosArray && d.cursos!.some(c => {
+        const cn = c.trim().toLowerCase();
+        return cn === 'todos' || cn === cuNorm || cuNorm.includes(cn) || cn.includes(cuNorm);
+      })) return true;
+      if (temCursoStr) {
+        const dc = d.curso!.trim().toLowerCase();
+        return dc === cuNorm || cuNorm.includes(dc) || dc.includes(cuNorm);
+      }
+      return false;
+    });
+  }
+
+  return ordenarDisciplinas(base);
+}
+
+export function disciplinaPertenceAoCurso(d: Disciplina, cursoNorm: string): boolean {
+  const temCursosArray = Array.isArray(d.cursos) && d.cursos.length > 0;
+  const temCursoStr = Boolean(d.curso && d.curso.trim() && d.curso.trim().toUpperCase() !== 'TODOS');
+  // Sem restrição de curso -> Tronco Comum (aplica-se a todos os cursos da classe)
+  if (!temCursosArray && !temCursoStr) return true;
+
+  if (temCursosArray) {
+    return d.cursos!.some(c => {
+      const cn = c.trim().toLowerCase();
+      return cn === 'todos' || cn === cursoNorm || cursoNorm.includes(cn) || cn.includes(cursoNorm);
+    });
+  }
+
+  if (temCursoStr) {
+    const dc = d.curso!.trim().toLowerCase();
+    return dc === cursoNorm || cursoNorm.includes(dc) || dc.includes(cursoNorm);
+  }
+  return true;
 }
 
 /**
  * Filtro estrito e infalível de disciplinas por classe e curso para Documentos, Pautas, Boletins, Histórico Escolar e Termos.
- * Garante que cada classe exibe exclusivamente as disciplinas a ela vinculadas, preservando rigorosamente
+ * Garante que cada classe e curso exibe exclusivamente as disciplinas a ela vinculadas, preservando rigorosamente
  * a ordem curricular definida na funcionalidade Disciplinas.
  */
 export function filtrarDisciplinasDaClasse(
@@ -390,8 +455,16 @@ export function filtrarDisciplinasDaClasse(
   classe: string | undefined | null,
   curso?: string | null
 ): Disciplina[] {
-  if (!classe || classe === 'TODAS' || classe === 'todas') return ordenarDisciplinas(disciplinas);
+  if (!classe || classe === 'TODAS' || classe === 'todas') {
+    if (curso && curso !== 'TODOS' && curso !== 'Geral') {
+      const cNorm = curso.trim().toLowerCase();
+      return ordenarDisciplinas(disciplinas.filter(d => disciplinaPertenceAoCurso(d, cNorm)));
+    }
+    return ordenarDisciplinas(disciplinas);
+  }
   const normClasse = normalizarClasse(classe);
+  const cursoClean = (curso && curso !== 'TODOS' && curso !== 'Geral') ? curso.trim() : '';
+  const cursoNorm = cursoClean.toLowerCase();
 
   // 1. Prioridade Absoluta: Disciplinas cadastradas especificamente para esta classe
   const disciplinasEspecificasClasse = disciplinas.filter(d => {
@@ -405,6 +478,12 @@ export function filtrarDisciplinasDaClasse(
   });
 
   if (disciplinasEspecificasClasse.length > 0) {
+    if (cursoNorm) {
+      const porCurso = disciplinasEspecificasClasse.filter(d => disciplinaPertenceAoCurso(d, cursoNorm));
+      if (porCurso.length > 0) {
+        return ordenarDisciplinas(porCurso);
+      }
+    }
     return ordenarDisciplinas(disciplinasEspecificasClasse);
   }
 
@@ -412,6 +491,8 @@ export function filtrarDisciplinasDaClasse(
   // consultar a Matriz Curricular Oficial MED de Angola e o Ciclo correspondente:
   const matrizOficial = getDisciplinasMatrizOficial(classe, curso || undefined);
   const filtradas = disciplinas.filter(d => {
+    if (cursoNorm && !disciplinaPertenceAoCurso(d, cursoNorm)) return false;
+
     const nomeNorm = d.nome.toLowerCase().trim();
     const naMatriz = matrizOficial.some(m => {
       const mNorm = m.toLowerCase().trim();
@@ -427,9 +508,8 @@ export function filtrarDisciplinasDaClasse(
     }
     if (isSegundoCiclo(normClasse)) {
       if (d.nivelEnsino === 'IICiclo' || (d.nivelEnsino as string) === 'II_Ciclo' || d.nivelEnsino === 'EnsinoTecnico') {
-        if (d.ehTecnica && curso) {
-          const cNorm = curso.toLowerCase();
-          return cNorm.includes('informática') || cNorm.includes('saúde') || cNorm.includes('técnic');
+        if (d.ehTecnica && cursoClean) {
+          return cursoNorm.includes('informática') || cursoNorm.includes('saúde') || cursoNorm.includes('técnic');
         }
         return true;
       }
@@ -444,6 +524,22 @@ export function filtrarDisciplinasDaClasse(
   });
 
   return ordenarDisciplinas(resultadoFinal);
+}
+
+/**
+ * Resolve a lista final de nomes de disciplinas para Documentos, Certificados, Declarações e Matrículas:
+ * prioriza as disciplinas reais cadastradas pela escola para a classe+curso e recorre à Matriz MED quando vazio.
+ */
+export function resolverNomesDisciplinasPorClasseECurso(
+  disciplinas: Disciplina[],
+  classe: string,
+  curso?: string | null
+): string[] {
+  const filtradas = filtrarDisciplinasDaClasse(disciplinas, classe, curso);
+  if (filtradas.length > 0) {
+    return filtradas.map(d => d.nome);
+  }
+  return getDisciplinasMatrizOficial(classe, curso || undefined);
 }
 
 

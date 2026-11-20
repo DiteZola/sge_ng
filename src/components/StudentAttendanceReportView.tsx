@@ -1458,9 +1458,9 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                       <tr key={aluno.id} className="hover:bg-gray-50/80">
                         <td className="p-1 border-r border-black font-mono font-bold">{idx + 1}</td>
                         <td className="p-1 border-r border-black font-mono font-medium">{aluno.numeroProcesso || aluno.codigoMatricula}</td>
-                        <td className="p-1 border-r border-black text-left font-bold truncate max-w-[200px] uppercase">
+                        <td className="p-1 border-r border-black text-left font-bold min-w-[160px] whitespace-normal break-words uppercase">
                           <div className="flex items-center justify-between space-x-1">
-                            <span className="truncate">{aluno.nomeCompleto}</span>
+                            <span className="whitespace-normal break-words">{aluno.nomeCompleto}</span>
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1560,7 +1560,6 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                     anoLectivo: escola.anoLectivoActivo
                   })}
                   size={52}
-                  label="Autenticidade QR"
                 />
               </div>
             </div>

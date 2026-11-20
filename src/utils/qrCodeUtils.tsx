@@ -17,6 +17,7 @@ export type QrDocumentType =
   | 'ATA'
   | 'RECIBO_PAGAMENTO'
   | 'RECIBO_TESOURARIA'
+  | 'RECIBO_EMOLUMENTO'
   | 'TERMO_EXAME'
   | 'ATA_JURI'
   | 'BOLETIM_OFICIAL'
@@ -246,7 +247,7 @@ export const OfficialQrCode: React.FC<OfficialQrCodeProps> = ({
   value,
   size = 64,
   className = '',
-  alt = 'Código QR de Autenticação Oficial MED',
+  alt = 'Código QR',
   label
 }) => {
   const safeValue = (value || 'MED-ANGOLA').trim();
@@ -289,11 +290,6 @@ export const OfficialQrCode: React.FC<OfficialQrCodeProps> = ({
         >
           QR
         </div>
-      )}
-      {label && (
-        <span className="text-[7px] font-bold text-gray-600 mt-0.5 text-center leading-none">
-          {label}
-        </span>
       )}
     </div>
   );

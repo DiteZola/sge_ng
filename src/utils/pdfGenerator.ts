@@ -121,15 +121,61 @@ const FIXED_PDF_LAYOUT_CSS = `
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
-  [data-passes-page="true"] {
+  [data-passes-page="true"],
+  [data-pdf-page="true"] {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
     break-after: page !important;
     page-break-after: always !important;
   }
-  [data-passes-page="true"]:last-child {
+  [data-passes-page="true"]:last-child,
+  [data-pdf-page="true"]:last-child {
     break-after: auto !important;
     page-break-after: auto !important;
+  }
+  [data-doc-root="true"] .truncate,
+  [data-passes-grid="true"] .truncate,
+  [data-pdf-page="true"] .truncate,
+  [data-passes-page="true"] .truncate,
+  .documento-oficial-print .truncate {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+  }
+  [data-doc-root="true"] .overflow-hidden,
+  [data-passes-grid="true"] .overflow-hidden,
+  .documento-oficial-print .overflow-hidden {
+    overflow: visible !important;
+  }
+  [data-doc-root="true"] .overflow-x-auto,
+  .documento-oficial-print .overflow-x-auto {
+    overflow-x: visible !important;
+  }
+  [data-doc-root="true"] table,
+  .documento-oficial-print table {
+    border-collapse: collapse !important;
+  }
+  [data-doc-root="true"] th,
+  [data-doc-root="true"] td,
+  .documento-oficial-print th,
+  .documento-oficial-print td {
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+  .boletins-grid-4 {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  [data-passes-grid="true"] .passes-sheet-grid,
+  .passes-sheet-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
   }
 `;
 
@@ -304,6 +350,11 @@ function sanitizeCssForCanvas(cssText: string): string {
   });
 }
 
+interface ClonedLayoutMetrics {
+  domWidth: number;
+  unbreakableIntervals: Array<{ top: number; bottom: number }>;
+}
+
 function sanitizeClonedDocumentForCanvas(
   clonedDoc: Document,
   options: {
@@ -311,7 +362,7 @@ function sanitizeClonedDocumentForCanvas(
     isLandscape: boolean;
     passesMode?: boolean;
   }
-): void {
+): ClonedLayoutMetrics {
   const { captureWidthPx, isLandscape, passesMode = false } = options;
 
   // 1. Extrair e sanitizar todas as regras CSSOM reais (eliminando oklch/oklab/color-mix do Tailwind v4)
@@ -377,17 +428,15 @@ function sanitizeClonedDocumentForCanvas(
   `;
   clonedDoc.head.appendChild(overrideStyle);
 
-  // 3. Normalizar viewport e alvo no clone
-  if (!passesMode) {
-    clonedDoc.documentElement.style.width = `${captureWidthPx}px`;
-    clonedDoc.documentElement.style.minWidth = `${captureWidthPx}px`;
-    clonedDoc.body.style.width = `${captureWidthPx}px`;
-    clonedDoc.body.style.minWidth = `${captureWidthPx}px`;
-    clonedDoc.body.style.margin = '0';
-    clonedDoc.body.style.padding = '0';
-    clonedDoc.body.style.overflow = 'visible';
-    clonedDoc.body.style.backgroundColor = '#ffffff';
-  }
+  // 3. Normalizar viewport e alvo no clone (inclusive passes e elementos offscreen)
+  clonedDoc.documentElement.style.width = `${captureWidthPx}px`;
+  clonedDoc.documentElement.style.minWidth = `${captureWidthPx}px`;
+  clonedDoc.body.style.width = `${captureWidthPx}px`;
+  clonedDoc.body.style.minWidth = `${captureWidthPx}px`;
+  clonedDoc.body.style.margin = '0';
+  clonedDoc.body.style.padding = '0';
+  clonedDoc.body.style.overflow = 'visible';
+  clonedDoc.body.style.backgroundColor = '#ffffff';
 
   const targetEl = clonedDoc.querySelector('[data-sge-pdf-target="true"]') as HTMLElement | null;
   if (targetEl) {
@@ -398,18 +447,26 @@ function sanitizeClonedDocumentForCanvas(
         ancestor.style.display = 'block';
       }
       ancestor.style.visibility = 'visible';
+      ancestor.style.overflow = 'visible';
       ancestor = ancestor.parentElement;
+    }
+    if (
+      targetEl.style.position === 'fixed' ||
+      targetEl.style.position === 'absolute' ||
+      (targetEl.style.left && targetEl.style.left.startsWith('-'))
+    ) {
+      targetEl.style.position = 'static';
+      targetEl.style.left = 'auto';
+      targetEl.style.top = 'auto';
     }
     targetEl.style.width = `${captureWidthPx}px`;
     targetEl.style.minWidth = `${captureWidthPx}px`;
     targetEl.style.maxWidth = `${captureWidthPx}px`;
     (targetEl.style as any).zoom = '1';
     targetEl.style.transform = 'none';
-    if (!passesMode) {
-      targetEl.style.margin = '0 auto';
-      targetEl.style.boxSizing = 'border-box';
-      targetEl.style.overflow = 'visible';
-    }
+    targetEl.style.margin = '0 auto';
+    targetEl.style.boxSizing = 'border-box';
+    targetEl.style.overflow = 'visible';
     targetEl.style.backgroundColor = '#ffffff';
   }
 
@@ -420,26 +477,69 @@ function sanitizeClonedDocumentForCanvas(
   clonedDoc.querySelectorAll('[data-passes-grid="true"] .grid, .passes-grid-container, .passes-sheet-grid').forEach((pg) => {
     const el = pg as HTMLElement;
     el.style.display = 'grid';
-    el.style.gridTemplateColumns = isLandscape ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)';
-    el.style.gap = '10px';
+    el.style.gridTemplateColumns = isLandscape ? 'repeat(4, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))';
+    el.style.gap = '8px';
     el.style.width = '100%';
   });
 
   clonedDoc.querySelectorAll('.boletins-grid-4').forEach((bg) => {
     const el = bg as HTMLElement;
     el.style.display = 'grid';
-    el.style.gridTemplateColumns = 'repeat(2, 1fr)';
-    el.style.gap = '10px';
+    el.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+    el.style.gap = '8px';
     el.style.width = '100%';
   });
 
-  if (!passesMode) {
-    clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"], .overflow-y-auto, .max-h-\\[75vh\\]').forEach((w) => {
-      const el = w as HTMLElement;
-      el.style.overflow = 'visible';
-      el.style.maxHeight = 'none';
-      el.style.width = '100%';
-      el.style.maxWidth = 'none';
+  clonedDoc.querySelectorAll('.overflow-x-auto, [class*="overflow-x"], .overflow-y-auto, .overflow-hidden, .max-h-\\[75vh\\]').forEach((w) => {
+    const el = w as HTMLElement;
+    if (passesMode && el.tagName === 'IMG') return;
+    el.style.overflow = 'visible';
+    el.style.maxHeight = 'none';
+    if (!el.closest('[data-passes-grid="true"]')) {
+      el.style.width = el.classList.contains('overflow-x-auto') ? '100%' : el.style.width;
+      el.style.maxWidth = el.classList.contains('overflow-x-auto') ? 'none' : el.style.maxWidth;
+    }
+  });
+
+  clonedDoc.querySelectorAll('.truncate').forEach((trNode) => {
+    const el = trNode as HTMLElement;
+    el.style.overflow = 'visible';
+    el.style.textOverflow = 'clip';
+    el.style.whiteSpace = 'normal';
+    el.style.wordBreak = 'break-word';
+  });
+
+  // Se alguma tabela larga ultrapassar captureWidthPx, expandir largura do clone para não cortar colunas
+  let effectiveDomWidth = captureWidthPx;
+  const unbreakableIntervals: Array<{ top: number; bottom: number }> = [];
+  if (targetEl) {
+    if (!passesMode) {
+      const measuredScrollW = targetEl.scrollWidth || 0;
+      if (measuredScrollW > captureWidthPx + 4) {
+        effectiveDomWidth = Math.min(measuredScrollW + 16, 2400);
+        clonedDoc.documentElement.style.width = `${effectiveDomWidth}px`;
+        clonedDoc.documentElement.style.minWidth = `${effectiveDomWidth}px`;
+        clonedDoc.body.style.width = `${effectiveDomWidth}px`;
+        clonedDoc.body.style.minWidth = `${effectiveDomWidth}px`;
+        targetEl.style.width = `${effectiveDomWidth}px`;
+        targetEl.style.minWidth = `${effectiveDomWidth}px`;
+        targetEl.style.maxWidth = `${effectiveDomWidth}px`;
+      }
+    }
+    const targetRect = targetEl.getBoundingClientRect();
+    if (targetRect.width > 0) {
+      effectiveDomWidth = targetRect.width;
+    }
+    const nodes = targetEl.querySelectorAll(
+      'tr, thead, [data-pdf-fixed-signatures="true"], [data-pdf-fixed-student="true"], [data-pdf-fixed-qr="true"], article'
+    );
+    nodes.forEach((node) => {
+      const r = (node as HTMLElement).getBoundingClientRect();
+      const top = r.top - targetRect.top;
+      const bottom = r.bottom - targetRect.top;
+      if (bottom > top && bottom - top < 540) {
+        unbreakableIntervals.push({ top, bottom });
+      }
     });
   }
 
@@ -515,6 +615,8 @@ function sanitizeClonedDocumentForCanvas(
       }
     } catch {}
   });
+
+  return { domWidth: effectiveDomWidth, unbreakableIntervals };
 }
 
 /**
@@ -543,21 +645,43 @@ async function aguardarRecursosProntos(elemento: HTMLElement): Promise<void> {
 }
 
 /**
- * Encontra a melhor linha horizontal (em Y) próxima de `idealY` que possua fundo branco/uniforme,
- * evitando cortar texto ou linhas de tabela ao meio nas quebras de página do PDF.
+ * Encontra a melhor linha horizontal (em Y) próxima de `idealY` que respeite limites de linhas <tr>
+ * e blocos inquebráveis (assinaturas/QR/cabeçalhos), evitando cortar disciplinas ou notas ao meio.
  */
 function encontrarMelhorQuebraPaginaY(
   canvas: HTMLCanvasElement,
   idealY: number,
-  minY: number
+  minY: number,
+  maxPageHeightPx: number,
+  unbreakableIntervalsPx: Array<{ top: number; bottom: number }> = []
 ): number {
+  // 1. Verificar se idealY atravessa alguma linha <tr> ou bloco inquebrável medido no DOM
+  const maxAllowedHeight = Math.max(120, Math.floor(maxPageHeightPx * 0.88));
+  let spanningTop: number | null = null;
+  for (const iv of unbreakableIntervalsPx) {
+    const height = iv.bottom - iv.top;
+    if (height <= 0 || height > maxAllowedHeight) continue;
+    if (iv.top < idealY && iv.bottom > idealY) {
+      if (spanningTop === null || iv.top < spanningTop) {
+        spanningTop = iv.top;
+      }
+    }
+  }
+  if (spanningTop !== null) {
+    const safeSnap = Math.floor(spanningTop) - 2;
+    if (safeSnap - minY >= 100) {
+      return safeSnap;
+    }
+  }
+
+  // 2. Fallback por análise de pixels tolerando até ~4% de linhas verticais de borda de tabela
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return idealY;
 
   const width = canvas.width;
-  const maxScanDown = Math.min(canvas.height - 2, idealY + 24);
-  const maxScanUp = Math.max(minY + 40, idealY - 120);
-  const stepX = Math.max(2, Math.floor(width / 180));
+  const maxScanDown = Math.min(canvas.height - 2, idealY + 18);
+  const maxScanUp = Math.max(minY + 60, idealY - 140);
+  const stepX = Math.max(2, Math.floor(width / 200));
 
   let melhorY = idealY;
   let melhorPontuacao = -1;
@@ -573,16 +697,15 @@ function encontrarMelhorQuebraPaginaY(
         const r = rowData[idx];
         const g = rowData[idx + 1];
         const b = rowData[idx + 2];
-        // Quase branco ou fundo neutro claro (espaço entre linhas / margens de células)
-        if (r >= 242 && g >= 242 && b >= 242) {
+        if (r >= 240 && g >= 240 && b >= 240) {
           pixelsBrancosOuUniformes++;
         }
         totalAmostras++;
       }
 
       const ratio = totalAmostras > 0 ? pixelsBrancosOuUniformes / totalAmostras : 0;
-      if (ratio >= 0.995) {
-        return y; // Linha perfeitamente limpa encontrada
+      if (ratio >= 0.96) {
+        return y; // Linha limpa ou entre células de tabela com bordas verticais finas
       }
       if (ratio > melhorPontuacao) {
         melhorPontuacao = ratio;
@@ -593,7 +716,7 @@ function encontrarMelhorQuebraPaginaY(
     }
   }
 
-  return melhorPontuacao >= 0.88 ? melhorY : idealY;
+  return melhorPontuacao >= 0.85 ? melhorY : idealY;
 }
 
 /**
@@ -655,14 +778,23 @@ export async function downloadElementAsPdf(
     });
 
     const passesPages = Array.from(element.querySelectorAll('[data-passes-page="true"]')) as HTMLElement[];
-    if (passesPages.length > 0) {
-      for (let idx = 0; idx < passesPages.length; idx++) {
-        const pageNode = passesPages[idx];
+    const paginatedPages =
+      passesPages.length > 0
+        ? passesPages
+        : (Array.from(element.querySelectorAll('[data-pdf-page="true"]')) as HTMLElement[]);
+    const isPassesPaginated = passesPages.length > 0;
+
+    if (paginatedPages.length > 0) {
+      for (let idx = 0; idx < paginatedPages.length; idx++) {
+        const pageNode = paginatedPages[idx];
         if (idx > 0) {
           pdf.addPage(format, orientation);
         }
         const hadPageMarker = pageNode.hasAttribute('data-sge-pdf-target');
         pageNode.setAttribute('data-sge-pdf-target', 'true');
+        const pageCaptureWidth = isPassesPaginated
+          ? baseTargetWidthPx
+          : Math.max(baseTargetWidthPx, Math.round(pageNode.scrollWidth || baseTargetWidthPx));
         try {
           const pageCanvas = await html2canvas(pageNode, {
             scale,
@@ -671,13 +803,13 @@ export async function downloadElementAsPdf(
             backgroundColor: '#ffffff',
             logging: false,
             imageTimeout: 15000,
-            windowWidth: Math.max(captureWidthPx + 80, isLandscape ? 1280 : 1024),
+            windowWidth: Math.max(pageCaptureWidth + 80, isLandscape ? 1280 : 1024),
             onclone: (clonedDoc) => {
               try {
                 sanitizeClonedDocumentForCanvas(clonedDoc, {
-                  captureWidthPx,
+                  captureWidthPx: pageCaptureWidth,
                   isLandscape,
-                  passesMode: true
+                  passesMode: isPassesPaginated
                 });
               } catch (cloneErr) {
                 console.warn('[PDF Generator] Aviso no ajuste do clone:', cloneErr);
@@ -712,6 +844,11 @@ export async function downloadElementAsPdf(
       return true;
     }
 
+    let clonedMetrics: ClonedLayoutMetrics = {
+      domWidth: captureWidthPx,
+      unbreakableIntervals: []
+    };
+
     const canvas = await html2canvas(element, {
       scale,
       useCORS: true,
@@ -722,7 +859,7 @@ export async function downloadElementAsPdf(
       windowWidth: Math.max(captureWidthPx + 80, isLandscape ? 1280 : 1024),
       onclone: (clonedDoc) => {
         try {
-          sanitizeClonedDocumentForCanvas(clonedDoc, {
+          clonedMetrics = sanitizeClonedDocumentForCanvas(clonedDoc, {
             captureWidthPx,
             isLandscape,
             passesMode: false
@@ -735,6 +872,11 @@ export async function downloadElementAsPdf(
 
     const canvasTotalHeight = canvas.height;
     const canvasTotalWidth = canvas.width;
+    const domToCanvasScale = canvasTotalWidth / Math.max(1, clonedMetrics.domWidth);
+    const unbreakableIntervalsPx = clonedMetrics.unbreakableIntervals.map((iv) => ({
+      top: iv.top * domToCanvasScale,
+      bottom: iv.bottom * domToCanvasScale
+    }));
 
     // Recibo térmico estreito: manter proporção elegante centralizada sem esticar
     if (isThermalReceipt) {
@@ -789,7 +931,13 @@ export async function downloadElementAsPdf(
           sliceHeightPx = remaining;
         } else {
           const idealEnd = yOffset + maxPageHeightPx;
-          const smartEnd = encontrarMelhorQuebraPaginaY(canvas, idealEnd, yOffset);
+          const smartEnd = encontrarMelhorQuebraPaginaY(
+            canvas,
+            idealEnd,
+            yOffset,
+            maxPageHeightPx,
+            unbreakableIntervalsPx
+          );
           sliceHeightPx = Math.max(120, Math.min(remaining, smartEnd - yOffset));
         }
 
@@ -912,11 +1060,23 @@ export function imprimirElementoDiretamente(
             .print\\:block { display: block !important; }
             .print\\:flex { display: flex !important; }
             svg { display: inline-block !important; }
+            #despacho-direcao-a4-pdf, #ata-direcao-a4-pdf {
+              position: static !important;
+              left: auto !important;
+              top: auto !important;
+              width: 100% !important;
+            }
+            .truncate {
+              overflow: visible !important;
+              text-overflow: clip !important;
+              white-space: normal !important;
+              word-break: break-word !important;
+            }
             ${FIXED_PDF_LAYOUT_CSS}
           </style>
         </head>
         <body>
-          <div style="background: #ffffff; width: 100%;">
+          <div style="background: #ffffff; width: 100%; overflow: visible;">
             ${element.outerHTML}
           </div>
         </body>

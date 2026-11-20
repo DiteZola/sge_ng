@@ -33,6 +33,7 @@ import {
 import { dbService } from '../services/storage';
 import { notificationService } from '../services/notificationService';
 import { InsigniaAngola } from '../constants/insignia';
+import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 
 interface ScheduleTimetableViewProps {
   escola: Escola;
@@ -78,10 +79,35 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
   const [professorIdInput, setProfessorIdInput] = useState<string>(
     funcionarios.find(f => f.ehProfessor)?.id || currentUser.id
   );
-  const [salaInput, setSalaInput] = useState<string>('Sala 01');
+  const salasDisponiveis = useMemo(() => {
+    const fromCfg = dbService.getSalasAulas(escola.id).filter(s => s.ativo !== false).map(s => s.nome);
+    const fromTurmas = turmas.map(t => t.sala).filter((s): s is string => Boolean(s && s.trim()));
+    return Array.from(new Set([...fromCfg, ...fromTurmas, 'Sala 01'])).sort((a, b) =>
+      a.localeCompare(b, 'pt', { sensitivity: 'base' })
+    );
+  }, [escola.id, turmas]);
+
+  const [salaInput, setSalaInput] = useState<string>(turmas[0]?.sala || salasDisponiveis[0] || 'Sala 01');
   const [turmaFormId, setTurmaFormId] = useState<string>(turmas[0]?.id || '');
   const [mensagemConflito, setMensagemConflito] = useState<string | null>(null);
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
+
+  const turmaFormObj = useMemo(() => turmas.find(t => t.id === turmaFormId) || turmas[0], [turmas, turmaFormId]);
+
+  const disciplinasParaTurmaForm = useMemo(() => {
+    if (!turmaFormObj) return disciplinas;
+    const filtradas = filtrarDisciplinasDaClasse(disciplinas, turmaFormObj.classe, turmaFormObj.curso);
+    return filtradas.length > 0 ? filtradas : disciplinas;
+  }, [disciplinas, turmaFormObj]);
+
+  useEffect(() => {
+    if (turmaFormObj?.sala) {
+      setSalaInput(turmaFormObj.sala);
+    }
+    if (disciplinasParaTurmaForm.length > 0 && !disciplinasParaTurmaForm.some(d => d.id === disciplinaIdInput)) {
+      setDisciplinaIdInput(disciplinasParaTurmaForm[0].id);
+    }
+  }, [turmaFormObj, disciplinasParaTurmaForm, disciplinaIdInput]);
 
   const configSistema = dbService.getConfiguracaoSistema();
 
@@ -474,7 +500,9 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                   <InsigniaAngola size={42} />
                 )}
               </div>
-              <p className="text-[10px] font-black uppercase tracking-wider">República de Angola • Ministério da Educação</p>
+              <p className="text-[10px] font-black uppercase tracking-wider">
+                República de Angola • {escola.governoProvincial || `Governo Provincial de ${escola.provincia || 'Luanda'}`}
+              </p>
               <h2 className="text-sm sm:text-base font-black uppercase text-gray-900">{escola.nomeOficial}</h2>
               <div className="inline-block bg-gray-100 border border-black px-3 py-0.5 mt-1 rounded text-xs font-black uppercase">
                 Horário Escolar Semanal • Turma: {turmaSelecionada?.nome} ({turmaSelecionada?.classe}) • {turmaSelecionada?.turno} • {turmaSelecionada?.sala}
@@ -515,7 +543,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                                     <div className="font-extrabold text-blue-950 uppercase text-[11px]">
                                       {aula.disciplinaNome}
                                     </div>
-                                    <div className="text-[10px] text-gray-700 truncate font-medium">
+                                    <div className="text-[10px] text-gray-700 whitespace-normal break-words font-medium">
                                       {aula.professorNome}
                                     </div>
                                   </div>
@@ -546,16 +574,16 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
             </div>
 
             {/* Rodapé Oficial para Impressão */}
-            <div className="grid grid-cols-2 gap-8 pt-8 text-center text-xs mt-4">
+            <div data-pdf-fixed-signatures="true" className="grid grid-cols-2 gap-8 pt-6 text-center text-xs mt-4">
               <div>
-                <div className="w-48 border-b border-black mx-auto" />
-                <p className="font-bold text-gray-900 mt-1">O(A) Coordenador(a) de Turno</p>
-                <p className="text-gray-600 text-[10px]">Assinatura e Carimbo</p>
+                <p className="font-bold text-gray-900 mb-8">O(A) Coordenador(a) de Turno</p>
+                <div className="w-48 border-b border-black mx-auto mb-1" />
+                <p className="text-gray-700 font-semibold text-[10px]">Coordenação de Turno</p>
               </div>
               <div>
-                <div className="w-48 border-b border-black mx-auto" />
-                <p className="font-bold text-gray-900 mt-1">O Subdirector Pedagógico</p>
-                <p className="text-gray-600 text-[10px]">{escola.subdiretorPedagogicoNome || 'Direcção Pedagógica'}</p>
+                <p className="font-bold text-gray-900 mb-8">O Subdirector Pedagógico</p>
+                <div className="w-48 border-b border-black mx-auto mb-1" />
+                <p className="text-gray-700 font-semibold text-[10px]">{escola.subdiretorPedagogicoNome || 'Direcção Pedagógica'}</p>
               </div>
             </div>
           </div>
@@ -723,7 +751,9 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
                 >
                   {turmas.map(t => (
-                    <option key={t.id} value={t.id}>{t.nome} ({t.classe}) · {t.turno}</option>
+                    <option key={t.id} value={t.id}>
+                      {t.nome} ({t.classe}) · {t.turno} · {t.sala || 'Sala'}{t.curso ? ` · ${t.curso}` : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -756,24 +786,29 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
 
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Sala de Aulas</label>
-                <input
-                  type="text"
+                <select
                   value={salaInput}
                   onChange={(e) => setSalaInput(e.target.value)}
-                  placeholder="Ex: Sala 01, Laboratório 2"
-                  className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900"
+                  className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
                   required
-                />
+                >
+                  {!salasDisponiveis.includes(salaInput) && salaInput && (
+                    <option value={salaInput}>{salaInput}</option>
+                  )}
+                  {salasDisponiveis.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
-                <label className="block font-bold text-gray-700 mb-1">Disciplina</label>
+                <label className="block font-bold text-gray-700 mb-1">Disciplina ({disciplinasParaTurmaForm.length} compatíveis)</label>
                 <select
                   value={disciplinaIdInput}
                   onChange={(e) => setDisciplinaIdInput(e.target.value)}
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
                 >
-                  {disciplinas.map(d => (
+                  {disciplinasParaTurmaForm.map(d => (
                     <option key={d.id} value={d.id}>{d.nome} ({d.sigla})</option>
                   ))}
                 </select>

@@ -25,6 +25,8 @@ import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer
 import { Footer } from './Footer';
 import { ConfiguracaoSistema } from '../types';
 import { ParentStudentReportView } from './ParentStudentReportView';
+import { antiSpamService } from '../services/antiSpamService';
+import { openLegalPolicyModal } from '../services/legalPoliciesService';
 
 interface LoginViewProps {
   escolas: Escola[];
@@ -90,9 +92,40 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [alunoConsultado, setAlunoConsultado] = useState<Aluno | null>(null);
   const [erroConsulta, setErroConsulta] = useState<string | null>(null);
 
+  // Proteção Anti-Spam (Honeypot + Tempo Mínimo + Desafio Humano se necessário)
+  const [hpTrap, setHpTrap] = useState('');
+  const [formAbertoEm] = useState<number>(() => Date.now());
+  const [desafioHumano, setDesafioHumano] = useState<{ pergunta: string; respostaEsperada: number } | null>(null);
+  const [respostaDesafio, setRespostaDesafio] = useState('');
+
   const handleSubmeterLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErroLogin(null);
+
+    if (desafioHumano) {
+      if (Number(respostaDesafio.trim()) !== desafioHumano.respostaEsperada) {
+        setErroLogin('Verificação anti-spam incorreta. Por favor resolva a soma corretamente.');
+        return;
+      }
+      setDesafioHumano(null);
+      setRespostaDesafio('');
+    }
+
+    const antiSpamRes = antiSpamService.validarSubmissao({
+      acao: 'login',
+      honeypotValor: hpTrap,
+      formularioAbertoEmMs: formAbertoEm,
+      conteudoPrincipal: identificador,
+      identificadorAutor: (identificador || 'anon').trim().toLowerCase()
+    });
+    if (!antiSpamRes.permitido) {
+      if (antiSpamRes.exigirDesafio) {
+        setDesafioHumano(antiSpamService.gerarDesafioHumano());
+        setRespostaDesafio('');
+      }
+      setErroLogin(antiSpamRes.motivo || 'Submissão bloqueada pela proteção anti-spam.');
+      return;
+    }
 
     // 1. Blindagem Anti-DDoS e Anti-Derrubação: Taxa máxima de 20 logins por minuto
     const statusRateLimit = dbService.verificarRateLimitGlobalLogin();
@@ -255,6 +288,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setErroConsulta(null);
     setAlunoConsultado(null);
 
+    const antiSpamConsulta = antiSpamService.validarSubmissao({
+      acao: 'consulta_encarregado',
+      honeypotValor: hpTrap,
+      conteudoPrincipal: termoConsulta,
+      identificadorAutor: 'portal_encarregado'
+    });
+    if (!antiSpamConsulta.permitido) {
+      setErroConsulta(antiSpamConsulta.motivo || 'Limite de consultas atingido. Aguarde um momento.');
+      return;
+    }
+
     const termo = sanitizeSearchInput(termoConsulta, 60).toLowerCase();
     if (!termo) {
       setErroConsulta('Introduza o Código de Matrícula ou Número do BI do educando.');
@@ -369,6 +413,20 @@ export const LoginView: React.FC<LoginViewProps> = ({
           )}
 
           <form onSubmit={handleSubmeterLogin} className="space-y-4">
+            {/* Campo Armadilha Anti-Spam (Invisível para humanos) */}
+            <div className="sr-only" aria-hidden="true">
+              <label htmlFor="sge-hp-url">Deixar em branco</label>
+              <input
+                id="sge-hp-url"
+                name="website_url_hp"
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={hpTrap}
+                onChange={(e) => setHpTrap(e.target.value)}
+              />
+            </div>
+
             {/* Campo E-mail / Identificador */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center space-x-1.5">
@@ -420,6 +478,22 @@ export const LoginView: React.FC<LoginViewProps> = ({
               </div>
             </div>
 
+            {desafioHumano && (
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 space-y-1.5">
+                <label className="block text-[11px] font-bold text-amber-900">
+                  {desafioHumano.pergunta}
+                </label>
+                <input
+                  type="number"
+                  required
+                  value={respostaDesafio}
+                  onChange={(e) => setRespostaDesafio(e.target.value)}
+                  placeholder="Digite o resultado numérico"
+                  className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-md text-xs text-slate-900 font-bold"
+                />
+              </div>
+            )}
+
             {/* Botão Entrar */}
             <button
               type="submit"
@@ -435,6 +509,34 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 </>
               )}
             </button>
+
+            <p className="text-[10px] text-center text-slate-500 leading-snug pt-0.5">
+              Ao aceder, concorda com a{' '}
+              <button
+                type="button"
+                onClick={() => openLegalPolicyModal('confidencialidade')}
+                className="text-blue-700 hover:underline font-semibold cursor-pointer"
+              >
+                Política de Confidencialidade
+              </button>
+              ,{' '}
+              <button
+                type="button"
+                onClick={() => openLegalPolicyModal('privacidade')}
+                className="text-blue-700 hover:underline font-semibold cursor-pointer"
+              >
+                Privacidade
+              </button>{' '}
+              e os{' '}
+              <button
+                type="button"
+                onClick={() => openLegalPolicyModal('termos')}
+                className="text-blue-700 hover:underline font-semibold cursor-pointer"
+              >
+                Termos de Uso
+              </button>
+              .
+            </p>
           </form>
 
           {/* Divisor */}

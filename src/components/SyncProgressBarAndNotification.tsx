@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Cloud, 
+  CloudOff,
   CheckCircle2, 
   RefreshCw, 
+  UploadCloud,
   X,
   Sparkles
 } from 'lucide-react';
@@ -59,13 +61,23 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
       return () => clearTimeout(timer);
     };
 
+    const atualizarStatusSnapshot = () => {
+      setStatus(firebaseSyncEngine.getStatus());
+    };
+
     window.addEventListener('sge_sync_progresso', handleProgresso);
     window.addEventListener('sge_sync_notificacao', handleNotificacao);
+    window.addEventListener('sge_pending_sync_changed', atualizarStatusSnapshot);
+    window.addEventListener('online', atualizarStatusSnapshot);
+    window.addEventListener('offline', atualizarStatusSnapshot);
 
     return () => {
       unsub();
       window.removeEventListener('sge_sync_progresso', handleProgresso);
       window.removeEventListener('sge_sync_notificacao', handleNotificacao);
+      window.removeEventListener('sge_pending_sync_changed', atualizarStatusSnapshot);
+      window.removeEventListener('online', atualizarStatusSnapshot);
+      window.removeEventListener('offline', atualizarStatusSnapshot);
     };
   }, [onSyncComplete]);
 
@@ -107,6 +119,10 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
 
   // Indicador compacto e NÃO-BLOQUEANTE durante a sincronização inicial num novo dispositivo
   const deveExibirCardProgresso = !dispositivoJaConfigurado && !overlayMinimizado && status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100;
+  // Indicador compacto ao reconectar quando há fila offline a ser escoada
+  const deveExibirEscoamentoFila = dispositivoJaConfigurado && status.emSincronizacao && status.totalPendentes > 0;
+  // Pill compacto e NÃO-BLOQUEANTE quando offline com alterações na fila local
+  const deveExibirPillOfflinePendente = !status.isOnline && status.totalPendentes > 0 && !deveExibirCardProgresso && !notificacaoVisivel;
 
   return (
     <>
@@ -206,6 +222,46 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
 
 
 
+      {/* 3. PILL NÃO-BLOQUEANTE DE FILA OFFLINE / BARRA DE ESCOAMENTO NA RECONEXÃO */}
+      {deveExibirEscoamentoFila && (
+        <aside
+          aria-label="Sincronização da fila offline"
+          className="fixed bottom-5 right-5 z-40 bg-slate-900 border border-blue-500/40 rounded-2xl p-3.5 max-w-xs w-[calc(100vw-2rem)] shadow-2xl text-white"
+        >
+          <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+            <span className="flex items-center space-x-1.5 text-blue-300">
+              <UploadCloud className="w-4 h-4 animate-bounce" />
+              <span>A enviar fila offline ({status.totalPendentes})</span>
+            </span>
+            <span className="font-mono text-[11px] text-blue-200">{status.progressoPercentual}%</span>
+          </div>
+          <div className="text-[10px] text-slate-300 truncate mb-1.5">
+            {status.etapaAtual || 'A sincronizar alterações locais com o Firebase...'}
+          </div>
+          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-300"
+              style={{ width: `${Math.max(status.progressoPercentual, 10)}%` }}
+            />
+          </div>
+        </aside>
+      )}
+
+      {deveExibirPillOfflinePendente && (
+        <button
+          type="button"
+          onClick={() => setModalDetalhesAberto(true)}
+          className="fixed bottom-5 right-5 z-40 flex items-center space-x-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-950/95 hover:bg-amber-900 border border-amber-400/50 text-amber-50 shadow-xl text-xs font-semibold transition-all cursor-pointer"
+          title="Os dados estão salvos no dispositivo e serão sincronizados automaticamente quando voltar a ter internet"
+        >
+          <CloudOff className="w-4 h-4 text-amber-300 shrink-0" />
+          <div className="text-left leading-tight">
+            <span className="block font-bold">Modo Offline · {status.totalPendentes} pendente{status.totalPendentes > 1 ? 's' : ''}</span>
+            <span className="block text-[10px] text-amber-200/90">Salvo no dispositivo · Sincroniza ao reconectar</span>
+          </div>
+        </button>
+      )}
+
       {/* 4. MODAL DE DETALHES DE SINCRONIZAÇÃO */}
       {modalDetalhesAberto && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
@@ -213,7 +269,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
             <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                  <Cloud className="w-4 h-4" />
+                  {status.isOnline ? <Cloud className="w-4 h-4" /> : <CloudOff className="w-4 h-4 text-amber-600" />}
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-gray-900 dark:text-white">Estado de Sincronização</h3>
@@ -232,16 +288,31 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
             <div className="space-y-2.5 text-xs">
               <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-slate-800 rounded-xl">
                 <span className="text-gray-600 dark:text-slate-300">Conexão à Internet:</span>
-                <span className={`font-bold flex items-center space-x-1 ${status.isOnline ? 'text-emerald-600' : 'text-red-500'}`}>
+                <span className={`font-bold flex items-center space-x-1 ${status.isOnline ? 'text-emerald-600' : 'text-amber-600'}`}>
                   {status.isOnline ? 'Online (Ativa)' : 'Offline (Modo Local)'}
                 </span>
               </div>
 
               <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-slate-800 rounded-xl">
                 <span className="text-gray-600 dark:text-slate-300">Servidor Firebase Firestore:</span>
-                <span className="font-bold text-emerald-600 flex items-center space-x-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> Conectado & Autorizado
+                <span className={`font-bold flex items-center space-x-1 ${status.isOnline && status.firestoreDisponivel ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {status.isOnline && status.firestoreDisponivel ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> Conectado &amp; Autorizado
+                    </>
+                  ) : (
+                    <>
+                      <CloudOff className="w-3.5 h-3.5 inline mr-1" /> Em Espera (Modo Offline)
+                    </>
+                  )}
                 </span>
+              </div>
+
+              <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-slate-800 rounded-xl">
+                <span className="text-gray-600 dark:text-slate-300">Alterações em Fila Offline:</span>
+                <strong className={`font-mono ${status.totalPendentes > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  {status.totalPendentes} pendente{status.totalPendentes === 1 ? '' : 's'}
+                </strong>
               </div>
 
               <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-slate-800 rounded-xl">
@@ -265,7 +336,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
               </button>
               <button
                 type="button"
-                disabled={status.emSincronizacao}
+                disabled={status.emSincronizacao || !status.isOnline}
                 onClick={async () => {
                   await handleForcarSincronizacao();
                   setModalDetalhesAberto(false);
@@ -273,7 +344,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
                 className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl flex items-center space-x-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${status.emSincronizacao ? 'animate-spin' : ''}`} />
-                <span>Sincronizar Agora</span>
+                <span>{status.isOnline ? 'Sincronizar Agora' : 'Aguardando Internet'}</span>
               </button>
             </div>
           </div>

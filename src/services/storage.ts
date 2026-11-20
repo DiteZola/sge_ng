@@ -21,6 +21,8 @@ import {
   AtaJuri,
   ClasseConfig,
   CursoConfig,
+  AreaFormacaoConfig,
+  SalaAulaConfig,
   PresencaFuncionario, 
   LogAuditoria, 
   MensagemInterna, 
@@ -102,6 +104,8 @@ const STORAGE_KEYS = {
   TURNOS_CONFIGS: 'sge_turnos_configs',
   CLASSES_CONFIGS: 'sge_classes_configs',
   CURSOS: 'sge_cursos',
+  AREAS_FORMACAO: 'sge_areas_formacao',
+  SALAS_AULAS: 'sge_salas_aulas',
   SOLICITACOES_APOIO: 'sge_solicitacoes_apoio',
   ALERTAS_SEGURANCA: 'sge_alertas_seguranca',
   TENTATIVAS_LOGIN_FALHADAS: 'sge_tentativas_login_falhadas',
@@ -395,25 +399,21 @@ function setLocal<T>(key: string, value: T): void {
     }
 
     const serialized = JSON.stringify(value);
-    setCachedLocalEntry(key, serialized, value);
+    setCachedLocalEntry(key, serialized, value, false);
 
-    // Espelhamento imediato para chaves críticas no IndexedDB (sem esperar debounce de 300ms)
-    if (
-      key === STORAGE_KEYS.FUNCIONARIOS ||
-      key === STORAGE_KEYS.ALUNOS ||
-      key === STORAGE_KEYS.ESCOLAS ||
-      key === STORAGE_KEYS.CURRENT_USER ||
-      key === STORAGE_KEYS.CONFIGURACAO_SISTEMA ||
-      key === STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS
-    ) {
+    const agoraIso = new Date().toISOString();
+    // Espelhamento imediato para todas as chaves de dados no IndexedDB (sem esperar debounce de 300ms)
+    if (key.startsWith('sge_') && key !== STORAGE_KEYS.TENTATIVAS_LOGIN_FALHADAS && key !== 'sge_ls_timestamps') {
       offlineStorage.gravarChaveNoIndexedDB(key, serialized);
     }
 
     try {
       localStorage.setItem(key, serialized);
+      offlineStorage.marcarTimestampLocalStorage(key, agoraIso);
     } catch (quotaErr) {
-      console.warn(`[Storage] Quota localStorage excedida na chave ${key}, aplicando preservação em IndexedDB:`, quotaErr);
+      console.warn(`[Storage] Quota localStorage excedida na chave ${key}, aplicando preservação em IndexedDB e cache primária em memória:`, quotaErr);
 
+      let persistedToLocalStorage = false;
       // Preservar mídias em cache + IndexedDB e armazenar versão compacta no localStorage
       if (Array.isArray(value) && (key === STORAGE_KEYS.FUNCIONARIOS || key === STORAGE_KEYS.ALUNOS)) {
         const entityType = key === STORAGE_KEYS.FUNCIONARIOS ? 'funcionario' : 'aluno';
@@ -428,7 +428,8 @@ function setLocal<T>(key: string, value: T): void {
         try {
           const slimSer = JSON.stringify(slimmed);
           localStorage.setItem(key, slimSer);
-          setCachedLocalEntry(key, slimSer, slimmed);
+          setCachedLocalEntry(key, slimSer, slimmed, false);
+          persistedToLocalStorage = true;
         } catch {
           // Último recurso: remover logs antigos para libertar espaço
           try {
@@ -436,7 +437,8 @@ function setLocal<T>(key: string, value: T): void {
             removeCachedLocalEntry(STORAGE_KEYS.AUDITORIA);
             const slimSer = JSON.stringify(slimmed);
             localStorage.setItem(key, slimSer);
-            setCachedLocalEntry(key, slimSer, slimmed);
+            setCachedLocalEntry(key, slimSer, slimmed, false);
+            persistedToLocalStorage = true;
           } catch {}
         }
       } else if (key === STORAGE_KEYS.CURRENT_USER && value && typeof value === 'object') {
@@ -448,11 +450,19 @@ function setLocal<T>(key: string, value: T): void {
             const slimUser = { ...u, fotoUrl: '__idb_media__' };
             const slimSer = JSON.stringify(slimUser);
             localStorage.setItem(key, slimSer);
-            setCachedLocalEntry(key, slimSer, slimUser);
+            setCachedLocalEntry(key, slimSer, slimUser, false);
+            persistedToLocalStorage = true;
           } catch {}
         }
       }
-      offlineStorage.registarMutacao('Armazenamento', 'ATUALIZAR', `Preservação de mídia no IndexedDB para a chave: ${key}`, 'Sistema');
+
+      if (persistedToLocalStorage) {
+        offlineStorage.marcarTimestampLocalStorage(key, agoraIso);
+      } else {
+        // Garantir que getCachedLocal devolva o dado completo em RAM nesta sessão (além do IndexedDB já gravado)
+        setCachedLocalEntry(key, serialized, value, true);
+      }
+      offlineStorage.registarMutacao('Armazenamento', 'ATUALIZAR', `Preservação no IndexedDB para a chave: ${key}`, 'Sistema');
     }
 
     // Notificar motor de persistência offline para espelhamento em IndexedDB
@@ -617,7 +627,18 @@ export const DEFAULT_CONFIGURACAO_SISTEMA: ConfiguracaoSistema = {
   pais: 'República de Angola',
   modoProducao: true,
   sincronizacaoFirebaseAtiva: true,
-  dataInicializacao: new Date().toISOString()
+  dataInicializacao: new Date().toISOString(),
+  forcarHTTPS: true,
+  bannerCookiesAtivo: true,
+  exigirConsentimentoPoliticas: true,
+  protecaoAntiSpamAtiva: true,
+  limiteSubmissoesPorMinuto: 10,
+  otimizacaoCarregamentoAtiva: true,
+  emailDPO: 'privacidade@sge-ng.ao',
+  telefoneSuporte: '+244 923 000 000',
+  politicaVersao: '1.0 (2026)',
+  idiomaSistema: 'pt-AO',
+  fusoHorario: 'Africa/Luanda'
 };
 
 export const DEFAULT_CONFIGURACOES_FINANCEIRAS: Record<string, ConfiguracaoFinanceiraEscola> = {};
@@ -993,6 +1014,8 @@ const COLECOES_BACKUP_INCREMENTAL_META: Array<{
   { colecao: 'turnosConfigs', rotulo: 'Turnos', storageKey: STORAGE_KEYS.TURNOS_CONFIGS },
   { colecao: 'classesConfigs', rotulo: 'Classes', storageKey: STORAGE_KEYS.CLASSES_CONFIGS },
   { colecao: 'cursos', rotulo: 'Cursos', storageKey: STORAGE_KEYS.CURSOS },
+  { colecao: 'areasFormacao', rotulo: 'Áreas de Formação', storageKey: STORAGE_KEYS.AREAS_FORMACAO },
+  { colecao: 'salasAulas', rotulo: 'Salas de Aula', storageKey: STORAGE_KEYS.SALAS_AULAS },
   { colecao: 'solicitacoesApoio', rotulo: 'Apoio Técnico', storageKey: STORAGE_KEYS.SOLICITACOES_APOIO },
   { colecao: 'alertasSeguranca', rotulo: 'Alertas de Segurança', storageKey: STORAGE_KEYS.ALERTAS_SEGURANCA },
   { colecao: 'relatoriosAcontecimentos', rotulo: 'Relatórios de Acontecimentos', storageKey: STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS }
@@ -1080,6 +1103,8 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     turnosConfigs: dbService.getTurnosConfigs(),
     classesConfigs: dbService.getClassesConfigs(),
     cursos: dbService.getCursos(),
+    areasFormacao: dbService.getAreasFormacao(),
+    salasAulas: dbService.getSalasAulas(),
     solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
     alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
     relatoriosAcontecimentos: getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, [])
@@ -1460,7 +1485,8 @@ export const dbService = {
       trimestreActivo: dados.trimestreActivo ?? '1',
       estadoAno: dados.anoLectivoActivo ? 'Aberto' : 'Planeamento',
       ativo: true,
-      estadoEscola: 'Ativa'
+      estadoEscola: 'Ativa',
+      atualizadoEm: new Date().toISOString()
     };
     escolas.push(novaEscola);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
@@ -1481,7 +1507,8 @@ export const dbService = {
       ativo: false,
       estadoEscola: 'Suspensa',
       motivoSuspensao: motivo,
-      dataSuspensao: new Date().toLocaleDateString('pt-PT')
+      dataSuspensao: new Date().toLocaleDateString('pt-PT'),
+      atualizadoEm: new Date().toISOString()
     };
     escolas[idx] = esc;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
@@ -1502,7 +1529,8 @@ export const dbService = {
       ativo: true,
       estadoEscola: 'Ativa',
       motivoSuspensao: undefined,
-      dataSuspensao: undefined
+      dataSuspensao: undefined,
+      atualizadoEm: new Date().toISOString()
     };
     escolas[idx] = esc;
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
@@ -1591,6 +1619,8 @@ export const dbService = {
     filterOutSchool(STORAGE_KEYS.TURNOS_CONFIGS);
     filterOutSchool(STORAGE_KEYS.CLASSES_CONFIGS);
     filterOutSchool(STORAGE_KEYS.CURSOS);
+    filterOutSchool(STORAGE_KEYS.AREAS_FORMACAO);
+    filterOutSchool(STORAGE_KEYS.SALAS_AULAS);
     filterOutSchool(STORAGE_KEYS.REGRAS_MAC);
     filterOutSchool(STORAGE_KEYS.TIPOS_AVALIACAO);
     filterOutSchool(STORAGE_KEYS.SOLICITACOES_APOIO);
@@ -1852,6 +1882,7 @@ export const dbService = {
     }
     funcs[idx].statusConta = status;
     funcs[idx].ativo = (status === 'Ativa');
+    funcs[idx].atualizadoEm = new Date().toISOString();
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
     firebaseSyncEngine.salvarPerfilUsuario(funcs[idx]);
     dbService.registarLog('Status de Acesso de Funcionário', `Conta de ${funcs[idx].nomeCompleto} definida como ${status}.`);
@@ -1866,6 +1897,7 @@ export const dbService = {
       throw new Error('Acesso negado: não possui permissão para alterar a credencial do Administrador Geral.');
     }
     funcs[idx].password = novaSenha;
+    funcs[idx].atualizadoEm = new Date().toISOString();
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
     // Persistência imediata no Firebase Firestore e no dispositivo
     firebaseSyncEngine.salvarPerfilUsuario(funcs[idx]);
@@ -1922,6 +1954,7 @@ export const dbService = {
     // Cifragem AES-256 da nova palavra-passe
     const senhaCifrada = await cryptoService.encriptarTexto(novaSenha.trim());
     target.password = senhaCifrada;
+    target.atualizadoEm = new Date().toISOString();
     funcs[idx] = target;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
     // Persistência imediata no Firebase Firestore e no dispositivo
@@ -2032,7 +2065,8 @@ export const dbService = {
     const targetEscolaId = config.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
     const configFinal: AnoLectivoConfig = {
       ...config,
-      escolaId: targetEscolaId
+      escolaId: targetEscolaId,
+      atualizadoEm: new Date().toISOString()
     };
     const configs = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
     const idx = configs.findIndex(
@@ -2225,7 +2259,7 @@ export const dbService = {
   salvarTurnoConfig: (turno: TurnoConfig) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const targetEscolaId = turno.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
-    const turnoFinal: TurnoConfig = { ...turno, escolaId: targetEscolaId };
+    const turnoFinal: TurnoConfig = { ...turno, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
     const turnos = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
     const idx = turnos.findIndex(t => t.id === turnoFinal.id);
     if (idx >= 0) turnos[idx] = turnoFinal;
@@ -2255,7 +2289,7 @@ export const dbService = {
   salvarClasseConfig: (classe: ClasseEscolar) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const targetEscolaId = classe.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
-    const classeFinal: ClasseEscolar = { ...classe, escolaId: targetEscolaId };
+    const classeFinal: ClasseEscolar = { ...classe, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
     const classes = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
     const idx = classes.findIndex(c => c.id === classeFinal.id);
     if (idx >= 0) classes[idx] = classeFinal;
@@ -2286,7 +2320,7 @@ export const dbService = {
   salvarCurso: (curso: CursoConfig) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const targetEscolaId = curso.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
-    const cursoFinal: CursoConfig = { ...curso, escolaId: targetEscolaId };
+    const cursoFinal: CursoConfig = { ...curso, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
     const cursos = getLocal<CursoConfig[]>(STORAGE_KEYS.CURSOS, []);
     const idx = cursos.findIndex(c => c.id === cursoFinal.id);
     if (idx >= 0) cursos[idx] = cursoFinal;
@@ -2303,6 +2337,68 @@ export const dbService = {
     setLocal(STORAGE_KEYS.CURSOS, filtrados);
     firebaseSyncEngine.eliminarCurso(id);
     dbService.registarLog('Exclusão de Curso', `Curso "${target.nome}" eliminado do catálogo.`, target.escolaId);
+    return true;
+  },
+
+  // Áreas de Formação
+  getAreasFormacao: (escolaId?: string): AreaFormacaoConfig[] => {
+    const list = getLocal<AreaFormacaoConfig[]>(STORAGE_KEYS.AREAS_FORMACAO, []);
+    if (escolaId && escolaId !== 'todas') {
+      return list.filter(a => a.escolaId === escolaId);
+    }
+    return list;
+  },
+  salvarAreaFormacao: (area: AreaFormacaoConfig) => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = area.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const areaFinal: AreaFormacaoConfig = { ...area, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
+    const areas = getLocal<AreaFormacaoConfig[]>(STORAGE_KEYS.AREAS_FORMACAO, []);
+    const idx = areas.findIndex(a => a.id === areaFinal.id);
+    if (idx >= 0) areas[idx] = areaFinal;
+    else areas.push(areaFinal);
+    setLocal(STORAGE_KEYS.AREAS_FORMACAO, areas);
+    firebaseSyncEngine.salvarAreaFormacao(areaFinal);
+    dbService.registarLog('Áreas de Formação', `Área de formação "${areaFinal.nome}" guardada com sucesso.`, targetEscolaId);
+  },
+  eliminarAreaFormacao: (id: string): boolean => {
+    const areas = getLocal<AreaFormacaoConfig[]>(STORAGE_KEYS.AREAS_FORMACAO, []);
+    const target = areas.find(a => a.id === id);
+    if (!target) return false;
+    const filtradas = areas.filter(a => a.id !== id);
+    setLocal(STORAGE_KEYS.AREAS_FORMACAO, filtradas);
+    firebaseSyncEngine.eliminarAreaFormacao(id);
+    dbService.registarLog('Exclusão de Área de Formação', `Área de formação "${target.nome}" eliminada.`, target.escolaId);
+    return true;
+  },
+
+  // Salas de Aulas
+  getSalasAulas: (escolaId?: string): SalaAulaConfig[] => {
+    const list = getLocal<SalaAulaConfig[]>(STORAGE_KEYS.SALAS_AULAS, []);
+    if (escolaId && escolaId !== 'todas') {
+      return list.filter(s => s.escolaId === escolaId);
+    }
+    return list;
+  },
+  salvarSalaAula: (sala: SalaAulaConfig) => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const targetEscolaId = sala.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const salaFinal: SalaAulaConfig = { ...sala, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
+    const salas = getLocal<SalaAulaConfig[]>(STORAGE_KEYS.SALAS_AULAS, []);
+    const idx = salas.findIndex(s => s.id === salaFinal.id);
+    if (idx >= 0) salas[idx] = salaFinal;
+    else salas.push(salaFinal);
+    setLocal(STORAGE_KEYS.SALAS_AULAS, salas);
+    firebaseSyncEngine.salvarSalaAula(salaFinal);
+    dbService.registarLog('Salas de Aula', `Sala "${salaFinal.nome}" configurada na instituição.`, targetEscolaId);
+  },
+  eliminarSalaAula: (id: string): boolean => {
+    const salas = getLocal<SalaAulaConfig[]>(STORAGE_KEYS.SALAS_AULAS, []);
+    const target = salas.find(s => s.id === id);
+    if (!target) return false;
+    const filtradas = salas.filter(s => s.id !== id);
+    setLocal(STORAGE_KEYS.SALAS_AULAS, filtradas);
+    firebaseSyncEngine.eliminarSalaAula(id);
+    dbService.registarLog('Exclusão de Sala de Aula', `Sala "${target.nome}" eliminada.`, target.escolaId);
     return true;
   },
 
@@ -2741,6 +2837,16 @@ export const dbService = {
 
     funcs[idx] = func;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    // Enfileiramento síncrono pré-mídia para nunca perder a mutação offline mesmo em fecho/reload imediato
+    offlineStorage.adicionarPendencia(
+      'funcionarios',
+      'ATUALIZAR',
+      `Atualização do perfil de ${func.nomeCompleto}`,
+      func,
+      func.id,
+      ['users'],
+      func.role
+    );
 
     // Se for o utilizador atualmente autenticado, atualizar sessão ativa
     const current = dbService.getCurrentUser();
@@ -3129,6 +3235,14 @@ export const dbService = {
     if (idx >= 0) alunos[idx] = alunoComTimestamp;
     else alunos.push(alunoComTimestamp);
     setLocal(STORAGE_KEYS.ALUNOS, alunos);
+    // Enfileiramento síncrono pré-mídia garante fila offline mesmo em reload imediato
+    offlineStorage.adicionarPendencia(
+      'alunos',
+      idx >= 0 ? 'ATUALIZAR' : 'CRIAR',
+      `Aluno ${alunoComTimestamp.nomeCompleto}`,
+      alunoComTimestamp,
+      alunoComTimestamp.id
+    );
     try {
       offlineStorage.registarMutacao('Alunos', 'ATUALIZAR', `Aluno ${alunoComTimestamp.nomeCompleto} guardado`, 'SGE');
     } catch {}
@@ -3151,11 +3265,13 @@ export const dbService = {
   salvarAlunos: (alunos: Aluno[]) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const fallbackEscolaId = escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : '';
+    const agora = new Date().toISOString();
     const alunosComAno = alunos.map(a => ({
       ...a,
       escolaId: a.escolaId || fallbackEscolaId,
       anoLectivo: a.anoLectivo || a.anoMatricula || escolaAtiva?.anoLectivoActivo || '',
-      anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || ''
+      anoMatricula: a.anoMatricula || a.anoLectivo || escolaAtiva?.anoLectivoActivo || '',
+      atualizadoEm: a.atualizadoEm || agora
     }));
     setLocal(STORAGE_KEYS.ALUNOS, alunosComAno);
     firebaseSyncEngine.salvarAlunosLote(alunosComAno);
@@ -3209,7 +3325,8 @@ export const dbService = {
       anoMatricula: dados.anoLectivo,
       anoLectivo: dados.anoLectivo,
       estado: 'Ativo',
-      historicoAnterior: historicoAntigo
+      historicoAnterior: historicoAntigo,
+      atualizadoEm: new Date().toISOString()
     };
 
     alunos[idx] = alunoAtualizado;
@@ -3226,17 +3343,20 @@ export const dbService = {
     if (!turma.anoLectivo) {
       turma.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
+    const turmaComTs: Turma = { ...turma, atualizadoEm: new Date().toISOString() };
     const turmas = dbService.getTurmas();
-    const idx = turmas.findIndex(t => t.id === turma.id);
-    if (idx >= 0) turmas[idx] = turma;
-    else turmas.push(turma);
+    const idx = turmas.findIndex(t => t.id === turmaComTs.id);
+    if (idx >= 0) turmas[idx] = turmaComTs;
+    else turmas.push(turmaComTs);
     setLocal(STORAGE_KEYS.TURMAS, turmas);
-    firebaseSyncEngine.salvarTurma(turma);
-    dbService.registarLog('Gestão de Turma', `Turma "${turma.nome}" (${turma.classe}) guardada para o Ano Lectivo ${turma.anoLectivo}.`);
+    firebaseSyncEngine.salvarTurma(turmaComTs);
+    dbService.registarLog('Gestão de Turma', `Turma "${turmaComTs.nome}" (${turmaComTs.classe}) guardada para o Ano Lectivo ${turmaComTs.anoLectivo}.`);
   },
   salvarTurmas: (turmas: Turma[]) => {
-    setLocal(STORAGE_KEYS.TURMAS, turmas);
-    firebaseSyncEngine.salvarTurmasLote(turmas);
+    const agora = new Date().toISOString();
+    const turmasComTs = turmas.map(t => ({ ...t, atualizadoEm: t.atualizadoEm || agora }));
+    setLocal(STORAGE_KEYS.TURMAS, turmasComTs);
+    firebaseSyncEngine.salvarTurmasLote(turmasComTs);
   },
   eliminarTurma: (id: string): boolean => {
     const turmas = dbService.getTurmas();
@@ -3266,7 +3386,8 @@ export const dbService = {
     const escolaAtiva = dbService.getEscolaAtiva();
     const discFinal: Disciplina = {
       ...disc,
-      escolaId: disc.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined)
+      escolaId: disc.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined),
+      atualizadoEm: new Date().toISOString()
     };
     const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
     const idx = discs.findIndex(d => d.id === discFinal.id);
@@ -3277,8 +3398,10 @@ export const dbService = {
     dbService.registarLog('Disciplina', `Disciplina "${discFinal.nome}" (${discFinal.codigo}) guardada.`, discFinal.escolaId);
   },
   salvarDisciplinas: (disciplinas: Disciplina[]) => {
-    setLocal(STORAGE_KEYS.DISCIPLINAS, disciplinas);
-    firebaseSyncEngine.salvarDisciplinasLote(disciplinas);
+    const agora = new Date().toISOString();
+    const comTs = disciplinas.map(d => ({ ...d, atualizadoEm: d.atualizadoEm || agora }));
+    setLocal(STORAGE_KEYS.DISCIPLINAS, comTs);
+    firebaseSyncEngine.salvarDisciplinasLote(comTs);
   },
   eliminarDisciplina: (id: string): boolean => {
     const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
@@ -3427,12 +3550,13 @@ export const dbService = {
     if (!atrib.anoLectivo) {
       atrib.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
+    const atribComTs: AtribuicaoDocente = { ...atrib, atualizadoEm: new Date().toISOString() };
     const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
-    const idx = list.findIndex(a => a.id === atrib.id);
-    if (idx >= 0) list[idx] = atrib;
-    else list.push(atrib);
+    const idx = list.findIndex(a => a.id === atribComTs.id);
+    if (idx >= 0) list[idx] = atribComTs;
+    else list.push(atribComTs);
     setLocal(STORAGE_KEYS.ATRIBUICOES, list);
-    firebaseSyncEngine.salvarAtribuicao(atrib);
+    firebaseSyncEngine.salvarAtribuicao(atribComTs);
   },
   removerAtribuicao: (id: string) => {
     const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES).filter(a => a.id !== id);
@@ -3603,6 +3727,19 @@ export const dbService = {
       }
     }
 
+    // Enfileiramento síncrono pré-mídia quando não foi tratado atomicamente pela vinculação do Diretor
+    if (!sincronizadoAtomicoDiretor) {
+      offlineStorage.adicionarPendencia(
+        'funcionarios',
+        idx >= 0 ? 'ATUALIZAR' : 'CRIAR',
+        `Funcionário ${funcComTimestamp.nomeCompleto}`,
+        funcComTimestamp,
+        funcComTimestamp.id,
+        ['users'],
+        funcComTimestamp.role
+      );
+    }
+
     // Persistência imediata no IndexedDB (Base64 + Blob) e sincronização direta com o Firebase
     normalizarEPersistirFuncionarioAsync(
       funcComTimestamp,
@@ -3657,28 +3794,32 @@ export const dbService = {
   // Tipos de Avaliação
   getTiposAvaliacao: (): TipoAvaliacaoConfig[] => getLocal(STORAGE_KEYS.TIPOS_AVALIACAO, DEFAULT_TIPOS_AVALIACAO),
   salvarTipoAvaliacao: (tipo: TipoAvaliacaoConfig) => {
+    const tipoComTs: TipoAvaliacaoConfig = { ...tipo, atualizadoEm: new Date().toISOString() };
     const tipos = dbService.getTiposAvaliacao();
-    const idx = tipos.findIndex(t => t.id === tipo.id);
-    if (idx >= 0) tipos[idx] = tipo;
-    else tipos.push(tipo);
+    const idx = tipos.findIndex(t => t.id === tipoComTs.id);
+    if (idx >= 0) tipos[idx] = tipoComTs;
+    else tipos.push(tipoComTs);
     setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, tipos);
-    firebaseSyncEngine.salvarTipoAvaliacao(tipo);
+    firebaseSyncEngine.salvarTipoAvaliacao(tipoComTs);
   },
   salvarTiposAvaliacao: (tipos: TipoAvaliacaoConfig[]) => {
-    setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, tipos);
-    firebaseSyncEngine.salvarTiposAvaliacaoLote(tipos);
+    const agora = new Date().toISOString();
+    const comTs = tipos.map(t => ({ ...t, atualizadoEm: t.atualizadoEm || agora }));
+    setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, comTs);
+    firebaseSyncEngine.salvarTiposAvaliacaoLote(comTs);
   },
 
   // Avaliações do Professor
   getAvaliacoes: (): AvaliacaoCriada[] => getLocal(STORAGE_KEYS.AVALIACOES, DEFAULT_AVALIACOES),
   salvarAvaliacao: (av: AvaliacaoCriada) => {
+    const avComTs: AvaliacaoCriada = { ...av, atualizadoEm: new Date().toISOString() };
     const avs = dbService.getAvaliacoes();
-    const idx = avs.findIndex(a => a.id === av.id);
-    if (idx >= 0) avs[idx] = av;
-    else avs.push(av);
+    const idx = avs.findIndex(a => a.id === avComTs.id);
+    if (idx >= 0) avs[idx] = avComTs;
+    else avs.push(avComTs);
     setLocal(STORAGE_KEYS.AVALIACOES, avs);
-    firebaseSyncEngine.salvarAvaliacao(av);
-    dbService.registarLog('Criação de Avaliação', `Avaliação "${av.titulo}" criada na turma ${av.turmaId}.`);
+    firebaseSyncEngine.salvarAvaliacao(avComTs);
+    dbService.registarLog('Criação de Avaliação', `Avaliação "${avComTs.titulo}" criada na turma ${avComTs.turmaId}.`);
   },
   excluirAvaliacao: (id: string) => {
     const avs = dbService.getAvaliacoes().filter(a => a.id !== id);
@@ -3698,56 +3839,64 @@ export const dbService = {
   // Notas
   getNotas: (): NotaEstudante[] => getLocal(STORAGE_KEYS.NOTAS, DEFAULT_NOTAS),
   salvarNota: (nota: NotaEstudante) => {
+    const notaComTs: NotaEstudante = { ...nota, atualizadoEm: new Date().toISOString() };
     const notas = dbService.getNotas();
-    const idx = notas.findIndex(n => n.avaliacaoId === nota.avaliacaoId && n.alunoId === nota.alunoId);
-    if (idx >= 0) notas[idx] = nota;
-    else notas.push(nota);
+    const idx = notas.findIndex(n => n.avaliacaoId === notaComTs.avaliacaoId && n.alunoId === notaComTs.alunoId);
+    if (idx >= 0) notas[idx] = notaComTs;
+    else notas.push(notaComTs);
     setLocal(STORAGE_KEYS.NOTAS, notas);
-    firebaseSyncEngine.salvarNotaEstudante(nota);
+    firebaseSyncEngine.salvarNotaEstudante(notaComTs);
   },
   salvarNotas: (notas: NotaEstudante[]) => {
-    setLocal(STORAGE_KEYS.NOTAS, notas);
-    firebaseSyncEngine.salvarNotasLote(notas);
+    const agora = new Date().toISOString();
+    const comTs = notas.map(n => ({ ...n, atualizadoEm: n.atualizadoEm || agora }));
+    setLocal(STORAGE_KEYS.NOTAS, comTs);
+    firebaseSyncEngine.salvarNotasLote(comTs);
   },
 
   // Notas Consolidadas / Pautas
   getNotasConsolidadas: (): NotaTrimestralConsolidada[] => getLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, DEFAULT_NOTAS_CONSOLIDADAS),
   salvarNotaConsolidada: (cons: NotaTrimestralConsolidada) => {
+    const consComTs: NotaTrimestralConsolidada = { ...cons, atualizadoEm: new Date().toISOString() };
     const lista = dbService.getNotasConsolidadas();
-    const idx = lista.findIndex(c => c.alunoId === cons.alunoId && c.disciplinaId === cons.disciplinaId && c.trimestre === cons.trimestre);
-    if (idx >= 0) lista[idx] = cons;
-    else lista.push(cons);
+    const idx = lista.findIndex(c => c.alunoId === consComTs.alunoId && c.disciplinaId === consComTs.disciplinaId && c.trimestre === consComTs.trimestre);
+    if (idx >= 0) lista[idx] = consComTs;
+    else lista.push(consComTs);
     setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, lista);
-    firebaseSyncEngine.salvarNota(cons);
+    firebaseSyncEngine.salvarNota(consComTs);
   },
   salvarNotasConsolidadas: (lista: NotaTrimestralConsolidada[]) => {
-    setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, lista);
-    firebaseSyncEngine.salvarNotasConsolidadasLote(lista);
+    const agora = new Date().toISOString();
+    const comTs = lista.map(c => ({ ...c, atualizadoEm: c.atualizadoEm || agora }));
+    setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, comTs);
+    firebaseSyncEngine.salvarNotasConsolidadasLote(comTs);
   },
 
   // Solicitações de Nota
   getSolicitacoesNota: (): SolicitacaoAlteracaoNota[] => getLocal(STORAGE_KEYS.SOLICITACOES_NOTA, DEFAULT_SOLICITACOES_NOTA),
   salvarSolicitacaoNota: (sol: SolicitacaoAlteracaoNota) => {
+    const solComTs: SolicitacaoAlteracaoNota = { ...sol, atualizadoEm: new Date().toISOString() };
     const sols = dbService.getSolicitacoesNota();
-    const idx = sols.findIndex(s => s.id === sol.id);
-    if (idx >= 0) sols[idx] = sol;
-    else sols.push(sol);
+    const idx = sols.findIndex(s => s.id === solComTs.id);
+    if (idx >= 0) sols[idx] = solComTs;
+    else sols.push(solComTs);
     setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, sols);
-    firebaseSyncEngine.salvarSolicitacaoNota(sol);
-    dbService.registarLog('Solicitação de Correção', `Professor ${sol.professorNome} solicitou correção de nota para ${sol.alunoNome}.`);
+    firebaseSyncEngine.salvarSolicitacaoNota(solComTs);
+    dbService.registarLog('Solicitação de Correção', `Professor ${solComTs.professorNome} solicitou correção de nota para ${solComTs.alunoNome}.`);
   },
 
   // Júris & Comissão de Júri Oficial
   getJuris: (): ComissaoJuri[] => getLocal(STORAGE_KEYS.JURIS, DEFAULT_JURIS),
   getComissoesJuri: (): ComissaoJuri[] => dbService.getJuris(),
   salvarJuri: (juri: ComissaoJuri) => {
+    const juriComTs: ComissaoJuri = { ...juri, atualizadoEm: new Date().toISOString() };
     const juris = dbService.getJuris();
-    const idx = juris.findIndex(j => j.id === juri.id);
-    if (idx >= 0) juris[idx] = juri;
-    else juris.push(juri);
+    const idx = juris.findIndex(j => j.id === juriComTs.id);
+    if (idx >= 0) juris[idx] = juriComTs;
+    else juris.push(juriComTs);
     setLocal(STORAGE_KEYS.JURIS, juris);
-    firebaseSyncEngine.salvarJuri(juri);
-    dbService.registarLog('Comissão de Júri', `Comissão de Júri ${juri.nomeJuri} (${juri.numeroSessao || ''}) atualizada.`);
+    firebaseSyncEngine.salvarJuri(juriComTs);
+    dbService.registarLog('Comissão de Júri', `Comissão de Júri ${juriComTs.nomeJuri} (${juriComTs.numeroSessao || ''}) atualizada.`);
   },
   excluirJuri: (id: string) => {
     const juris = dbService.getJuris().filter(j => j.id !== id);
@@ -3857,13 +4006,14 @@ export const dbService = {
     return todos;
   },
   salvarTermoExame: (termo: TermoExame) => {
+    const termoComTs: TermoExame = { ...termo, atualizadoEm: new Date().toISOString() };
     const termos = dbService.getTermosExame();
-    const idx = termos.findIndex(t => t.id === termo.id);
-    if (idx >= 0) termos[idx] = termo;
-    else termos.push(termo);
+    const idx = termos.findIndex(t => t.id === termoComTs.id);
+    if (idx >= 0) termos[idx] = termoComTs;
+    else termos.push(termoComTs);
     setLocal(STORAGE_KEYS.TERMOS_EXAME, termos);
-    firebaseSyncEngine.salvarTermoExame(termo);
-    dbService.registarLog('Termos de Exame', `Termo de exame da disciplina ${termo.disciplinaNome} (${termo.classe} - ${termo.epoca}) atualizado.`);
+    firebaseSyncEngine.salvarTermoExame(termoComTs);
+    dbService.registarLog('Termos de Exame', `Termo de exame da disciplina ${termoComTs.disciplinaNome} (${termoComTs.classe} - ${termoComTs.epoca}) atualizado.`);
   },
   excluirTermoExame: (id: string) => {
     const termos = dbService.getTermosExame().filter(t => t.id !== id);
@@ -3882,6 +4032,7 @@ export const dbService = {
     const idx = escolas.findIndex(e => e.id === escolaId);
     if (idx >= 0) {
       escolas[idx].nppAtivo = nppAtivo;
+      escolas[idx].atualizadoEm = new Date().toISOString();
       setLocal(STORAGE_KEYS.ESCOLAS, escolas);
       firebaseSyncEngine.salvarEscola(escolas[idx]);
       dbService.registarLog('Configuração Pedagógica', `Uso de Prova do Professor (NPP) ${nppAtivo ? 'ATIVADO' : 'DESATIVADO'} para o cálculo trimestral.`);
@@ -3890,19 +4041,22 @@ export const dbService = {
 
   // Reordenação de Entidades Escolares
   salvarTurmasOrdenadas: (turmasOrdenadas: Turma[]) => {
-    const comOrdem = turmasOrdenadas.map((t, idx) => ({ ...t, ordem: idx }));
+    const agora = new Date().toISOString();
+    const comOrdem = turmasOrdenadas.map((t, idx) => ({ ...t, ordem: idx, atualizadoEm: agora }));
     setLocal(STORAGE_KEYS.TURMAS, comOrdem);
     firebaseSyncEngine.salvarTurmasLote(comOrdem);
     dbService.registarLog('Gestão Académica', 'Ordem de turmas atualizada pela instituição.');
   },
   salvarDisciplinasOrdenadas: (disciplinasOrdenadas: Disciplina[]) => {
-    const comOrdem = disciplinasOrdenadas.map((d, idx) => ({ ...d, ordem: idx }));
+    const agora = new Date().toISOString();
+    const comOrdem = disciplinasOrdenadas.map((d, idx) => ({ ...d, ordem: idx, atualizadoEm: agora }));
     setLocal(STORAGE_KEYS.DISCIPLINAS, comOrdem);
     firebaseSyncEngine.salvarDisciplinasLote(comOrdem);
     dbService.registarLog('Gestão Académica', 'Ordem de disciplinas curriculares atualizada.');
   },
   salvarClassesOrdenadas: (classesOrdenadas: ClasseConfig[]) => {
-    const comOrdem = classesOrdenadas.map((c, idx) => ({ ...c, ordem: idx }));
+    const agora = new Date().toISOString();
+    const comOrdem = classesOrdenadas.map((c, idx) => ({ ...c, ordem: idx, atualizadoEm: agora }));
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, comOrdem);
     firebaseSyncEngine.salvarClassesLote(comOrdem);
     dbService.registarLog('Gestão Académica', 'Ordem de classes da instituição atualizada.');
@@ -3911,23 +4065,26 @@ export const dbService = {
   // Presenças
   getPresencas: (): PresencaFuncionario[] => getLocal(STORAGE_KEYS.PRESENCAS, DEFAULT_PRESENCAS),
   salvarPresenca: (p: PresencaFuncionario) => {
+    const pComTs: PresencaFuncionario = { ...p, atualizadoEm: new Date().toISOString() };
     const pres = dbService.getPresencas();
-    const idx = pres.findIndex(item => item.funcionarioId === p.funcionarioId && item.data === p.data);
-    if (idx >= 0) pres[idx] = p;
-    else pres.push(p);
+    const idx = pres.findIndex(item => item.funcionarioId === pComTs.funcionarioId && item.data === pComTs.data);
+    if (idx >= 0) pres[idx] = pComTs;
+    else pres.push(pComTs);
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
-    firebaseSyncEngine.salvarPresencaFuncionario(p);
+    firebaseSyncEngine.salvarPresencaFuncionario(pComTs);
   },
   salvarPresencasLote: (items: PresencaFuncionario[]) => {
     if (!items || items.length === 0) return;
+    const agora = new Date().toISOString();
+    const comTs = items.map(p => ({ ...p, atualizadoEm: p.atualizadoEm || agora }));
     const pres = dbService.getPresencas();
-    for (const p of items) {
+    for (const p of comTs) {
       const idx = pres.findIndex(item => item.funcionarioId === p.funcionarioId && item.data === p.data);
       if (idx >= 0) pres[idx] = p;
       else pres.push(p);
     }
     setLocal(STORAGE_KEYS.PRESENCAS, pres);
-    firebaseSyncEngine.salvarPresencasFuncionariosLote(items);
+    firebaseSyncEngine.salvarPresencasFuncionariosLote(comTs);
   },
   removerPresenca: (funcionarioId: string, data: string) => {
     const presAtuais = dbService.getPresencas();
@@ -4022,17 +4179,19 @@ export const dbService = {
     });
   },
   enviarMensagem: (msg: MensagemInterna) => {
+    const msgComTs: MensagemInterna = { ...msg, atualizadoEm: new Date().toISOString() };
     const msgs = dbService.getMensagensBrutas();
-    msgs.unshift(msg);
+    msgs.unshift(msgComTs);
     setLocal(STORAGE_KEYS.MENSAGENS, msgs);
-    firebaseSyncEngine.salvarMensagem(msg);
-    dbService.registarLog('Comunicação Interna', `Mensagem "${msg.titulo}" enviada.`);
+    firebaseSyncEngine.salvarMensagem(msgComTs);
+    dbService.registarLog('Comunicação Interna', `Mensagem "${msgComTs.titulo}" enviada.`);
   },
   marcarMensagemLida: (id: string) => {
     const msgs = dbService.getMensagensBrutas();
     const idx = msgs.findIndex(m => m.id === id);
     if (idx !== -1) {
       msgs[idx].lida = true;
+      msgs[idx].atualizadoEm = new Date().toISOString();
       setLocal(STORAGE_KEYS.MENSAGENS, msgs);
       firebaseSyncEngine.salvarMensagem(msgs[idx]);
     }
@@ -4041,12 +4200,14 @@ export const dbService = {
     const msgs = dbService.getMensagensBrutas();
     const isNonAdmin = isSessaoAutenticadaNaoAdminGeral();
     const { ids } = getAdminGeralIdsAndNomes();
+    const agora = new Date().toISOString();
     msgs.forEach(m => {
       if (isNonAdmin && (m.remetentePapel === 'AdminGeral' || m.destinatarioId === 'admin-geral' || ids.has(m.remetenteId))) {
         return;
       }
       if (!escolaId || m.escolaId === escolaId) {
         m.lida = true;
+        m.atualizadoEm = agora;
         firebaseSyncEngine.salvarMensagem(m);
       }
     });
@@ -4085,11 +4246,12 @@ export const dbService = {
   // Recibos Térmicos
   getRecibos: (): ReciboPagamento[] => getLocal(STORAGE_KEYS.RECIBOS, DEFAULT_RECIBOS),
   salvarRecibo: (rec: ReciboPagamento) => {
+    const recComTs: ReciboPagamento = { ...rec, atualizadoEm: new Date().toISOString() };
     const recs = dbService.getRecibos();
-    recs.unshift(rec);
+    recs.unshift(recComTs);
     setLocal(STORAGE_KEYS.RECIBOS, recs);
-    firebaseSyncEngine.salvarRecibo(rec);
-    dbService.registarLog('Emissão de Recibo', `Recibo ${rec.numeroRecibo} emitido para ${rec.alunoNome} no valor de ${rec.valorPagoKz} Kz.`);
+    firebaseSyncEngine.salvarRecibo(recComTs);
+    dbService.registarLog('Emissão de Recibo', `Recibo ${recComTs.numeroRecibo} emitido para ${recComTs.alunoNome} no valor de ${recComTs.valorPagoKz} Kz.`);
   },
 
   // Utilizador Ativo
@@ -5161,6 +5323,8 @@ export const dbService = {
       turnosConfigs: isEscolaEspecifica ? dbService.getTurnosConfigs(effectiveEscolaId) : dbService.getTurnosConfigs(),
       classesConfigs: isEscolaEspecifica ? dbService.getClassesConfigs(effectiveEscolaId) : dbService.getClassesConfigs(),
       cursos: isEscolaEspecifica ? dbService.getCursos(effectiveEscolaId) : dbService.getCursos(),
+      areasFormacao: isEscolaEspecifica ? dbService.getAreasFormacao(effectiveEscolaId) : dbService.getAreasFormacao(),
+      salasAulas: isEscolaEspecifica ? dbService.getSalasAulas(effectiveEscolaId) : dbService.getSalasAulas(),
       emolumentosPersonalizados: getLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
       delegacoesCobranca: getLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
       presencasAlunos: getLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
@@ -5608,6 +5772,8 @@ export const dbService = {
       if (data.turnosConfigs) setLocal(STORAGE_KEYS.TURNOS_CONFIGS, data.turnosConfigs);
       if (data.classesConfigs) setLocal(STORAGE_KEYS.CLASSES_CONFIGS, data.classesConfigs);
       if (data.cursos) setLocal(STORAGE_KEYS.CURSOS, data.cursos);
+      if (data.areasFormacao) setLocal(STORAGE_KEYS.AREAS_FORMACAO, data.areasFormacao);
+      if (data.salasAulas) setLocal(STORAGE_KEYS.SALAS_AULAS, data.salasAulas);
       if (data.emolumentosPersonalizados) setLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, data.emolumentosPersonalizados);
       if (data.delegacoesCobranca) setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, data.delegacoesCobranca);
       if (data.presencasAlunos) setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, data.presencasAlunos);
@@ -5652,10 +5818,11 @@ export const dbService = {
     return dbService.atualizarStatusFuncionario(funcionarioId, status === 'Suspensa' ? 'Suspensa' : 'Ativa');
   },
   salvarMensagem: (msg: any) => {
+    const msgComTs = { ...msg, atualizadoEm: new Date().toISOString() };
     const list = dbService.getMensagensBrutas();
-    list.unshift(msg);
+    list.unshift(msgComTs);
     setLocal(STORAGE_KEYS.MENSAGENS, list);
-    firebaseSyncEngine.salvarMensagem(msg);
+    firebaseSyncEngine.salvarMensagem(msgComTs);
   },
   salvarLivro: (livro: any) => dbService.salvarDocumento(livro),
   limparLogs: () => dbService.limparLogsAntigos(),
@@ -5694,6 +5861,9 @@ export const dbService = {
       anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
       turnosConfigs: dbService.getTurnosConfigs(),
       classesConfigs: dbService.getClassesConfigs(),
+      cursos: dbService.getCursos(),
+      areasFormacao: dbService.getAreasFormacao(),
+      salasAulas: dbService.getSalasAulas(),
       solicitacoesApoio: dbService.getSolicitacoesApoioTecnico(),
       alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
       relatoriosAcontecimentos: dbService.getRelatoriosAcontecimentos()
@@ -5832,13 +6002,14 @@ export const dbService = {
     };
   },
   salvarConfiguracaoFinanceira: (config: ConfiguracaoFinanceiraEscola): void => {
+    const configComTs: ConfiguracaoFinanceiraEscola = { ...config, atualizadoEm: new Date().toISOString() };
     const map = getLocal<Record<string, ConfiguracaoFinanceiraEscola>>(
       STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, 
       DEFAULT_CONFIGURACOES_FINANCEIRAS
     );
-    map[config.escolaId] = config;
+    map[configComTs.escolaId] = configComTs;
     setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, map);
-    firebaseSyncEngine.salvarConfiguracaoFinanceira(config);
+    firebaseSyncEngine.salvarConfiguracaoFinanceira(configComTs);
     dbService.registarLog('Configuração Financeira', `Tabela de propinas e taxas atualizada para a escola.`);
   },
 
@@ -5891,13 +6062,14 @@ export const dbService = {
     if (!transacao.anoLectivo) {
       transacao.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
+    const transacaoComTs: TransacaoFinanceira = { ...transacao, atualizadoEm: new Date().toISOString() };
     const todas = getLocal<TransacaoFinanceira[]>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, DEFAULT_TRANSACOES_FINANCEIRAS);
-    const idx = todas.findIndex(t => t.id === transacao.id);
-    if (idx >= 0) todas[idx] = transacao;
-    else todas.unshift(transacao);
+    const idx = todas.findIndex(t => t.id === transacaoComTs.id);
+    if (idx >= 0) todas[idx] = transacaoComTs;
+    else todas.unshift(transacaoComTs);
     setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, todas);
-    firebaseSyncEngine.salvarTransacaoFinanceira(transacao);
-    dbService.registarLog('Receita Arrecadada', `Pagamento de ${transacao.tipo} (${transacao.anoLectivo}) no valor de ${transacao.valorTotalKz.toLocaleString()} Kz para o aluno ${transacao.alunoNome} (Recibo: ${transacao.numeroRecibo}).`);
+    firebaseSyncEngine.salvarTransacaoFinanceira(transacaoComTs);
+    dbService.registarLog('Receita Arrecadada', `Pagamento de ${transacaoComTs.tipo} (${transacaoComTs.anoLectivo}) no valor de ${transacaoComTs.valorTotalKz.toLocaleString()} Kz para o aluno ${transacaoComTs.alunoNome} (Recibo: ${transacaoComTs.numeroRecibo}).`);
   },
   editarTransacaoComAuditoria: (
     transacaoId: string,
@@ -5914,7 +6086,8 @@ export const dbService = {
       ...anterior,
       ...dadosAtualizados,
       observacao: `${dadosAtualizados.observacao || anterior.observacao || ''} [Retificado por ${operadorNome} em ${new Date().toLocaleDateString('pt-AO')}: ${motivoAuditoria}]`.trim(),
-      observacoes: `${dadosAtualizados.observacoes || anterior.observacoes || ''} [Retificado por ${operadorNome} em ${new Date().toLocaleDateString('pt-AO')}: ${motivoAuditoria}]`.trim()
+      observacoes: `${dadosAtualizados.observacoes || anterior.observacoes || ''} [Retificado por ${operadorNome} em ${new Date().toLocaleDateString('pt-AO')}: ${motivoAuditoria}]`.trim(),
+      atualizadoEm: new Date().toISOString()
     };
     todas[idx] = transacaoAtualizada;
     setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, todas);
@@ -5951,7 +6124,7 @@ export const dbService = {
           )
         );
         if (pagamentosRestantes.length === 0 && aluno.propinaStatus !== 'Isento') {
-          alunos[alunoIdx] = { ...aluno, propinaStatus: 'Pendente' };
+          alunos[alunoIdx] = { ...aluno, propinaStatus: 'Pendente', atualizadoEm: new Date().toISOString() };
           setLocal(STORAGE_KEYS.ALUNOS, alunos);
           firebaseSyncEngine.salvarAluno(alunos[alunoIdx]);
         }
@@ -5984,13 +6157,14 @@ export const dbService = {
     if (!despesa.anoLectivo) {
       despesa.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
+    const despesaComTs: DespesaEscolar = { ...despesa, atualizadoEm: new Date().toISOString() };
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
-    const idx = todas.findIndex(d => d.id === despesa.id);
-    if (idx >= 0) todas[idx] = despesa;
-    else todas.unshift(despesa);
+    const idx = todas.findIndex(d => d.id === despesaComTs.id);
+    if (idx >= 0) todas[idx] = despesaComTs;
+    else todas.unshift(despesaComTs);
     setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, todas);
-    firebaseSyncEngine.salvarDespesaEscolar(despesa);
-    dbService.registarLog('Despesa Registada', `Saída de caixa (${despesa.anoLectivo}): ${despesa.descricao} no valor de ${despesa.valorKz.toLocaleString()} Kz.`);
+    firebaseSyncEngine.salvarDespesaEscolar(despesaComTs);
+    dbService.registarLog('Despesa Registada', `Saída de caixa (${despesaComTs.anoLectivo}): ${despesaComTs.descricao} no valor de ${despesaComTs.valorKz.toLocaleString()} Kz.`);
   },
   eliminarDespesaEscolar: (despesaId: string, operadorNome: string, motivo: string): boolean => {
     const todas = getLocal<DespesaEscolar[]>(STORAGE_KEYS.DESPESAS_ESCOLARES, DEFAULT_DESPESAS_ESCOLARES);
@@ -6017,13 +6191,14 @@ export const dbService = {
     return todos.filter(p => p.escolaId === escolaId);
   },
   salvarItemPatrimonio: (item: ItemPatrimonio): void => {
+    const itemComTs: ItemPatrimonio = { ...item, atualizadoEm: new Date().toISOString() };
     const todos = getLocal<ItemPatrimonio[]>(STORAGE_KEYS.PATRIMONIO, DEFAULT_PATRIMONIO);
-    const idx = todos.findIndex(p => p.id === item.id);
-    if (idx >= 0) todos[idx] = item;
-    else todos.unshift(item);
+    const idx = todos.findIndex(p => p.id === itemComTs.id);
+    if (idx >= 0) todos[idx] = itemComTs;
+    else todos.unshift(itemComTs);
     setLocal(STORAGE_KEYS.PATRIMONIO, todos);
-    firebaseSyncEngine.salvarItemPatrimonio(item);
-    dbService.registarLog('Património Escolar', `Item patrimonial "${item.nomeItem}" tombado sob código ${item.codigoTombamento}.`);
+    firebaseSyncEngine.salvarItemPatrimonio(itemComTs);
+    dbService.registarLog('Património Escolar', `Item patrimonial "${itemComTs.nomeItem}" tombado sob código ${itemComTs.codigoTombamento}.`);
   },
   eliminarItemPatrimonio: (id: string): void => {
     const todos = getLocal<ItemPatrimonio[]>(STORAGE_KEYS.PATRIMONIO, DEFAULT_PATRIMONIO);
@@ -6044,14 +6219,15 @@ export const dbService = {
     return map[alunoId] || null;
   },
   salvarHistoricoEscolarCompleto: (historico: HistoricoEscolarCompleto): void => {
+    const histComTs: HistoricoEscolarCompleto = { ...historico, atualizadoEm: new Date().toISOString() };
     const map = getLocal<Record<string, HistoricoEscolarCompleto>>(
       STORAGE_KEYS.HISTORICO_COMPLETO, 
       DEFAULT_HISTORICO_COMPLETO
     );
-    map[historico.alunoId] = historico;
+    map[histComTs.alunoId] = histComTs;
     setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, map);
-    firebaseSyncEngine.salvarHistoricoEscolarCompleto(historico);
-    dbService.registarLog('Histórico Escolar', `Histórico de notas finais por disciplina atualizado para o aluno ${historico.alunoId}.`);
+    firebaseSyncEngine.salvarHistoricoEscolarCompleto(histComTs);
+    dbService.registarLog('Histórico Escolar', `Histórico de notas finais por disciplina atualizado para o aluno ${histComTs.alunoId}.`);
   },
 
   // ==========================================
@@ -6160,18 +6336,19 @@ export const dbService = {
   },
 
   salvarConfiguracaoPasses: (escolaId: string, config: ConfiguracaoPassesEscola): void => {
+    const configComTs: ConfiguracaoPassesEscola = { ...config, atualizadoEm: new Date().toISOString() };
     const configs = getLocal<Record<string, ConfiguracaoPassesEscola>>(STORAGE_KEYS.CONFIGURACOES_PASSES, {});
-    configs[escolaId] = config;
+    configs[escolaId] = configComTs;
     setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, configs);
-    firebaseSyncEngine.salvarConfiguracaoPasses(escolaId, config);
+    firebaseSyncEngine.salvarConfiguracaoPasses(escolaId, configComTs);
 
     // Também sincroniza as cores da instituição
     const escola = dbService.getEscolaAtiva();
     if (escola && escola.id === escolaId) {
-      escola.corPrimaria = config.corPrimaria;
-      escola.corSecundaria = config.corSecundaria;
-      escola.corFundoPasses = config.corFundoFrente;
-      escola.configuracaoPasses = config;
+      escola.corPrimaria = configComTs.corPrimaria;
+      escola.corSecundaria = configComTs.corSecundaria;
+      escola.corFundoPasses = configComTs.corFundoFrente;
+      escola.configuracaoPasses = configComTs;
       dbService.salvarEscola(escola);
     }
   },
@@ -6252,15 +6429,16 @@ export const dbService = {
       return { sucesso: false, erro: validacao.motivo };
     }
 
+    const itemComTs: HorarioAulaItem = { ...item, atualizadoEm: new Date().toISOString() };
     const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
-    const index = horarios.findIndex(h => h.id === item.id);
+    const index = horarios.findIndex(h => h.id === itemComTs.id);
     if (index >= 0) {
-      horarios[index] = item;
+      horarios[index] = itemComTs;
     } else {
-      horarios.push(item);
+      horarios.push(itemComTs);
     }
     setLocal(STORAGE_KEYS.HORARIOS, horarios);
-    firebaseSyncEngine.salvarHorario(item);
+    firebaseSyncEngine.salvarHorario(itemComTs);
     return { sucesso: true };
   },
 
@@ -6526,35 +6704,36 @@ export const dbService = {
   },
 
   salvarRegistoAlteracaoNotaDirecao: (reg: RegistroAlteracaoNotaDirecao): void => {
+    const regComTs: RegistroAlteracaoNotaDirecao = { ...reg, atualizadoEm: new Date().toISOString() };
     const todos = getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []);
-    todos.unshift(reg);
+    todos.unshift(regComTs);
     if (todos.length > 300) todos.length = 300;
     setLocal(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, todos);
-    firebaseSyncEngine.salvarAlteracaoNotaDirecao(reg);
+    firebaseSyncEngine.salvarAlteracaoNotaDirecao(regComTs);
 
     // 1. Registar no log de auditoria oficial da escola (automaticamente marcado como origemAdminGeral se aplicável)
     dbService.registarLog(
       'Retificação Executiva de Nota',
-      `Nota de ${reg.tipoNota} do estudante "${reg.alunoNome}" (Turma ${reg.turmaNome}, ${reg.classe}, ${reg.disciplinaNome}) retificada de ${reg.notaAnterior} para ${reg.novaNota} por ${reg.alteradoPorNome} (${reg.alteradoPorRole}). Motivo: "${reg.motivoJustificativa}". Professor titular: ${reg.professorNome}.`
+      `Nota de ${regComTs.tipoNota} do estudante "${regComTs.alunoNome}" (Turma ${regComTs.turmaNome}, ${regComTs.classe}, ${regComTs.disciplinaNome}) retificada de ${regComTs.notaAnterior} para ${regComTs.novaNota} por ${regComTs.alteradoPorNome} (${regComTs.alteradoPorRole}). Motivo: "${regComTs.motivoJustificativa}". Professor titular: ${regComTs.professorNome}.`
     );
 
     // 2. Notificar automaticamente o professor titular apenas quando não for intervenção silenciosa do AdminGeral
-    if (reg.alteradoPorRole !== 'AdminGeral') {
+    if (regComTs.alteradoPorRole !== 'AdminGeral') {
       try {
         dbService.enviarMensagem({
           id: `msg-retif-${Date.now()}`,
-          escolaId: reg.escolaId,
-          remetenteId: reg.alteradoPorId,
-          remetenteNome: reg.alteradoPorNome,
-          remetentePapel: reg.alteradoPorRole,
-          remetenteCargo: reg.alteradoPorRole === 'DiretorGeral' ? 'Diretor Geral' : 'Subdiretor Pedagógico',
+          escolaId: regComTs.escolaId,
+          remetenteId: regComTs.alteradoPorId,
+          remetenteNome: regComTs.alteradoPorNome,
+          remetentePapel: regComTs.alteradoPorRole,
+          remetenteCargo: regComTs.alteradoPorRole === 'DiretorGeral' ? 'Diretor Geral' : 'Subdiretor Pedagógico',
           tipo: 'DIRECTA',
           destinatarioTipo: 'Individual',
-          destinatarioId: reg.professorId,
-          destinatarioNome: reg.professorNome,
-          titulo: `Aviso de Retificação de Nota: ${reg.alunoNome} (${reg.disciplinaNome} - ${reg.turmaNome})`,
+          destinatarioId: regComTs.professorId,
+          destinatarioNome: regComTs.professorNome,
+          titulo: `Aviso de Retificação de Nota: ${regComTs.alunoNome} (${regComTs.disciplinaNome} - ${regComTs.turmaNome})`,
           assunto: 'Retificação Executiva de Nota',
-          conteudo: `Estimado(a) Colega ${reg.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${reg.tipoNota} do(a) estudante ${reg.alunoNome} na turma ${reg.turmaNome} (${reg.classe}${reg.curso ? ' - ' + reg.curso : ''}) na disciplina de ${reg.disciplinaNome} (${reg.trimestre}º Trimestre).\n\n• Nota Anterior: ${reg.notaAnterior}\n• Nova Nota Homologada: ${reg.novaNota}\n• Justificativa: ${reg.motivoJustificativa}\n• Autorizado por: ${reg.alteradoPorNome} (${reg.alteradoPorRole})\n• Data/Hora: ${reg.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
+          conteudo: `Estimado(a) Colega ${regComTs.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${regComTs.tipoNota} do(a) estudante ${regComTs.alunoNome} na turma ${regComTs.turmaNome} (${regComTs.classe}${regComTs.curso ? ' - ' + regComTs.curso : ''}) na disciplina de ${regComTs.disciplinaNome} (${regComTs.trimestre}º Trimestre).\n\n• Nota Anterior: ${regComTs.notaAnterior}\n• Nova Nota Homologada: ${regComTs.novaNota}\n• Justificativa: ${regComTs.motivoJustificativa}\n• Autorizado por: ${regComTs.alteradoPorNome} (${regComTs.alteradoPorRole})\n• Data/Hora: ${regComTs.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
           dataHora: new Date().toISOString()
         });
       } catch {
@@ -6568,6 +6747,7 @@ export const dbService = {
     const idx = todos.findIndex(r => r.id === id);
     if (idx >= 0) {
       todos[idx].lidoPeloProfessor = true;
+      todos[idx].atualizadoEm = new Date().toISOString();
       setLocal(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, todos);
       firebaseSyncEngine.salvarAlteracaoNotaDirecao(todos[idx]);
     }
@@ -6839,15 +7019,16 @@ export const dbService = {
   },
 
   salvarConfiguracaoDocumento: (config: ConfiguracaoDocumentoCustomizado): void => {
+    const configComTs: ConfiguracaoDocumentoCustomizado = { ...config, atualizadoEm: new Date().toISOString() };
     const todos = getLocal<Record<string, ConfiguracaoDocumentoCustomizado>>(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, {});
-    const chave = `${config.escolaId}_${config.tipoDocumento}`;
-    todos[chave] = config;
+    const chave = `${configComTs.escolaId}_${configComTs.tipoDocumento}`;
+    todos[chave] = configComTs;
     setLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, todos);
-    firebaseSyncEngine.salvarConfiguracaoDocumento(config);
+    firebaseSyncEngine.salvarConfiguracaoDocumento(configComTs);
 
     dbService.registarLog(
       'Configuração de Documento',
-      `Layout, cabeçalho e dizeres oficiais do documento "${config.tipoDocumento}" atualizados com sucesso.`
+      `Layout, cabeçalho e dizeres oficiais do documento "${configComTs.tipoDocumento}" atualizados com sucesso.`
     );
   },
 
@@ -6860,13 +7041,14 @@ export const dbService = {
   },
 
   salvarDelegacaoCobranca: (escolaId: string, delegacao: DelegacaoCobrancaFinanceira): void => {
+    const delegacaoComTs: DelegacaoCobrancaFinanceira = { ...delegacao, atualizadoEm: new Date().toISOString() };
     const map = getLocal<Record<string, DelegacaoCobrancaFinanceira[]>>(STORAGE_KEYS.DELEGACOES_COBRANCA, {});
     const lista = map[escolaId] || [];
-    const idx = lista.findIndex(d => d.id === delegacao.id);
+    const idx = lista.findIndex(d => d.id === delegacaoComTs.id);
     if (idx >= 0) {
-      lista[idx] = delegacao;
+      lista[idx] = delegacaoComTs;
     } else {
-      lista.unshift(delegacao);
+      lista.unshift(delegacaoComTs);
     }
     map[escolaId] = lista;
     setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, map);

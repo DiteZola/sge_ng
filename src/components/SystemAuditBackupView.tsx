@@ -50,6 +50,18 @@ import { InsigniaAngola } from '../constants/insignia';
 import { DocumentTemplateConfigModal } from './DocumentTemplateConfigModal';
 import { avaliarExpressaoNota } from '../services/macEngine';
 import { comprimirImagemBase64 } from '../utils/imageOptimizer';
+import {
+  enforceHttpsTransport,
+  getTransportSecurityInfo,
+  measureLoadingPerformance,
+  LoadingPerformanceMetrics
+} from '../utils/securityTransport';
+import { antiSpamService } from '../services/antiSpamService';
+import {
+  getCookieConsent,
+  openLegalPolicyModal,
+  resetCookieConsentBanner
+} from '../services/legalPoliciesService';
 
 interface SystemAuditBackupViewProps {
   escola: Escola;
@@ -57,7 +69,7 @@ interface SystemAuditBackupViewProps {
   logs: LogAuditoria[];
   alunos: Aluno[];
   funcionarios: Funcionario[];
-  initialTab?: 'backup_restauracao' | 'interruptores_configuracao' | 'configuracoes_globais' | 'logotipo_escola' | 'auditoria' | 'excel' | 'usuarios_perfis' | 'dizeres_documentos' | 'formulas_notas' | 'geografia_territorio';
+  initialTab?: 'backup_restauracao' | 'configuracoes_gerais' | 'interruptores_configuracao' | 'configuracoes_globais' | 'logotipo_escola' | 'auditoria' | 'excel' | 'usuarios_perfis' | 'dizeres_documentos' | 'formulas_notas' | 'geografia_territorio';
   onLimparLogs: () => void;
   onRestaurarBackup?: (jsonStr: string) => void;
   onAtualizarEscola?: (escola: Escola) => void;
@@ -81,9 +93,12 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   const isAdminGeral = currentUser.role === 'AdminGeral';
   const isDiretorGeral = currentUser.role === 'DiretorGeral' || isAdminGeral;
 
-  const [activeTab, setActiveTab] = useState<'backup_restauracao' | 'interruptores_configuracao' | 'configuracoes_globais' | 'logotipo_escola' | 'auditoria' | 'excel' | 'usuarios_perfis' | 'dizeres_documentos' | 'formulas_notas' | 'geografia_territorio'>(initialTab || 'backup_restauracao');
+  const [activeTab, setActiveTab] = useState<'backup_restauracao' | 'configuracoes_gerais' | 'interruptores_configuracao' | 'configuracoes_globais' | 'logotipo_escola' | 'auditoria' | 'excel' | 'usuarios_perfis' | 'dizeres_documentos' | 'formulas_notas' | 'geografia_territorio'>(initialTab || 'backup_restauracao');
   const [modalConfigDocOpen, setModalConfigDocOpen] = useState(false);
   const [docConfigSelecionado, setDocConfigSelecionado] = useState('pauta_trimestral');
+  const [perfMetrics, setPerfMetrics] = useState<LoadingPerformanceMetrics>(() => measureLoadingPerformance());
+  const [antiSpamStats, setAntiSpamStats] = useState(() => antiSpamService.obterEstatisticasAntiSpam());
+  const [seoCheckStatus, setSeoCheckStatus] = useState<{ robotsOk: boolean | null; sitemapOk: boolean | null }>({ robotsOk: null, sitemapOk: null });
 
   useEffect(() => {
     if (initialTab) {
@@ -99,6 +114,14 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   useEffect(() => {
     if (activeTab === 'backup_restauracao') {
       setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+    }
+    if (activeTab === 'configuracoes_gerais') {
+      setPerfMetrics(measureLoadingPerformance());
+      setAntiSpamStats(antiSpamService.obterEstatisticasAntiSpam());
+      Promise.all([
+        fetch('/robots.txt').then(r => r.ok).catch(() => false),
+        fetch('/sitemap.xml').then(r => r.ok).catch(() => false)
+      ]).then(([robotsOk, sitemapOk]) => setSeoCheckStatus({ robotsOk, sitemapOk }));
     }
   }, [activeTab, escola.id, logs.length, alunos.length, funcionarios.length]);
 
@@ -863,6 +886,16 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('configuracoes_gerais')}
+          className={`px-3.5 py-2 text-xs font-bold rounded-lg flex items-center space-x-2 transition-all cursor-pointer ${
+            activeTab === 'configuracoes_gerais' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <Sliders className="h-4 w-4" />
+          <span>Configurações Gerais</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('interruptores_configuracao')}
           className={`px-3.5 py-2 text-xs font-bold rounded-lg flex items-center space-x-2 transition-all cursor-pointer ${
             activeTab === 'interruptores_configuracao' ? 'bg-white text-blue-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'
@@ -946,6 +979,351 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
           <span>Editor de Fórmulas de Notas</span>
         </button>
       </div>
+
+      {/* ======================================================== */}
+      {/* ABA: CONFIGURAÇÕES GERAIS, SEGURANÇA, PRIVACIDADE & SEO  */}
+      {/* ======================================================== */}
+      {activeTab === 'configuracoes_gerais' && (() => {
+        const transportInfo = getTransportSecurityInfo(configSistema.forcarHTTPS !== false);
+        const cookieConsent = getCookieConsent();
+        return (
+          <div className="space-y-6">
+            {/* 1. Parâmetros Gerais & Contacto DPO */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                <div>
+                  <h3 className="text-base font-black text-gray-900 flex items-center space-x-2">
+                    <Sliders className="h-5 w-5 text-blue-600" />
+                    <span>Configurações Gerais da Plataforma &amp; Conformidade Legal</span>
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Parâmetros institucionais, idioma, privacidade, HTTPS obrigatório, consentimento de cookies, anti-spam e desempenho.
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 self-start sm:self-center">
+                  Versão Política: {configSistema.politicaVersao || '1.0 (2026)'}
+                </span>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  dbService.salvarConfiguracaoSistema(configSistema);
+                  window.dispatchEvent(new CustomEvent('sge_configuracao_sistema_atualizada'));
+                  if (configSistema.forcarHTTPS !== false) {
+                    enforceHttpsTransport(true);
+                  }
+                  notificar('Configurações Gerais gravadas e aplicadas com sucesso.');
+                }}
+                className="space-y-4"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Nome do Sistema</label>
+                    <input
+                      type="text"
+                      disabled={!isAdminGeral}
+                      value={configSistema.nomeSistema || 'SGE-NG'}
+                      onChange={(e) => setConfigSistema({ ...configSistema, nomeSistema: e.target.value })}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100 font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Subtítulo Oficial</label>
+                    <input
+                      type="text"
+                      disabled={!isAdminGeral}
+                      value={configSistema.subtituloSistema || ''}
+                      onChange={(e) => setConfigSistema({ ...configSistema, subtituloSistema: e.target.value })}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Ministério / Tutela</label>
+                    <input
+                      type="text"
+                      disabled={!isAdminGeral}
+                      value={configSistema.ministerioNome || 'Ministério da Educação (MED)'}
+                      onChange={(e) => setConfigSistema({ ...configSistema, ministerioNome: e.target.value })}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Email de Privacidade / DPO</label>
+                    <input
+                      type="email"
+                      disabled={!isAdminGeral}
+                      value={configSistema.emailDPO || 'privacidade@sge-ng.ao'}
+                      onChange={(e) => setConfigSistema({ ...configSistema, emailDPO: e.target.value })}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Telefone de Suporte &amp; DPO</label>
+                    <input
+                      type="text"
+                      disabled={!isAdminGeral}
+                      value={configSistema.telefoneSuporte || '+244 923 000 000'}
+                      onChange={(e) => setConfigSistema({ ...configSistema, telefoneSuporte: e.target.value })}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Fuso Horário &amp; Idioma</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        disabled={!isAdminGeral}
+                        value={configSistema.idiomaSistema || 'pt-AO'}
+                        onChange={(e) => setConfigSistema({ ...configSistema, idiomaSistema: e.target.value })}
+                        className="p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100"
+                      >
+                        <option value="pt-AO">Português (Angola)</option>
+                        <option value="pt-PT">Português (Geral)</option>
+                      </select>
+                      <select
+                        disabled={!isAdminGeral}
+                        value={configSistema.fusoHorario || 'Africa/Luanda'}
+                        onChange={(e) => setConfigSistema({ ...configSistema, fusoHorario: e.target.value })}
+                        className="p-2.5 border border-gray-300 rounded-lg bg-white disabled:bg-gray-100"
+                      >
+                        <option value="Africa/Luanda">Africa/Luanda (WAT)</option>
+                        <option value="UTC">UTC</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interruptores de Segurança, HTTPS, Cookies e Anti-Spam */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  {/* Forçar HTTPS */}
+                  <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/70 flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black text-gray-900">Forçar Ligação Segura HTTPS</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          transportInfo.isHttps ? 'bg-emerald-100 text-emerald-800' : transportInfo.isLocalhost ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {transportInfo.isHttps ? 'HTTPS Ativo' : transportInfo.isLocalhost ? 'Dev Local (HTTP)' : 'HTTP'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-600">
+                        Redireciona automaticamente tráfego HTTP para HTTPS em produção e aplica cabeçalho <code>upgrade-insecure-requests</code>.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!isAdminGeral}
+                      onClick={() => handleToggleAdminConfig('forcarHTTPS')}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-60 ${
+                        configSistema.forcarHTTPS !== false ? 'bg-emerald-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${configSistema.forcarHTTPS !== false ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+
+                  {/* Banda de Consentimento de Cookies */}
+                  <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/70 flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black text-gray-900">Banda de Consentimento de Cookies</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          configSistema.bannerCookiesAtivo !== false ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'
+                        }`}>
+                          {configSistema.bannerCookiesAtivo !== false ? 'Ativa' : 'Desativada'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-600">
+                        Estado neste dispositivo: {cookieConsent.decisaoTomada ? `Aceite (${cookieConsent.preferencias ? 'Completo' : 'Essenciais'})` : 'Pendente'}.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!isAdminGeral}
+                      onClick={() => {
+                        handleToggleAdminConfig('bannerCookiesAtivo');
+                        window.dispatchEvent(new CustomEvent('sge_configuracao_sistema_atualizada'));
+                      }}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-60 ${
+                        configSistema.bannerCookiesAtivo !== false ? 'bg-blue-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${configSistema.bannerCookiesAtivo !== false ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+
+                  {/* Proteção Anti-Spam */}
+                  <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/70 flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black text-gray-900">Proteção Anti-Spam &amp; Anti-Bot</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          configSistema.protecaoAntiSpamAtiva !== false ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-200 text-gray-700'
+                        }`}>
+                          {antiSpamStats.totalBloqueios} bloqueio(s)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-600">
+                        Honeypot invisível, verificação de tempo mínimo, limite de {configSistema.limiteSubmissoesPorMinuto || 10} submissões/min e desafio humano.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!isAdminGeral}
+                      onClick={() => handleToggleAdminConfig('protecaoAntiSpamAtiva')}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors disabled:opacity-60 ${
+                        configSistema.protecaoAntiSpamAtiva !== false ? 'bg-indigo-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition ${configSistema.protecaoAntiSpamAtiva !== false ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+
+                  {/* Chaves Secretas & Enclave */}
+                  <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/70 flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black text-emerald-950">Front-end Livre de Chaves Secretas</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
+                          WebCrypto Dinâmico
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800">
+                        Nenhuma chave privada ou palavra-passe secreta está embutida no código-fonte cliente; o enclave AES-256 usa entropia aleatória do dispositivo.
+                      </p>
+                    </div>
+                    <ShieldCheck className="h-5 w-5 text-emerald-700 shrink-0" />
+                  </div>
+                </div>
+
+                {isAdminGeral && (
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold cursor-pointer shadow-sm"
+                    >
+                      Guardar Configurações Gerais
+                    </button>
+                  </div>
+                )}
+              </form>
+            </div>
+
+            {/* 2. Políticas Legais & Gestão de Consentimento */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-gray-900 flex items-center space-x-2">
+                    <Scale className="h-5 w-5 text-indigo-600" />
+                    <span>Políticas de Confidencialidade, Privacidade, Termos de Uso &amp; Cookies</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Consulte ou reveja os documentos normativos exibidos aos utilizadores e encarregados de educação.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => resetCookieConsentBanner()}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer self-start sm:self-center"
+                >
+                  Reabrir Banda de Cookies
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <button
+                  type="button"
+                  onClick={() => openLegalPolicyModal('confidencialidade')}
+                  className="p-4 rounded-xl border border-blue-200 bg-blue-50/70 hover:bg-blue-100/70 text-left space-y-1 transition-colors cursor-pointer"
+                >
+                  <span className="text-xs font-black text-blue-950 block">Política de Confidencialidade</span>
+                  <span className="text-[11px] text-blue-800 block">Sigilo escolar, notas, dados de menores e RBAC.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openLegalPolicyModal('privacidade')}
+                  className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/70 text-left space-y-1 transition-colors cursor-pointer"
+                >
+                  <span className="text-xs font-black text-emerald-950 block">Política de Privacidade</span>
+                  <span className="text-[11px] text-emerald-800 block">Lei n.º 22/11 (Angola), armazenamento e direitos.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openLegalPolicyModal('termos')}
+                  className="p-4 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100/70 text-left space-y-1 transition-colors cursor-pointer"
+                >
+                  <span className="text-xs font-black text-amber-950 block">Termos e Condições de Uso</span>
+                  <span className="text-[11px] text-amber-800 block">Licença, deveres, anti-spam e responsabilidades.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openLegalPolicyModal('cookies')}
+                  className="p-4 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/70 text-left space-y-1 transition-colors cursor-pointer"
+                >
+                  <span className="text-xs font-black text-indigo-950 block">Política de Cookies</span>
+                  <span className="text-[11px] text-indigo-800 block">Cookies técnicos, IndexedDB e preferências.</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. Verificação da Velocidade de Carregamento, SEO, Favicon, Sitemap & Robots.txt */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-gray-900 flex items-center space-x-2">
+                    <Sparkles className="h-5 w-5 text-emerald-600" />
+                    <span>Diagnóstico de Velocidade de Carregamento &amp; SEO</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Métricas reais da Performance API, carregamento modular lazy-loading, Favicon, <code>robots.txt</code> e <code>sitemap.xml</code>.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPerfMetrics(measureLoadingPerformance());
+                    setAntiSpamStats(antiSpamService.obterEstatisticasAntiSpam());
+                    notificar('Diagnóstico de velocidade de carregamento atualizado.');
+                  }}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer self-start sm:self-center"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span>Verificar Velocidade Agora</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-bold text-slate-500 block">Classificação Geral</span>
+                  <p className="text-base font-black text-emerald-700 mt-0.5">{perfMetrics.classificacao}</p>
+                  <span className="text-[10px] text-slate-500">Atualizado às {perfMetrics.verificadoEm}</span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-bold text-slate-500 block">Carregamento Total / FCP</span>
+                  <p className="text-base font-black text-slate-900 mt-0.5">{perfMetrics.loadTotalMs} ms</p>
+                  <span className="text-[10px] text-slate-500">
+                    FCP: {perfMetrics.fcpMs !== null ? `${perfMetrics.fcpMs} ms` : 'Disponível no arranque'}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-bold text-slate-500 block">TTFB / DOM Interativo</span>
+                  <p className="text-base font-black text-slate-900 mt-0.5">{perfMetrics.ttfbMs} ms / {perfMetrics.domInteractiveMs} ms</p>
+                  <span className="text-[10px] text-slate-500">{perfMetrics.recursosCarregados} recursos ({perfMetrics.tamanhoTransferidoKB} KB)</span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-[11px] font-bold text-slate-500 block">SEO, Favicon &amp; PWA</span>
+                  <p className="text-xs font-black text-slate-900 mt-1">
+                    robots.txt: {seoCheckStatus.robotsOk ? 'OK' : seoCheckStatus.robotsOk === false ? 'Indisponível' : 'A verificar...'} • sitemap.xml: {seoCheckStatus.sitemapOk ? 'OK' : seoCheckStatus.sitemapOk === false ? 'Indisponível' : 'A verificar...'}
+                  </p>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    Favicon SVG/PNG/ICO ativo • Code-splitting React.lazy ativo
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ========================================== */}
       {/* ABA 1: BACKUP E RESTAURAÇÃO DE DADOS       */}

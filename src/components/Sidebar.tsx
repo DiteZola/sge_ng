@@ -141,7 +141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'dashboard',
           label: userRole === 'AdminGeral' ? 'Painel Central Ministerial' : 'Painel de Controlo',
           icon: LayoutDashboard,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
           badge: userRole === 'AdminGeral' ? 'Macro' : undefined
         }
       ]
@@ -165,66 +165,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'ano_lectivo',
           label: 'Ano Letivo',
           icon: Calendar,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico'],
           badge: 'Gestão'
         },
         {
           id: 'calendario_escolar',
           label: 'Calendário Escolar Oficial',
           icon: CalendarDays,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
           badge: 'MED'
         },
         {
           id: 'classes',
           label: 'Classes',
           icon: Layers,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'Secretaria'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar'],
           badge: 'Ciclos'
         },
         {
           id: 'cursos',
           label: 'Cursos',
           icon: GraduationCap,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'Secretaria']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         },
         {
           id: 'disciplinas',
           label: 'Disciplinas',
           icon: BookOpen,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'Secretaria']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         },
         {
           id: 'turmas',
           label: 'Turmas',
           icon: Users,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'Secretaria']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         },
         {
           id: 'turnos',
           label: 'Turnos',
           icon: Clock,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         },
         {
           id: 'horarios',
           label: userRole === 'Professor' ? 'O Meu Horário & Aulas' : 'Horários & Notificações',
           icon: Clock,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Bibliotecario', 'Estagiario'],
           badge: 'Sino & Avisos'
         },
         {
           id: 'presencas',
           label: 'Fichas de Presenças',
           icon: ClipboardList,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Estagiario'],
           badge: 'Diário & Faltas'
         },
         {
           id: 'avaliacoes',
           label: 'Lançamento de Notas (MAC)',
           icon: BarChart3,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor'],
           badge: 'Notas MED'
         }
       ]
@@ -283,40 +283,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'declaracoes',
           label: 'Declarações',
           icon: FileText,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         },
         {
           id: 'certificados',
           label: 'Certificados',
           icon: FileCheck2,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar'],
           badge: 'Autenticado'
         },
         {
           id: 'pautas',
           label: 'Pautas Trimestrais',
           icon: FileSpreadsheet,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         },
         {
           id: 'boletins',
           label: 'Boletins de Notas',
           icon: FileBox,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Encarregado'],
           badge: '4 por A4'
         },
         {
           id: 'passes_escolares',
           label: 'Passes Escolares (8 p/ A4)',
           icon: CreditCard,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar'],
           badge: 'Configurador'
         },
         {
           id: 'termos_exame',
           label: 'Termos de Exame',
           icon: ClipboardList,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar']
         }
       ]
     },
@@ -436,7 +436,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'meu_perfil',
           label: 'Meu Perfil & Senha',
           icon: User,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
           badge: 'Ativo'
         }
       ]

@@ -2,6 +2,22 @@ import React, { StrictMode, Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { notificationService } from './services/notificationService';
+import { offlineStorage } from './services/offlineStorage';
+import { enforceHttpsTransport } from './utils/securityTransport';
+import { dbService } from './services/storage';
+import { LegalPoliciesModal } from './components/LegalPoliciesModal';
+import { CookieConsentBanner } from './components/CookieConsentBanner';
+
+try {
+  const cfg = dbService.getConfiguracaoSistema();
+  enforceHttpsTransport(cfg.forcarHTTPS !== false);
+} catch {
+  enforceHttpsTransport(true);
+}
+
+notificationService.inicializarServiceWorker();
+offlineStorage.hidratarArmazenamentoDoIndexedDB().catch(() => {});
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -70,7 +86,8 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>
       <App />
+      <LegalPoliciesModal />
+      <CookieConsentBanner />
     </AppErrorBoundary>
   </StrictMode>,
 );
-

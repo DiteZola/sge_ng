@@ -12,7 +12,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'sw-notifications.js'],
+        includeAssets: ['favicon.ico', 'favicon-16x16.png', 'favicon-32x32.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'sw-notifications.js'],
         manifest: {
           id: '/',
           name: 'SGE-NG · Sistema de Gestão Escolar de Angola',
@@ -49,6 +49,7 @@ export default defineConfig(() => {
           importScripts: ['./sw-notifications.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json}'],
           navigateFallback: 'index.html',
+          navigateFallbackDenylist: [/^\/robots\.txt$/, /^\/sitemap\.xml$/],
           cleanupOutdatedCaches: true,
           skipWaiting: true,
           clientsClaim: true,

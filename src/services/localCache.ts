@@ -7,6 +7,7 @@ interface CacheEntry {
 }
 
 const memoryMap = new Map<string, CacheEntry>();
+const memoryPrimaryKeys = new Set<string>();
 const computedMap = new Map<string, { generation: number; value: unknown }>();
 let cacheGeneration = 1;
 
@@ -32,8 +33,10 @@ if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => {
       if (e.key) {
         memoryMap.delete(e.key);
+        memoryPrimaryKeys.delete(e.key);
       } else {
         memoryMap.clear();
+        memoryPrimaryKeys.clear();
       }
       bumpGeneration();
     });
@@ -52,14 +55,19 @@ export function getCacheGeneration(): number {
 export function invalidateLocalCache(key?: string): void {
   if (key) {
     memoryMap.delete(key);
+    memoryPrimaryKeys.delete(key);
   } else {
     memoryMap.clear();
+    memoryPrimaryKeys.clear();
   }
   bumpGeneration();
 }
 
 export function getCachedLocal<T>(key: string, fallback: T): T {
   try {
+    if (memoryPrimaryKeys.has(key) && memoryMap.has(key)) {
+      return shallowCloneReturn(memoryMap.get(key)!.value as T);
+    }
     if (typeof localStorage === 'undefined') return fallback;
     const raw = localStorage.getItem(key);
     if (!raw || raw === 'undefined' || raw === 'null') {
@@ -96,6 +104,7 @@ export function getCachedLocal<T>(key: string, fallback: T): T {
     return shallowCloneReturn(parsed as T);
   } catch {
     memoryMap.delete(key);
+    memoryPrimaryKeys.delete(key);
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(key);
@@ -107,13 +116,24 @@ export function getCachedLocal<T>(key: string, fallback: T): T {
   }
 }
 
-export function setCachedLocalEntry<T>(key: string, serialized: string, value: T): void {
+export function setCachedLocalEntry<T>(
+  key: string,
+  serialized: string,
+  value: T,
+  isQuotaFallback: boolean = false
+): void {
   memoryMap.set(key, { raw: serialized, value: shallowCloneReturn(value) });
+  if (isQuotaFallback) {
+    memoryPrimaryKeys.add(key);
+  } else {
+    memoryPrimaryKeys.delete(key);
+  }
   bumpGeneration();
 }
 
 export function removeCachedLocalEntry(key: string): void {
   memoryMap.delete(key);
+  memoryPrimaryKeys.delete(key);
   bumpGeneration();
 }
 

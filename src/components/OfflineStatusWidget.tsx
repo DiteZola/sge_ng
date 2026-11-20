@@ -286,15 +286,34 @@ export const OfflineStatusWidget: React.FC = () => {
                   <span className="text-[11px] font-bold text-amber-900 block mb-1.5 uppercase tracking-wider">
                     Fila de Pendências Locais:
                   </span>
-                  <div className="max-h-28 overflow-y-auto space-y-1 pr-1 text-xs">
-                    {pendencias.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between bg-white/80 px-2.5 py-1 rounded border border-amber-200 text-gray-700">
-                        <span className="font-semibold text-gray-900 capitalize">{item.entidade}</span>
-                        <span className="text-[10px] text-gray-500">
-                          {new Date(item.timestamp).toLocaleTimeString('pt-AO')}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                    {pendencias.map((item) => {
+                      const acao = (item.acao || 'ATUALIZAR').toUpperCase();
+                      const badgeCls =
+                        acao === 'ELIMINAR'
+                          ? 'bg-red-100 text-red-800 border-red-200'
+                          : acao === 'CRIAR'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          : 'bg-blue-100 text-blue-800 border-blue-200';
+                      return (
+                        <div key={item.id} className="flex items-center justify-between gap-2 bg-white/90 px-2.5 py-1.5 rounded-lg border border-amber-200 text-gray-700">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border shrink-0 ${badgeCls}`}>
+                              {acao}
+                            </span>
+                            <div className="min-w-0">
+                              <span className="font-semibold text-gray-900 capitalize block truncate">
+                                {item.entidade}
+                                {item.descricao ? ` · ${item.descricao}` : ''}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-gray-500 whitespace-nowrap shrink-0">
+                            {new Date(item.timestamp).toLocaleTimeString('pt-AO')}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

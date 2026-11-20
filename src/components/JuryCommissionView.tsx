@@ -2173,7 +2173,9 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   )}
                 </div>
                 <p className="font-extrabold uppercase tracking-widest text-[11px]">República de Angola</p>
-                <p className="font-bold uppercase text-[10px]">Ministério da Educação</p>
+                <p className="font-bold uppercase text-[10px]">
+                  {escola.governoProvincial || `Governo Provincial de ${escola.provincia || 'Luanda'}`}
+                </p>
                 <h2 className="text-base font-black uppercase text-slate-950 mt-1">{escola.nomeOficial}</h2>
                 <p className="text-[11px] font-bold text-slate-700">
                   Gabinete da Comissão de Júri de Homologação de Resultados Escolares
@@ -2205,7 +2207,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
               {/* Corpo do Texto da Ata */}
               <div className="space-y-4 text-xs">
                 <p>
-                  Aos {hojeAngolano('extenso')}, reuniu-se nas instalações do <strong>{escola.nomeOficial}</strong>, a Comissão de Júri de Exame e Homologação de Resultados Escolares, sob a jurisdição da <strong>{comissaoAtiva?.classe || 'Geral'} Classe</strong>, Turma(s) <strong>{turmasCorrespondentesNomes}</strong>{isSegundoCiclo(comissaoAtiva?.classe) && comissaoAtiva?.curso ? <> do curso de <strong>{comissaoAtiva.curso}</strong></> : ''}, constituída ao abrigo do despacho oficial da Direcção da Escola e em conformidade com as normas regulamentares vigentes no Ministério da Educação da República de Angola.
+                  Aos {hojeAngolano('extenso')}, reuniu-se nas instalações do <strong>{escola.nomeOficial}</strong>, a Comissão de Júri de Exame e Homologação de Resultados Escolares, sob a jurisdição da <strong>{comissaoAtiva?.classe || 'Geral'} Classe</strong>, Turma(s) <strong>{turmasCorrespondentesNomes}</strong>{isSegundoCiclo(comissaoAtiva?.classe) && comissaoAtiva?.curso ? <> do curso de <strong>{comissaoAtiva.curso}</strong></> : ''}, constituída ao abrigo do despacho oficial da Direcção da Escola e em conformidade com as normas regulamentares vigentes.
                 </p>
 
                 <p>
@@ -2255,7 +2257,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   {alunosAprovadosAntesDeliberacao.length === 0 ? (
                     <p className="italic text-slate-500 pl-4 py-1">Nenhum aluno com aprovação preliminar automática registado.</p>
                   ) : (
-                    <div className="border border-slate-400 rounded-sm overflow-hidden my-2">
+                    <div className="border border-slate-400 rounded-sm overflow-x-auto my-2">
                       <table className="w-full text-[10px] text-left border-collapse">
                         <thead className="bg-slate-100 border-b border-slate-400 font-bold uppercase text-slate-800">
                           <tr>
@@ -2299,7 +2301,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   {Object.keys(comissaoAtiva?.deliberacoes || {}).length === 0 ? (
                     <p className="italic text-slate-500 pl-4 py-1">Nenhuma deliberação extraordinária registada nesta sessão.</p>
                   ) : (
-                    <div className="border border-slate-400 rounded-sm overflow-hidden my-2">
+                    <div className="border border-slate-400 rounded-sm overflow-x-auto my-2">
                       <table className="w-full text-[10px] text-left border-collapse">
                         <thead className="bg-slate-100 border-b border-slate-400 font-bold uppercase text-slate-800">
                           <tr>
@@ -2381,15 +2383,10 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     <p className="font-bold text-slate-800">
                       {escola.diretorGeralNome || 'Direcção da Escola'}
                     </p>
-                    <span className="text-[9px] text-gray-400 block">[Selo Branco / Carimbo]</span>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-300 flex items-center justify-between gap-4 text-[9px] text-slate-600 font-sans">
-                  <div className="text-left">
-                    <p className="font-bold uppercase text-slate-800">Autenticidade da Ata da Comissão de Júri</p>
-                    <p>Digitalize o código QR para verificar a homologação oficial da sessão de júri.</p>
-                  </div>
+                <div className="mt-4 pt-3 border-t border-slate-300 flex items-center justify-end">
                   <OfficialQrCode
                     value={gerarPayloadQrDocumento({
                       docType: 'ATA_JURI',
@@ -2398,7 +2395,6 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                       anoLectivo: comissaoAtiva?.anoLectivo || escola.anoLectivoActivo
                     })}
                     size={56}
-                    label="Autenticidade da Ata"
                   />
                 </div>
               </div>

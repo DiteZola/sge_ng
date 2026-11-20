@@ -43,6 +43,7 @@ import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { formatarDataAngolana, formatarDataHoraAngolana } from '../utils/dateFormat';
+import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 
 interface ReportsViewProps {
   escola: Escola;
@@ -838,14 +839,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   }, [isAdminGeral, formEscolaId, todasTurmas, isDocenteEscopoRestrito, minhasTurmasIds]);
 
   const disciplinasDisponiveisForm = useMemo(() => {
-    const base = isAdminGeral
+    let base = isAdminGeral
       ? dbService.getDisciplinas(formEscolaId === 'REDE' ? undefined : formEscolaId)
       : todasDisciplinas;
+    if (formTurmaId) {
+      const turmaForm = turmasDisponiveisForm.find(t => t.id === formTurmaId);
+      if (turmaForm) {
+        const comp = filtrarDisciplinasDaClasse(base, turmaForm.classe, turmaForm.curso);
+        if (comp.length > 0) base = comp;
+      }
+    }
     if (isDocenteEscopoRestrito && minhasDisciplinasIds.size > 0) {
       return base.filter(d => minhasDisciplinasIds.has(d.id));
     }
     return base;
-  }, [isAdminGeral, formEscolaId, todasDisciplinas, isDocenteEscopoRestrito, minhasDisciplinasIds]);
+  }, [isAdminGeral, formEscolaId, formTurmaId, turmasDisponiveisForm, todasDisciplinas, isDocenteEscopoRestrito, minhasDisciplinasIds]);
 
   const abrirModalNovo = (categoriaInicial: CategoriaRelatorioAcontecimento = 'Reuniao') => {
     setEditandoId(null);
@@ -1343,6 +1351,24 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
           <div>
             <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Turma
+            </label>
+            <select
+              value={filtroTurmaId}
+              onChange={e => setFiltroTurmaId(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
+            >
+              <option value="TODAS">Todas as Turmas</option>
+              {todasTurmas.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.nome} ({t.classe} • {t.turno}{t.curso ? ` • ${t.curso}` : ''})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
               De (Data)
             </label>
             <input
@@ -1485,7 +1511,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </p>
           <p className="text-[11px] font-bold uppercase text-slate-800">
             {isVisaoRedeTodas
-              ? 'MINISTÉRIO DA EDUCAÇÃO • ADMINISTRAÇÃO CENTRAL DA REDE ESCOLAR'
+              ? 'ADMINISTRAÇÃO CENTRAL DA REDE ESCOLAR'
               : escolaExibida.governoProvincial ||
                 `GOVERNO PROVINCIAL DE ${(escolaExibida.provincia || 'ANGOLA').toUpperCase()}`}
           </p>
@@ -1493,7 +1519,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             {isVisaoRedeTodas
               ? `SUPERVISÃO GLOBAL DE ACTIVIDADES E ACONTECIMENTOS (${escolas.length} ESCOLAS)`
               : escolaExibida.gabineteEducacao ||
-                `DIRECÇÃO MUNICIPAL DA EDUCAÇÃO DE ${(escolaExibida.municipio || 'ANGOLA').toUpperCase()}`}
+                `ADMINISTRAÇÃO MUNICIPAL DE ${(escolaExibida.municipio || 'ANGOLA').toUpperCase()}`}
           </p>
           <h2 className="text-base sm:text-lg font-black uppercase text-slate-950 pt-0.5">
             {isVisaoRedeTodas
@@ -1745,8 +1771,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
               <p className="text-[11px] font-semibold text-slate-700 mt-1">
                 {isVisaoRedeTodas
-                  ? 'Administrador Geral / Direcção MED'
-                  : escolaExibida.diretorGeralNome || 'Homologação e Carimbo Oficial'}
+                  ? 'Administrador Geral'
+                  : escolaExibida.diretorGeralNome || 'Direcção da Escola'}
               </p>
             </div>
           </div>
@@ -1761,7 +1787,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               </p>
               <p className="font-bold text-slate-800 mt-0.5">
                 {isVisaoRedeTodas
-                  ? `Administração Central MED • ${escolas.length} Escolas`
+                  ? `Administração Central • ${escolas.length} Escolas`
                   : escolaExibida.nomeOficial || escolaExibida.nome}
               </p>
             </div>
@@ -1773,7 +1799,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 anoLectivo: filtroAno
               })}
               size={48}
-              label="Validar Relatório"
             />
           </div>
         </div>
@@ -2128,7 +2153,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     <option value="">Geral / Sem turma específica</option>
                     {turmasDisponiveisForm.map(t => (
                       <option key={t.id} value={t.id}>
-                        {t.nome} ({t.classe})
+                        {t.nome} ({t.classe} • {t.turno}{t.sala ? ` • ${t.sala}` : ''}{t.curso ? ` • ${t.curso}` : ''})
                       </option>
                     ))}
                   </select>

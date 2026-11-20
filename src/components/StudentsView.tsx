@@ -88,12 +88,14 @@ import {
   CLASSES_PRIMEIRO_CICLO,
   CLASSES_SEGUNDO_CICLO,
   CURSOS_SEGUNDO_CICLO,
+  TODAS_CLASSES_OFICIAIS_MED,
   normalizarClasse,
   isSegundoCiclo,
   getTurmasPorClasse,
   getSalaDaTurma,
   getCursoDaTurma,
-  getDisciplinasMatrizOficial
+  getDisciplinasMatrizOficial,
+  resolverNomesDisciplinasPorClasseECurso
 } from '../services/academicHierarchyService';
 
 interface StudentsViewProps {
@@ -557,14 +559,22 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     ? turmasDoAnoFiltro
     : getTurmasPorClasse(turmasDoAnoFiltro, selectedClasseFilter);
 
-  // Salas e Classes disponíveis para os filtros coerentes
-  const todasSalas: string[] = Array.from(new Set(turmasDoAnoFiltro.map((t: Turma) => t.sala).filter((s): s is string => Boolean(s)))).sort();
-  const todasClasses = [
-    'Iniciação',
-    ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
-    ...CLASSES_PRIMEIRO_CICLO,
-    ...CLASSES_SEGUNDO_CICLO
-  ];
+  // Salas e Classes disponíveis para os filtros coerentes (dinâmicos + catálogo MED)
+  const todasSalas: string[] = useMemo(() => {
+    const fromCfg = dbService.getSalasAulas(escola.id).filter(s => s.ativo !== false).map(s => s.nome);
+    const fromTurmas = turmasDoAnoFiltro.map((t: Turma) => t.sala).filter((s): s is string => Boolean(s));
+    return Array.from(new Set([...fromCfg, ...fromTurmas])).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [escola.id, turmasDoAnoFiltro]);
+
+  const todasClasses = useMemo(() => {
+    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome);
+    const fromTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
+    return ordenarClassesMED([
+      ...TODAS_CLASSES_OFICIAIS_MED,
+      ...fromCfg,
+      ...fromTurmas
+    ]);
+  }, [escola.id, turmas]);
 
   // Turmas para o modal de matrícula filtradas pela classe e ano letivo do modal
   const turmasDoModal = useMemo(() => {
@@ -614,11 +624,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const cursosAnoConfirmacao = useMemo(() => {
     const fromCfg = dbService.getCursos(escola.id).filter(c => c.ativo !== false).map(c => c.nome).filter(Boolean);
     const fromTurmas = turmasAnoConfirmacao
-      .filter(t => isSegundoCiclo(t.classe) && t.curso)
+      .filter(t => t.curso)
       .map(t => t.curso!)
       .filter(Boolean);
-    return Array.from(new Set([...fromTurmas, ...fromCfg, ...CURSOS_SEGUNDO_CICLO]));
-  }, [escola.id, turmasAnoConfirmacao]);
+    const fromTodasTurmas = turmas
+      .filter(t => t.curso)
+      .map(t => t.curso!)
+      .filter(Boolean);
+    return Array.from(new Set([...fromCfg, ...fromTurmas, ...fromTodasTurmas, ...CURSOS_SEGUNDO_CICLO]));
+  }, [escola.id, turmasAnoConfirmacao, turmas]);
 
   const anosAnterioresDisponiveisConfirmacao = useMemo(() => {
     const set = new Set<string>();
@@ -959,7 +973,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const initialClasse = primeiraTurma ? normalizarClasse(primeiraTurma.classe) : '1ª';
     setModalClasse(initialClasse);
     setTurmaId(primeiraTurma?.id || '');
-    setModalCurso(primeiraTurma?.curso || 'Ciências Físicas e Biológicas (PUNIV)');
+    setModalCurso(
+      primeiraTurma?.curso ||
+      (isSegundoCiclo(initialClasse) ? (cursosAnoConfirmacao[0] || 'Ciências Físicas e Biológicas (PUNIV)') : '')
+    );
     setNumeroProcesso(`PROC-${Math.floor(1000 + Math.random() * 9000)}`);
     setNomePai('');
     setNomeMae('');
@@ -1004,7 +1021,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const cls = turmaDoAluno ? normalizarClasse(turmaDoAluno.classe) : normalizarClasse(aluno.classeId || '1ª');
     setModalClasse(cls);
     setTurmaId(aluno.turmaId);
-    setModalCurso(aluno.curso || turmaDoAluno?.curso || 'Ciências Físicas e Biológicas (PUNIV)');
+    setModalCurso(
+      aluno.curso ||
+      turmaDoAluno?.curso ||
+      (isSegundoCiclo(cls) ? (cursosAnoConfirmacao[0] || 'Ciências Físicas e Biológicas (PUNIV)') : '')
+    );
     setNumeroProcesso(aluno.numeroProcesso || aluno.codigoMatricula || '');
     setNomePai(aluno.nomePai || '');
     setNomeMae(aluno.nomeMae || '');
@@ -1038,9 +1059,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     const turmaSelecionada = turmas.find(t => t.id === turmaId);
     const classeFinal = turmaSelecionada ? normalizarClasse(turmaSelecionada.classe) : normalizarClasse(modalClasse);
+    const cursosEscola = dbService.getCursos(escola.id);
+    const nomeCursoEscolhido = (turmaSelecionada?.curso || modalCurso || '').trim();
+    const cursoObjEncontrado = cursosEscola.find(c => c.nome.trim().toLowerCase() === nomeCursoEscolhido.toLowerCase());
     const cursoFinal = isSegundoCiclo(classeFinal)
-      ? (turmaSelecionada?.curso || modalCurso || 'Ciências Físicas e Biológicas (PUNIV)')
-      : getCursoDaTurma(turmaSelecionada);
+      ? (nomeCursoEscolhido || cursosAnoConfirmacao[0] || 'Ciências Físicas e Biológicas (PUNIV)')
+      : (turmaSelecionada?.curso || (modalCurso && modalCurso.trim()) || getCursoDaTurma(turmaSelecionada));
 
     const escolaAtiva = dbService.getEscolaAtiva();
     const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || '';
@@ -1096,6 +1120,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       turmaId: turmaIdFinal,
       classeId: classeFinal,
       curso: cursoFinal,
+      cursoId: turmaSelecionada?.cursoId || cursoObjEncontrado?.id,
+      areaFormacao: turmaSelecionada?.areaFormacao || cursoObjEncontrado?.area,
+      periodo: turmaSelecionada?.turno || editingAluno?.periodo,
       nomePai,
       nomeMae,
       encarregadoNome: nomeEncarregado || 'Encarregado de Educação',
@@ -1158,7 +1185,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           turmas,
           escola,
           0,
-          editingAluno ? 'Confirmacao' : 'Matricula'
+          editingAluno ? 'Confirmacao' : 'Matricula',
+          undefined,
+          currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto
         )
       ]);
       setShowReceiptSheetModal(true);
@@ -1342,7 +1371,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         escola,
         0,
         'Confirmacao',
-        classeAnteriorNorm
+        classeAnteriorNorm,
+        currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto
       )
     ]);
     setShowReceiptSheetModal(true);
@@ -3501,8 +3531,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               onChange={(e) => setSelectedCursoFilter(e.target.value)}
               className="w-full py-2 px-3 text-xs font-medium border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white text-gray-800"
             >
-              <option value="TODOS">Todos os Cursos (2º Ciclo & Geral)</option>
-              {CURSOS_SEGUNDO_CICLO.map(c => (
+              <option value="TODOS">Todos os Cursos</option>
+              {cursosAnoConfirmacao.map(c => (
                 <option key={`flt-curso-${c}`} value={c}>{c}</option>
               ))}
             </select>
@@ -3676,7 +3706,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   type="button"
                   onClick={() => {
                     setReceiptSheetInitialSlots([
-                      converterAlunoParaSlot(aluno, turmas, escola, 0, 'Matricula')
+                      converterAlunoParaSlot(
+                        aluno,
+                        turmas,
+                        escola,
+                        0,
+                        'Matricula',
+                        undefined,
+                        currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto
+                      )
                     ]);
                     setShowReceiptSheetModal(true);
                   }}
@@ -4077,9 +4115,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     </div>
 
                     <div className="pt-2 border-t border-purple-200 text-[11px] text-purple-900">
-                      <strong>Matriz Oficial de Disciplinas da {modalClasse} ({modalCurso}):</strong>
+                      <strong>Matriz de Disciplinas da {modalClasse} ({modalCurso}):</strong>
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
-                        {getDisciplinasMatrizOficial(modalClasse, modalCurso).map(d => (
+                        {resolverNomesDisciplinasPorClasseECurso(dbService.getDisciplinas(escola.id), modalClasse, modalCurso).map(d => (
                           <span key={d} className="px-2 py-0.5 bg-white text-purple-900 rounded-md border border-purple-200 font-medium text-[10px]">
                             {d}
                           </span>

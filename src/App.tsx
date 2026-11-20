@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import { ShieldCheck, ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
 import { dbService, DEFAULT_ADMIN_GERAL_PRODUCAO } from './services/storage';
 import { verificarIntegridadeSistema, SystemIntegrityStatus } from './services/firebaseClient';
 import { 
@@ -33,34 +33,134 @@ import { Footer } from './components/Footer';
 import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
 import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { notificationService } from './services/notificationService';
-import { ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
-
-import { DashboardView } from './components/DashboardView';
-import { AcademicManagementView } from './components/AcademicManagementView';
-import { EvaluationMacView } from './components/EvaluationMacView';
-import { StudentsView } from './components/StudentsView';
-import { HumanResourcesView } from './components/HumanResourcesView';
-import { PrintingDocumentsView } from './components/PrintingDocumentsView';
-import { CommunicationLibraryView } from './components/CommunicationLibraryView';
-import { SystemAuditBackupView } from './components/SystemAuditBackupView';
-import { ArchitectureDocsView } from './components/ArchitectureDocsView';
-import { AdminGlobalSchoolsView } from './components/AdminGlobalSchoolsView';
-import { AdministrativeFinanceView } from './components/AdministrativeFinanceView';
-import { InitialSetupModal } from './components/InitialSetupModal';
 import { SystemInitialSetupView } from './components/SystemInitialSetupView';
-import { RealtimeSecurityModal } from './components/RealtimeSecurityModal';
-import { UserProfileView } from './components/UserProfileView';
-import { TechnicalSupportView } from './components/TechnicalSupportView';
-import { PatrimonyView } from './components/PatrimonyView';
-import { JuryCommissionView } from './components/JuryCommissionView';
-import { ScheduleTimetableView } from './components/ScheduleTimetableView';
-import { StudentAttendanceReportView } from './components/StudentAttendanceReportView';
-import { StudentPassesView } from './components/StudentPassesView';
-import { ExecutiveDirectionView } from './components/ExecutiveDirectionView';
-import { SchoolCalendarView } from './components/SchoolCalendarView';
-import { ReportsView } from './components/ReportsView';
-import { StatisticsView } from './components/StatisticsView';
-import { GuidedTourModal } from './components/GuidedTourModal';
+import { DashboardView } from './components/DashboardView';
+
+// Registro centralizado de importadores para pré-carregamento silencioso em segundo plano (garante uso 100% offline em todos os módulos)
+const PRELOAD_MODULE_IMPORTERS: Array<() => Promise<any>> = [];
+
+function lazyResilient<T extends React.ComponentType<any>>(
+  importer: () => Promise<{ default: T }>,
+  moduleLabel: string
+): React.LazyExoticComponent<T> {
+  PRELOAD_MODULE_IMPORTERS.push(importer);
+  return lazy(async () => {
+    try {
+      return await importer();
+    } catch (firstErr) {
+      try {
+        await new Promise((r) => setTimeout(r, 250));
+        return await importer();
+      } catch (secondErr) {
+        console.warn(`[SGE Offline] Módulo "${moduleLabel}" indisponível sem cache prévia:`, secondErr || firstErr);
+        const FallbackOfflineModule = (() => (
+          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 text-center space-y-3 max-w-lg mx-auto my-10 shadow-xs">
+            <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <h3 className="text-base font-bold text-amber-950">Módulo em Carregamento Offline ({moduleLabel})</h3>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              Este módulo ainda não estava armazenado em cache antes de perder a ligação à internet. Os seus dados estão 100% protegidos no dispositivo. Tente novamente ou regresse ao Painel Principal.
+            </p>
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-amber-700 text-white text-xs font-bold rounded-lg hover:bg-amber-800 transition-colors cursor-pointer"
+              >
+                Tentar Novamente
+              </button>
+            </div>
+          </div>
+        )) as unknown as T;
+        return { default: FallbackOfflineModule };
+      }
+    }
+  });
+}
+
+class ModuleChunkErrorBoundary extends React.Component<
+  { children: React.ReactNode; activeTab: string; onResetToDashboard: () => void },
+  { hasError: boolean; lastTab: string }
+> {
+  constructor(props: { children: React.ReactNode; activeTab: string; onResetToDashboard: () => void }) {
+    super(props);
+    this.state = { hasError: false, lastTab: props.activeTab };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  static getDerivedStateFromProps(
+    props: { activeTab: string },
+    state: { hasError: boolean; lastTab: string }
+  ) {
+    if (props.activeTab !== state.lastTab) {
+      return { hasError: false, lastTab: props.activeTab };
+    }
+    return null;
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 text-center space-y-3 max-w-lg mx-auto my-10">
+          <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+            <ShieldAlert className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-bold text-amber-950">Não foi possível abrir o módulo agora</h3>
+          <p className="text-xs text-amber-800 leading-relaxed">
+            Ocorreu uma falha temporária ao carregar este ecrã no modo atual. Todos os seus dados locais continuam intactos.
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false })}
+              className="px-4 py-2 bg-blue-700 text-white text-xs font-bold rounded-lg hover:bg-blue-800 cursor-pointer"
+            >
+              Reabrir Módulo
+            </button>
+            <button
+              type="button"
+              onClick={this.props.onResetToDashboard}
+              className="px-4 py-2 bg-white border border-amber-300 text-amber-900 text-xs font-bold rounded-lg hover:bg-amber-100 cursor-pointer"
+            >
+              Painel Principal
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Lazy-loading resiliente dos módulos pesados + pré-carregamento em background para funcionamento 100% offline
+const AcademicManagementView = lazyResilient(() => import('./components/AcademicManagementView').then(m => ({ default: m.AcademicManagementView })), 'Gestão Académica');
+const EvaluationMacView = lazyResilient(() => import('./components/EvaluationMacView').then(m => ({ default: m.EvaluationMacView })), 'Avaliações e Notas');
+const StudentsView = lazyResilient(() => import('./components/StudentsView').then(m => ({ default: m.StudentsView })), 'Estudantes');
+const HumanResourcesView = lazyResilient(() => import('./components/HumanResourcesView').then(m => ({ default: m.HumanResourcesView })), 'Recursos Humanos');
+const PrintingDocumentsView = lazyResilient(() => import('./components/PrintingDocumentsView').then(m => ({ default: m.PrintingDocumentsView })), 'Documentos Oficiais');
+const CommunicationLibraryView = lazyResilient(() => import('./components/CommunicationLibraryView').then(m => ({ default: m.CommunicationLibraryView })), 'Comunicação & Biblioteca');
+const SystemAuditBackupView = lazyResilient(() => import('./components/SystemAuditBackupView').then(m => ({ default: m.SystemAuditBackupView })), 'Sistema & Auditoria');
+const ArchitectureDocsView = lazyResilient(() => import('./components/ArchitectureDocsView').then(m => ({ default: m.ArchitectureDocsView })), 'Arquitetura');
+const AdminGlobalSchoolsView = lazyResilient(() => import('./components/AdminGlobalSchoolsView').then(m => ({ default: m.AdminGlobalSchoolsView })), 'Rede de Escolas');
+const AdministrativeFinanceView = lazyResilient(() => import('./components/AdministrativeFinanceView').then(m => ({ default: m.AdministrativeFinanceView })), 'Finanças & Secretaria');
+const InitialSetupModal = lazyResilient(() => import('./components/InitialSetupModal').then(m => ({ default: m.InitialSetupModal })), 'Configuração Inicial');
+const RealtimeSecurityModal = lazyResilient(() => import('./components/RealtimeSecurityModal').then(m => ({ default: m.RealtimeSecurityModal })), 'Segurança');
+const UserProfileView = lazyResilient(() => import('./components/UserProfileView').then(m => ({ default: m.UserProfileView })), 'Meu Perfil');
+const TechnicalSupportView = lazyResilient(() => import('./components/TechnicalSupportView').then(m => ({ default: m.TechnicalSupportView })), 'Apoio Técnico');
+const PatrimonyView = lazyResilient(() => import('./components/PatrimonyView').then(m => ({ default: m.PatrimonyView })), 'Património');
+const JuryCommissionView = lazyResilient(() => import('./components/JuryCommissionView').then(m => ({ default: m.JuryCommissionView })), 'Comissão de Júri');
+const ScheduleTimetableView = lazyResilient(() => import('./components/ScheduleTimetableView').then(m => ({ default: m.ScheduleTimetableView })), 'Horários');
+const StudentAttendanceReportView = lazyResilient(() => import('./components/StudentAttendanceReportView').then(m => ({ default: m.StudentAttendanceReportView })), 'Assiduidade');
+const StudentPassesView = lazyResilient(() => import('./components/StudentPassesView').then(m => ({ default: m.StudentPassesView })), 'Passes Escolares');
+const ExecutiveDirectionView = lazyResilient(() => import('./components/ExecutiveDirectionView').then(m => ({ default: m.ExecutiveDirectionView })), 'Direção Executiva');
+const SchoolCalendarView = lazyResilient(() => import('./components/SchoolCalendarView').then(m => ({ default: m.SchoolCalendarView })), 'Calendário Escolar');
+const ReportsView = lazyResilient(() => import('./components/ReportsView').then(m => ({ default: m.ReportsView })), 'Relatórios');
+const StatisticsView = lazyResilient(() => import('./components/StatisticsView').then(m => ({ default: m.StatisticsView })), 'Estatísticas');
+const GuidedTourModal = lazyResilient(() => import('./components/GuidedTourModal').then(m => ({ default: m.GuidedTourModal })), 'Guia do Sistema');
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -290,6 +390,18 @@ export default function App() {
       }
     }, 1500);
 
+    // Hidratação imediata do IndexedDB no arranque (tanto online quanto offline) para disponibilidade instantânea
+    offlineStorage.hidratarArmazenamentoDoIndexedDB().then((restaurado) => {
+      if (ativo && restaurado) {
+        recarregarDados();
+        if (dbService.temAdminGeral()) {
+          setTemAdminGeral(true);
+          setMostrarSetupInicial(false);
+          setVerificandoAdminOnline(false);
+        }
+      }
+    });
+
     // Arranque em duas fases: bootstrap leve no ecrã de login e sincronização completa quando autenticado
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       const jaAutenticado =
@@ -305,18 +417,6 @@ export default function App() {
           if (!dbService.temAdminGeral()) {
             verificarAdmin();
           } else {
-            setTemAdminGeral(true);
-            setMostrarSetupInicial(false);
-            setVerificandoAdminOnline(false);
-          }
-        }
-      });
-    } else {
-      // Offline: garantir hidratação imediata do IndexedDB local para operação ininterrupta
-      offlineStorage.hidratarArmazenamentoDoIndexedDB().then((restaurado) => {
-        if (ativo && restaurado) {
-          recarregarDados();
-          if (dbService.temAdminGeral()) {
             setTemAdminGeral(true);
             setMostrarSetupInicial(false);
             setVerificandoAdminOnline(false);
@@ -357,11 +457,36 @@ export default function App() {
       }
     });
 
+    const precarregarModulosOffline = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const runBatch = (idx: number) => {
+        if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+        if (idx >= PRELOAD_MODULE_IMPORTERS.length) {
+          notificationService.warmOfflineCache();
+          return;
+        }
+        const slice = PRELOAD_MODULE_IMPORTERS.slice(idx, idx + 3);
+        Promise.allSettled(slice.map((fn) => fn().catch(() => null))).finally(() => {
+          notificationService.warmOfflineCache();
+          if (ativo) {
+            setTimeout(() => runBatch(idx + 3), 250);
+          }
+        });
+      };
+      if (typeof (window as any).requestIdleCallback === 'function') {
+        (window as any).requestIdleCallback(() => runBatch(0), { timeout: 2000 });
+      } else {
+        setTimeout(() => runBatch(0), 1200);
+      }
+    };
+    precarregarModulosOffline();
+
     const handleOnline = () => {
       setIntegrity(verificarIntegridadeSistema());
       if (!dbService.temAdminGeral()) {
         verificarAdmin();
       }
+      precarregarModulosOffline();
     };
     const handleOffline = () => {
       setIntegrity(verificarIntegridadeSistema());
@@ -1451,17 +1576,27 @@ export default function App() {
     return solicitacoes.filter(s => s.escolaId === escolaIdAtiva);
   }, [solicitacoes, escolaIdAtiva, isGlobalNetworkScope]);
 
-  // 7. Notas consolidadas do ano letivo ativo e escola atual
-  const notasConsolidadasDoAnoActivo = useMemo(() => {
-    if (!escolaIdAtiva || !anoActivo) return [];
+  // 7. Notas consolidadas de todos os anos da escola (para certificados multi-ano, declarações e documentos) e do ano ativo
+  const notasConsolidadasDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return notasConsolidadas;
     const alunosIdsMap = new Set(alunosDaEscola.map(a => a.id));
     const turmasIdsMap = new Set(turmasDaEscola.map(t => t.id));
-    return notasConsolidadas.filter(n => {
-      const escOk = isGlobalNetworkScope || n.escolaId === escolaIdAtiva || alunosIdsMap.has(n.alunoId) || turmasIdsMap.has(n.turmaId);
-      const anoOk = !n.anoLectivo || n.anoLectivo === anoActivo;
-      return escOk && anoOk;
-    });
-  }, [notasConsolidadas, escolaIdAtiva, isGlobalNetworkScope, anoActivo, alunosDaEscola, turmasDaEscola]);
+    return notasConsolidadas.filter(n => n.escolaId === escolaIdAtiva || alunosIdsMap.has(n.alunoId) || turmasIdsMap.has(n.turmaId));
+  }, [notasConsolidadas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, turmasDaEscola]);
+
+  const notasConsolidadasDoAnoActivo = useMemo(() => {
+    if (!escolaIdAtiva || !anoActivo) return [];
+    return notasConsolidadasDaEscola.filter(n => !n.anoLectivo || n.anoLectivo === anoActivo);
+  }, [notasConsolidadasDaEscola, escolaIdAtiva, anoActivo]);
+
+  const notasAvaliacoesDaEscola = useMemo(() => {
+    if (!escolaIdAtiva) return [];
+    if (isGlobalNetworkScope) return notas;
+    const alunosIdsMap = new Set(alunosDaEscola.map(a => a.id));
+    const avIdsMap = new Set(avaliacoesDaEscola.map(av => av.id));
+    return notas.filter(n => alunosIdsMap.has(n.alunoId) || avIdsMap.has(n.avaliacaoId));
+  }, [notas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, avaliacoesDaEscola]);
 
   // Ecrã de Verificação Soberana Inicial contra o Firebase (Apenas se utilizador NÃO estiver autenticado)
   if (verificandoAdminOnline && !isAuthenticated) {
@@ -1672,7 +1807,15 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <>
+            <ModuleChunkErrorBoundary activeTab={activeTab} onResetToDashboard={() => setActiveTab('dashboard')}>
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-20 text-xs font-semibold text-slate-500">
+                  <div className="h-5 w-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2.5" />
+                  <span>A carregar módulo...</span>
+                </div>
+              }
+            >
               {/* 1. PRINCIPAL */}
               {activeTab === 'dashboard' && (
                 <DashboardView
@@ -1859,7 +2002,9 @@ export default function App() {
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
                   disciplinas={disciplinasDaEscola}
-                  notasConsolidadas={notasConsolidadasDoAnoActivo}
+                  notasConsolidadas={notasConsolidadasDaEscola}
+                  notasAvaliacoes={notasAvaliacoesDaEscola}
+                  avaliacoes={avaliacoesDaEscola}
                   initialDocType={
                     activeTab === 'pautas' ? 'pautas' :
                     activeTab === 'certificados' ? 'certificado_ciclo' :
@@ -1958,7 +2103,7 @@ export default function App() {
                   initialTab={
                     activeTab === 'formulas_notas' ? 'formulas_notas' :
                     activeTab === 'usuarios_perfis' ? 'usuarios_perfis' :
-                    activeTab === 'configuracoes' ? 'interruptores_configuracao' :
+                    activeTab === 'configuracoes' ? 'configuracoes_gerais' :
                     (activeTab === 'auditoria_logs' || activeTab === 'auditoria') ? 'auditoria' :
                     activeTab === 'backup_restauro' ? 'backup_restauracao' : 'backup_restauracao'
                   }
@@ -2021,7 +2166,8 @@ export default function App() {
               {activeTab === 'arquitetura' && (
                 <ArchitectureDocsView />
               )}
-              </>
+            </Suspense>
+            </ModuleChunkErrorBoundary>
           )}
         </main>
       </div>
@@ -2029,39 +2175,41 @@ export default function App() {
       {/* Rodapé Oficial da Aplicação com Copyright, Ano Atual e Desenvolvedor Dite Zola NG */}
       <Footer variant="light" />
 
-      {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
-      {showSetupModal && (
-        <InitialSetupModal
-          isOpen={showSetupModal}
-          onClose={() => setShowSetupModal(false)}
-          onSaveSetup={handleSaveSetup}
-          escolasExistentes={escolas}
-        />
-      )}
+      <Suspense fallback={null}>
+        {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}
+        {showSetupModal && (
+          <InitialSetupModal
+            isOpen={showSetupModal}
+            onClose={() => setShowSetupModal(false)}
+            onSaveSetup={handleSaveSetup}
+            escolasExistentes={escolas}
+          />
+        )}
 
-      {/* Motor de Segurança & Criptografia AES-256 em Tempo Real (Exclusivo Admin Geral) */}
-      {currentUser.role === 'AdminGeral' && showSecurityModal && (
-        <RealtimeSecurityModal
-          isOpen={showSecurityModal}
-          onClose={() => setShowSecurityModal(false)}
-          onAbrirSetupInicial={() => setTemAdminGeral(false)}
-          currentUserRole={currentUser.role}
-        />
-      )}
+        {/* Motor de Segurança & Criptografia AES-256 em Tempo Real (Exclusivo Admin Geral) */}
+        {currentUser.role === 'AdminGeral' && showSecurityModal && (
+          <RealtimeSecurityModal
+            isOpen={showSecurityModal}
+            onClose={() => setShowSecurityModal(false)}
+            onAbrirSetupInicial={() => setTemAdminGeral(false)}
+            currentUserRole={currentUser.role}
+          />
+        )}
 
-      {/* Tour Guiado Oficial da Dashboard e Plataforma */}
-      {showTourModal && (
-        <GuidedTourModal
-          isOpen={showTourModal}
-          onClose={() => setShowTourModal(false)}
-          currentUser={effectiveUser}
-          escola={escola}
-          onNavigateTab={(tab) => {
-            setActiveTab(tab);
-            setShowTourModal(false);
-          }}
-        />
-      )}
+        {/* Tour Guiado Oficial da Dashboard e Plataforma */}
+        {showTourModal && (
+          <GuidedTourModal
+            isOpen={showTourModal}
+            onClose={() => setShowTourModal(false)}
+            currentUser={effectiveUser}
+            escola={escola}
+            onNavigateTab={(tab) => {
+              setActiveTab(tab);
+              setShowTourModal(false);
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

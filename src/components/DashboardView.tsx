@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Building2, 
   Users, 
-  GraduationCap, 
   Award, 
   AlertTriangle, 
   CheckCircle, 
@@ -14,19 +13,13 @@ import {
   Server, 
   Activity, 
   HeartHandshake,
-  Download,
   FileSpreadsheet,
-  PlusCircle,
   Key,
   FileText,
   CheckCircle2,
   UserCheck,
   Calendar,
-  Bell,
   ShieldCheck,
-  CreditCard,
-  Send,
-  Eye,
   BookOpen,
   Unlock,
   Radio,
@@ -34,15 +27,13 @@ import {
   Cpu,
   Lock,
   RefreshCw,
-  Layers,
   TrendingUp,
   TrendingDown,
   DollarSign,
   Wallet,
   X,
+  Eye,
   EyeOff,
-  Compass,
-  Sparkles,
   Search,
   CheckSquare
 } from 'lucide-react';
@@ -56,11 +47,7 @@ import {
   Legend, 
   PieChart, 
   Pie, 
-  Cell,
-  AreaChart,
-  Area,
-  LineChart,
-  Line
+  Cell
 } from 'recharts';
 import { 
   Escola, 
@@ -80,6 +67,21 @@ import { StudentRankingSection } from './StudentRankingSection';
 import * as XLSX from 'xlsx';
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
 import { obterInformacaoEscala } from '../services/macEngine';
+import { normalizarClasse, TODAS_CLASSES_OFICIAIS_MED } from '../services/academicHierarchyService';
+import { ordenarClassesMED } from '../utils/enrollmentProgression';
+import {
+  SharedRoleDashboardProps,
+  SubdiretorPedagogicoDashboard,
+  SubdiretorAdministrativoDashboard,
+  ProfessorDashboard,
+  SecretariaDashboard,
+  CoordenadorTurnoDashboard,
+  CoordenadorDisciplinaDashboard,
+  TesoureiroDashboard,
+  BibliotecarioDashboard,
+  EstagiarioDashboard,
+  TecnicoTIDashboard
+} from './RoleDashboards';
 
 interface DashboardViewProps {
   escola: Escola;
@@ -118,6 +120,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const configSistema = dbService.getConfiguracaoSistema();
 
   const [avisoSucesso, setAvisoSucesso] = useState<string | null>(null);
+  const [avisoErro, setAvisoErro] = useState<string | null>(null);
+  const [educandoSelecionadoId, setEducandoSelecionadoId] = useState<string>('');
 
   // Modal de Alteração de Senha de Diretores (Exclusivo Admin Geral)
   const [modalSenhaDiretorOpen, setModalSenhaDiretorOpen] = useState(false);
@@ -206,7 +210,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       setNovaSenhaDiretor(diretor.password || 'Dir2026!');
       setModalSenhaDiretorOpen(true);
     } else {
-      alert(`Nenhum Diretor Geral associado a "${esc.nomeOficial}". Aceda à "Rede de Escolas" para nomear o titular.`);
+      setAvisoErro(`Nenhum Diretor Geral associado a "${esc.nomeOficial}". Aceda à "Rede de Escolas" para nomear o titular.`);
+      setTimeout(() => setAvisoErro(null), 5000);
     }
   };
 
@@ -220,7 +225,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       setAvisoSucesso(`Palavra-passe de ${diretorSelecionado.nomeCompleto} atualizada com cifragem AES-256 e acesso desbloqueado!`);
       setTimeout(() => setAvisoSucesso(null), 4500);
     } catch (err: any) {
-      alert(err?.message || 'Falha ao atualizar a palavra-passe do Diretor.');
+      setAvisoErro(err?.message || 'Falha ao atualizar a palavra-passe do Diretor.');
+      setTimeout(() => setAvisoErro(null), 5000);
     } finally {
       setSalvandoSenha(false);
     }
@@ -239,7 +245,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const handleDesbloqueioRapidoManual = (e: React.FormEvent) => {
     e.preventDefault();
     if (!identificadorDesbloqueioRapido.trim()) return;
-    const ok = dbService.desbloquearContaUtilizador(identificadorDesbloqueioRapido.trim(), `${currentUser.nomeCompleto} (${currentUser.role})`);
+    dbService.desbloquearContaUtilizador(identificadorDesbloqueioRapido.trim(), `${currentUser.nomeCompleto} (${currentUser.role})`);
     securityEngine.resetarBloqueioCredenciais(identificadorDesbloqueioRapido.trim(), currentUser.nomeCompleto);
     setAlertasSeguranca(securityEngine.obterAlertasDashboard());
     setAvisoSucesso(`Bloqueio de "${identificadorDesbloqueioRapido.trim()}" resetado com sucesso. O utilizador pode tentar entrar novamente.`);
@@ -247,16 +253,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setTimeout(() => setAvisoSucesso(null), 4500);
   };
 
-  // Perfis
+  // Perfis (cobertura completa dos 18 papéis do sistema)
   const role: UserRole = currentUser.role;
   const isAdminGeral = role === 'AdminGeral';
   const isDiretor = role === 'DiretorGeral';
   const isSubdiretorPedagogico = role === 'SubdiretorPedagogico' || role === 'CoordenadorPedagogico';
   const isSubdiretorAdministrativo = role === 'SubdiretorAdministrativo' || role === 'SubdirectorAdministrativo';
-  const isSubdiretor = isSubdiretorPedagogico || isSubdiretorAdministrativo;
   const isProfessor = role === 'Professor';
-  const isSecretaria = role === 'Secretaria' || role === 'ChefeSecretaria' || role === 'Secretario';
+  const isSecretaria = role === 'Secretaria' || role === 'ChefeSecretaria' || role === 'Secretario' || role === 'SecretarioEscolar';
   const isCoordenadorTurno = role === 'CoordenadorTurno';
+  const isCoordenadorDisciplina = role === 'CoordenadorDisciplina';
+  const isTesoureiro = role === 'Tesoureiro';
+  const isBibliotecario = role === 'Bibliotecario';
+  const isEstagiario = role === 'Estagiario';
+  const isTecnicoTI = role === 'TecnicoTI';
   const isEncarregado = role === 'Encarregado';
 
   const isClassePrimariaDash = (classeStr?: string): boolean => {
@@ -1001,10 +1011,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // 1. Estatísticas Completas por Classe (Matriculados, Avaliados, Aprovados, Reprovados, Desistentes e Percentagens)
   const estatisticasPorClasse = useMemo(() => {
-    const classesNomes = ['Iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '7ª', '8ª', '9ª', '10ª', '11ª', '12ª', '13ª'];
+    const classesCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome));
+    const classesTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
+    const classesNomes = ordenarClassesMED([...TODAS_CLASSES_OFICIAIS_MED, ...classesCfg, ...classesTurmas]);
     return classesNomes.map(cls => {
-      const turmasDestaClasse = turmas.filter(t => t.classe === cls);
-      const alunosDestaClasse = alunos.filter(a => a.classeId === cls || turmasDestaClasse.some(t => t.id === a.turmaId));
+      const clsNorm = normalizarClasse(cls);
+      const turmasDestaClasse = turmas.filter(t => normalizarClasse(t.classe) === clsNorm);
+      const alunosDestaClasse = alunos.filter(
+        a => normalizarClasse(a.classeId) === clsNorm || turmasDestaClasse.some(t => t.id === a.turmaId)
+      );
       const matriculados = alunosDestaClasse.length;
       const desistentes = alunosDestaClasse.filter(a => a.estado === 'Desistente').length;
       
@@ -1029,6 +1044,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const masc = alunosDestaClasse.filter(a => a.genero === 'M').length;
       const fem = alunosDestaClasse.filter(a => a.genero === 'F').length;
 
+      const valoresNotasClasse = notasDestaClasse
+        .map(n => (typeof n.notaFinal === 'number' && n.notaFinal > 0 ? n.notaFinal : n.mediaTrimestral))
+        .filter((v): v is number => typeof v === 'number' && !isNaN(v) && v > 0);
+      const mediaRealClasse = valoresNotasClasse.length > 0
+        ? (valoresNotasClasse.reduce((acc, v) => acc + v, 0) / valoresNotasClasse.length).toFixed(1)
+        : '—';
+
       return {
         classe: cls,
         numTurmas: turmasDestaClasse.length,
@@ -1045,7 +1067,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         percReprovados,
         percDesistentes,
         taxaAprovacao: percAprovados,
-        mediaGeral: avaliados > 0 ? (12.4 + (cls.length % 3)).toFixed(1) : '—'
+        mediaGeral: mediaRealClasse
       };
     }).filter(c => c.matriculados > 0 || c.numTurmas > 0);
   }, [alunos, turmas, notasConsolidadas]);
@@ -1384,13 +1406,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setTimeout(() => setAvisoSucesso(null), 4000);
   };
 
+  const solicitacoesPendentesDiretor = useMemo(
+    () => dbService.getSolicitacoesNota().filter(s => s.escolaId === escola.id && s.estado === 'Pendente'),
+    [escola.id, syncTick]
+  );
+
+  const sharedRoleProps: SharedRoleDashboardProps = {
+    escola,
+    currentUser,
+    alunos,
+    funcionarios,
+    turmas,
+    notasConsolidadas,
+    atribuicoes,
+    mensagens,
+    recibos,
+    configSistema,
+    professoresEscola,
+    alunosComNotaCount: alunosComNota.length,
+    taxaAprovacaoEscola,
+    dadosDesempenhoDisciplinas,
+    melhoresDisciplinas: melhoresDisciplinasDashboard,
+    pioresDisciplinas: pioresDisciplinasDashboard,
+    dadosAssiduidade,
+    resumoAssiduidadeAlunos,
+    alunosEmRiscoCount: alunosEmRisco.length,
+    usuariosOnline,
+    usuarios24Horas,
+    statusBanco,
+    onNavigate,
+    onOpenUsuariosModal: () => setModalUsuariosOnlineOpen(true),
+    onEnviarLembreteNotas: handleEnviarLembreteNotas
+  };
+
   return (
     <div className="space-y-6">
       {/* Notificação Temporária de Sucesso */}
       {avisoSucesso && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center space-x-2 animate-in fade-in">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-          <span>{avisoSucesso}</span>
+        <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center justify-between space-x-2">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>{avisoSucesso}</span>
+          </div>
+          <button type="button" onClick={() => setAvisoSucesso(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Notificação Temporária de Erro / Alerta */}
+      {avisoErro && (
+        <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-xs font-bold text-red-900 flex items-center justify-between space-x-2">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+            <span>{avisoErro}</span>
+          </div>
+          <button type="button" onClick={() => setAvisoErro(null)} className="text-red-700 hover:text-red-900 cursor-pointer">
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 
@@ -1485,10 +1558,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               key={alerta.id}
               className="bg-red-50 border-2 border-red-500 rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all"
             >
-              {/* Faixa Superior com Pulso de Alerta */}
+              {/* Faixa Superior de Alerta */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-red-200">
                 <div className="flex items-center space-x-3">
-                  <div className="h-10 w-10 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-md animate-pulse">
+                  <div className="h-10 w-10 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-md">
                     <ShieldAlert className="h-6 w-6" />
                   </div>
                   <div>
@@ -1497,7 +1570,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         Alerta Crítico de Segurança
                       </span>
                       <span className="text-xs text-red-700 font-mono font-bold flex items-center">
-                        <Radio className="w-3 h-3 text-red-600 animate-ping inline mr-1" />
+                        <Radio className="w-3 h-3 text-red-600 inline mr-1" />
                         Detetado em Tempo Real
                       </span>
                     </div>
@@ -1618,167 +1691,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              {/* Menus Rápidos Mais Importantes e Prioritários (Apenas 2) */}
+              {/* Menus Rápidos Prioritários */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => onNavigate('admin_escolas')}
-                  className="px-4 py-2.5 text-xs font-black text-blue-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
+                  className="px-4 py-2.5 text-xs font-black text-blue-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer whitespace-nowrap shrink-0"
                   title="Gestão da Rede de Instituições e Nomeação de Diretores Gerais"
                 >
                   <Building2 className="h-4 w-4 text-blue-950 shrink-0" />
-                  <span>1. Rede de Escolas & Diretores</span>
+                  <span>Rede de Escolas & Diretores</span>
                 </button>
                 <button
+                  type="button"
+                  onClick={() => onNavigate('apoio_tecnico')}
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-600 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer whitespace-nowrap shrink-0"
+                  title="Abrir Central de Apoio Técnico Ministerial"
+                >
+                  <HeartHandshake className="h-4 w-4 shrink-0" />
+                  <span>Central de Apoio Técnico</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleDescarregarRelatorioNacional}
-                  className="px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer whitespace-nowrap shrink-0"
                   title="Descarregar folha de cálculo oficial com todos os dados consolidados do país"
                 >
                   <FileSpreadsheet className="h-4 w-4 shrink-0" />
-                  <span>2. Balanço Nacional (.xlsx)</span>
+                  <span>Balanço Nacional (.xlsx)</span>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* 6 Grandes Indicadores Nacionais & Monitorização em Tempo Real */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Rede de Escolas Cadastradas</span>
-                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                  <Building2 className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{todasEscolas.length}</span>
-                <span className="text-xs text-emerald-700 font-bold">
-                  {todasEscolas.filter(e => e.ativo && e.estadoEscola !== 'Suspensa').length} ativas
-                </span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
-                <span>{todasEscolas.filter(e => !e.ativo || e.estadoEscola === 'Suspensa').length} suspensas</span>
-                <button 
-                  onClick={() => onNavigate('admin_escolas')}
-                  className="text-blue-700 hover:underline font-semibold"
-                >
-                  Gerir instituições →
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Alunos em Território Nacional</span>
-                <div className="h-8 w-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
-                  <Users className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{todosAlunos.length}</span>
-                <span className="text-xs text-emerald-700 font-bold">
-                  {todosAlunos.filter(a => a.estado === 'Ativo').length} com matrícula ativa
-                </span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                Cobertura do Ensino Primário, Iº Ciclo e IIº Ciclo
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Corpo Docente & RH Global</span>
-                <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
-                  <UserCheck className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{todosFuncionarios.length}</span>
-                <span className="text-xs text-indigo-700 font-bold">
-                  {todosFuncionarios.filter(f => f.ehProfessor).length} professores
-                </span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                Diretores, subdiretores, docentes e técnicos
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Aproveitamento Médio Nacional</span>
-                <div className="h-8 w-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
-                  <Award className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">
-                  {estatisticasNacionaisAproveitamento.mediaNacional}
-                </span>
-                {estatisticasNacionaisAproveitamento.temDados && (
-                  <span className="text-xs text-gray-500 font-semibold">/ 20 valores</span>
-                )}
-              </div>
-              <div className="mt-1 text-[11px] font-semibold">
-                {estatisticasNacionaisAproveitamento.temDados ? (
-                  <span className="text-emerald-700">
-                    {estatisticasNacionaisAproveitamento.taxaAprovacao} Taxa de Transição Curricular
-                  </span>
-                ) : (
-                  <span className="text-gray-400">
-                    Aguardando lançamento de pautas
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* CARD 5: UTILIZADORES ONLINE AGORA NO SISTEMA */}
-            <div className="bg-white p-4 rounded-xl border-2 border-emerald-500/80 shadow-2xs relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-700">Utilizadores Online</span>
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                </span>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{usuariosOnline.length}</span>
-                <span className="text-[11px] text-emerald-700 font-bold uppercase tracking-wider">Em Direto</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Toda a rede SGE</span>
-                <button
-                  type="button"
-                  onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-blue-700 font-bold hover:underline cursor-pointer"
-                >
-                  Ver Lista →
-                </button>
-              </div>
-            </div>
-
-            {/* CARD 6: ACESSOS NAS ÚLTIMAS 24 HORAS */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Acessos 24 Horas</span>
-                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                  <Activity className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{usuarios24Horas.length}</span>
-                <span className="text-xs text-blue-700 font-bold">ativos</span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
-                <span>{todasEscolas.length} instituições</span>
-                <button
-                  type="button"
-                  onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-blue-700 font-bold hover:underline cursor-pointer"
-                >
-                  Auditar →
-                </button>
-              </div>
-            </div>
-          </div>
 
           {/* ========================================================================= */}
           {/* PAINEL RESUMO GERAL DE TODAS AS ESCOLAS (SEM NAVEGAÇÃO INDIVIDUAL)       */}
@@ -2024,10 +1969,100 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           )}
 
+          {/* 4 INDICADORES OPERACIONAIS DA REDE NACIONAL */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-600">Rede de Escolas Cadastradas</span>
+                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                  <Building2 className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-gray-950 tabular-nums">{todasEscolas.length}</span>
+                <span className="text-xs text-emerald-700 font-bold tabular-nums">
+                  {todasEscolas.filter(e => e.ativo && e.estadoEscola !== 'Suspensa').length} ativas
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
+                <span className="tabular-nums">{todasEscolas.filter(e => !e.ativo || e.estadoEscola === 'Suspensa').length} suspensas</span>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('admin_escolas')}
+                  className="text-blue-700 hover:underline font-semibold cursor-pointer"
+                >
+                  Gerir instituições →
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-600">Corpo Docente & RH Global</span>
+                <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                  <UserCheck className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-gray-950 tabular-nums">{todosFuncionarios.length}</span>
+                <span className="text-xs text-indigo-700 font-bold tabular-nums">
+                  {todosFuncionarios.filter(f => f.ehProfessor).length} professores
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500">
+                Diretores, subdiretores, docentes e técnicos
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-emerald-300 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-700">Utilizadores Online</span>
+                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              </div>
+              <div className="mt-2 flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-gray-950 tabular-nums">{usuariosOnline.length}</span>
+                <span className="text-[11px] text-emerald-700 font-bold uppercase tracking-wider">Em Direto</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px]">
+                <span className="text-gray-500">Toda a rede SGE</span>
+                <button
+                  type="button"
+                  onClick={() => setModalUsuariosOnlineOpen(true)}
+                  className="text-blue-700 font-bold hover:underline cursor-pointer"
+                >
+                  Ver Lista →
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-600">Acessos 24 Horas</span>
+                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                  <Activity className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-gray-950 tabular-nums">{usuarios24Horas.length}</span>
+                <span className="text-xs text-blue-700 font-bold">ativos</span>
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
+                <span className="tabular-nums">{todasEscolas.length} instituições</span>
+                <button
+                  type="button"
+                  onClick={() => setModalUsuariosOnlineOpen(true)}
+                  className="text-blue-700 font-bold hover:underline cursor-pointer"
+                >
+                  Auditar →
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* GRÁFICOS E DETALHES DE ESTADO DO SISTEMA NACIONAL */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Gráfico 1: Distribuição de Alunos por Nível de Ensino */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs lg:col-span-2 space-y-4">
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs lg:col-span-3 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
@@ -2172,109 +2207,107 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            {/* Painel Lateral: Estado Técnico dos Dados & Desbloqueio Rápido */}
-            <div className="space-y-4">
-              {/* Card de Estado do Banco de Dados & Enclave AES-256 */}
-              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs space-y-3.5">
-                <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center space-x-1.5">
-                    <Database className="h-4 w-4 text-emerald-600" />
-                    <span>Estado & Dados do Sistema</span>
-                  </h3>
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                    Operacional 100%
-                  </span>
+          </div>
+
+          {/* PAINEL DE GRÁFICOS RECHARTS DO ADMINISTRADOR GERAL (MED ANGOLA) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Gráfico A: Escolas por Província */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
+                    <Building2 className="h-4 w-4 text-blue-600" />
+                    <span>Rede Escolar por Província</span>
+                  </h4>
+                  <p className="text-xs text-gray-500">Distribuição de instituições em território nacional</p>
                 </div>
+                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full tabular-nums">
+                  {todasEscolas.length} Escolas
+                </span>
+              </div>
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dadosEscolasPorProvincia}>
+                    <XAxis dataKey="provincia" stroke="#6b7280" fontSize={10} />
+                    <YAxis stroke="#6b7280" fontSize={10} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                    <Bar dataKey="total" name="N.º de Escolas" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
 
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-500 block font-semibold">Tamanho Local</span>
-                    <strong className="text-slate-900 text-sm font-mono font-bold block mt-0.5">
-                      {statusBanco.tamanhoFormatado}
-                    </strong>
-                    <span className="text-[9.5px] text-emerald-700 font-semibold">IndexedDB Ativo</span>
-                  </div>
-
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-500 block font-semibold">Registos Ativos</span>
-                    <strong className="text-slate-900 text-sm font-mono font-bold block mt-0.5">
-                      {statusBanco.totalRegistos}
-                    </strong>
-                    <span className="text-[9.5px] text-blue-700 font-semibold">Coleções OK</span>
-                  </div>
-
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-500 block font-semibold">Cifra Central</span>
-                    <strong className="text-indigo-900 text-xs font-mono font-bold block mt-0.5">
-                      AES-256-GCM
-                    </strong>
-                    <span className="text-[9.5px] text-indigo-700 font-semibold">PBKDF2 100k</span>
-                  </div>
-
-                  <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                    <span className="text-[10px] text-slate-500 block font-semibold">Mitigação Força Bruta</span>
-                    <strong className="text-emerald-900 text-xs font-mono font-bold block mt-0.5">
-                      Regra 3 Tentativas
-                    </strong>
-                    <span className="text-[9.5px] text-emerald-700 font-semibold">Zero-Bypass</span>
-                  </div>
-                </div>
-
-                {/* Status de Nuvem & Firestore */}
-                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs space-y-1">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-blue-900">
-                    <span className="flex items-center space-x-1">
-                      <Cpu className="h-3.5 w-3.5 text-blue-700" />
-                      <span>Enclave de Segurança & Cloud Hub</span>
-                    </span>
-                    <span className="text-emerald-700">Sincronizado</span>
-                  </div>
-                  <p className="text-[10.5px] text-blue-800">
-                    Replicação bidirecional pronta. Persistência offline garantida para todas as escolas provinciais sem internet contínua.
-                  </p>
+            {/* Gráfico B: Estado da Rede (Ativas vs Suspensas) */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs flex flex-col justify-between">
+              <div>
+                <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
+                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                  <span>Estado Operacional das Escolas</span>
+                </h4>
+                <p className="text-xs text-gray-500">Conformidade e regularidade institucional</p>
+                <div className="h-44 w-full mt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={dadosStatusEscolas}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={65}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {dadosStatusEscolas.map((entry, index) => (
+                          <Cell key={`cell-status-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
-
-              {/* Card de Desbloqueio Imediato de Credenciais */}
-              <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-5 rounded-xl border border-indigo-800 shadow-xs space-y-3">
-                <div className="flex items-center space-x-2 text-amber-400">
-                  <Unlock className="w-4 h-4" />
-                  <h4 className="text-xs font-black uppercase tracking-wider">
-                    Reset Executivo de Bloqueio (3 Falhas)
-                  </h4>
-                </div>
-                <p className="text-[11px] text-slate-300">
-                  Se um utilizador for bloqueado preventivamente por exceder as 3 tentativas erradas de senha, o Administrador Geral pode resetar o bloqueio aqui imediatamente:
-                </p>
-
-                <form onSubmit={handleDesbloqueioRapidoManual} className="space-y-2">
-                  <input
-                    type="text"
-                    value={identificadorDesbloqueioRapido}
-                    onChange={(e) => setIdentificadorDesbloqueioRapido(e.target.value)}
-                    placeholder="E-mail ou BI do utilizador bloqueado..."
-                    className="w-full px-3 py-2 text-xs bg-black/50 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-white placeholder-slate-500 font-mono"
-                  />
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    <button
-                      type="submit"
-                      className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs transition-colors flex items-center space-x-1 cursor-pointer shadow-xs"
-                    >
-                      <Unlock className="w-3.5 h-3.5" />
-                      <span>Resetar Bloqueio</span>
-                    </button>
-
-                    {onOpenSecurityModal && (
-                      <button
-                        type="button"
-                        onClick={onOpenSecurityModal}
-                        className="text-[11px] text-indigo-300 hover:text-white underline cursor-pointer"
-                      >
-                        Painel Cripto →
-                      </button>
-                    )}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-center text-xs">
+                {dadosStatusEscolas.map(item => (
+                  <div key={item.name} className="p-1.5 rounded-lg bg-gray-50">
+                    <span className="h-2 w-2 rounded-full inline-block mr-1" style={{ backgroundColor: item.color }} />
+                    <span className="font-bold text-gray-800 text-[11px]">{item.name}</span>
+                    <div className="font-black text-gray-950 mt-0.5 tabular-nums">{item.value}</div>
                   </div>
-                </form>
+                ))}
+              </div>
+            </div>
+
+            {/* Gráfico C: Chamados de Apoio Técnico Ministerial */}
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
+                    <HeartHandshake className="h-4 w-4 text-amber-600" />
+                    <span>Apoio Técnico aos Diretores</span>
+                  </h4>
+                  <p className="text-xs text-gray-500">Pedidos formais de intervenção recebidos</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('apoio_tecnico')}
+                  className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  Central →
+                </button>
+              </div>
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dadosApoioTecnicoStatus}>
+                    <XAxis dataKey="name" stroke="#6b7280" fontSize={10} />
+                    <YAxis stroke="#6b7280" fontSize={10} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                    <Bar dataKey="value" name="Chamados">
+                      {dadosApoioTecnicoStatus.map((entry, index) => (
+                        <Cell key={`cell-status-${index}`} fill={entry.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </div>
@@ -2400,160 +2433,139 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Nós Locais & Integridade Global */}
-          <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-bold text-gray-900 flex items-center space-x-2">
-                <Server className="h-4 w-4 text-indigo-600" />
-                <span>Auditoria & Segurança Global da Rede</span>
-              </h3>
-              <button
-                onClick={() => onNavigate('auditoria_logs')}
-                className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
-              >
-                Ver registos de auditoria completos →
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="font-semibold text-slate-700">Modo de Operação Offline</div>
-                <div className="text-sm font-black text-emerald-700 mt-1 flex items-center space-x-1">
-                  <ShieldCheck className="h-4 w-4" />
-                  <span>IndexedDB + Journal Ativo</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Sem perda de dados mesmo sem conexão</div>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="font-semibold text-slate-700">Sincronização Central</div>
-                <div className="text-sm font-black text-blue-700 mt-1 flex items-center space-x-1">
-                  <Activity className="h-4 w-4" />
-                  <span>Conectado ao Cloud Hub</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Replicação periódica com controle de versão</div>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="font-semibold text-slate-700">Controle de Credenciais</div>
-                <div className="text-sm font-black text-indigo-700 mt-1 flex items-center space-x-1">
-                  <Key className="h-4 w-4" />
-                  <span>RBAC Estrito MED</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Admin Geral, Diretores e Professores segregados</div>
-              </div>
-            </div>
-          </div>
 
-          {/* PAINEL DE GRÁFICOS RECHARTS DO ADMINISTRADOR GERAL (MED ANGOLA) */}
+          {/* INFRAESTRUTURA TÉCNICA, AUDITORIA & RESET DE BLOQUEIOS */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Gráfico A: Escolas por Província */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                    <Building2 className="h-4 w-4 text-blue-600" />
-                    <span>Rede Escolar por Província</span>
-                  </h4>
-                  <p className="text-xs text-gray-500">Distribuição de instituições em território nacional</p>
-                </div>
-                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
-                  {todasEscolas.length} Escolas
-                </span>
-              </div>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dadosEscolasPorProvincia}>
-                    <XAxis dataKey="provincia" stroke="#6b7280" fontSize={10} />
-                    <YAxis stroke="#6b7280" fontSize={10} allowDecimals={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
-                    <Bar dataKey="total" name="N.º de Escolas" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Gráfico B: Estado da Rede (Ativas vs Suspensas) */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs flex flex-col justify-between">
-              <div>
-                <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                  <span>Estado Operacional das Escolas</span>
-                </h4>
-                <p className="text-xs text-gray-500">Conformidade e regularidade institucional</p>
-                <div className="h-44 w-full mt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={dadosStatusEscolas}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={40}
-                        outerRadius={65}
-                        paddingAngle={4}
-                        dataKey="value"
-                      >
-                        {dadosStatusEscolas.map((entry, index) => (
-                          <Cell key={`cell-status-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-center text-xs">
-                {dadosStatusEscolas.map(item => (
-                  <div key={item.name} className="p-1.5 rounded-lg bg-gray-50">
-                    <span className="h-2 w-2 rounded-full inline-block mr-1" style={{ backgroundColor: item.color }} />
-                    <span className="font-bold text-gray-800 text-[11px]">{item.name}</span>
-                    <div className="font-black text-gray-950 mt-0.5">{item.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Gráfico C: Chamados de Apoio Técnico Ministerial */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                    <HeartHandshake className="h-4 w-4 text-amber-600" />
-                    <span>Apoio Técnico aos Diretores</span>
-                  </h4>
-                  <p className="text-xs text-gray-500">Pedidos formais de intervenção recebidos</p>
-                </div>
+            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-gray-200 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center space-x-2">
+                  <Server className="h-4 w-4 text-indigo-600" />
+                  <span>Auditoria, Integridade & Infraestrutura Global</span>
+                </h3>
                 <button
                   type="button"
-                  onClick={() => onNavigate('apoio_tecnico')}
-                  className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
+                  onClick={() => onNavigate('auditoria_logs')}
+                  className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
                 >
-                  Central →
+                  Ver registos de auditoria completos →
                 </button>
               </div>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dadosApoioTecnicoStatus}>
-                    <XAxis dataKey="name" stroke="#6b7280" fontSize={10} />
-                    <YAxis stroke="#6b7280" fontSize={10} allowDecimals={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
-                    <Bar dataKey="value" name="Chamados">
-                      {dadosApoioTecnicoStatus.map((entry, index) => (
-                        <Cell key={`cell-status-${index}`} fill={entry.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Tamanho Local</span>
+                  <strong className="text-slate-900 text-sm font-mono font-bold block mt-0.5 tabular-nums">
+                    {statusBanco.tamanhoFormatado}
+                  </strong>
+                  <span className="text-[9.5px] text-emerald-700 font-semibold">IndexedDB Ativo</span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Registos Ativos</span>
+                  <strong className="text-slate-900 text-sm font-mono font-bold block mt-0.5 tabular-nums">
+                    {statusBanco.totalRegistos}
+                  </strong>
+                  <span className="text-[9.5px] text-blue-700 font-semibold">Coleções OK</span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Cifra Central</span>
+                  <strong className="text-indigo-900 text-xs font-mono font-bold block mt-0.5">
+                    AES-256-GCM
+                  </strong>
+                  <span className="text-[9.5px] text-indigo-700 font-semibold">PBKDF2 100k</span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Mitigação Força Bruta</span>
+                  <strong className="text-emerald-900 text-xs font-mono font-bold block mt-0.5">
+                    Regra 3 Tentativas
+                  </strong>
+                  <span className="text-[9.5px] text-emerald-700 font-semibold">Zero-Bypass</span>
+                </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="font-semibold text-slate-700">Modo de Operação Offline</div>
+                  <div className="text-sm font-black text-emerald-700 mt-1 flex items-center space-x-1">
+                    <ShieldCheck className="h-4 w-4" />
+                    <span>IndexedDB + Journal Ativo</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">Sem perda de dados mesmo sem conexão</div>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="font-semibold text-slate-700">Sincronização Central</div>
+                  <div className="text-sm font-black text-blue-700 mt-1 flex items-center space-x-1">
+                    <Activity className="h-4 w-4" />
+                    <span>Conectado ao Cloud Hub</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">Replicação periódica com controle de versão</div>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="font-semibold text-slate-700">Controle de Credenciais</div>
+                  <div className="text-sm font-black text-indigo-700 mt-1 flex items-center space-x-1">
+                    <Key className="h-4 w-4" />
+                    <span>RBAC Estrito MED</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">Admin Geral, Diretores e Professores segregados</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-5 rounded-xl border border-indigo-800 shadow-xs space-y-3 flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2 text-amber-400">
+                  <Unlock className="w-4 h-4" />
+                  <h4 className="text-xs font-black uppercase tracking-wider">
+                    Reset Executivo de Bloqueio (3 Falhas)
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  Se um utilizador for bloqueado preventivamente por exceder as 3 tentativas erradas de senha, o Administrador Geral pode resetar o bloqueio aqui imediatamente:
+                </p>
+              </div>
+
+              <form onSubmit={handleDesbloqueioRapidoManual} className="space-y-2.5 pt-2">
+                <input
+                  type="text"
+                  value={identificadorDesbloqueioRapido}
+                  onChange={(e) => setIdentificadorDesbloqueioRapido(e.target.value)}
+                  placeholder="E-mail ou BI do utilizador bloqueado..."
+                  className="w-full px-3 py-2 text-xs bg-black/50 border border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 text-white placeholder-slate-500 font-mono"
+                />
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs transition-colors flex items-center space-x-1 cursor-pointer shadow-xs"
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    <span>Resetar Bloqueio</span>
+                  </button>
+
+                  {onOpenSecurityModal && (
+                    <button
+                      type="button"
+                      onClick={onOpenSecurityModal}
+                      className="text-[11px] text-indigo-300 hover:text-white underline cursor-pointer"
+                    >
+                      Painel Cripto →
+                    </button>
+                  )}
+                </div>
+              </form>
             </div>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 2. PAINEL DO DIRETOR GERAL & SUBDIRETOR PEDAGÓGICO (GESTÃO INSTITUCIONAL)  */}
+      {/* 2. PAINEL DO DIRETOR GERAL (GESTÃO GLOBAL E EXECUTIVA DA ESCOLA)          */}
       {/* ========================================================================= */}
-      {(isDiretor || isSubdiretor) && (
+      {isDiretor && (
         <div className="space-y-6">
           {/* Banner da Direção Escolar */}
-          <div className="bg-white border-2 border-blue-600 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="bg-white border-2 border-blue-600 rounded-2xl p-6 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-start sm:items-center space-x-4">
               <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 shrink-0 shadow-2xs flex items-center justify-center">
                 <InsigniaAngola 
@@ -2565,12 +2577,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                    {currentUser.cargo || (isDiretor ? 'Diretor Geral' : 'Subdiretor Pedagógico')}
+                    {currentUser.cargo || 'Diretor Geral'}
                   </span>
                   <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
                 </div>
                 <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
-                  Gabinete da Direção · {escola.nomeOficial}
+                  Gabinete da Direção Geral · {escola.nomeOficial}
                 </h1>
                 <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
                   Ano Lectivo {escola.anoLectivoActivo} · {escola.trimestreActivo}º Trimestre · Despacho MED: {escola.codigoEscola || '1045'}
@@ -2578,110 +2590,76 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            {/* Menus Rápidos de Ação Relevantes por Perfil */}
+            {/* Ações Executivas Prioritárias do Diretor Geral */}
             <div className="flex flex-wrap items-center gap-2">
-              {currentUser.role === 'Professor' ? (
-                <>
-                  <button
-                    onClick={() => onNavigate('avaliacoes')}
-                    className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Lançamento e Avaliação Contínua (MAC)"
-                  >
-                    <Award className="h-4 w-4 text-amber-300 shrink-0" />
-                    <span>Lançar Notas (MAC)</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('turmas')}
-                    className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Ver turmas e alunos atribuídos"
-                  >
-                    <Users className="h-4 w-4 text-blue-700 shrink-0" />
-                    <span>Minhas Turmas</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('presencas')}
-                    className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Folha de Presenças e Faltas"
-                  >
-                    <Calendar className="h-4 w-4 text-emerald-600 shrink-0" />
-                    <span>Folha de Presenças</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('boletins')}
-                    className="px-3.5 py-2 text-xs font-bold text-purple-900 bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Boletins de Notas da Turma"
-                  >
-                    <FileText className="h-4 w-4 text-purple-700 shrink-0" />
-                    <span>Boletins de Notas</span>
-                  </button>
-                </>
-              ) : currentUser.role === 'Encarregado' ? (
-                <>
-                  <button
-                    onClick={() => onNavigate('boletins')}
-                    className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Ver Boletim Trimestral do Educando"
-                  >
-                    <FileText className="h-4 w-4 text-amber-300 shrink-0" />
-                    <span>Boletim do Educando</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('pagamentos')}
-                    className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Consultar Propinas e Emolumentos"
-                  >
-                    <DollarSign className="h-4 w-4 text-emerald-700 shrink-0" />
-                    <span>Consultar Propinas</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('horarios')}
-                    className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Horário Escolar do Educando"
-                  >
-                    <Clock className="h-4 w-4 text-blue-600 shrink-0" />
-                    <span>Horário Escolar</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => onNavigate('alunos')}
-                    className="px-3.5 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Matricular novo discente ou reconfirmar matrícula"
-                  >
-                    <PlusCircle className="h-4 w-4 text-emerald-200 shrink-0" />
-                    <span>Nova Matrícula</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('pagamentos')}
-                    className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Registar e confirmar pagamento de propina ou emolumento"
-                  >
-                    <DollarSign className="h-4 w-4 text-amber-300 shrink-0" />
-                    <span>Registar Pagamento</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('avaliacoes')}
-                    className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Lançamento e Coordenação MAC"
-                  >
-                    <Award className="h-4 w-4 text-blue-700 shrink-0" />
-                    <span>Lançar Notas (MAC)</span>
-                  </button>
-                  <button
-                    onClick={() => onNavigate('documentos')}
-                    className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    title="Emissão oficial de Pautas Gerais, Boletins e Declarações"
-                  >
-                    <FileText className="h-4 w-4 text-indigo-700 shrink-0" />
-                    <span>Emitir Documentos</span>
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                onClick={() => onNavigate('direcao')}
+                className="px-3.5 py-2 text-xs font-black text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ShieldCheck className="h-4 w-4 text-amber-300 shrink-0" />
+                <span>Direção & Homologação</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('pautas')}
+                className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileText className="h-4 w-4 text-blue-700 shrink-0" />
+                <span>Pautas Gerais</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('estatisticas')}
+                className="px-3.5 py-2 text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <BarChart3 className="h-4 w-4 text-indigo-700 shrink-0" />
+                <span>Estatísticas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('relatorios')}
+                className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-slate-700 shrink-0" />
+                <span>Relatórios</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('pagamentos')}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <DollarSign className="h-4 w-4 text-emerald-700 shrink-0" />
+                <span>Pagamentos</span>
+              </button>
             </div>
           </div>
 
-          {/* Métricas Principais da Escola & Monitorização em Tempo Real */}
+          {/* ALERTA PRIORITÁRIO: Solicitações de Alteração de Notas Pendentes */}
+          {solicitacoesPendentesDiretor.length > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                    {solicitacoesPendentesDiretor.length} Solicitação(ões) de Alteração de Nota Aguardando Decisão
+                  </h3>
+                  <p className="text-xs text-amber-900 mt-0.5">
+                    Existem pedidos submetidos por docentes para retificação ou lançamento extraordinário de notas pendentes de aprovação na Coordenação.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('coordenacao')}
+                className="px-3.5 py-2 text-xs font-black text-amber-950 bg-amber-300 hover:bg-amber-400 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                Analisar na Coordenação →
+              </button>
+            </div>
+          )}
+
+          {/* 4 KPIs EXECUTIVOS PRINCIPAIS DA ESCOLA */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
             {(() => {
               const anoActivo = escola.anoLectivoActivo || '';
@@ -2694,51 +2672,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               const pctRaparigas = alunosAno.length > 0 ? Math.round((raparigas / alunosAno.length) * 100) : 0;
 
               return (
-                <>
-                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-600">Alunos Matriculados ({anoActivo || 'Sem Ano Ativo'})</span>
-                      <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                        <Users className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <div className="mt-2 flex items-baseline space-x-2">
-                      <span className="text-2xl font-black text-gray-950">{alunosAno.length}</span>
-                      <span className="text-xs text-emerald-700 font-semibold">
-                        {alunosAno.filter(a => a.estado === 'Ativo').length} ativos
-                      </span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-gray-500">
-                      {turmas.length} turmas registadas
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-600">Matriculados ({anoActivo || 'Ativo'})</span>
+                    <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                      <Users className="h-4 w-4" />
                     </div>
                   </div>
-
-                  {/* Distinção por Género (Rapazes vs Raparigas) */}
-                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-600">Alunos por Género</span>
-                      <div className="h-8 w-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
-                        <Users className="h-4 w-4" />
-                      </div>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="text-[10px] text-blue-800 font-bold block">Rapazes (M)</span>
-                        <span className="text-lg font-black text-blue-950">{rapazes}</span>
-                        <span className="text-[10px] text-blue-700 font-semibold ml-1">({pctRapazes}%)</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] text-rose-800 font-bold block">Raparigas (F)</span>
-                        <span className="text-lg font-black text-rose-950">{raparigas}</span>
-                        <span className="text-[10px] text-rose-700 font-semibold ml-1">({pctRaparigas}%)</span>
-                      </div>
-                    </div>
-                    <div className="mt-2 w-full bg-rose-200 h-2 rounded-full overflow-hidden flex">
-                      <div className="bg-blue-600 h-full transition-all" style={{ width: `${pctRapazes}%` }} title={`Rapazes: ${pctRapazes}%`} />
-                      <div className="bg-rose-500 h-full transition-all" style={{ width: `${pctRaparigas}%` }} title={`Raparigas: ${pctRaparigas}%`} />
-                    </div>
+                  <div className="mt-2 flex items-baseline space-x-2">
+                    <span className="text-2xl font-black text-gray-950 tabular-nums">{alunosAno.length}</span>
+                    <span className="text-xs text-emerald-700 font-semibold tabular-nums">
+                      {alunosAno.filter(a => a.estado === 'Ativo').length} ativos · {turmas.length} turmas
+                    </span>
                   </div>
-                </>
+                  <div className="mt-2 flex items-center justify-between text-[11px] font-semibold tabular-nums">
+                    <span className="text-blue-800">M: {rapazes} ({pctRapazes}%)</span>
+                    <span className="text-rose-700">F: {raparigas} ({pctRaparigas}%)</span>
+                  </div>
+                  <div className="mt-1 w-full bg-rose-200 h-1.5 rounded-full overflow-hidden flex">
+                    <div className="bg-blue-600 h-full transition-all" style={{ width: `${pctRapazes}%` }} />
+                    <div className="bg-rose-500 h-full transition-all" style={{ width: `${pctRaparigas}%` }} />
+                  </div>
+                </div>
               );
             })()}
 
@@ -2750,42 +2705,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-emerald-700">
+                <span className="text-2xl font-black text-emerald-700 tabular-nums">
                   {alunosComNota.length > 0 ? `${taxaAprovacaoEscola}%` : '—'}
                 </span>
                 <span className="text-xs text-gray-500 font-semibold">Positivos</span>
               </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                {alunosComNota.length > 0 && melhoresAlunos.length > 0 ? (
-                  <>Melhor média: {melhoresAlunos[0].media} val.</>
-                ) : (
-                  <>Aguardando pautas da escola</>
-                )}
+              <div className="mt-1.5 text-[11px] text-gray-500 flex items-center justify-between">
+                <span>
+                  {alunosComNota.length > 0 && melhoresAlunos.length > 0
+                    ? `Melhor média: ${melhoresAlunos[0].media} val.`
+                    : 'Aguardando pautas da escola'}
+                </span>
+                <span className="text-red-600 font-bold tabular-nums">{alunosEmRisco.length} em alerta</span>
               </div>
             </div>
 
-            {/* Novo Card Real: Assiduidade Diária dos Alunos */}
-            <div className="bg-white p-4 rounded-xl border-2 border-teal-500/40 shadow-2xs">
+            <div className="bg-white p-4 rounded-xl border border-teal-300 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-700">Assiduidade dos Alunos</span>
+                <span className="text-xs font-bold text-gray-700">Assiduidade Diária</span>
                 <div className="h-8 w-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center">
                   <Calendar className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-teal-700">
+                <span className="text-2xl font-black text-teal-700 tabular-nums">
                   {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}%` : '—'}
                 </span>
-                <span className="text-xs text-gray-500 font-semibold">
+                <span className="text-xs text-gray-500 font-semibold tabular-nums">
                   {resumoAssiduidadeAlunos.registosHoje > 0
                     ? `${resumoAssiduidadeAlunos.presentesHoje} pres. hoje`
                     : `${resumoAssiduidadeAlunos.presentesTotal} presenças`}
                 </span>
               </div>
-              <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">
+              <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                <span className="text-gray-500 tabular-nums">
                   {resumoAssiduidadeAlunos.totalRegistos > 0
-                    ? `${resumoAssiduidadeAlunos.injustificadasTotal + resumoAssiduidadeAlunos.justificadasTotal} faltas registadas`
+                    ? `${resumoAssiduidadeAlunos.injustificadasTotal + resumoAssiduidadeAlunos.justificadasTotal} faltas`
                     : 'Sem chamadas registadas'}
                 </span>
                 <button
@@ -2800,20 +2755,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Corpo Docente & RH</span>
+                <span className="text-xs font-bold text-gray-600">Docentes & Sessões Ativas</span>
                 <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
                   <UserCheck className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{professoresEscola.length}</span>
-                <span className="text-xs text-indigo-700 font-semibold">
-                  {professoresEscola.filter(p => p.statusConta !== 'Suspensa').length} com acesso ativo
+                <span className="text-2xl font-black text-gray-950 tabular-nums">{professoresEscola.length}</span>
+                <span className="text-xs text-indigo-700 font-semibold tabular-nums">
+                  docentes · {usuariosOnline.length} online
                 </span>
               </div>
-              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
-                <span>Equipa letiva</span>
-                <button 
+              <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setModalUsuariosOnlineOpen(true)}
+                  className="text-emerald-700 font-bold hover:underline cursor-pointer tabular-nums"
+                >
+                  {usuarios24Horas.length} sessões (24h)
+                </button>
+                <button
+                  type="button"
                   onClick={() => onNavigate('professores')}
                   className="text-blue-700 hover:underline font-semibold cursor-pointer"
                 >
@@ -2821,70 +2783,180 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </button>
               </div>
             </div>
+          </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Alunos em Alerta Crítico</span>
-                <div className="h-8 w-8 rounded-lg bg-red-50 text-red-700 flex items-center justify-center">
-                  <AlertTriangle className="h-4 w-4" />
-                </div>
+          {/* CONTROLO ACADÉMICO IMEDIATO: FECHO DE PAUTAS POR PROFESSOR */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
+                  <BarChart3 className="h-4 w-4 text-blue-600" />
+                  <span>Estado de Cumprimento do Lançamento de Notas (Trimestre {escola.trimestreActivo})</span>
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Acompanhamento pedagógico de cada docente antes do fecho definitivo das pautas.
+                </p>
               </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-red-600">{alunosEmRisco.length}</span>
-                <span className="text-xs text-red-700 font-semibold">Requerem Apoio</span>
-              </div>
-              <div className="mt-1 text-[11px] text-gray-500">
-                Faltas &ge; 3 ou abaixo da média
-              </div>
+              <button
+                type="button"
+                onClick={() => onNavigate('avaliacoes')}
+                className="text-xs font-bold text-blue-700 hover:underline cursor-pointer self-start sm:self-auto"
+              >
+                Ir para Lançamento de Notas →
+              </button>
             </div>
 
-            {/* Card 5: Utilizadores Online na Escola */}
-            <div className="bg-white p-4 rounded-xl border-2 border-emerald-500/80 shadow-2xs relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-700">Utilizadores Online</span>
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            {professoresEscola.length === 0 ? (
+              <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                Nenhum professor registado nesta escola até ao momento.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {professoresEscola.map((prof, idx) => {
+                  const turmasDoProf = atribuicoes.filter(a => a.professorId === prof.id && a.escolaId === escola.id);
+                  const discProfIds = new Set(turmasDoProf.map(t => t.disciplinaId));
+                  const turmaProfIds = new Set(turmasDoProf.map(t => t.turmaId));
+                  const notasLancadasProf = notasConsolidadas.filter(
+                    n => turmaProfIds.has(n.turmaId) && discProfIds.has(n.disciplinaId)
+                  );
+                  const alunosEsperados = turmasDoProf.reduce((acc, at) => {
+                    return acc + alunos.filter(al => al.turmaId === at.turmaId).length;
+                  }, 0);
+                  const pctLancado = alunosEsperados > 0
+                    ? Math.min(100, Math.round((notasLancadasProf.length / alunosEsperados) * 100))
+                    : (notasLancadasProf.length > 0 ? 100 : 0);
+                  const status = turmasDoProf.length === 0
+                    ? 'Sem Atribuições'
+                    : pctLancado >= 100
+                      ? 'Concluído'
+                      : pctLancado > 0
+                        ? 'Em Andamento'
+                        : 'Pendente';
+
+                  return (
+                    <div key={`${prof.id}-${prof.escolaId || ''}-${idx}`} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="text-xs font-bold text-gray-900">{prof.nomeCompleto}</h4>
+                          <p className="text-[11px] text-gray-500">{prof.cargo || 'Professor'}</p>
+                        </div>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                          status === 'Concluído'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : status === 'Em Andamento'
+                              ? 'bg-amber-50 text-amber-700 border-amber-300'
+                              : 'bg-gray-100 text-gray-600 border-gray-300'
+                        }`}>
+                          {status}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-[11px] text-gray-600 tabular-nums">
+                        <span>Atribuições: {turmasDoProf.length}</span>
+                        <span className="font-semibold text-gray-900">{pctLancado}% Lançado</span>
+                      </div>
+                      <div className="w-full bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                        <div
+                          className={`h-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-gray-300'} rounded-full`}
+                          style={{ width: `${pctLancado}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* DESTAQUE PEDAGÓGICO: MELHORES VS PIORES DISCIPLINAS */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-emerald-200 p-5 shadow-2xs">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+                    <TrendingUp className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-gray-900">Disciplinas em Destaque (Melhores Notas)</h4>
+                    <p className="text-[11px] text-gray-500">Disciplinas com maior média e taxa de aprovação</p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 tabular-nums">
+                  Top {melhoresDisciplinasDashboard.length}
                 </span>
               </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{usuariosOnline.length}</span>
-                <span className="text-[11px] text-emerald-700 font-bold uppercase tracking-wider">Em Direto</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Docentes & Pessoal</span>
-                <button
-                  type="button"
-                  onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-blue-700 font-bold hover:underline cursor-pointer"
-                >
-                  Ver Lista →
-                </button>
-              </div>
+
+              {melhoresDisciplinasDashboard.length === 0 ? (
+                <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                  Ainda sem disciplinas com notas positivas consolidadas ou contínuas.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {melhoresDisciplinasDashboard.map((disc, idx) => (
+                    <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-[11px] shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
+                          <div className="text-[10px] text-gray-500 tabular-nums">
+                            {disc.positivas} positivas em {disc.totalNotas} avaliações ({disc.taxaAprovacao}% aprovação)
+                          </div>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-black text-xs shrink-0 ml-2 tabular-nums">
+                        {disc.media.toFixed(1)} val.
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Card 6: Acessos nas Últimas 24 Horas */}
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Acessos em 24h</span>
-                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                  <Activity className="h-4 w-4" />
+            <div className="bg-white rounded-2xl border border-rose-200 p-5 shadow-2xs">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-2">
+                  <div className="p-2 rounded-xl bg-rose-100 text-rose-700">
+                    <TrendingDown className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-gray-900">Disciplinas com Menor Rendimento (Piores Notas)</h4>
+                    <p className="text-[11px] text-gray-500">Áreas curriculares que exigem intervenção pedagógica</p>
+                  </div>
                 </div>
+                <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200 tabular-nums">
+                  Atenção ({pioresDisciplinasDashboard.length})
+                </span>
               </div>
-              <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950">{usuarios24Horas.length}</span>
-                <span className="text-xs text-blue-700 font-semibold">Sessões</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Atividade diária</span>
-                <button
-                  type="button"
-                  onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-blue-700 font-bold hover:underline cursor-pointer"
-                >
-                  Auditar →
-                </button>
-              </div>
+
+              {pioresDisciplinasDashboard.length === 0 ? (
+                <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                  Nenhuma disciplina com rendimento negativo identificada até ao momento.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {pioresDisciplinasDashboard.map((disc, idx) => (
+                    <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 border border-rose-100 text-xs">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-black text-[11px] shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
+                          <div className="text-[10px] text-rose-800 tabular-nums">
+                            {disc.negativas} negativa(s) · {disc.taxaAprovacao}% aprovação ({disc.totalNotas} notas)
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-lg font-black text-xs shrink-0 ml-2 tabular-nums ${
+                        disc.media < disc.limiar ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                      }`}>
+                        {disc.media.toFixed(1)} val.
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -3001,11 +3073,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <span>Saldo Líquido</span>
                         <CheckCircle2 className="h-4 w-4 text-blue-400" />
                       </div>
-                      <div className="text-xl font-black text-white mt-1 font-mono">
+                      <div className="text-xl font-black text-white mt-1 font-mono tabular-nums">
                         {saldoCaixa.toLocaleString('pt-AO')} Kz
                       </div>
-                      <div className="text-[10px] text-emerald-300 mt-1 font-bold">
-                        Superávit operacional positivo
+                      <div className={`text-[10px] mt-1 font-bold ${saldoCaixa >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                        {saldoCaixa > 0 ? 'Superávit operacional positivo' : saldoCaixa === 0 ? 'Equilíbrio de caixa' : 'Défice operacional'}
                       </div>
                     </div>
 
@@ -3279,100 +3351,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
-                {/* DESTAQUE PEDAGÓGICO: DISCIPLINAS COM MELHORES NOTAS VS DISCIPLINAS COM PIORES NOTAS */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Melhores Disciplinas */}
-                  <div className="bg-white rounded-2xl border border-emerald-200 p-5 shadow-2xs">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
-                          <TrendingUp className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-gray-900">Disciplinas em Destaque (Melhores Notas)</h4>
-                          <p className="text-[11px] text-gray-500">Disciplinas com maior média e taxa de aprovação</p>
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                        Top {melhoresDisciplinasDashboard.length}
-                      </span>
-                    </div>
-
-                    {melhoresDisciplinasDashboard.length === 0 ? (
-                      <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
-                        Ainda sem disciplinas com notas positivas consolidadas ou contínuas.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {melhoresDisciplinasDashboard.map((disc, idx) => (
-                          <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs">
-                            <div className="flex items-center space-x-2.5 min-w-0">
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-[11px] shrink-0">
-                                {idx + 1}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
-                                <div className="text-[10px] text-gray-500">
-                                  {disc.positivas} positivas em {disc.totalNotas} avaliações ({disc.taxaAprovacao}% aprovação)
-                                </div>
-                              </div>
-                            </div>
-                            <span className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-black text-xs shrink-0 ml-2">
-                              {disc.media.toFixed(1)} val.
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Piores Disciplinas */}
-                  <div className="bg-white rounded-2xl border border-rose-200 p-5 shadow-2xs">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="p-2 rounded-xl bg-rose-100 text-rose-700">
-                          <TrendingDown className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-gray-900">Disciplinas com Menor Rendimento (Piores Notas)</h4>
-                          <p className="text-[11px] text-gray-500">Áreas curriculares que exigem intervenção pedagógica</p>
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200">
-                        Atenção ({pioresDisciplinasDashboard.length})
-                      </span>
-                    </div>
-
-                    {pioresDisciplinasDashboard.length === 0 ? (
-                      <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
-                        Nenhuma disciplina com rendimento negativo identificada até ao momento.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {pioresDisciplinasDashboard.map((disc, idx) => (
-                          <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 border border-rose-100 text-xs">
-                            <div className="flex items-center space-x-2.5 min-w-0">
-                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-black text-[11px] shrink-0">
-                                {idx + 1}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
-                                <div className="text-[10px] text-rose-800">
-                                  {disc.negativas} negativa(s) · {disc.taxaAprovacao}% aprovação ({disc.totalNotas} notas)
-                                </div>
-                              </div>
-                            </div>
-                            <span className={`px-2.5 py-1 rounded-lg font-black text-xs shrink-0 ml-2 ${
-                              disc.media < disc.limiar ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-900 border border-amber-300'
-                            }`}>
-                              {disc.media.toFixed(1)} val.
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             );
           })()}
@@ -3730,524 +3708,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             )}
           </div>
 
-          {/* Monitor de Fecho de Pautas dos Professores (Trimestre Ativo) */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <BarChart3 className="h-4 w-4 text-blue-600" />
-                  <span>Estado de Cumprimento do Lançamento de Notas (Trimestre {escola.trimestreActivo})</span>
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Acompanhamento pedagógico de cada docente antes do fecho definitivo das pautas.
-                </p>
-              </div>
-              <button
-                onClick={() => onNavigate('avaliacoes')}
-                className="text-xs font-bold text-blue-700 hover:underline"
-              >
-                Ir para Lançamento de Notas →
-              </button>
-            </div>
-
-            {professoresEscola.length === 0 ? (
-              <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
-                Nenhum professor registado nesta escola até ao momento.
-              </div>
-            ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {professoresEscola.map((prof, idx) => {
-                const turmasDoProf = atribuicoes.filter(a => a.professorId === prof.id && a.escolaId === escola.id);
-                const discProfIds = new Set(turmasDoProf.map(t => t.disciplinaId));
-                const turmaProfIds = new Set(turmasDoProf.map(t => t.turmaId));
-                const notasLancadasProf = notasConsolidadas.filter(
-                  n => turmaProfIds.has(n.turmaId) && discProfIds.has(n.disciplinaId)
-                );
-                const alunosEsperados = turmasDoProf.reduce((acc, at) => {
-                  return acc + alunos.filter(al => al.turmaId === at.turmaId).length;
-                }, 0);
-                const pctLancado = alunosEsperados > 0
-                  ? Math.min(100, Math.round((notasLancadasProf.length / alunosEsperados) * 100))
-                  : (notasLancadasProf.length > 0 ? 100 : 0);
-                const status = turmasDoProf.length === 0
-                  ? 'Sem Atribuições'
-                  : pctLancado >= 100
-                    ? 'Concluído'
-                    : pctLancado > 0
-                      ? 'Em Andamento'
-                      : 'Pendente';
-
-                return (
-                  <div key={`${prof.id}-${prof.escolaId || ''}-${idx}`} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="text-xs font-bold text-gray-900">{prof.nomeCompleto}</h4>
-                        <p className="text-[11px] text-gray-500">{prof.cargo || 'Professor'}</p>
-                      </div>
-                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                        status === 'Concluído' 
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
-                          : status === 'Em Andamento'
-                            ? 'bg-amber-50 text-amber-700 border-amber-300'
-                            : 'bg-gray-100 text-gray-600 border-gray-300'
-                      }`}>
-                        {status}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-[11px] text-gray-600">
-                      <span>Atribuições: {turmasDoProf.length}</span>
-                      <span className="font-semibold text-gray-900">
-                        {pctLancado}% Lançado
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                      <div 
-                        className={`h-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-gray-300'} rounded-full`} 
-                        style={{ width: `${pctLancado}%` }} 
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            )}
-          </div>
-
-          {/* Dois Quadros: Alunos de Mérito vs Alunos que Precisam de Apoio */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Melhores Alunos */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-2">
-                  <Award className="h-4 w-4 text-emerald-600" />
-                  <h3 className="text-sm font-bold text-gray-900">Quadro de Honra Escolar (Top Alunos)</h3>
-                </div>
-                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                  Mérito Académico
-                </span>
-              </div>
-              {melhoresAlunos.length === 0 ? (
-                <div className="p-4 bg-slate-50 border border-dashed border-gray-200 rounded-lg text-center text-xs text-gray-500">
-                  Ainda não existem alunos qualificados com aproveitamento positivo para o Quadro de Honra.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {melhoresAlunos.map((item) => (
-                    <div key={item.aluno.id} className="flex items-center justify-between p-2.5 bg-emerald-50/50 border border-emerald-100 rounded-lg text-xs">
-                      <div>
-                        <div className="font-bold text-gray-900">{item.aluno.nomeCompleto}</div>
-                        <div className="text-[11px] text-gray-500">Matrícula: {item.aluno.codigoMatricula}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-black text-emerald-700 text-sm">{item.media.toFixed(1)} val.</div>
-                        <div className="text-[10px] text-gray-500">
-                          {item.faltas === 0 ? 'Zero faltas' : `${item.faltas} falta(s)`}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Alunos em Risco */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  <h3 className="text-sm font-bold text-gray-900">Alunos em Risco Pedagógico</h3>
-                </div>
-                <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-                  Atenção Especial
-                </span>
-              </div>
-              {alunosEmRisco.length === 0 ? (
-                <div className="p-4 bg-slate-50 border border-dashed border-gray-200 rounded-lg text-center text-xs text-gray-500">
-                  Nenhum aluno identificado abaixo da média ou com excesso de faltas neste momento.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {alunosEmRisco.slice(0, 5).map((item) => (
-                    <div key={item.aluno.id} className="flex items-center justify-between p-2.5 bg-red-50/50 border border-red-100 rounded-lg text-xs">
-                      <div>
-                        <div className="font-bold text-gray-900">{item.aluno.nomeCompleto}</div>
-                        <div className="text-[11px] text-red-700">Média: {item.media.toFixed(1)} valores · {item.faltas} falta(s)</div>
-                      </div>
-                      <button
-                        onClick={() => onNavigate('documentos')}
-                        className="text-xs font-bold text-red-700 hover:underline cursor-pointer"
-                      >
-                        Ver Ficha
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 3. PAINEL DO PROFESSOR (ESPAÇO DOCENTE & TURMAS)                           */}
+      {/* 3. PAINÉIS DEDICADOS POR PERFIL PROFISSIONAL (COBERTURA COMPLETA 18 ROLES) */}
       {/* ========================================================================= */}
-      {isProfessor && (
-        <div className="space-y-6">
-          <div className="bg-white border-2 border-emerald-600 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start sm:items-center space-x-4">
-              <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 shrink-0 shadow-2xs flex items-center justify-center">
-                <InsigniaAngola 
-                  size={48} 
-                  customUrl={configSistema.insigniaNacionalUrl} 
-                  className="object-contain" 
-                />
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Professor / Coordenador de Disciplina
-                  </span>
-                  <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
-                </div>
-                <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
-                  Olá, Professor {currentUser.nomeCompleto}
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
-                  Aceda às suas turmas atribuídas, registo diário de faltas e lançamento da Avaliação Contínua (MAC).
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => onNavigate('avaliacoes')}
-                className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
-              >
-                <BarChart3 className="h-4 w-4" />
-                <span>Lançar Notas da Avaliação</span>
-              </button>
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5"
-              >
-                <FileText className="h-4 w-4" />
-                <span>Pautas da Turma</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Cartões das Minhas Turmas & Disciplinas Atribuídas */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                <GraduationCap className="h-4 w-4 text-emerald-600" />
-                <span>Minhas Turmas Atribuídas & Progresso do Trimestre {escola.trimestreActivo}</span>
-              </h3>
-              <span className="text-xs font-semibold text-gray-500">
-                {turmas.length} turmas lecionadas
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {turmas.map((t) => {
-                const alunosTurma = alunos.filter(a => a.turmaId === t.id);
-                return (
-                  <div key={t.id} className="p-4 rounded-xl border border-gray-200 bg-gray-50 hover:bg-white hover:border-emerald-300 transition-all">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
-                          {t.turno} · {t.sala}
-                        </span>
-                        <h4 className="text-sm font-extrabold text-gray-950 mt-1.5">{t.nome}</h4>
-                        <p className="text-xs text-gray-500">{t.classe} Classe · {t.anoLectivo}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-bold text-gray-900">{alunosTurma.length || 1}</span>
-                        <span className="text-[10px] text-gray-500 block">alunos</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 pt-3 border-t border-gray-200 flex items-center justify-between text-xs">
-                      <button
-                        onClick={() => onNavigate('avaliacoes')}
-                        className="font-bold text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center space-x-1"
-                      >
-                        <span>Lançar MAC</span>
-                        <ArrowUpRight className="h-3 w-3" />
-                      </button>
-                      <button
-                        onClick={() => onNavigate('documentos')}
-                        className="font-semibold text-gray-600 hover:text-gray-900"
-                      >
-                        Ver Pauta
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Gráfico do Professor: Média de Rendimento & Assiduidade das Turmas */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <BarChart3 className="h-4 w-4 text-emerald-600" />
-                  <span>Indicadores de Rendimento e Frequência das Minhas Turmas</span>
-                </h3>
-                <p className="text-xs text-gray-500">Média trimestral das notas (0-20 valores) e percentagem de assiduidade discente</p>
-              </div>
-              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 self-start sm:self-auto">
-                {turmas.length} Turmas Monitorizadas
-              </span>
-            </div>
-
-            <div className="h-60 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={turmas.map(t => {
-                  const notasT = notasConsolidadas.filter(n => n.turmaId === t.id);
-                  const med = notasT.length > 0 
-                    ? Number((notasT.reduce((acc, c) => acc + (c.mediaTrimestral || c.notaFinal || c.mac || 10), 0) / notasT.length).toFixed(1))
-                    : Number((11.5 + (t.nome.charCodeAt(0) % 5)).toFixed(1));
-                  return {
-                    turma: t.nome,
-                    MediaNotas: med,
-                    Assiduidade: 92 + (t.nome.charCodeAt(0) % 7)
-                  };
-                })}>
-                  <XAxis dataKey="turma" stroke="#6b7280" fontSize={11} />
-                  <YAxis yAxisId="left" domain={[0, 20]} stroke="#059669" fontSize={10} unit=" v." />
-                  <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#4f46e5" fontSize={10} unit="%" />
-                  <Tooltip 
-                    formatter={(val: any, name: any) => [name === 'MediaNotas' ? `${val} val.` : `${val}%`, name === 'MediaNotas' ? 'Média da Turma' : 'Taxa de Assiduidade']}
-                    contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                  <Bar yAxisId="left" dataKey="MediaNotas" name="Média das Notas" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar yAxisId="right" dataKey="Assiduidade" name="Taxa de Assiduidade (%)" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Minha Assiduidade & Cumprimento */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <CheckCircle className="h-4 w-4 text-emerald-600" />
-                  <span>Minha Assiduidade e Pontualidade</span>
-                </h3>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                  100% Regular
-                </span>
-              </div>
-              <p className="text-xs text-gray-600">
-                Registo de pontualidade e presença validado pela Subdireção Pedagógica. Sem qualquer falta anotada no trimestre.
-              </p>
-              <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
-                <span className="font-semibold text-emerald-900">Taxa de Presença:</span>
-                <span className="font-black text-emerald-700 text-sm">100%</span>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <Bell className="h-4 w-4 text-blue-600" />
-                  <span>Avisos da Direção Escolar</span>
-                </h3>
-                <span className="text-[11px] text-gray-500 font-medium">Recentes</span>
-              </div>
-              <div className="space-y-2 text-xs">
-                {mensagens.slice(0, 2).map((m) => (
-                  <div key={m.id} className="p-3 bg-blue-50/60 border border-blue-200 rounded-lg">
-                    <div className="font-bold text-blue-950">{m.titulo}</div>
-                    <p className="text-gray-700 mt-1 line-clamp-2">{m.conteudo}</p>
-                    <div className="text-[10px] text-blue-700 mt-1">{m.dataHora}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {isSubdiretorPedagogico && <SubdiretorPedagogicoDashboard {...sharedRoleProps} />}
+      {isSubdiretorAdministrativo && <SubdiretorAdministrativoDashboard {...sharedRoleProps} />}
+      {isProfessor && <ProfessorDashboard {...sharedRoleProps} />}
+      {isSecretaria && <SecretariaDashboard {...sharedRoleProps} />}
+      {isCoordenadorTurno && <CoordenadorTurnoDashboard {...sharedRoleProps} />}
+      {isCoordenadorDisciplina && <CoordenadorDisciplinaDashboard {...sharedRoleProps} />}
+      {isTesoureiro && <TesoureiroDashboard {...sharedRoleProps} />}
+      {isBibliotecario && <BibliotecarioDashboard {...sharedRoleProps} />}
+      {isEstagiario && <EstagiarioDashboard {...sharedRoleProps} />}
+      {isTecnicoTI && <TecnicoTIDashboard {...sharedRoleProps} />}
 
       {/* ========================================================================= */}
-      {/* 4. PAINEL DA SECRETARIA ESCOLAR (MATRÍCULAS & DOCUMENTAÇÃO)               */}
-      {/* ========================================================================= */}
-      {isSecretaria && (
-        <div className="space-y-6">
-          <div className="bg-white border-2 border-indigo-600 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
-                  Secretaria Escolar
-                </span>
-                <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
-              </div>
-              <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
-                Balcão de Atendimento & Serviços Administrativos
-              </h1>
-              <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
-                Emissão oficial de declarações com/sem notas, guias de transferência, passes de estudante e controlo de propinas.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
-              >
-                <FileText className="h-4 w-4" />
-                <span>Emitir Declaração</span>
-              </button>
-              <button
-                onClick={() => onNavigate('estudantes')}
-                className="px-3.5 py-2 text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-300 hover:bg-indigo-100 rounded-xl transition-colors flex items-center space-x-1.5"
-              >
-                <PlusCircle className="h-4 w-4" />
-                <span>Nova Matrícula</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Indicadores da Secretaria */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <span className="text-xs font-bold text-gray-600">Alunos Matriculados</span>
-              <div className="text-2xl font-black text-gray-900 mt-1">{alunos.length}</div>
-              <div className="text-[11px] text-emerald-700 font-semibold mt-1">
-                {alunos.filter(a => a.estado === 'Ativo').length} confirmados no ano activo
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <span className="text-xs font-bold text-gray-600">Novos Ingressos</span>
-              <div className="text-2xl font-black text-indigo-700 mt-1">
-                {alunos.filter(a => a.classeId === 'Iniciacao' || a.classeId === '1ª').length || 1}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-1">Iniciação e 1ª Classe</div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <span className="text-xs font-bold text-gray-600">Transferências Expedidas</span>
-              <div className="text-2xl font-black text-gray-900 mt-1">
-                {alunos.filter(a => a.estado === 'Transferido').length}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-1">Com guia oficial emitida</div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
-              <span className="text-xs font-bold text-gray-600">Propinas Regularizadas</span>
-              <div className="text-2xl font-black text-emerald-700 mt-1">
-                {Math.round((alunos.filter(a => a.propinaStatus === 'Regularizada').length / (alunos.length || 1)) * 100)}%
-              </div>
-              <div className="text-[11px] text-gray-500 mt-1">Comparticipações em dia</div>
-            </div>
-          </div>
-
-          {/* Gráfico Analítico da Secretaria: Fluxo de Movimento Discente & Expediente */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <Activity className="h-4 w-4 text-indigo-600" />
-                  <span>Fluxo Mensal de Matrículas e Expedição de Documentos Oficiais</span>
-                </h3>
-                <p className="text-xs text-gray-500">Volume processado de matrículas, emissão de declarações/certificados e passes escolares</p>
-              </div>
-              <span className="text-[11px] font-bold text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200 self-start sm:self-auto">
-                Ano Lectivo {escola.anoLectivoActivo}
-              </span>
-            </div>
-
-            <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={[
-                  { mes: 'Out', Matriculas: Math.round(alunos.length * 0.35) || 24, Declaracoes: 14, Passes: 32 },
-                  { mes: 'Nov', Matriculas: Math.round(alunos.length * 0.20) || 12, Declaracoes: 22, Passes: 18 },
-                  { mes: 'Dez', Matriculas: Math.round(alunos.length * 0.10) || 6, Declaracoes: 28, Passes: 10 },
-                  { mes: 'Jan', Matriculas: Math.round(alunos.length * 0.25) || 16, Declaracoes: 35, Passes: 42 },
-                  { mes: 'Fev', Matriculas: Math.round(alunos.length * 0.08) || 5, Declaracoes: 26, Passes: 20 },
-                  { mes: 'Mar', Matriculas: Math.round(alunos.length * 0.02) || 2, Declaracoes: 30, Passes: 15 }
-                ]}>
-                  <XAxis dataKey="mes" stroke="#6b7280" fontSize={11} />
-                  <YAxis stroke="#6b7280" fontSize={10} />
-                  <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
-                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
-                  <Area type="monotone" dataKey="Matriculas" name="Novas Matrículas / Confirmações" stroke="#4f46e5" fill="#e0e7ff" />
-                  <Area type="monotone" dataKey="Declaracoes" name="Declarações & Certificados" stroke="#059669" fill="#d1fae5" />
-                  <Area type="monotone" dataKey="Passes" name="Passes de Estudante" stroke="#d97706" fill="#fef3c7" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Atalhos Rápidos de Emissão Documental da Secretaria */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
-            <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center space-x-2">
-              <FileText className="h-4 w-4 text-indigo-600" />
-              <span>Balcão Rápido de Emissão de Documentos</span>
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="p-3.5 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl text-left transition-all group"
-              >
-                <div className="font-bold text-xs text-gray-900 group-hover:text-indigo-900">
-                  Declaração com Notas
-                </div>
-                <div className="text-[11px] text-gray-500 mt-0.5">Para transferências e concursos</div>
-              </button>
-
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="p-3.5 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl text-left transition-all group"
-              >
-                <div className="font-bold text-xs text-gray-900 group-hover:text-indigo-900">
-                  Declaração de Matrícula
-                </div>
-                <div className="text-[11px] text-gray-500 mt-0.5">Sem notas para efeitos de abono</div>
-              </button>
-
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="p-3.5 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl text-left transition-all group"
-              >
-                <div className="font-bold text-xs text-gray-900 group-hover:text-indigo-900">
-                  Guia de Transferência
-                </div>
-                <div className="text-[11px] text-gray-500 mt-0.5">Com carimbo homologado do MED</div>
-              </button>
-
-              <button
-                onClick={() => onNavigate('documentos')}
-                className="p-3.5 bg-gray-50 hover:bg-indigo-50 border border-gray-200 hover:border-indigo-300 rounded-xl text-left transition-all group"
-              >
-                <div className="font-bold text-xs text-gray-900 group-hover:text-indigo-900">
-                  Cartão de Estudante
-                </div>
-                <div className="text-[11px] text-gray-500 mt-0.5">Com foto e código de barras</div>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 5. PAINEL DO ENCARREGADO DE EDUCAÇÃO (PORTAL DOS PAIS)                     */}
+      {/* 4. PAINEL DO ENCARREGADO DE EDUCAÇÃO (PORTAL DOS PAIS)                     */}
       {/* ========================================================================= */}
       {isEncarregado && (
         <div className="space-y-6">
           {(() => {
             const alunoIdPorSufixo = currentUser.id.startsWith('enc-') ? currentUser.id.replace('enc-', '') : null;
-            const alunoDoEncarregado = (alunoIdPorSufixo ? (alunos.find(a => a.id === alunoIdPorSufixo) || todosAlunos.find(a => a.id === alunoIdPorSufixo)) : null) ||
-              alunos.find(a => a.nomeEncarregado?.toLowerCase() === currentUser.nomeCompleto.toLowerCase() || a.telefoneEncarregado === currentUser.telefone) ||
-              alunos[0];
+            const nomeEncNorm = (currentUser.nomeCompleto || '').trim().toLowerCase();
+            const telEncNorm = (currentUser.telefone || '').replace(/\s+/g, '');
 
-            if (!alunoDoEncarregado) {
+            const baseAlunos = alunos.length > 0 ? alunos : todosAlunos.filter(a => a.escolaId === escola.id);
+            const educandosVinculados = baseAlunos.filter((a) => {
+              if (alunoIdPorSufixo && a.id === alunoIdPorSufixo) return true;
+              const nA = (a.nomeEncarregado || a.encarregadoNome || '').trim().toLowerCase();
+              if (nomeEncNorm && nA && nA === nomeEncNorm) return true;
+              const tA = (a.telefoneEncarregado || a.encarregadoTelefone || '').replace(/\s+/g, '');
+              if (telEncNorm && tA && tA === telEncNorm) return true;
+              return false;
+            });
+
+            const listaFinal = educandosVinculados.length > 0
+              ? educandosVinculados
+              : (alunoIdPorSufixo
+                  ? todosAlunos.filter(a => a.id === alunoIdPorSufixo)
+                  : (baseAlunos[0] ? [baseAlunos[0]] : []));
+
+            if (listaFinal.length === 0) {
               return (
                 <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-sm text-gray-500">
                   Nenhum educando associado encontrado no registo desta instituição de ensino.
@@ -4255,15 +3759,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               );
             }
 
+            const alunoDoEncarregado = listaFinal.find(a => a.id === educandoSelecionadoId) || listaFinal[0];
             const turmaDoAluno = turmas.find(t => t.id === alunoDoEncarregado.turmaId) || todasTurmas.find(t => t.id === alunoDoEncarregado.turmaId);
 
             return (
-              <ParentStudentReportView
-                aluno={alunoDoEncarregado}
-                escola={escola}
-                turma={turmaDoAluno}
-                notas={notasConsolidadas}
-              />
+              <div className="space-y-4">
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                        Encarregado de Educação
+                      </span>
+                      <span className="text-xs text-slate-500 font-semibold">{escola.nomeOficial}</span>
+                    </div>
+                    <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                      Portal de Acompanhamento Familiar · {currentUser.nomeCompleto}
+                    </h2>
+                    {listaFinal.length > 1 && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1.5">
+                        <span className="text-xs font-semibold text-slate-500">Educandos vinculados:</span>
+                        {listaFinal.map((ed) => (
+                          <button
+                            key={ed.id}
+                            type="button"
+                            onClick={() => setEducandoSelecionadoId(ed.id)}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                              alunoDoEncarregado.id === ed.id
+                                ? 'bg-blue-700 text-white'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                          >
+                            {ed.nomeCompleto}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('boletins')}
+                      className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span>Boletim Escolar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('pagamentos')}
+                      className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <DollarSign className="h-4 w-4 text-emerald-700 shrink-0" />
+                      <span>Consultar Propinas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('calendario_escolar')}
+                      className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Calendar className="h-4 w-4 text-indigo-600 shrink-0" />
+                      <span>Calendário Escolar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('comunicacao')}
+                      className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <BookOpen className="h-4 w-4 text-blue-600 shrink-0" />
+                      <span>Comunicação</span>
+                    </button>
+                  </div>
+                </div>
+
+                <ParentStudentReportView
+                  aluno={alunoDoEncarregado}
+                  escola={escola}
+                  turma={turmaDoAluno}
+                  notas={notasConsolidadas}
+                />
+              </div>
             );
           })()}
         </div>
@@ -4411,8 +3986,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div>
                   <h3 className="text-base font-black text-white flex items-center space-x-2">
                     <span>Auditório de Utilizadores em Direto & 24 Horas</span>
-                    <span className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[11px] font-bold text-emerald-300">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                    <span className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[11px] font-bold text-emerald-300 tabular-nums">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
                       <span>{usuariosOnline.length} Online</span>
                     </span>
                   </h3>
@@ -4529,7 +4104,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               <td className="py-2.5 px-3 text-right">
                                 {estaRealmenteOnline ? (
                                   <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                                     <span>Online Agora</span>
                                   </span>
                                 ) : (

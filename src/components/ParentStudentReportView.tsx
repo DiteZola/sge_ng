@@ -52,13 +52,25 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
   const notasAluno = todasNotas.filter(n => n.alunoId === aluno.id);
   const disciplinas = dbService.getDisciplinas(escola.id);
 
-  // Calcular assiduidade e faltas reais
-  const faltasTotal = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);
-  const faltasJustificadas = Math.floor(faltasTotal * 0.3); // estimativa proporcional ou registo
-  const faltasInjustificadas = faltasTotal - faltasJustificadas;
-  // Assiduidade estimada com base em 180 tempos letivos por trimestre
-  const aulasEsperadas = 180;
-  const percAssiduidade = Math.max(0, Math.min(100, Math.round(((aulasEsperadas - faltasInjustificadas) / aulasEsperadas) * 100)));
+  // Calcular assiduidade e faltas reais (priorizando chamadas diárias + notas consolidadas)
+  const presencasAluno = dbService.obterPresencasAlunos().filter(p => p.alunoId === aluno.id);
+  const faltasNotas = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);
+  const faltasJustificadas = presencasAluno.length > 0
+    ? presencasAluno.filter(p => p.estado === 'Falta_Justificada').length
+    : 0;
+  const faltasInjustificadas = presencasAluno.length > 0
+    ? presencasAluno.filter(p => p.estado === 'Falta_Injustificada').length
+    : faltasNotas;
+  const faltasTotal = presencasAluno.length > 0
+    ? faltasJustificadas + faltasInjustificadas
+    : faltasNotas;
+  const totalRegistosFrequencia = presencasAluno.length > 0 ? presencasAluno.length : 180;
+  const presentesCount = presencasAluno.length > 0
+    ? presencasAluno.filter(p => p.estado === 'Presente').length
+    : Math.max(0, 180 - faltasInjustificadas);
+  const percAssiduidade = totalRegistosFrequencia > 0
+    ? Math.max(0, Math.min(100, Math.round((presentesCount / totalRegistosFrequencia) * 100)))
+    : 100;
 
   // Emolumentos e Propinas por Pagar
   const transacoesEscola = dbService.getTransacoesFinanceiras(escola.id);
@@ -426,9 +438,9 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           </div>
 
           {ehSegundoCiclo && cursoNome && (
-            <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 min-w-0">
               <span className="text-[10px] uppercase font-bold text-gray-500 block">Curso</span>
-              <span className="text-xs font-black text-gray-900 truncate block mt-0.5">{cursoNome}</span>
+              <span className="text-xs font-black text-gray-900 whitespace-normal break-words block mt-0.5">{cursoNome}</span>
             </div>
           )}
 
@@ -439,106 +451,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
         </div>
       </div>
 
-      {/* 2. Assiduidade e Frequência */}
-      <div>
-        <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider mb-2 flex items-center space-x-1.5">
-          <Clock className="h-4 w-4 text-indigo-600" />
-          <span>Frequência & Assiduidade Escolar</span>
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold text-emerald-800">Assiduidade</span>
-              <Percent className="h-3.5 w-3.5 text-emerald-600" />
-            </div>
-            <div className="text-xl font-black text-emerald-700 mt-1">{percAssiduidade}%</div>
-            <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">
-              {percAssiduidade >= 85 ? 'Comportamento Regular' : 'Atenção aos limites'}
-            </span>
-          </div>
-
-          <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold text-rose-800">Faltas Injustificadas</span>
-              <XCircle className="h-3.5 w-3.5 text-rose-600" />
-            </div>
-            <div className="text-xl font-black text-rose-700 mt-1">{faltasInjustificadas}</div>
-            <span className="text-[10px] text-rose-600 font-semibold block mt-0.5">
-              Impacto direto na nota
-            </span>
-          </div>
-
-          <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold text-blue-800">Faltas Justificadas</span>
-              <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
-            </div>
-            <div className="text-xl font-black text-blue-700 mt-1">{faltasJustificadas}</div>
-            <span className="text-[10px] text-blue-600 font-semibold block mt-0.5">
-              Com atestado averbado
-            </span>
-          </div>
-
-          <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase font-bold text-gray-600">Total Geral de Faltas</span>
-              <Clock className="h-3.5 w-3.5 text-gray-500" />
-            </div>
-            <div className="text-xl font-black text-gray-800 mt-1">{faltasTotal}</div>
-            <span className="text-[10px] text-gray-500 font-semibold block mt-0.5">
-              No ano letivo {escola.anoLectivoActivo}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Situação Financeira / Emolumentos por Pagar */}
-      <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h3 className="text-xs font-black uppercase text-gray-700 tracking-wider flex items-center space-x-1.5">
-              <DollarSign className="h-4 w-4 text-emerald-600" />
-              <span>Emolumentos & Mensalidades por Pagar</span>
-            </h3>
-            <p className="text-[11px] text-gray-500">
-              Controlo de pagamentos para regularização junto da tesouraria escolar.
-            </p>
-          </div>
-
-          <div className="text-right">
-            <span className="text-[10px] uppercase font-bold text-gray-500 block">Total a Pagar</span>
-            <span className={`text-base font-black ${totalEmolumentosPorPagar > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-              {totalEmolumentosPorPagar > 0 ? `${totalEmolumentosPorPagar.toLocaleString('pt-AO')} Kz` : 'Totalmente Regularizado'}
-            </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-2">
-          {mesesVencidos.map(m => {
-            const pago = mesesPagosSet.has(m.nome);
-            return (
-              <div
-                key={m.id}
-                className={`p-2.5 rounded-lg border text-center transition-all ${
-                  pago
-                    ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800'
-                    : 'bg-white border-rose-300 text-rose-800 shadow-xs'
-                }`}
-              >
-                <div className="text-[11px] font-black">{m.nome}</div>
-                <div className="text-[10px] font-semibold text-gray-600">{m.valor.toLocaleString('pt-AO')} Kz</div>
-                <span className={`inline-block mt-1 px-1.5 py-0.5 text-[9px] font-black rounded ${
-                  pago ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-100 text-rose-800'
-                }`}>
-                  {pago ? 'Pago' : 'Por Pagar'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 4. Boletim de Notas Trimestral (Conforme Configuração do Diretor) */}
+      {/* 2. Boletim de Notas Trimestral (Prioridade Principal para Encarregados) */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider flex items-center space-x-1.5">
@@ -547,8 +460,8 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           </h3>
 
           {boletimLiberado && (
-            <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-              Trimestre exibido: {trimestreConfig === 'todos' ? 'Todos os Trimestres' : `${trimestreConfig}º Trimestre`}
+            <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+              {trimestreConfig === 'todos' ? 'Todos os Trimestres' : `${trimestreConfig}º Trimestre`}
             </span>
           )}
         </div>
@@ -574,14 +487,14 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
                     return (
                       <tr key={n.id} className="hover:bg-gray-50/50">
                         <td className="p-3 font-bold text-gray-900">{dNome}</td>
-                        <td className="p-3 text-center font-semibold text-gray-700">{n.trimestre}º</td>
-                        <td className="p-3 text-center font-mono text-gray-700">{n.mac?.toFixed(1) || '—'}</td>
-                        <td className="p-3 text-center font-mono text-gray-700">{(n.npp ?? n.provaTrimestral)?.toFixed(1) || '—'}</td>
-                        <td className={`p-3 text-center font-black ${aprovado ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        <td className="p-3 text-center font-semibold text-gray-700 tabular-nums">{n.trimestre}º</td>
+                        <td className="p-3 text-center font-mono text-gray-700 tabular-nums">{n.mac?.toFixed(1) || '—'}</td>
+                        <td className="p-3 text-center font-mono text-gray-700 tabular-nums">{(n.npp ?? n.provaTrimestral)?.toFixed(1) || '—'}</td>
+                        <td className={`p-3 text-center font-black tabular-nums ${aprovado ? 'text-emerald-700' : 'text-rose-700'}`}>
                           {n.mediaTrimestral?.toFixed(1)}
                         </td>
                         <td className="p-3 text-center">
-                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
                             aprovado ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                           }`}>
                             {aprovado ? 'Aprovado' : 'Não Aprovado'}
@@ -611,6 +524,105 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
             </div>
           </div>
         )}
+      </div>
+
+      {/* 3. Assiduidade e Frequência */}
+      <div>
+        <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider mb-2 flex items-center space-x-1.5">
+          <Clock className="h-4 w-4 text-indigo-600" />
+          <span>Frequência & Assiduidade Escolar</span>
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-emerald-800">Assiduidade</span>
+              <Percent className="h-3.5 w-3.5 text-emerald-600" />
+            </div>
+            <div className="text-xl font-black text-emerald-700 mt-1 tabular-nums">{percAssiduidade}%</div>
+            <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">
+              {percAssiduidade >= 85 ? 'Comportamento Regular' : 'Atenção aos limites'}
+            </span>
+          </div>
+
+          <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-rose-800">Faltas Injustificadas</span>
+              <XCircle className="h-3.5 w-3.5 text-rose-600" />
+            </div>
+            <div className="text-xl font-black text-rose-700 mt-1 tabular-nums">{faltasInjustificadas}</div>
+            <span className="text-[10px] text-rose-600 font-semibold block mt-0.5">
+              Impacto direto na pauta
+            </span>
+          </div>
+
+          <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-blue-800">Faltas Justificadas</span>
+              <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+            </div>
+            <div className="text-xl font-black text-blue-700 mt-1 tabular-nums">{faltasJustificadas}</div>
+            <span className="text-[10px] text-blue-600 font-semibold block mt-0.5">
+              Com justificação averbada
+            </span>
+          </div>
+
+          <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-gray-600">Total Geral de Faltas</span>
+              <Clock className="h-3.5 w-3.5 text-gray-500" />
+            </div>
+            <div className="text-xl font-black text-gray-800 mt-1 tabular-nums">{faltasTotal}</div>
+            <span className="text-[10px] text-gray-500 font-semibold block mt-0.5">
+              Ano letivo {escola.anoLectivoActivo}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Situação Financeira / Emolumentos por Pagar */}
+      <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-black uppercase text-gray-700 tracking-wider flex items-center space-x-1.5">
+              <DollarSign className="h-4 w-4 text-emerald-600" />
+              <span>Emolumentos & Mensalidades por Pagar</span>
+            </h3>
+            <p className="text-[11px] text-gray-500">
+              Controlo de pagamentos para regularização junto da tesouraria escolar.
+            </p>
+          </div>
+
+          <div className="text-right">
+            <span className="text-[10px] uppercase font-bold text-gray-500 block">Total a Pagar</span>
+            <span className={`text-base font-black tabular-nums ${totalEmolumentosPorPagar > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+              {totalEmolumentosPorPagar > 0 ? `${totalEmolumentosPorPagar.toLocaleString('pt-AO')} Kz` : 'Totalmente Regularizado'}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-2">
+          {mesesVencidos.map(m => {
+            const pago = mesesPagosSet.has(m.nome);
+            return (
+              <div
+                key={m.id}
+                className={`p-2.5 rounded-lg border text-center transition-all ${
+                  pago
+                    ? 'bg-emerald-50/70 border-emerald-200 text-emerald-800'
+                    : 'bg-white border-rose-300 text-rose-800 shadow-xs'
+                }`}
+              >
+                <div className="text-[11px] font-black">{m.nome}</div>
+                <div className="text-[10px] font-semibold text-gray-600 tabular-nums">{m.valor.toLocaleString('pt-AO')} Kz</div>
+                <span className={`inline-block mt-1 px-1.5 py-0.5 text-[9px] font-black rounded ${
+                  pago ? 'bg-emerald-200 text-emerald-900' : 'bg-rose-100 text-rose-800'
+                }`}>
+                  {pago ? 'Pago' : 'Por Pagar'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Nota informativa de download */}

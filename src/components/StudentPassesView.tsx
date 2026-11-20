@@ -39,9 +39,12 @@ import {
   CLASSES_ENSINO_PRIMARIO,
   CLASSES_PRIMEIRO_CICLO,
   CLASSES_SEGUNDO_CICLO,
+  CURSOS_SEGUNDO_CICLO,
+  TODAS_CLASSES_OFICIAIS_MED,
   getSalaDaTurma,
   getCursoDaTurma
 } from '../services/academicHierarchyService';
+import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { 
   Escola, 
@@ -72,6 +75,8 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>('TODAS');
   const [selectedTurnoFilter, setSelectedTurnoFilter] = useState<string>('TODOS');
   const [selectedClasseFilter, setSelectedClasseFilter] = useState<string>('TODAS');
+  const [selectedCursoFilter, setSelectedCursoFilter] = useState<string>('TODOS');
+  const [selectedSalaFilter, setSelectedSalaFilter] = useState<string>('TODAS');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [visualizacao, setVisualizacao] = useState<'frente' | 'verso' | 'ambos'>('ambos');
 
@@ -114,27 +119,80 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     return () => window.removeEventListener('sge_dados_atualizados_remoto', syncListener);
   }, [escola.id, escola.configuracaoPasses]);
 
-  const todasClasses = useMemo(() => [
-    'Iniciação',
-    ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
-    ...CLASSES_PRIMEIRO_CICLO,
-    ...CLASSES_SEGUNDO_CICLO
-  ], []);
+  const todasClasses = useMemo(() => {
+    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome);
+    const fromTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
+    const fromAlunos = alunos.map(a => normalizarClasse(a.classeId)).filter(Boolean);
+    return ordenarClassesMED([
+      ...TODAS_CLASSES_OFICIAIS_MED,
+      ...fromCfg,
+      ...fromTurmas,
+      ...fromAlunos
+    ]);
+  }, [escola.id, turmas, alunos]);
+
+  const todosCursos = useMemo(() => {
+    const fromCfg = dbService.getCursos(escola.id).filter(c => c.ativo !== false).map(c => c.nome).filter(Boolean);
+    const fromTurmas = turmas.map(t => t.curso).filter((c): c is string => Boolean(c && c.trim()));
+    const fromAlunos = alunos.map(a => a.curso).filter((c): c is string => Boolean(c && c.trim()));
+    return Array.from(new Set([...fromCfg, ...fromTurmas, ...fromAlunos, ...CURSOS_SEGUNDO_CICLO])).sort((a, b) =>
+      a.localeCompare(b, 'pt', { sensitivity: 'base' })
+    );
+  }, [escola.id, turmas, alunos]);
+
+  const todasSalas = useMemo(() => {
+    const fromCfg = dbService.getSalasAulas(escola.id).filter(s => s.ativo !== false).map(s => s.nome);
+    const fromTurmas = turmas.map(t => t.sala).filter((s): s is string => Boolean(s && s.trim()));
+    return Array.from(new Set([...fromCfg, ...fromTurmas])).sort((a, b) =>
+      a.localeCompare(b, 'pt', { sensitivity: 'base' })
+    );
+  }, [escola.id, turmas]);
+
+  const todosTurnos = useMemo(() => {
+    const fromCfg = dbService.getTurnosConfigs(escola.id).filter(t => t.ativo !== false).map(t => t.nome).filter(Boolean);
+    const fromTurmas = turmas.map(t => t.turno).filter(Boolean);
+    return Array.from(new Set(['Manhã', 'Tarde', 'Noite', ...fromCfg, ...fromTurmas]));
+  }, [escola.id, turmas]);
 
   const turmasDoFiltro = useMemo(() => {
-    return selectedClasseFilter === 'TODAS'
+    const porClasse = selectedClasseFilter === 'TODAS'
       ? turmas
       : getTurmasPorClasse(turmas, selectedClasseFilter);
-  }, [turmas, selectedClasseFilter]);
+    return porClasse.filter(t => {
+      if (selectedCursoFilter !== 'TODOS' && (t.curso || '').trim().toLowerCase() !== selectedCursoFilter.trim().toLowerCase()) {
+        return false;
+      }
+      if (selectedSalaFilter !== 'TODAS' && (t.sala || '').trim().toLowerCase() !== selectedSalaFilter.trim().toLowerCase()) {
+        return false;
+      }
+      if (selectedTurnoFilter !== 'TODOS' && (t.turno || '').trim().toLowerCase() !== selectedTurnoFilter.trim().toLowerCase()) {
+        return false;
+      }
+      return true;
+    });
+  }, [turmas, selectedClasseFilter, selectedCursoFilter, selectedSalaFilter, selectedTurnoFilter]);
 
-  // Filtragem dos Alunos para Geração dos Passes com Hierarquia e Proteção Anti-ReDoS
+  const turmasMap = useMemo(() => new Map(turmas.map(t => [t.id, t])), [turmas]);
+
+  const compararNomesPt = (a: Aluno, b: Aluno) =>
+    (a.nomeCompleto || '').trim().localeCompare((b.nomeCompleto || '').trim(), 'pt', { sensitivity: 'base' });
+
+  // Filtragem dos Alunos ordenada alfabeticamente dentro de cada turma
   const alunosFiltrados = useMemo(() => {
-    return alunos.filter((aluno) => {
-      const turma = turmas.find(t => t.id === aluno.turmaId);
+    const filtrados = alunos.filter((aluno) => {
+      const turma = turmasMap.get(aluno.turmaId);
       const classeNorm = turma ? normalizarClasse(turma.classe) : normalizarClasse(aluno.classeId);
 
       if (selectedClasseFilter !== 'TODAS' && classeNorm !== normalizarClasse(selectedClasseFilter)) {
         return false;
+      }
+      if (selectedCursoFilter !== 'TODOS') {
+        const cursoAl = (turma?.curso || aluno.curso || '').trim().toLowerCase();
+        if (cursoAl !== selectedCursoFilter.trim().toLowerCase()) return false;
+      }
+      if (selectedSalaFilter !== 'TODAS') {
+        const salaAl = (turma?.sala || '').trim().toLowerCase();
+        if (salaAl !== selectedSalaFilter.trim().toLowerCase()) return false;
       }
       if (selectedTurmaId !== 'TODAS' && aluno.turmaId !== selectedTurmaId) {
         return false;
@@ -155,7 +213,15 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       }
       return true;
     });
-  }, [alunos, selectedTurmaId, selectedTurnoFilter, selectedClasseFilter, searchTerm, turmas]);
+
+    return [...filtrados].sort((a, b) => {
+      const tA = turmasMap.get(a.turmaId)?.nome || '';
+      const tB = turmasMap.get(b.turmaId)?.nome || '';
+      const cmpTurma = tA.localeCompare(tB, 'pt', { sensitivity: 'base' });
+      if (cmpTurma !== 0) return cmpTurma;
+      return compararNomesPt(a, b);
+    });
+  }, [alunos, selectedTurmaId, selectedTurnoFilter, selectedClasseFilter, selectedCursoFilter, selectedSalaFilter, searchTerm, turmasMap]);
 
   // Funcionários, Título e Nome Completo do Director Geral (como em todos os documentos oficiais)
   const funcionariosEscola = useMemo(() => dbService.getFuncionarios(escola.id), [escola.id]);
@@ -168,7 +234,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     [escola, funcionariosEscola]
   );
 
-  // Numeração sequencial única por turma (nunca repete Nº 1 para todos os alunos)
+  // Numeração sequencial rigorosamente por ordem alfabética dentro de cada turma
   const mapaNumeroSequencial = useMemo(() => {
     const mapa = new Map<string, number>();
     const porTurma = new Map<string, Aluno[]>();
@@ -179,16 +245,9 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       porTurma.set(chave, arr);
     });
     porTurma.forEach(lista => {
-      const ordenada = [...lista].sort((a, b) => {
-        const ordDiff = (Number(a.numeroOrdem) || 0) - (Number(b.numeroOrdem) || 0);
-        if (ordDiff !== 0) return ordDiff;
-        return (a.nomeCompleto || '').localeCompare(b.nomeCompleto || '', 'pt-AO');
-      });
-      const ordens = ordenada.map(a => Number(a.numeroOrdem) || 0);
-      const todosValidosEUnicos =
-        ordens.every(n => n > 0) && new Set(ordens).size === ordens.length;
+      const ordenada = [...lista].sort(compararNomesPt);
       ordenada.forEach((a, idx) => {
-        mapa.set(a.id, todosValidosEUnicos ? (Number(a.numeroOrdem) || idx + 1) : idx + 1);
+        mapa.set(a.id, idx + 1);
       });
     });
     return mapa;
@@ -310,7 +369,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     const dados = alunosFiltrados.map((aluno, i) => {
       const turma = turmas.find(t => t.id === aluno.turmaId);
       return {
-        'Nº': i + 1,
+        'Nº': mapaNumeroSequencial.get(aluno.id) ?? i + 1,
         'Nº de Processo': aluno.numeroProcesso || aluno.codigoMatricula,
         'Nome Completo': aluno.nomeCompleto,
         'Gênero': aluno.genero === 'M' ? 'Masculino' : 'Feminino',
@@ -459,8 +518,8 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
           </div>
         </div>
 
-        {/* Linha de Filtros Hierárquicos: Classe -> Turma -> Sala -> Curso, Turno, Pesquisa, Visualização */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2 text-xs border-t border-gray-100">
+        {/* Linha de Filtros Hierárquicos: Classe -> Curso -> Sala -> Turma -> Turno -> Pesquisa -> Visualização */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 text-xs border-t border-gray-100">
           <div>
             <label className="block font-bold text-gray-700 mb-1">1. Filtrar por Classe</label>
             <select
@@ -480,8 +539,42 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
           </div>
 
           <div>
+            <label className="block font-bold text-gray-700 mb-1">2. Curso / Área de Formação</label>
+            <select
+              value={selectedCursoFilter}
+              onChange={(e) => {
+                setSelectedCursoFilter(e.target.value);
+                setSelectedTurmaId('TODAS');
+              }}
+              className="w-full p-2 border border-gray-300 rounded-lg font-bold text-purple-900 bg-white"
+            >
+              <option value="TODOS">Todos os Cursos</option>
+              {todosCursos.map(cur => (
+                <option key={`pass-cur-${cur}`} value={cur}>{cur}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-bold text-gray-700 mb-1">3. Sala de Aula</label>
+            <select
+              value={selectedSalaFilter}
+              onChange={(e) => {
+                setSelectedSalaFilter(e.target.value);
+                setSelectedTurmaId('TODAS');
+              }}
+              className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
+            >
+              <option value="TODAS">Todas as Salas</option>
+              {todasSalas.map(s => (
+                <option key={`pass-sala-${s}`} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="block font-bold text-gray-700 mb-1">
-              2. Filtrar por Turma {selectedClasseFilter !== 'TODAS' ? `(${selectedClasseFilter})` : ''}
+              4. Filtrar por Turma {selectedClasseFilter !== 'TODAS' ? `(${selectedClasseFilter})` : ''}
             </label>
             <select
               value={selectedTurmaId}
@@ -493,28 +586,28 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
               </option>
               {turmasDoFiltro.map(t => (
                 <option key={t.id} value={t.id}>
-                  {t.nome} • {t.sala || 'Sala'} {isSegundoCiclo(t.classe) && t.curso ? `• ${t.curso}` : ''}
+                  {t.nome} • {t.sala || 'Sala'} {t.curso ? `• ${t.curso}` : ''}
                 </option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block font-bold text-gray-700 mb-1">3. Turno</label>
+            <label className="block font-bold text-gray-700 mb-1">5. Turno</label>
             <select
               value={selectedTurnoFilter}
               onChange={(e) => setSelectedTurnoFilter(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
             >
               <option value="TODOS">Todos os Turnos</option>
-              <option value="Manhã">Manhã (Matinal)</option>
-              <option value="Tarde">Tarde (Vespertino)</option>
-              <option value="Noite">Noite (Noturno)</option>
+              {todosTurnos.map(tr => (
+                <option key={`pass-trn-${tr}`} value={tr}>{tr}</option>
+              ))}
             </select>
           </div>
 
           <div>
-            <label className="block font-bold text-gray-700 mb-1">4. Face do Cartão</label>
+            <label className="block font-bold text-gray-700 mb-1">6. Face do Cartão</label>
             <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-300 gap-1">
               <button
                 type="button"
@@ -546,9 +639,9 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
             </div>
           </div>
 
-          <div>
+          <div className="sm:col-span-2">
             <label className="block font-bold text-gray-700 mb-1">
-              5. Pesquisa ({alunosFiltrados.length} passes)
+              7. Pesquisa ({alunosFiltrados.length} passes)
             </label>
             <div className="relative">
               <input
@@ -556,7 +649,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(sanitizeSearchInput(e.target.value, 80))}
                 maxLength={80}
-                placeholder="Nome, BI, Processo, Sala..."
+                placeholder="Nome, BI, Processo, Curso ou Sala..."
                 className="w-full p-2 pl-8 border border-gray-300 rounded-lg font-semibold text-gray-900 focus:ring-2 focus:ring-blue-600 focus:outline-none"
               />
               <Search className="h-4 w-4 text-gray-400 absolute left-2.5 top-2.5" />
@@ -636,12 +729,12 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                     return (
                       <div
                         key={aluno.id}
-                        className="bg-white border-2 rounded-xl overflow-hidden shadow-xs hover:shadow-md transition-shadow relative flex flex-col justify-between print:shadow-none print:break-inside-avoid print:border-black h-[260px] min-h-[260px] select-none text-black"
+                        className="bg-white border-2 rounded-xl shadow-xs hover:shadow-md transition-shadow relative flex flex-col justify-between print:shadow-none print:break-inside-avoid print:border-black min-h-[246px] h-auto select-none text-black"
                         style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
                       >
                         {/* FRENTE DO PASSE */}
                         {(visualizacao === 'frente' || visualizacao === 'ambos') && (
-                          <div className="p-2.5 bg-white relative flex flex-col justify-between h-full">
+                          <div className="p-2 bg-white relative flex flex-col justify-between flex-1">
                             {/* Topo Oficial: Província e Município PRIMEIRO, Nome da Escola DEPOIS */}
                             <div className="border-b pb-1 flex items-center justify-between gap-1.5" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
                               {isAtivo('insignia') && (
@@ -655,14 +748,14 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                               )}
 
                               <div className="flex-1 text-center min-w-0 px-1">
-                                <p className="text-[7px] font-black uppercase text-gray-700 tracking-wider leading-tight">
-                                  República de Angola • MED
+                                <p className="text-[7px] font-black uppercase text-gray-700 tracking-wider leading-[1.15]">
+                                  República de Angola
                                 </p>
-                                <p className="text-[7px] font-bold uppercase text-gray-600 truncate leading-tight">
+                                <p className="text-[7px] font-bold uppercase text-gray-600 whitespace-normal break-words leading-[1.15]">
                                   Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
                                 </p>
                                 <h4
-                                  className="text-[8.5px] font-black uppercase truncate leading-tight mt-0.5"
+                                  className="text-[8px] font-black uppercase whitespace-normal break-words leading-[1.15] mt-0.5"
                                   style={{ color: passConfig.corPrimaria || '#1e3a8a' }}
                                 >
                                   {escola.nomeOficial}
@@ -694,18 +787,18 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                             </div>
 
                             {/* Corpo do Cartão: Foto Ampliada (sem Nº 1 por baixo) & Dados Completos + QR Code limpo */}
-                            <div className={`flex items-center gap-2.5 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
+                            <div className={`flex items-center gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
                               {isAtivo('foto') && (
                                 <div className="shrink-0 flex flex-col items-center">
                                   {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
                                     <img
                                       src={aluno.fotoUrl}
                                       alt={aluno.nomeCompleto}
-                                      className="h-[112px] w-[88px] rounded-md object-cover border-2 border-slate-700 shadow-2xs print:border-black"
+                                      className="h-[104px] w-[82px] rounded-md object-cover border-2 border-slate-700 shadow-2xs print:border-black"
                                     />
                                   ) : (
-                                    <div className="h-[112px] w-[88px] rounded-md border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[8px] text-gray-400 font-bold shadow-2xs print:border-black">
-                                      <User className="h-9 w-9 text-gray-300 mb-0.5" />
+                                    <div className="h-[104px] w-[82px] rounded-md border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[8px] text-gray-400 font-bold shadow-2xs print:border-black">
+                                      <User className="h-8 w-8 text-gray-300 mb-0.5" />
                                       <span>FOTO 3x4</span>
                                     </div>
                                   )}
@@ -713,19 +806,19 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                               )}
 
                               {/* Dados Académicos e Pessoais do Aluno */}
-                              <div className="flex-1 min-w-0 text-[8.5px] leading-snug space-y-0.5">
+                              <div className="flex-1 min-w-0 text-[8.5px] leading-[1.2] space-y-0.5">
                                 {isAtivo('nome') && (
-                                  <div className="font-black uppercase truncate text-gray-950 text-[9.5px]">
+                                  <div className="font-black uppercase whitespace-normal break-words text-gray-950 text-[9px] leading-[1.15]">
                                     {aluno.nomeCompleto}
                                   </div>
                                 )}
 
                                 {isAtivo('classeTurma') && (
                                   <>
-                                    <div className="text-gray-800">
+                                    <div className="text-gray-800 whitespace-normal break-words">
                                       Classe: <strong className="text-gray-950">{classeExibida}</strong> • <strong className="font-mono text-gray-950">Nº {numeroSequencial}</strong>
                                     </div>
-                                    <div className="text-gray-800 truncate">
+                                    <div className="text-gray-800 whitespace-normal break-words">
                                       Turma: <strong className="text-gray-950">{turma?.nome || '—'}</strong>
                                       {isAtivo('turno') && (
                                         <> • Turno: <strong className="text-gray-950">{turma?.turno || 'Manhã'}</strong></>
@@ -735,25 +828,25 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                                 )}
 
                                 {ehSegundoCicloPass && isAtivo('curso') && (
-                                  <div className="text-gray-700 truncate text-[8px]">
+                                  <div className="text-gray-700 whitespace-normal break-words text-[8px]">
                                     Curso: <strong className="text-gray-950">{aluno.curso || turma?.curso || 'Geral'}</strong>
                                   </div>
                                 )}
 
                                 {isAtivo('numeroBI') && (
-                                  <div className="text-gray-800 font-mono truncate">
+                                  <div className="text-gray-800 font-mono whitespace-normal break-words text-[8px]">
                                     {docInfo.rotulo} <strong className="text-gray-950">{docInfo.numero}</strong>
                                   </div>
                                 )}
 
                                 {isAtivo('numeroProcesso') && (
-                                  <div className="text-gray-700 font-mono truncate text-[8px]">
+                                  <div className="text-gray-700 font-mono whitespace-normal break-words text-[8px]">
                                     Proc. Nº: <strong className="text-gray-950">{numProcesso}</strong>
                                   </div>
                                 )}
 
                                 {isAtivo('encarregado') && aluno.encarregadoNome && (
-                                  <div className="text-gray-600 truncate text-[7.5px]">
+                                  <div className="text-gray-600 whitespace-normal break-words text-[7.5px]">
                                     Enc.: {aluno.encarregadoNome}
                                   </div>
                                 )}
@@ -764,7 +857,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                                 <div className="shrink-0 flex items-center justify-center">
                                   <OfficialQrCode
                                     value={gerarPayloadQrEstudante(aluno, escola, turma)}
-                                    size={46}
+                                    size={44}
                                     className="border-gray-300"
                                   />
                                 </div>
@@ -772,7 +865,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                             </div>
 
                             {/* Rodapé Oficial: Validade, Título e Nome Completo do Director da Escola */}
-                            <div className="pt-1 border-t border-gray-200 flex items-end justify-between gap-2 text-[7.5px] text-gray-700">
+                            <div className="pt-1 mt-1 border-t border-gray-200 flex items-end justify-between gap-1.5 text-[7.5px] text-gray-700">
                               {isAtivo('validade') && (
                                 <div className="shrink-0">
                                   <span>Val: <strong className="text-gray-950">{dataValidade || '—'}</strong></span>
@@ -781,34 +874,30 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                               {isAtivo('assinaturaDiretor') && (
                                 <div className="flex-1 flex flex-col items-center justify-end text-center min-w-0">
-                                  <span className="text-[6.5px] font-bold uppercase text-gray-800 leading-none mb-0.5 truncate max-w-full">
+                                  <span className="text-[6.5px] font-bold uppercase text-gray-800 leading-[1.1] mb-0.5 whitespace-normal break-words max-w-full">
                                     {tituloDiretorOficial}
                                   </span>
                                   {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
                                     <img
                                       src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
                                       alt="Assinatura do Director"
-                                      className="h-4 w-auto max-w-[75px] object-contain my-0.5"
+                                      className="h-3.5 w-auto max-w-[75px] object-contain my-0.5"
                                     />
                                   ) : (
                                     <div className="border-b border-gray-500 w-24 my-1"></div>
                                   )}
-                                  <span className="font-bold text-gray-950 text-[7px] leading-tight truncate max-w-full">
+                                  <span className="font-bold text-gray-950 text-[7px] leading-[1.1] whitespace-normal break-words max-w-full">
                                     {nomeDiretorCompleto}
                                   </span>
                                 </div>
                               )}
-
-                              <div className="font-mono text-[6.5px] text-gray-500 font-bold uppercase shrink-0">
-                                MED ANGOLA
-                              </div>
                             </div>
                           </div>
                         )}
 
                         {/* VERSO DO PASSE (REGRAS E AVISOS) */}
-                        {visualizacao === 'verso' && (
-                          <div className="p-3 bg-gray-50 relative flex flex-col justify-between h-full text-[8px] leading-tight text-gray-700">
+                        {(visualizacao === 'verso' || visualizacao === 'ambos') && (
+                          <div className={`p-2.5 bg-gray-50 relative flex flex-col justify-between flex-1 text-[8px] leading-tight text-gray-700 ${visualizacao === 'ambos' ? 'border-t border-dashed border-gray-400' : ''}`}>
                             <div>
                               <div className="text-center font-black uppercase text-[8.5px] border-b pb-1 text-gray-900">
                                 Regulamento de Uso do Cartão
@@ -825,7 +914,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                                 <span>Emissão: <strong>{dataEmissao}</strong></span>
                               </div>
                               <div className="text-right">
-                                <span className="font-bold">Direcção Municipal de Educação</span>
+                                <span className="font-bold">{escola.nomeOficial}</span>
                               </div>
                             </div>
                           </div>
@@ -883,10 +972,10 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                   
                   {/* Paleta Rápida Angola */}
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1.5">Paletas Oficiais MED Angola:</label>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1.5">Paletas de Cores:</label>
                     <div className="flex flex-wrap gap-2">
                       {[
-                        { nome: 'Azul Real MED', prim: '#1e3a8a', sec: '#d97706' },
+                        { nome: 'Azul Real', prim: '#1e3a8a', sec: '#d97706' },
                         { nome: 'Verde Esperança', prim: '#065f46', sec: '#f59e0b' },
                         { nome: 'Bordô Académico', prim: '#881337', sec: '#d97706' },
                         { nome: 'Dourado Imperial', prim: '#78350f', sec: '#fbbf24' },
@@ -1032,7 +1121,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
 
                   {/* Cartão Preview FRENTE */}
                   <div 
-                    className="w-[340px] h-[245px] bg-white border-2 rounded-xl p-2.5 shadow-md flex flex-col justify-between select-none"
+                    className="w-[340px] min-h-[245px] h-auto bg-white border-2 rounded-xl p-2.5 shadow-md flex flex-col justify-between select-none"
                     style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
                   >
                     {/* Topo Oficial: Província e Município antes do Nome da Escola */}
@@ -1048,11 +1137,11 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                       )}
 
                       <div className="flex-1 text-center min-w-0 px-1">
-                        <p className="text-[6.5px] font-black uppercase text-gray-600 tracking-wider leading-tight">República de Angola • MED</p>
-                        <p className="text-[6.5px] font-bold uppercase text-gray-500 truncate leading-tight">
+                        <p className="text-[6.5px] font-black uppercase text-gray-600 tracking-wider leading-tight">República de Angola</p>
+                        <p className="text-[6.5px] font-bold uppercase text-gray-500 whitespace-normal break-words leading-tight">
                           Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
                         </p>
-                        <h4 className="text-[8px] font-black uppercase truncate leading-tight" style={{ color: passConfig.corPrimaria }}>
+                        <h4 className="text-[8px] font-black uppercase whitespace-normal break-words leading-tight" style={{ color: passConfig.corPrimaria }}>
                           {escola.nomeOficial}
                         </h4>
                       </div>
@@ -1092,28 +1181,28 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                       )}
 
                       <div className="flex-1 min-w-0 text-[8px] leading-tight space-y-0.5">
-                        {isAtivo('nome') && <div className="font-black uppercase truncate text-gray-900">{alunoExemplo.nomeCompleto}</div>}
+                        {isAtivo('nome') && <div className="font-black uppercase whitespace-normal break-words text-gray-900">{alunoExemplo.nomeCompleto}</div>}
                         {isAtivo('classeTurma') && (
                           <>
-                            <div className="text-gray-700">
+                            <div className="text-gray-700 whitespace-normal break-words">
                               Classe: <strong>{turmaExemplo?.classe || alunoExemplo.classeId || '10ª'}</strong> • <strong className="font-mono">Nº {mapaNumeroSequencial.get(alunoExemplo.id) || 1}</strong>
                             </div>
-                            <div className="text-gray-700 truncate">
+                            <div className="text-gray-700 whitespace-normal break-words">
                               Turma: <strong>{turmaExemplo?.nome || 'Turma A'}</strong>
                               {isAtivo('turno') && <> • Turno: <strong>{turmaExemplo?.turno || 'Manhã'}</strong></>}
                             </div>
                           </>
                         )}
                         {isSegundoCiclo(normalizarClasse(turmaExemplo?.classe || alunoExemplo.classeId || '')) && isAtivo('curso') && (
-                          <div className="text-gray-700 truncate">Curso: <strong>{alunoExemplo.curso || turmaExemplo?.curso || 'Geral'}</strong></div>
+                          <div className="text-gray-700 whitespace-normal break-words">Curso: <strong>{alunoExemplo.curso || turmaExemplo?.curso || 'Geral'}</strong></div>
                         )}
                         {isAtivo('numeroBI') && (
-                          <div className="text-gray-700 font-mono truncate">
+                          <div className="text-gray-700 font-mono whitespace-normal break-words">
                             {formatarDocumentoIdentificacao(alunoExemplo).rotulo} <strong>{formatarDocumentoIdentificacao(alunoExemplo).numero}</strong>
                           </div>
                         )}
-                        {isAtivo('numeroProcesso') && <div className="text-gray-700 font-mono truncate">Proc: <strong>{alunoExemplo.numeroProcesso}</strong></div>}
-                        {isAtivo('encarregado') && <div className="text-gray-600 truncate text-[7px]">Enc: {alunoExemplo.encarregadoNome}</div>}
+                        {isAtivo('numeroProcesso') && <div className="text-gray-700 font-mono whitespace-normal break-words">Proc: <strong>{alunoExemplo.numeroProcesso}</strong></div>}
+                        {isAtivo('encarregado') && <div className="text-gray-600 whitespace-normal break-words text-[7px]">Enc: {alunoExemplo.encarregadoNome}</div>}
                       </div>
 
                       {isAtivo('qrCode') && (
@@ -1131,7 +1220,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                       {isAtivo('validade') && <span>Val: <strong>{dataValidade || '—'}</strong></span>}
                       {isAtivo('assinaturaDiretor') && (
                         <div className="flex-1 flex flex-col items-center min-w-0">
-                          <span className="text-[6px] font-bold uppercase text-gray-700 truncate max-w-full">{tituloDiretorOficial}</span>
+                          <span className="text-[6px] font-bold uppercase text-gray-700 whitespace-normal break-words text-center max-w-full">{tituloDiretorOficial}</span>
                           {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
                             <img
                               src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
@@ -1141,10 +1230,9 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                           ) : (
                             <div className="border-b border-gray-400 w-16 my-0.5" />
                           )}
-                          <span className="font-bold text-gray-900 text-[6.5px] truncate max-w-full">{nomeDiretorCompleto}</span>
+                          <span className="font-bold text-gray-900 text-[6.5px] whitespace-normal break-words text-center max-w-full">{nomeDiretorCompleto}</span>
                         </div>
                       )}
-                      <span className="font-mono text-[6px] text-gray-500 font-bold uppercase">MED ANGOLA</span>
                     </div>
                   </div>
                 </div>

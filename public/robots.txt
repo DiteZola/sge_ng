@@ -1,0 +1,8 @@
+# SGE-NG - Sistema de Gestão Escolar de Angola
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /*.json$
+
+Sitemap: /sitemap.xml

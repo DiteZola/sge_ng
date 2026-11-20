@@ -37,8 +37,11 @@ import {
   normalizarClasse, 
   formatarCicloPorClasse,
   ordenarDisciplinas,
-  isClasseFinal
+  isClasseFinal,
+  CURSOS_SEGUNDO_CICLO,
+  disciplinaPertenceAoCurso
 } from '../services/academicHierarchyService';
+import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
@@ -228,6 +231,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   const [filtroTurno, setFiltroTurno] = useState<string>('TODOS');
   const [filtroCurso, setFiltroCurso] = useState<string>('TODOS');
   const [filtroClasse, setFiltroClasse] = useState<string>('TODAS');
+  const [filtroSala, setFiltroSala] = useState<string>('TODAS');
   const [filtroTurmaId, setFiltroTurmaId] = useState<string>('TODAS');
   const [filtroDisciplinaId, setFiltroDisciplinaId] = useState<string>('TODAS');
 
@@ -238,6 +242,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     setFiltroDisciplinaId('TODAS');
     setFiltroClasse('TODAS');
     setFiltroCurso('TODOS');
+    setFiltroSala('TODAS');
     if (novoEscId === 'TODAS') {
       setFiltroAno('TODOS');
       setFiltroTrimestre('anual');
@@ -335,48 +340,73 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     return ordenarDisciplinas(disciplinas);
   }, [disciplinas, docenteAlvo, disciplinasDocenteIds, isCoordenadorDisciplina, modoVisao, currentUser]);
 
-  // Cursos e Classes disponíveis
+  // Cursos, Classes, Salas e Turnos disponíveis (dinâmicos da Direção + Turmas)
   const cursosDisponiveis = useMemo(() => {
     const setCursos = new Set<string>();
+    const cfg = isVisaoRedeTodas
+      ? dbService.getCursos()
+      : dbService.getCursos(escolaExibida.id);
+    cfg.filter(c => c.ativo !== false).forEach(c => {
+      if (c.nome && c.nome.trim()) setCursos.add(c.nome.trim());
+    });
     turmasPermitidas.forEach(t => {
       if (t.curso && t.curso.trim()) setCursos.add(t.curso.trim());
     });
-    return Array.from(setCursos).sort();
-  }, [turmasPermitidas]);
+    CURSOS_SEGUNDO_CICLO.forEach(c => setCursos.add(c));
+    return Array.from(setCursos).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
 
   const classesDisponiveis = useMemo(() => {
-    const setClasses = new Set<string>();
-    turmasPermitidas.forEach(t => {
-      if (t.classe) setClasses.add(t.classe);
-    });
-    return Array.from(setClasses).sort();
-  }, [turmasPermitidas]);
+    const cfg = isVisaoRedeTodas
+      ? dbService.getClassesConfigs()
+      : dbService.getClassesConfigs(escolaExibida.id);
+    const fromCfg = cfg.filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome)).filter(Boolean);
+    const fromTurmas = turmasPermitidas.map(t => normalizarClasse(t.classe)).filter(Boolean);
+    return ordenarClassesMED([...fromCfg, ...fromTurmas]);
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
+
+  const salasDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    const cfg = isVisaoRedeTodas ? dbService.getSalasAulas() : dbService.getSalasAulas(escolaExibida.id);
+    cfg.filter(s => s.ativo !== false).forEach(s => { if (s.nome) set.add(s.nome); });
+    turmasPermitidas.forEach(t => { if (t.sala && t.sala.trim()) set.add(t.sala.trim()); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
+
+  const turnosDisponiveis = useMemo(() => {
+    const set = new Set<string>(['Manhã', 'Tarde', 'Noite']);
+    const cfg = isVisaoRedeTodas ? dbService.getTurnosConfigs() : dbService.getTurnosConfigs(escolaExibida.id);
+    cfg.filter(t => t.ativo !== false).forEach(t => { if (t.nome) set.add(t.nome); });
+    turmasPermitidas.forEach(t => { if (t.turno) set.add(t.turno); });
+    return Array.from(set);
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
 
   // Turmas filtradas
   const turmasFiltradas = useMemo(() => {
     return turmasPermitidas.filter(t => {
       if (filtroAno && filtroAno !== 'TODOS' && t.anoLectivo && t.anoLectivo !== filtroAno) return false;
-      if (filtroTurno !== 'TODOS' && t.turno && !t.turno.toLowerCase().includes(filtroTurno.toLowerCase())) return false;
+      if (filtroTurno !== 'TODOS' && (!t.turno || !t.turno.toLowerCase().includes(filtroTurno.toLowerCase()))) return false;
       if (filtroCiclo !== 'TODOS') {
         const cicloTurma = formatarCicloPorClasse(t.classe);
         if (!cicloTurma.toLowerCase().includes(filtroCiclo.toLowerCase())) return false;
       }
-      if (filtroCurso !== 'TODOS' && t.curso !== filtroCurso) return false;
+      if (filtroCurso !== 'TODOS' && (t.curso || '').trim().toLowerCase() !== filtroCurso.trim().toLowerCase()) return false;
+      if (filtroSala !== 'TODAS' && (t.sala || '').trim().toLowerCase() !== filtroSala.trim().toLowerCase()) return false;
       if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
       if (filtroTurmaId !== 'TODAS' && t.id !== filtroTurmaId) return false;
       return true;
     });
-  }, [turmasPermitidas, filtroAno, filtroTurno, filtroCiclo, filtroCurso, filtroClasse, filtroTurmaId]);
+  }, [turmasPermitidas, filtroAno, filtroTurno, filtroCiclo, filtroCurso, filtroSala, filtroClasse, filtroTurmaId]);
 
   // Alunos das turmas filtradas
   const alunosFiltrados = useMemo(() => {
     const idsTurmas = new Set(turmasFiltradas.map(t => t.id));
-    if (filtroClasse === 'TODAS' && filtroCiclo === 'TODOS' && filtroCurso === 'TODOS' && filtroTurno === 'TODOS' && filtroTurmaId === 'TODAS' && (!filtroAno || filtroAno === 'TODOS')) {
+    if (filtroClasse === 'TODAS' && filtroCiclo === 'TODOS' && filtroCurso === 'TODOS' && filtroTurno === 'TODOS' && filtroSala === 'TODAS' && filtroTurmaId === 'TODAS' && (!filtroAno || filtroAno === 'TODOS')) {
       const escolaIds = new Set(turmasFiltradas.map(t => t.escolaId));
       return alunos.filter(a => idsTurmas.has(a.turmaId) || (!a.turmaId && (escolaIds.has(a.escolaId) || isVisaoRedeTodas)));
     }
     return alunos.filter(a => idsTurmas.has(a.turmaId));
-  }, [alunos, turmasFiltradas, filtroClasse, filtroCiclo, filtroCurso, filtroTurno, filtroTurmaId, filtroAno, isVisaoRedeTodas]);
+  }, [alunos, turmasFiltradas, filtroClasse, filtroCiclo, filtroCurso, filtroTurno, filtroSala, filtroTurmaId, filtroAno, isVisaoRedeTodas]);
 
   // Notas aplicáveis aos filtros
   const notasFiltradas = useMemo(() => {
@@ -794,9 +824,16 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         });
     }
 
-    const refClasse = filtroClasse !== 'TODAS' ? filtroClasse : (turmasFiltradas[0]?.classe || '10ª');
-    const refCurso = filtroCurso !== 'TODOS' ? filtroCurso : turmasFiltradas[0]?.curso;
-    const disciplinasDaGrelha = filtrarDisciplinasDaClasse(disciplinasPermitidas, refClasse, refCurso);
+    const disciplinasDaGrelha =
+      filtroClasse !== 'TODAS'
+        ? filtrarDisciplinasDaClasse(
+            disciplinasPermitidas,
+            filtroClasse,
+            filtroCurso !== 'TODOS' ? filtroCurso : turmasFiltradas[0]?.curso
+          )
+        : filtroCurso !== 'TODOS'
+        ? disciplinasPermitidas.filter(d => disciplinaPertenceAoCurso(d, filtroCurso))
+        : disciplinasPermitidas;
     const disciplinasFinais = filtroDisciplinaId !== 'TODAS'
       ? disciplinasDaGrelha.filter(d => d.id === filtroDisciplinaId)
       : disciplinasDaGrelha;
@@ -952,11 +989,24 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       const turmasEsc = propTurmas.filter(t => {
         if (t.escolaId !== esc.id) return false;
         if (filtroAno && filtroAno !== 'TODOS' && t.anoLectivo && t.anoLectivo !== filtroAno) return false;
-        if (filtroTurno !== 'TODOS' && t.turno && !t.turno.toLowerCase().includes(filtroTurno.toLowerCase())) return false;
+        if (filtroTurno !== 'TODOS' && (!t.turno || !t.turno.toLowerCase().includes(filtroTurno.toLowerCase()))) return false;
+        if (filtroCiclo !== 'TODOS' && !formatarCicloPorClasse(t.classe).toLowerCase().includes(filtroCiclo.toLowerCase())) return false;
+        if (filtroCurso !== 'TODOS' && (t.curso || '').trim().toLowerCase() !== filtroCurso.trim().toLowerCase()) return false;
+        if (filtroSala !== 'TODAS' && (t.sala || '').trim().toLowerCase() !== filtroSala.trim().toLowerCase()) return false;
         if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
         return true;
       });
-      const alunosEsc = propAlunos.filter(a => a.escolaId === esc.id);
+      const turmasEscIds = new Set(turmasEsc.map(t => t.id));
+      const temFiltroTurma =
+        (filtroAno && filtroAno !== 'TODOS') ||
+        filtroTurno !== 'TODOS' ||
+        filtroCiclo !== 'TODOS' ||
+        filtroCurso !== 'TODOS' ||
+        filtroSala !== 'TODAS' ||
+        filtroClasse !== 'TODAS';
+      const alunosEsc = propAlunos.filter(
+        a => a.escolaId === esc.id && (!temFiltroTurma || turmasEscIds.has(a.turmaId))
+      );
       const matriculadosM = alunosEsc.filter(a => a.genero === 'M').length;
       const matriculadosF = alunosEsc.filter(a => a.genero === 'F').length;
       const desistentes = alunosEsc.filter(a => a.estado === 'Desistente' || a.estado === 'Transferido').length;
@@ -1014,7 +1064,51 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         assiduidadePct
       };
     });
-  }, [isAdminGeral, escolas, propTurmas, propAlunos, propNotas, propFuncionarios, filtroAno, filtroTrimestre, filtroTurno, filtroClasse]);
+  }, [isAdminGeral, escolas, propTurmas, propAlunos, propNotas, propFuncionarios, filtroAno, filtroTrimestre, filtroTurno, filtroCiclo, filtroCurso, filtroSala, filtroClasse]);
+
+  // Rendimento Agregado por Curso & Área de Formação
+  const rendimentoPorCurso = useMemo(() => {
+    const cursosConfigsMap = new Map<string, string>();
+    const cursosCfg = isVisaoRedeTodas ? dbService.getCursos() : dbService.getCursos(escolaExibida.id);
+    cursosCfg.forEach(c => {
+      if (c.nome) cursosConfigsMap.set(c.nome.trim().toLowerCase(), c.area || '');
+    });
+
+    const grupos = new Map<string, { curso: string; area: string; turmasCount: number; matriculados: number; avaliados: number; aprovados: number; somaMedias: number }>();
+
+    turmasFiltradas.forEach(t => {
+      const cursoNome = (t.curso || 'Ensino Geral').trim();
+      const key = cursoNome.toLowerCase();
+      const areaNome = t.areaFormacao || cursosConfigsMap.get(key) || (cursoNome === 'Ensino Geral' ? 'Formação Geral' : 'Especialidade');
+      if (!grupos.has(key)) {
+        grupos.set(key, { curso: cursoNome, area: areaNome, turmasCount: 0, matriculados: 0, avaliados: 0, aprovados: 0, somaMedias: 0 });
+      }
+      const g = grupos.get(key)!;
+      g.turmasCount++;
+      const alunosTurma = alunos.filter(a => a.turmaId === t.id);
+      g.matriculados += alunosTurma.length;
+      const escala = obterInformacaoEscala(t.classe);
+
+      alunosTurma.forEach(a => {
+        if (a.estado === 'Desistente') return;
+        const notasA = notasFiltradas.filter(n => n.alunoId === a.id);
+        if (notasA.length > 0) {
+          const media = notasA.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0) / notasA.length;
+          g.avaliados++;
+          g.somaMedias += media;
+          if (media >= escala.notaAprovacao) g.aprovados++;
+        }
+      });
+    });
+
+    return Array.from(grupos.values())
+      .map(g => ({
+        ...g,
+        taxaAprovacao: g.avaliados > 0 ? Number(((g.aprovados / g.avaliados) * 100).toFixed(1)) : 0,
+        mediaGeral: g.avaliados > 0 ? (g.somaMedias / g.avaliados).toFixed(1) : '—'
+      }))
+      .sort((a, b) => b.matriculados - a.matriculados || a.curso.localeCompare(b.curso, 'pt'));
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasFiltradas, alunos, notasFiltradas]);
 
   // Ações
   const handleImprimir = () => {
@@ -1542,7 +1636,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         )}
 
         {/* BARRA DE FILTROS INTERATIVOS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mt-6 pt-5 border-t border-slate-100">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-9 gap-3 mt-6 pt-5 border-t border-slate-100">
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
               <Calendar className="w-3.5 h-3.5 text-indigo-600" />
@@ -1611,9 +1705,9 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
               className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
             >
               <option value="TODOS">Todos os Turnos</option>
-              <option value="Manhã">Manhã</option>
-              <option value="Tarde">Tarde</option>
-              <option value="Noite">Noite / Pós-laboral</option>
+              {turnosDisponiveis.map(tr => (
+                <option key={tr} value={tr}>{tr}</option>
+              ))}
             </select>
           </div>
 
@@ -1650,6 +1744,26 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
               <option value="TODAS">Todas as Classes ({classesDisponiveis.length})</option>
               {classesDisponiveis.map(c => (
                 <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+              <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Sala</span>
+            </label>
+            <select
+              value={filtroSala}
+              onChange={e => {
+                setFiltroSala(e.target.value);
+                setFiltroTurmaId('TODAS');
+              }}
+              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="TODAS">Todas as Salas ({salasDisponiveis.length})</option>
+              {salasDisponiveis.map(s => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
@@ -1801,13 +1915,13 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           <p className="text-xs font-black uppercase tracking-widest text-slate-900">REPÚBLICA DE ANGOLA</p>
           <p className="text-[11px] font-bold uppercase text-slate-800">
             {isVisaoRedeTodas
-              ? 'MINISTÉRIO DA EDUCAÇÃO • ADMINISTRAÇÃO CENTRAL DA REDE ESCOLAR'
+              ? 'ADMINISTRAÇÃO CENTRAL DA REDE ESCOLAR'
               : (escolaExibida.governoProvincial || `GOVERNO PROVINCIAL DE ${(escolaExibida.provincia || 'ANGOLA').toUpperCase()}`)}
           </p>
           <p className="text-[11px] font-bold uppercase text-slate-700">
             {isVisaoRedeTodas
-              ? `DIRECÇÃO NACIONAL DE SUPERVISÃO ESCOLAR (${escolas.length} INSTITUIÇÕES)`
-              : (escolaExibida.gabineteEducacao || `GABINETE PROVINCIAL / DIRECÇÃO MUNICIPAL DE ${(escolaExibida.municipio || 'ANGOLA').toUpperCase()}`)}
+              ? `SUPERVISÃO GLOBAL DE ESCOLAS (${escolas.length} INSTITUIÇÕES)`
+              : (escolaExibida.gabineteEducacao || `ADMINISTRAÇÃO MUNICIPAL DE ${(escolaExibida.municipio || 'ANGOLA').toUpperCase()}`)}
           </p>
           <h2 className="text-base sm:text-lg font-black uppercase text-slate-950 pt-0.5">
             {isVisaoRedeTodas
@@ -2017,6 +2131,51 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         </div>
       )}
 
+      {/* RENDIMENTO POR CURSO & ÁREA DE FORMAÇÃO */}
+      {rendimentoPorCurso.length > 0 && (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center space-x-2">
+              <GraduationCap className="w-5 h-5 text-purple-600" />
+              <span>Aproveitamento por Curso &amp; Área de Formação</span>
+            </h2>
+            <span className="text-xs font-bold text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded-full">
+              {rendimentoPorCurso.length} cursos / áreas
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border border-slate-200 divide-y divide-slate-200 rounded-lg overflow-hidden">
+              <thead className="bg-slate-50 font-bold text-slate-700 text-[11px]">
+                <tr>
+                  <th className="p-2.5 border-r border-slate-200">Curso / Especialidade</th>
+                  <th className="p-2.5 border-r border-slate-200">Área de Formação</th>
+                  <th className="p-2.5 border-r border-slate-200 text-center">Turmas</th>
+                  <th className="p-2.5 border-r border-slate-200 text-center">Matriculados</th>
+                  <th className="p-2.5 border-r border-slate-200 text-center">Avaliados</th>
+                  <th className="p-2.5 border-r border-slate-200 text-center">Aprovados</th>
+                  <th className="p-2.5 border-r border-slate-200 text-center">% Aprovação</th>
+                  <th className="p-2.5 text-center">Média Geral</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rendimentoPorCurso.map((rc) => (
+                  <tr key={rc.curso} className="hover:bg-purple-50/30">
+                    <td className="p-2.5 border-r border-slate-100 font-bold text-slate-900">{rc.curso}</td>
+                    <td className="p-2.5 border-r border-slate-100 text-slate-600 font-medium">{rc.area}</td>
+                    <td className="p-2.5 border-r border-slate-100 text-center font-mono font-bold">{rc.turmasCount}</td>
+                    <td className="p-2.5 border-r border-slate-100 text-center font-mono">{rc.matriculados}</td>
+                    <td className="p-2.5 border-r border-slate-100 text-center font-mono">{rc.avaliados}</td>
+                    <td className="p-2.5 border-r border-slate-100 text-center font-mono font-bold text-emerald-700">{rc.aprovados}</td>
+                    <td className="p-2.5 border-r border-slate-100 text-center font-mono font-black text-indigo-900">{rc.taxaAprovacao}%</td>
+                    <td className="p-2.5 text-center font-mono font-black text-blue-900">{rc.mediaGeral}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* DISTRIBUIÇÃO QUALITATIVA DE NOTAS (MED ANGOLA) */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
         <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center space-x-2">
@@ -2028,7 +2187,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           </span>
         </h2>
         <p className="text-xs text-slate-500 mt-1">
-          Enquadramento normativo do Ministério da Educação da República de Angola para avaliação das aprendizagens.
+          Distribuição dos estudantes por escala qualitativa de avaliação das aprendizagens.
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6">
@@ -2382,7 +2541,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
                   <td className="p-1.5 border-r border-black">{resumoPorEscola.reduce((s, r) => s + r.totalMatriculados, 0)}</td>
                   <td className="p-1.5 border-r border-black text-blue-900">{resumoPorEscola.reduce((s, r) => s + r.avaliados, 0)}</td>
                   <td className="p-1.5 border-r border-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</td>
-                  <td colSpan={2} className="p-1.5 border-r border-black font-sans text-[10px]">Consolidado MED</td>
+                  <td colSpan={2} className="p-1.5 border-r border-black font-sans text-[10px]">Consolidado Geral</td>
                   <td className="p-1.5 print:hidden">—</td>
                 </tr>
               </tfoot>
@@ -2459,7 +2618,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
                         )}
                         {item.turma.nome}
                       </td>
-                      <td className="p-1.5 border-r border-black text-left font-sans text-[10px] truncate max-w-[120px]">{item.turma.curso || 'Ensino Geral'}</td>
+                      <td className="p-1.5 border-r border-black text-left font-sans text-[10px] whitespace-normal break-words min-w-[100px] max-w-[180px]">{item.turma.curso || 'Ensino Geral'}</td>
                       <td className="p-1 border-r border-black font-bold">{item.matriculadosTotal}</td>
                       <td className="p-1 border-r border-black text-slate-600">{item.matriculadosM}</td>
                       <td className="p-1 border-r border-black text-slate-600">{item.matriculadosF}</td>
@@ -2506,13 +2665,13 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
                   <td className="p-1 border-r border-black font-black text-emerald-900">{totaisGeraisMapa.taxaGeral}%</td>
                   <td colSpan={2} className="p-1 border-r border-black text-[10px] font-sans">—</td>
                   <td className="p-1 border-r border-black font-black text-rose-900">{totaisGeraisMapa.reprovados}</td>
-                  <td colSpan={2} className="p-1 font-sans text-[10px] text-slate-700">Conforme MED</td>
+                  <td colSpan={2} className="p-1 font-sans text-[10px] text-slate-700">Consolidado</td>
                 </tr>
               </tfoot>
             </table>
           </div>
           <div className="text-[10px] text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
-            <p><strong>Nota Informativa MED:</strong> O aproveitamento positivo exige nota igual ou superior a 5,0 valores no Ensino Primário (0 a 10) ou 10,0 valores nos Iº e IIº Ciclos (0 a 20). Classes terminais (6ª, 9ª e 12ª/13ª) ficam sujeitas a Exame Nacional / Prova de Escola.</p>
+            <p><strong>Critérios de Aprovação:</strong> O aproveitamento positivo exige nota igual ou superior a 5,0 valores no Ensino Primário (0 a 10) ou 10,0 valores nos Iº e IIº Ciclos (0 a 20). Classes terminais (6ª, 9ª e 12ª/13ª) ficam sujeitas a Exame Nacional / Prova de Escola.</p>
           </div>
         </div>
       )}
@@ -2669,22 +2828,22 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       {/* RODAPÉ OFICIAL & ASSINATURAS NO FINAL DO DOCUMENTO ESTATÍSTICO */}
       <div className="mt-8 pt-6 border-t-2 border-slate-900 space-y-6">
         <div data-pdf-fixed-signatures="true" className="grid grid-cols-1 sm:grid-cols-2 gap-8 text-center text-xs">
-          <div>
-            <p className="font-bold uppercase text-slate-900">
+          <div className="min-w-0">
+            <p className="font-bold uppercase text-slate-900 whitespace-normal break-words">
               {docenteAlvo ? 'O(A) Docente Responsável' : 'O Subdirector Pedagógico'}
             </p>
-            <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
-            <p className="text-[11px] font-semibold text-slate-700 mt-1">
+            <div className="w-full max-w-[208px] h-10 mx-auto border-b border-black mt-4" />
+            <p className="text-[11px] font-semibold text-slate-700 mt-1 whitespace-normal break-words">
               {docenteAlvo ? docenteAlvo.nomeCompleto : (escolaExibida.subdiretorPedagogicoNome || 'Assinatura & Rubrica')}
             </p>
           </div>
-          <div>
-            <p className="font-bold uppercase text-slate-900">
+          <div className="min-w-0">
+            <p className="font-bold uppercase text-slate-900 whitespace-normal break-words">
               {isVisaoRedeTodas ? 'Supervisão Central da Rede Escolar' : 'O Director Geral da Instituição'}
             </p>
-            <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
-            <p className="text-[11px] font-semibold text-slate-700 mt-1">
-              {isVisaoRedeTodas ? 'Administrador Geral / Direcção MED' : (escolaExibida.diretorGeralNome || 'Homologação e Carimbo Oficial')}
+            <div className="w-full max-w-[208px] h-10 mx-auto border-b border-black mt-4" />
+            <p className="text-[11px] font-semibold text-slate-700 mt-1 whitespace-normal break-words">
+              {isVisaoRedeTodas ? 'Administrador Geral' : (escolaExibida.diretorGeralNome || 'Direcção da Escola')}
             </p>
           </div>
         </div>
@@ -2693,7 +2852,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           <div className="text-center sm:text-left">
             <p>Documento Estatístico Oficial emitido em {formatarDataHoraAngolana(new Date())}</p>
             <p className="font-bold text-slate-800 mt-0.5">
-              {isVisaoRedeTodas ? `Administração Central MED • ${escolas.length} Escolas` : (escolaExibida.nomeOficial || escolaExibida.nome)}
+              {isVisaoRedeTodas ? `Administração Central da Rede Escolar • ${escolas.length} Escolas` : (escolaExibida.nomeOficial || escolaExibida.nome)}
             </p>
           </div>
           <OfficialQrCode
@@ -2704,7 +2863,6 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
               anoLectivo: filtroAno || 'TODOS'
             })}
             size={48}
-            label="Validar Mapa"
           />
         </div>
       </div>

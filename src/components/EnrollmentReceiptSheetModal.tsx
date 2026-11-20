@@ -47,6 +47,7 @@ export interface ReciboMatriculaSlot {
   encarregadoTelefone: string;
   valorTaxa?: string;
   dataEmissao: string;
+  atendenteNome?: string;
 }
 
 interface EnrollmentReceiptSheetModalProps {
@@ -97,7 +98,8 @@ export const converterAlunoParaSlot = (
   escola: Escola,
   slotIndex: number,
   tipoOperacao: 'Matricula' | 'Confirmacao',
-  classeAnterior?: string
+  classeAnterior?: string,
+  atendenteNome?: string
 ): ReciboMatriculaSlot => {
   const turma = turmas.find(t => t.id === aluno.turmaId);
   const classeNorm = normalizarClasse(aluno.classeId || turma?.classe || '1ª');
@@ -129,7 +131,8 @@ export const converterAlunoParaSlot = (
     encarregadoNome: aluno.nomeEncarregado || aluno.encarregadoNome || '—',
     encarregadoTelefone: aluno.telefoneEncarregado || aluno.encarregadoTelefone || aluno.telefone || '—',
     valorTaxa: aluno.propinaStatus || 'Regularizada',
-    dataEmissao: new Date().toISOString()
+    dataEmissao: new Date().toISOString(),
+    atendenteNome: atendenteNome || undefined
   };
 };
 
@@ -227,7 +230,8 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
       escola,
       idx,
       atual.tipoOperacao,
-      atual.classeAnterior
+      atual.classeAnterior,
+      currentUser?.nomeCompleto
     );
     setSlots(prev => prev.map((s, i) => (i === idx ? convertido : s)));
     setSlotFocadoSugestao(null);
@@ -540,13 +544,13 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
               className="mx-auto bg-white text-black shadow-sm"
               style={{
                 width: '794px',
-                minHeight: '1086px',
-                padding: '10px 14px',
+                minHeight: '1050px',
+                padding: '8px 12px',
                 boxSizing: 'border-box',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'flex-start',
-                gap: '6px'
+                gap: '4px'
               }}
             >
               {slotsAtivos.map((slot, renderIdx) => {
@@ -555,12 +559,12 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
 
                 return (
                   <React.Fragment key={`recibo-a4-${slot.slotIndex}`}>
-                    {/* Cartão de 1/3 de Folha A4 (~344px de altura) */}
+                    {/* Cartão de 1/3 de Folha A4 (altura adaptável a partir de 320px) */}
                     <div
                       className="border-2 border-gray-900 rounded-lg bg-white text-gray-950 font-sans flex flex-col justify-between"
                       style={{
-                        height: '344px',
-                        padding: '10px 14px',
+                        minHeight: '320px',
+                        padding: '8px 12px',
                         boxSizing: 'border-box'
                       }}
                     >
@@ -637,7 +641,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                             <span className="text-gray-600 font-semibold">Documento (BI / Cédula): </span>
                             <strong className="font-mono">{slot.documentoId || '—'}</strong>
                           </p>
-                          <p className="truncate">
+                          <p className="whitespace-normal break-words">
                             <span className="text-gray-600 font-semibold">Encarregado(a): </span>
                             <strong>{slot.encarregadoNome || '—'}</strong>
                             {slot.encarregadoTelefone && slot.encarregadoTelefone !== '—'
@@ -647,7 +651,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                         </div>
 
                         {/* Coluna Direita: Enquadramento Escolar */}
-                        <div className="col-span-5 bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
+                        <div className="col-span-5 bg-gray-50 border border-gray-200 rounded p-2 space-y-1 min-w-0">
                           {ehConfirmacao && slot.classeAnterior && (
                             <p className="text-[10px]">
                               <span className="text-gray-500 font-semibold">Classe Anterior: </span>
@@ -682,7 +686,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                             <strong>{slot.turno || 'Manhã'}</strong>
                           </p>
                           {mostrarCurso && (
-                            <p className="truncate">
+                            <p className="whitespace-normal break-words">
                               <span className="text-gray-600 font-semibold">Curso: </span>
                               <strong className="text-purple-950">{slot.curso}</strong>
                             </p>
@@ -697,10 +701,10 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                       {/* Rodapé: Assinaturas (Título em cima -> Linha -> Nome por baixo) + QR Code */}
                       <div className="border-t border-gray-300 pt-1.5">
                         <div className="grid grid-cols-3 gap-3 items-end text-center text-[9.5px]">
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-bold text-gray-800">O(A) Encarregado(a) de Educação</p>
-                            <div className="w-40 border-b border-black mx-auto mt-6 mb-0.5" />
-                            <p className="text-[9px] font-semibold text-gray-800 truncate">
+                            <div className="w-full max-w-[160px] border-b border-black mx-auto mt-5 mb-0.5" />
+                            <p className="text-[9px] font-semibold text-gray-800 whitespace-normal break-words">
                               {slot.encarregadoNome && slot.encarregadoNome !== '—'
                                 ? slot.encarregadoNome
                                 : ' '}
@@ -721,11 +725,11 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                             />
                           </div>
 
-                          <div>
-                            <p className="font-bold text-gray-800">A Secretaria / Direcção Escolar</p>
-                            <div className="w-40 border-b border-black mx-auto mt-6 mb-0.5" />
-                            <p className="text-[9px] font-semibold text-gray-800 truncate">
-                              {nomeFuncionarioOperador}
+                          <div className="min-w-0">
+                            <p className="font-bold text-gray-800">A Direcção da Escola</p>
+                            <div className="w-full max-w-[160px] border-b border-black mx-auto mt-5 mb-0.5" />
+                            <p className="text-[9px] font-semibold text-gray-800 whitespace-normal break-words">
+                              {slot.atendenteNome || nomeFuncionarioOperador}
                             </p>
                           </div>
                         </div>

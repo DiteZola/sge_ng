@@ -849,11 +849,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-gray-300 flex items-center justify-between gap-4 text-[9px] text-gray-600">
-                  <div className="text-left">
-                    <p className="font-bold uppercase text-gray-800">Autenticidade do Termo de Exame</p>
-                    <p>Digitalize o código QR para validar o registo oficial do exame e deliberação.</p>
-                  </div>
+                <div className="mt-4 pt-3 border-t border-gray-300 flex items-center justify-end">
                   <OfficialQrCode
                     value={gerarPayloadQrDocumento({
                       docType: 'TERMO_EXAME',
@@ -863,7 +859,6 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                       anoLectivo: termoVisualizacao.anoLectivo || escola.anoLectivoActivo
                     })}
                     size={56}
-                    label="Validar Termo"
                   />
                 </div>
               </div>

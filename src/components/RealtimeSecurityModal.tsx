@@ -48,7 +48,7 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
   const [feedbackDesbloqueio, setFeedbackDesbloqueio] = useState<string | null>(null);
 
   // Estado do Testador AES-256 ao Vivo
-  const [textoParaCifrar, setTextoParaCifrar] = useState('001928374LA049 | SenhaMestraSegura#2025');
+  const [textoParaCifrar, setTextoParaCifrar] = useState('Amostra-BI-001928374LA049 | Teste-Enclave');
   const [resultadoCifragem, setResultadoCifragem] = useState<string>('');
   const [resultadoDecifragem, setResultadoDecifragem] = useState<string>('');
   const [checksumTeste, setChecksumTeste] = useState<string>('');
@@ -63,7 +63,7 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
   const [payloadExemplo, setPayloadExemplo] = useState<any>({
     alunoNome: 'Mário Domingos Kwanza',
     numeroBI: '003819283ZE045',
-    password: 'Aluno@Segura#2025',
+    campoProtegido: 'Dado-Academico-Teste',
     valorKz: 18500,
     ibanEscola: 'AO06.0040.0000.1234.5678.9012.3'
   });

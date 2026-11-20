@@ -27,9 +27,8 @@ export interface CryptoEngineStatus {
   keyFingerprint: string;
 }
 
-// Chave mestra base derivada para o ecossistema institucional do Ministério da Educação
-const SYSTEM_MASTER_SALT = 'SGE-NG-ANGOLA-MED-MINISTERIO-EDUCACAO-2025-AES256-GCM-SALT';
-const MASTER_KEY_STORAGE_KEY = 'sge_aes256_master_key_salt';
+const DEVICE_ENTROPY_STORAGE_KEY = 'sge_device_crypto_entropy_v2';
+const DEVICE_SALT_STORAGE_KEY = 'sge_device_crypto_salt_v2';
 
 class CryptoService {
   private cryptoKey: CryptoKey | null = null;
@@ -37,36 +36,49 @@ class CryptoService {
   private totalCifragens = 0;
   private totalDecifragens = 0;
   private ultimaOperacao: string | null = null;
-  private keyFingerprint = 'A7F3-9D21-B84E-55C2';
+  private keyFingerprint = 'DYNAMIC-ENCLAVE';
 
   constructor() {
-    this.keyInitPromise = this.inicializarChaveMestra();
+    this.keyInitPromise = this.inicializarChaveDispositivo();
+  }
+
+  private obterOuGerarEntropiaBase64(storageKey: string, byteLength: number): string {
+    const existing = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
+    if (existing && existing.length >= 16) {
+      return existing;
+    }
+    const randomBytes = new Uint8Array(byteLength);
+    window.crypto.getRandomValues(randomBytes);
+    const b64 = this.bufferToBase64(randomBytes);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(storageKey, b64);
+      }
+    } catch {}
+    return b64;
   }
 
   /**
-   * Inicializa ou deriva a chave AES-256-GCM via PBKDF2
+   * Inicializa ou deriva a chave AES-256-GCM via PBKDF2 utilizando entropia aleatória do dispositivo
+   * (sem quaisquer chaves secretas embutidas no código-fonte de front-end).
    */
-  private async inicializarChaveMestra(): Promise<CryptoKey | null> {
+  private async inicializarChaveDispositivo(): Promise<CryptoKey | null> {
     if (typeof window === 'undefined' || !window.crypto || !window.crypto.subtle) {
       console.warn('[AES-256] Web Crypto API (crypto.subtle) indisponível neste ambiente.');
       return null;
     }
 
     try {
-      // Salt institucional determinístico para garantir que contas e credenciais cifradas
-      // sejam decifradas com consistência em qualquer dispositivo e após qualquer sessão
-      const saltStr = 'SGE-NG-ANGOLA-MED-SALT-2025-SYSTEM';
-      localStorage.setItem(MASTER_KEY_STORAGE_KEY, saltStr);
+      const saltB64 = this.obterOuGerarEntropiaBase64(DEVICE_SALT_STORAGE_KEY, 16);
+      const entropyB64 = this.obterOuGerarEntropiaBase64(DEVICE_ENTROPY_STORAGE_KEY, 32);
 
       const enc = new TextEncoder();
-      const saltBytes = enc.encode(saltStr + SYSTEM_MASTER_SALT);
-
-      // Palavra-passe mestra do enclave de persistência
-      const basePassphrase = enc.encode('ANGOLA-MED-SGE-SECRET-KEY-2025-SECURE-ENCLAVE-256');
+      const saltBytes = enc.encode(`${saltB64}:${window.location?.origin || 'sge-ng'}`);
+      const keyMaterialBytes = this.base64ToBuffer(entropyB64);
 
       const importedKeyMaterial = await window.crypto.subtle.importKey(
         'raw',
-        basePassphrase,
+        keyMaterialBytes.buffer.slice(keyMaterialBytes.byteOffset, keyMaterialBytes.byteOffset + keyMaterialBytes.byteLength) as ArrayBuffer,
         { name: 'PBKDF2' },
         false,
         ['deriveKey']
@@ -87,7 +99,7 @@ class CryptoService {
 
       this.cryptoKey = derivedKey;
 
-      // Calcular fingerprint da chave para auditoria
+      // Calcular fingerprint da chave local para auditoria
       const rawKey = await window.crypto.subtle.exportKey('raw', derivedKey);
       const hashBuffer = await window.crypto.subtle.digest('SHA-256', rawKey);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -96,7 +108,7 @@ class CryptoService {
 
       return derivedKey;
     } catch (err) {
-      console.error('[AES-256] Erro ao derivar chave mestra:', err);
+      console.error('[AES-256] Erro ao derivar chave local do dispositivo:', err);
       return null;
     }
   }

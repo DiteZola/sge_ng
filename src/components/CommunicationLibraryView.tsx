@@ -31,6 +31,7 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import { QrScannerModal } from './QrScannerModal';
+import { antiSpamService } from '../services/antiSpamService';
 
 interface CommunicationLibraryViewProps {
   escola: Escola;
@@ -166,6 +167,8 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   const [assunto, setAssunto] = useState('');
   const [conteudo, setConteudo] = useState('');
   const [prioridadeMsg, setPrioridadeMsg] = useState<'Normal' | 'Urgente'>('Normal');
+  const [hpMsgTrap, setHpMsgTrap] = useState('');
+  const [erroAntiSpam, setErroAntiSpam] = useState<string | null>(null);
 
   // Estado upload de livro
   const [showNovoLivroModal, setShowNovoLivroModal] = useState(false);
@@ -177,7 +180,19 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
+    setErroAntiSpam(null);
     if (!assunto || !conteudo) return;
+
+    const validacao = antiSpamService.validarSubmissao({
+      acao: 'envio_mensagem',
+      honeypotValor: hpMsgTrap,
+      conteudoPrincipal: `${assunto} ${conteudo}`,
+      identificadorAutor: currentUser.id
+    });
+    if (!validacao.permitido) {
+      setErroAntiSpam(validacao.motivo || 'Envio bloqueado pela proteção anti-spam.');
+      return;
+    }
 
     const isDirecta = activeTab === 'mensagens_diretas' || tipoDestino === 'Individual';
     const destTipoFinal = isDirecta ? 'Individual' : tipoDestino;
@@ -483,7 +498,22 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
               </h3>
             </div>
 
+            {erroAntiSpam && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-semibold">
+                {erroAntiSpam}
+              </div>
+            )}
+
             <form onSubmit={handleSend} className="space-y-3 text-xs">
+              <div className="sr-only" aria-hidden="true">
+                <input
+                  type="text"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={hpMsgTrap}
+                  onChange={(e) => setHpMsgTrap(e.target.value)}
+                />
+              </div>
               {activeTab === 'comunicados' ? (
                 <div>
                   <label className="font-semibold text-gray-700 block mb-1">Destinatários do Comunicado</label>

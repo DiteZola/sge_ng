@@ -18,6 +18,68 @@ import {
   obterInformacaoEscala
 } from '../services/macEngine';
 
+function normDiscNameExcel(nome?: string): string {
+  if (!nome) return '';
+  return nome
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.\-_()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function notaCorrespondeDiscExcel(
+  n: NotaTrimestralConsolidada,
+  d?: Pick<Disciplina, 'id' | 'nome'> | null
+): boolean {
+  if (!d) return true;
+  if (d.id && n.disciplinaId === d.id) return true;
+  const target = normDiscNameExcel(d.nome);
+  const src = normDiscNameExcel(n.disciplinaNome);
+  if (!target || !src) return false;
+  return src === target || (src.length >= 6 && target.length >= 6 && (src.includes(target) || target.includes(src)));
+}
+
+function normTrimestreExcel(tri?: string | number | null): '1' | '2' | '3' | '' {
+  if (tri === undefined || tri === null) return '';
+  const s = String(tri).toUpperCase().trim();
+  if (!s) return '';
+  if (s.includes('3') || s.includes('III')) return '3';
+  if (s.includes('2') || s.includes('II')) return '2';
+  if (s.includes('1') || s.includes('I')) return '1';
+  return '';
+}
+
+function resolverValorPautaGeralExcel(
+  notas: NotaTrimestralConsolidada[],
+  alunoId: string,
+  d: Disciplina,
+  pautaSubTipo: 'geral_final' | 'trimestral',
+  pautaTrimestre: string,
+  ehFinal: boolean
+): number | undefined {
+  const normTri = normTrimestreExcel(pautaTrimestre);
+  const matching = notas.filter((nc) => nc.alunoId === alunoId && notaCorrespondeDiscExcel(nc, d));
+  if (matching.length === 0) return undefined;
+  if (pautaSubTipo === 'trimestral') {
+    const ncTri = matching.find((nc) => normTrimestreExcel(nc.trimestre) === normTri);
+    return ncTri ? (ncTri.mediaTrimestral ?? ncTri.notaFinal) : undefined;
+  }
+  const n3 = matching.find((n) => normTrimestreExcel(n.trimestre) === '3');
+  if (n3 && typeof n3.notaFinal === 'number') return n3.notaFinal;
+  const mts = matching
+    .map((m) => m.mediaTrimestral ?? m.notaFinal)
+    .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
+  if (mts.length === 0) return undefined;
+  const avgMt = mts.reduce((a, b) => a + b, 0) / mts.length;
+  const exame = ehFinal ? (matching.find((m) => typeof m.notaExame === 'number')?.notaExame) : undefined;
+  if (ehFinal && typeof exame === 'number') {
+    return Math.round(((avgMt * 0.4) + (exame * 0.6)) * 10) / 10;
+  }
+  return Math.round(avgMt * 10) / 10;
+}
+
 function colLetter(colIdx0: number): string {
   let n = colIdx0;
   let letter = '';
@@ -218,16 +280,14 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
 
     discs.forEach((d, dIdx) => {
       const c0 = firstDiscCol0 + dIdx;
-      const nConsol = notasConsolidadas.find(
-        (nc) =>
-          nc.alunoId === aluno.id &&
-          nc.disciplinaId === d.id &&
-          (pautaSubTipo !== 'trimestral' || String(nc.trimestre).includes(String(pautaTrimestre)))
+      const valorRaw = resolverValorPautaGeralExcel(
+        notasConsolidadas,
+        aluno.id,
+        d,
+        pautaSubTipo,
+        pautaTrimestre,
+        isClasseFinal(turma.classe)
       );
-      const valorRaw =
-        pautaSubTipo === 'trimestral'
-          ? (nConsol?.mediaTrimestral ?? nConsol?.notaFinal)
-          : (nConsol?.notaFinal ?? nConsol?.mediaTrimestral);
 
       if (valorRaw !== undefined && valorRaw !== null && !Number.isNaN(Number(valorRaw))) {
         const notaArred = Math.round(Number(valorRaw) * 10) / 10;
@@ -320,17 +380,16 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
       const c0 = firstDiscCol0 + dIdx;
       const colL = colLetter(c0);
       const vals = alunos
-        .map((a) => {
-          const nc = notasConsolidadas.find(
-            (x) =>
-              x.alunoId === a.id &&
-              x.disciplinaId === d.id &&
-              (pautaSubTipo !== 'trimestral' || String(x.trimestre).includes(String(pautaTrimestre)))
-          );
-          return pautaSubTipo === 'trimestral'
-            ? (nc?.mediaTrimestral ?? nc?.notaFinal)
-            : (nc?.notaFinal ?? nc?.mediaTrimestral);
-        })
+        .map((a) =>
+          resolverValorPautaGeralExcel(
+            notasConsolidadas,
+            a.id,
+            d,
+            pautaSubTipo,
+            pautaTrimestre,
+            isClasseFinal(turma.classe)
+          )
+        )
         .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
       const mediaDiscFallback = vals.length > 0 ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : 0;
       setCell(
@@ -528,11 +587,11 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
   alunos.forEach((aluno, idx) => {
     const excelR = curRow0 + 1;
     const notasAl = notasConsolidadas.filter(
-      (n) => n.alunoId === aluno.id && (!disciplina || n.disciplinaId === disciplina.id)
+      (n) => n.alunoId === aluno.id && notaCorrespondeDiscExcel(n, disciplina)
     );
-    const n1 = notasAl.find((n) => String(n.trimestre).includes('1'));
-    const n2 = notasAl.find((n) => String(n.trimestre).includes('2'));
-    const n3 = notasAl.find((n) => String(n.trimestre).includes('3'));
+    const n1 = notasAl.find((n) => normTrimestreExcel(n.trimestre) === '1');
+    const n2 = notasAl.find((n) => normTrimestreExcel(n.trimestre) === '2');
+    const n3 = notasAl.find((n) => normTrimestreExcel(n.trimestre) === '3');
 
     const mac = n3?.mac ?? n2?.mac ?? n1?.mac;
     const npp = n3?.npp ?? n2?.npp ?? n1?.npp;
@@ -782,7 +841,10 @@ export function exportarPautaTrimestralComFormulasExcel(params: PautaTrimestralA
       turma.classe || '7ª'
     );
     const notaCons = notasConsolidadas.find(
-      (c) => c.alunoId === aluno.id && (!disciplina || c.disciplinaId === disciplina.id) && String(c.trimestre) === String(trimestre)
+      (c) =>
+        c.alunoId === aluno.id &&
+        notaCorrespondeDiscExcel(c, disciplina) &&
+        normTrimestreExcel(c.trimestre) === String(trimestre)
     );
 
     const macVal = notaCons?.mac ?? resMAC.macCalculada;

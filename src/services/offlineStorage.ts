@@ -5,6 +5,7 @@
  * (Offline Journal), fila coalescida de sincronização e hidratação automática no arranque.
  */
 import { comprimirImagemBase64 } from '../utils/imageOptimizer';
+import { invalidateLocalCache, setCachedLocalEntry } from './localCache';
 
 export interface OfflineJournalEntry {
   id: string;
@@ -199,6 +200,7 @@ class OfflineStorageEngine {
   }
 
   private agendarEspelhamentoChave(key: string) {
+    if (!key || key === 'sge_ls_timestamps') return;
     this.mirrorQueue.add(key);
     if (this.mirrorTimer) return;
     this.mirrorTimer = setTimeout(() => {
@@ -212,11 +214,12 @@ class OfflineStorageEngine {
       try {
         const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
         const store = tx.objectStore(STORE_ENTITIES);
+        const tsMap = this.obterTimestampsLocalStorage();
         const now = new Date().toISOString();
         for (const k of keys) {
           const val = localStorage.getItem(k);
           if (val !== null) {
-            store.put({ key: k, value: val, updatedAt: now });
+            store.put({ key: k, value: val, updatedAt: tsMap[k] || now });
           } else {
             store.delete(k);
           }
@@ -227,20 +230,47 @@ class OfflineStorageEngine {
     }, 300);
   }
 
+  public obterTimestampsLocalStorage(): Record<string, string> {
+    try {
+      if (typeof localStorage === 'undefined') return {};
+      const raw = localStorage.getItem('sge_ls_timestamps');
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  public marcarTimestampLocalStorage(key: string, isoTimestamp: string = new Date().toISOString()): void {
+    if (!key || key === 'sge_ls_timestamps' || typeof localStorage === 'undefined') return;
+    try {
+      const map = this.obterTimestampsLocalStorage();
+      map[key] = isoTimestamp;
+      localStorage.setItem('sge_ls_timestamps', JSON.stringify(map));
+    } catch {}
+  }
+
   // Copia as entidades do localStorage para o IndexedDB numa única transação rápida
   private async syncLocalStorageToIndexedDB() {
     if (!this.db) return;
     try {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('sge_'));
+      const keys = Object.keys(localStorage).filter(k => k.startsWith('sge_') && k !== 'sge_ls_timestamps');
       if (keys.length === 0) return;
+      const existing = await this.lerTodosDoIndexedDB<{ key: string; updatedAt?: string }>(STORE_ENTITIES);
+      const idbTsMap = new Map(existing.map(r => [r.key, r.updatedAt ? Date.parse(r.updatedAt) || 0 : 0]));
+      const lsTsMap = this.obterTimestampsLocalStorage();
       const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
       const store = tx.objectStore(STORE_ENTITIES);
       const now = new Date().toISOString();
       for (const k of keys) {
         const val = localStorage.getItem(k);
-        if (val) {
-          store.put({ key: k, value: val, updatedAt: now });
-        }
+        if (!val) continue;
+        const tIdb = idbTsMap.get(k) || 0;
+        const tLs = lsTsMap[k] ? Date.parse(lsTsMap[k]) || 0 : 0;
+        // Só sobrescreve o IndexedDB se não houver versão mais recente já guardada no IndexedDB
+        if (tIdb > tLs + 500 && k !== 'sge_pending_sync_queue') continue;
+        store.put({ key: k, value: val, updatedAt: lsTsMap[k] || now });
       }
     } catch (e) {
       console.warn('[SGE Offline] Erro ao espelhar localStorage para IndexedDB:', e);
@@ -551,29 +581,49 @@ class OfflineStorageEngine {
           }
         }
 
-        // Restaurar chaves críticas espelhadas no IndexedDB caso o localStorage esteja vazio
+        // Restaurar TODAS as chaves sge_* espelhadas no IndexedDB caso o localStorage esteja vazio, desatualizado ou tenha excedido a quota
         if (typeof localStorage !== 'undefined') {
-          const chavesCriticas = [
-            'sge_configuracao_sistema',
-            'sge_escolas',
-            'sge_funcionarios',
-            'sge_alunos',
-            'sge_turmas',
-            'sge_disciplinas',
-            'sge_atribuicoes',
-            'sge_notas_consolidadas',
-            'sge_notas',
-            'sge_avaliacoes'
-          ];
-          for (const k of chavesCriticas) {
+          const lsTimestamps = this.obterTimestampsLocalStorage();
+          const allIdbEntities = await this.lerTodosDoIndexedDB<{ key: string; value: string; updatedAt?: string }>(STORE_ENTITIES);
+          for (const rec of allIdbEntities) {
             try {
-              const curVal = localStorage.getItem(k);
-              const isEmptyLocal = !curVal || curVal === '[]' || curVal === '{}' || curVal === 'undefined' || curVal === 'null';
-              if (isEmptyLocal) {
-                const rec = await this.lerUmDoIndexedDB<{ key: string; value: string }>(STORE_ENTITIES, k);
-                if (rec?.value && rec.value !== '[]' && rec.value !== '{}') {
+              if (
+                !rec ||
+                !rec.key ||
+                !rec.key.startsWith('sge_') ||
+                rec.key === 'sge_pending_sync_queue' ||
+                rec.key === 'sge_ls_timestamps'
+              ) {
+                continue;
+              }
+              const curVal = localStorage.getItem(rec.key);
+              const isEmptyLocal =
+                !curVal ||
+                curVal === '[]' ||
+                curVal === '{}' ||
+                curVal === 'undefined' ||
+                curVal === 'null';
+              const recTemConteudo =
+                Boolean(rec.value) &&
+                rec.value !== '[]' &&
+                rec.value !== '{}' &&
+                rec.value !== 'undefined' &&
+                rec.value !== 'null';
+              const tIdb = rec.updatedAt ? Date.parse(rec.updatedAt) || 0 : 0;
+              const tLs = lsTimestamps[rec.key] ? Date.parse(lsTimestamps[rec.key]) || 0 : 0;
+              const idbMaisRecente = tIdb > tLs + 500 && rec.value !== curVal;
+
+              if ((isEmptyLocal && recTemConteudo) || (idbMaisRecente && rec.value)) {
+                try {
+                  localStorage.setItem(rec.key, rec.value);
+                  if (rec.updatedAt) this.marcarTimestampLocalStorage(rec.key, rec.updatedAt);
+                  invalidateLocalCache(rec.key);
+                  mudouAlgumDado = true;
+                } catch {
+                  // Se exceder quota do localStorage, hidratar diretamente na cache primária em RAM sem marcar timestamp no localStorage
                   try {
-                    localStorage.setItem(k, rec.value);
+                    const parsedVal = JSON.parse(rec.value);
+                    setCachedLocalEntry(rec.key, rec.value, parsedVal, true);
                     mudouAlgumDado = true;
                   } catch {}
                 }
@@ -612,6 +662,9 @@ class OfflineStorageEngine {
                 try {
                   localStorage.setItem('sge_pending_sync_queue', JSON.stringify(mergedList));
                 } catch {}
+                if (typeof window !== 'undefined' && mergedList.length > 0) {
+                  window.dispatchEvent(new CustomEvent('sge_pending_sync_changed', { detail: { total: mergedList.length } }));
+                }
               }
             }
           } catch {}
@@ -1143,6 +1196,69 @@ class OfflineStorageEngine {
       this.persistirPendencias(list, item);
     } catch (e) {
       console.warn('[SGE Offline] Erro ao adicionar pendência de sincronização:', e);
+    }
+  }
+
+  public adicionarPendenciasEmLote(
+    itens: Array<{
+      entidade: string;
+      acao: string;
+      descricao: string;
+      dados?: any;
+      docId?: string;
+      extraColecoes?: string[];
+      autorRole?: string;
+    }>
+  ): void {
+    if (!Array.isArray(itens) || itens.length === 0) return;
+    try {
+      let resolvedRole: string | undefined;
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const uRaw = localStorage.getItem('sge_current_user');
+          if (uRaw) {
+            const parsed = JSON.parse(uRaw);
+            if (parsed?.role) resolvedRole = parsed.role;
+          }
+        } catch {}
+      }
+
+      const atual = this.obterPendencias();
+      const map = new Map<string, PendingSyncItem>();
+      for (const p of atual) {
+        if (!p || !p.entidade) continue;
+        const k = `${p.entidade.toLowerCase()}::${p.docId || p.dados?.id || p.id}`;
+        map.set(k, p);
+      }
+
+      const nowIso = new Date().toISOString();
+      const baseTs = Date.now();
+      let ultimoItem: PendingSyncItem | undefined;
+
+      itens.forEach((entrada, idx) => {
+        const entidadeNorm = entrada.entidade.toLowerCase();
+        const resolvedDocId = entrada.docId || entrada.dados?.id;
+        const key = `${entidadeNorm}::${resolvedDocId || `${baseTs}-${idx}`}`;
+        const dadosCompactados = this.slimDadosParaFila(entidadeNorm, resolvedDocId, entrada.dados);
+        const item: PendingSyncItem = {
+          id: `pend-${baseTs}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          entidade: entidadeNorm,
+          docId: resolvedDocId,
+          acao: entrada.acao,
+          timestamp: nowIso,
+          descricao: entrada.descricao,
+          dados: dadosCompactados,
+          extraColecoes: entrada.extraColecoes,
+          autorRole: entrada.autorRole || resolvedRole
+        };
+        map.delete(key);
+        map.set(key, item);
+        ultimoItem = item;
+      });
+
+      this.persistirPendencias(Array.from(map.values()), ultimoItem);
+    } catch (e) {
+      console.warn('[SGE Offline] Erro ao adicionar pendências em lote:', e);
     }
   }
 

@@ -126,6 +126,71 @@
         "estado": { "type": "string", "enum": ["Rascunho", "Registado", "Homologado"] }
       },
       "required": ["id", "escolaId", "categoria", "titulo", "data", "resumoAcontecimentos"]
+    },
+    "AreaFormacao": {
+      "title": "AreaFormacao",
+      "description": "Áreas de formação académicas e técnicas criadas pela direção escolar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 200 },
+        "codigo": { "type": "string", "maxLength": 50 },
+        "ciclo": { "type": "string", "maxLength": 100 },
+        "nivelEnsino": { "type": "string", "maxLength": 50 },
+        "ativo": { "type": "boolean" }
+      },
+      "required": ["id", "nome"]
+    },
+    "Curso": {
+      "title": "Curso",
+      "description": "Cursos e especialidades curriculares criados ou geridos pela escola",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 200 },
+        "codigo": { "type": "string", "maxLength": 50 },
+        "area": { "type": "string", "maxLength": 200 },
+        "areaFormacaoId": { "type": "string", "maxLength": 128 },
+        "duracao": { "type": "string", "maxLength": 50 },
+        "nivelEnsino": { "type": "string", "maxLength": 50 },
+        "ciclo": { "type": "string", "maxLength": 100 },
+        "ativo": { "type": "boolean" }
+      },
+      "required": ["id", "nome", "area"]
+    },
+    "SalaAula": {
+      "title": "SalaAula",
+      "description": "Salas de aula, laboratórios e espaços letivos vinculados às turmas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 150 },
+        "codigo": { "type": "string", "maxLength": 50 },
+        "capacidade": { "type": "number" },
+        "tipo": { "type": "string", "maxLength": 80 },
+        "bloco": { "type": "string", "maxLength": 80 },
+        "ativo": { "type": "boolean" }
+      },
+      "required": ["id", "nome"]
+    },
+    "ClasseConfig": {
+      "title": "ClasseConfig",
+      "description": "Classes escolares configuradas da Iniciação à 13ª Classe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 80 },
+        "nivelEnsino": { "type": "string", "maxLength": 50 },
+        "ciclo": { "type": "string", "maxLength": 100 },
+        "regimeAvaliacao": { "type": "string", "maxLength": 100 },
+        "ordem": { "type": "number" },
+        "ativa": { "type": "boolean" }
+      },
+      "required": ["id", "nome"]
     }
   },
   "firestore": {
@@ -160,6 +225,22 @@
     "/relatorios_acontecimentos/{reportId}": {
       "schema": "EventReport",
       "description": "Relatórios institucionais de acontecimentos, reuniões, palestras e desenvolvimentos"
+    },
+    "/areas_formacao/{areaId}": {
+      "schema": "AreaFormacao",
+      "description": "Áreas de formação académicas e técnicas configuradas pelas escolas"
+    },
+    "/cursos/{cursoId}": {
+      "schema": "Curso",
+      "description": "Cursos curriculares e especialidades geridos pela direção escolar"
+    },
+    "/salas_aulas/{salaId}": {
+      "schema": "SalaAula",
+      "description": "Salas de aulas e infraestruturas físicas associadas às turmas"
+    },
+    "/classes_configs/{classeId}": {
+      "schema": "ClasseConfig",
+      "description": "Configuração das classes escolares da Iniciação à 13ª Classe"
     }
   }
 }

@@ -36,11 +36,13 @@ import {
   CLASSES_ENSINO_PRIMARIO,
   CLASSES_PRIMEIRO_CICLO,
   CLASSES_SEGUNDO_CICLO,
+  TODAS_CLASSES_OFICIAIS_MED,
   getSalaDaTurma,
   getCursoDaTurma,
   getDisciplinasDaTurma,
   filtrarDisciplinasDaClasse
 } from '../services/academicHierarchyService';
+import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { 
   Escola, 
@@ -170,23 +172,26 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Seleções para lançamento de notas com coerência acadêmica oficial
   const todasClasses = useMemo(() => {
-    const listaGeral = [
-      'Iniciação',
-      ...CLASSES_ENSINO_PRIMARIO.filter(c => c !== 'Iniciação'),
-      ...CLASSES_PRIMEIRO_CICLO,
-      ...CLASSES_SEGUNDO_CICLO
-    ];
+    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome);
+    const fromTurmas = turmasPermitidas.map(t => normalizarClasse(t.classe)).filter(Boolean);
+    const listaGeral = ordenarClassesMED([
+      ...TODAS_CLASSES_OFICIAIS_MED,
+      ...fromCfg,
+      ...fromTurmas
+    ]);
     if (isProfessor) {
-      const classesSet = new Set(turmasPermitidas.map(t => normalizarClasse(t.classe)));
+      const classesSet = new Set(fromTurmas);
       const filtradas = listaGeral.filter(c => classesSet.has(normalizarClasse(c)));
       return filtradas.length > 0 ? filtradas : Array.from(classesSet);
     }
     return listaGeral;
-  }, [isProfessor, turmasPermitidas]);
+  }, [escola.id, isProfessor, turmasPermitidas]);
 
   const [selectedClasse, setSelectedClasse] = useState<string>(() => {
     return turmasPermitidas[0]?.classe ? normalizarClasse(turmasPermitidas[0].classe) : '10ª';
   });
+  const [selectedCursoFilter, setSelectedCursoFilter] = useState<string>('TODOS');
+  const [selectedTurnoFilter, setSelectedTurnoFilter] = useState<string>('TODOS');
 
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmasPermitidas[0]?.id || '');
   const [selectedDisciplinaId, setSelectedDisciplinaId] = useState<string>(disciplinas[0]?.id || '');
@@ -198,13 +203,47 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   });
   const [buscaAlunoTabela, setBuscaAlunoTabela] = useState<string>('');
 
-  // Turmas estritamente filtradas pela classe selecionada
-  const turmasDaClasse = useMemo(() => {
-    const filtradas = getTurmasPorClasse(turmasPermitidas, selectedClasse);
-    return filtradas.length > 0 ? filtradas : turmasPermitidas;
-  }, [turmasPermitidas, selectedClasse]);
+  const cursosDisponiveisClasse = useMemo(() => {
+    const set = new Set<string>();
+    dbService.getCursos(escola.id).filter(c => c.ativo !== false).forEach(c => {
+      if (c.nome) set.add(c.nome);
+    });
+    turmasPermitidas.forEach(t => {
+      if (normalizarClasse(t.classe) === normalizarClasse(selectedClasse) && t.curso) {
+        set.add(t.curso);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [escola.id, turmasPermitidas, selectedClasse]);
 
-  // Sincronizar turma selecionada quando mudar a classe
+  const turnosDisponiveis = useMemo(() => {
+    const set = new Set<string>(['Manhã', 'Tarde', 'Noite']);
+    dbService.getTurnosConfigs(escola.id).filter(t => t.ativo !== false).forEach(t => {
+      if (t.nome) set.add(t.nome);
+    });
+    turmasPermitidas.forEach(t => {
+      if (t.turno) set.add(t.turno);
+    });
+    return Array.from(set);
+  }, [escola.id, turmasPermitidas]);
+
+  // Turmas estritamente filtradas pela classe, curso e turno selecionados
+  const turmasDaClasse = useMemo(() => {
+    const porClasse = getTurmasPorClasse(turmasPermitidas, selectedClasse);
+    const base = porClasse.length > 0 ? porClasse : turmasPermitidas;
+    const filtradas = base.filter(t => {
+      if (selectedCursoFilter !== 'TODOS' && (t.curso || '').trim().toLowerCase() !== selectedCursoFilter.trim().toLowerCase()) {
+        return false;
+      }
+      if (selectedTurnoFilter !== 'TODOS' && (t.turno || '').trim().toLowerCase() !== selectedTurnoFilter.trim().toLowerCase()) {
+        return false;
+      }
+      return true;
+    });
+    return filtradas.length > 0 ? filtradas : base;
+  }, [turmasPermitidas, selectedClasse, selectedCursoFilter, selectedTurnoFilter]);
+
+  // Sincronizar turma selecionada quando mudar a classe, curso ou turno
   useEffect(() => {
     if (turmasDaClasse.length > 0 && !turmasDaClasse.some(t => t.id === selectedTurmaId)) {
       setSelectedTurmaId(turmasDaClasse[0].id);
@@ -672,13 +711,18 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         notasConsolid[idx].mediaTrimestral = notaFinalValida;
         notasConsolid[idx].notaFinal = notaFinalValida;
       }
+      if (!notasConsolid[idx].disciplinaNome && disciplinaAtiva?.nome) {
+        notasConsolid[idx].disciplinaNome = disciplinaAtiva.nome;
+      }
       dbService.salvarNotasConsolidadas(notasConsolid);
     } else {
       notasConsolid.push({
         id: `nc-${retificacaoAluno.id}-${selectedDisciplinaId}-${selectedTrimestre}`,
+        escolaId: escola.id,
         alunoId: retificacaoAluno.id,
         turmaId: selectedTurmaId,
         disciplinaId: selectedDisciplinaId,
+        disciplinaNome: disciplinaAtiva?.nome || '',
         trimestre: selectedTrimestre as any,
         anoLectivo: escola.anoLectivoActivo || '',
         mac: retificacaoTipoNota === 'MAC' ? notaFinalValida : 10,
@@ -786,6 +830,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     if (existente) {
       atualizada = {
         ...existente,
+        escolaId: existente.escolaId || escola.id,
+        disciplinaNome: existente.disciplinaNome || disciplinaAtiva?.nome || '',
         mac: macVal,
         npp: nppVal,
         provaTrimestral: ptVal ?? 0,
@@ -801,9 +847,11 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     } else {
       atualizada = {
         id: `nota-consol-${Date.now()}-${alunoId.slice(-4)}`,
+        escolaId: escola.id,
         alunoId,
         turmaId: selectedTurmaId,
         disciplinaId: selectedDisciplinaId,
+        disciplinaNome: disciplinaAtiva?.nome || '',
         trimestre: selectedTrimestre,
         anoLectivo: escola.anoLectivoActivo,
         mac: macVal,
@@ -1092,12 +1140,15 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               </div>
               <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
                 <span className="px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900 border border-blue-200">
-                  {turmaAtiva?.classe} Classe
+                  {turmaAtiva?.classe} {turmaAtiva?.classe && turmaAtiva.classe !== 'Iniciação' ? 'Classe' : ''}
+                </span>
+                <span className="px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-900 border border-emerald-200">
+                  Turno: {turmaAtiva?.turno || 'Manhã'}
                 </span>
                 <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-200">
                   Sala: {getSalaDaTurma(turmaAtiva)}
                 </span>
-                {isSegundoCiclo(selectedClasse) && (
+                {(isSegundoCiclo(selectedClasse) || Boolean(turmaAtiva?.curso)) && (
                   <span className="px-2 py-0.5 rounded-full font-bold bg-purple-100 text-purple-900 border border-purple-200">
                     Curso: {getCursoDaTurma(turmaAtiva)}
                   </span>
@@ -1105,12 +1156,15 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
               <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">1. Classe Curricular</label>
+                <label className="text-xs font-bold text-gray-700 block mb-1">1. Classe</label>
                 <select
                   value={selectedClasse}
-                  onChange={(e) => setSelectedClasse(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedClasse(e.target.value);
+                    setSelectedCursoFilter('TODOS');
+                  }}
                   className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
                   {todasClasses.map(c => (
@@ -1120,8 +1174,36 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               </div>
 
               <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">2. Curso / Área</label>
+                <select
+                  value={selectedCursoFilter}
+                  onChange={(e) => setSelectedCursoFilter(e.target.value)}
+                  className="w-full text-xs font-bold text-purple-900 bg-gray-50 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                >
+                  <option value="TODOS">Todos os Cursos</option>
+                  {cursosDisponiveisClasse.map(c => (
+                    <option key={`ev-cur-${c}`} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">3. Turno</label>
+                <select
+                  value={selectedTurnoFilter}
+                  onChange={(e) => setSelectedTurnoFilter(e.target.value)}
+                  className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                >
+                  <option value="TODOS">Todos</option>
+                  {turnosDisponiveis.map(t => (
+                    <option key={`ev-trn-${t}`} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  2. Turma ({turmasDaClasse.length} na {selectedClasse})
+                  4. Turma ({turmasDaClasse.length})
                 </label>
                 <select
                   value={selectedTurmaId}
@@ -1130,7 +1212,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 >
                   {turmasDaClasse.map(t => (
                     <option key={t.id} value={t.id}>
-                      {t.nome} • {t.sala || 'Sala'} {isSegundoCiclo(t.classe) && t.curso ? `• ${t.curso}` : ''}
+                      {t.nome} • {t.sala || 'Sala'} ({t.turno}) {t.curso ? `• ${t.curso}` : ''}
                     </option>
                   ))}
                 </select>
@@ -1138,7 +1220,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold text-gray-700">3. Disciplina Oficial</label>
+                  <label className="text-xs font-bold text-gray-700">5. Disciplina</label>
                   <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
                     {disciplinasDaClasseECurso.length} da {turmaAtiva?.classe}
                   </span>
@@ -1155,7 +1237,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">4. Trimestre</label>
+                <label className="text-xs font-bold text-gray-700 block mb-1">6. Trimestre</label>
                 <select
                   value={selectedTrimestre}
                   onChange={(e) => setSelectedTrimestre(e.target.value as any)}
@@ -2260,9 +2342,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
             <div>
               <h3 className="text-base font-extrabold text-gray-900 flex items-center space-x-2">
                 <span>Pauta Oficial de Aproveitamento Escolar</span>
-                <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-full">MED Angola</span>
               </h3>
-              <p className="text-xs text-gray-500">Conforme a regulamentação oficial do Ministério da Educação da República de Angola</p>
+              <p className="text-xs text-gray-500">Registo oficial de aproveitamento por turma e disciplina</p>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -2278,7 +2359,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                <span>{isExportingPdf ? 'A Gerar PDF...' : 'Baixar Pauta em PDF Oficial (MED)'}</span>
+                <span>{isExportingPdf ? 'A Gerar PDF...' : 'Baixar Pauta em PDF'}</span>
               </button>
 
               <button
@@ -2595,7 +2676,6 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   <p className="font-bold text-gray-800 text-[11px]">
                     {obterNomeDiretorGeral(escola, funcionariosEscola)}
                   </p>
-                  <span className="text-[9px] text-gray-400 block uppercase">[Carimbo Oficial / Selo Branco]</span>
                 </div>
               </div>
             </div>

@@ -2,21 +2,94 @@
 <html lang="pt">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>SGE-NG - Sistema de Gestão Escolar</title>
-    <meta name="description" content="Sistema Completo de Gestão Escolar (SGE-NG) adaptado às normas do Ministério da Educação de Angola, com motor dinâmico de cálculo de MAC, offline-first e perfis pedagógicos." />
-    <meta property="og:title" content="SGE-NG - Sistema de Gestão Escolar" />
-    <meta property="og:description" content="Sistema Completo de Gestão Escolar (SGE-NG) adaptado às normas do Ministério da Educação de Angola, com motor dinâmico de cálculo de MAC, offline-first e perfis pedagógicos." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+    <script>
+      // Forçar HTTPS automaticamente em domínios públicos (mantém localhost/LAN livres para desenvolvimento)
+      (function() {
+        try {
+          var loc = window.location;
+          var host = (loc.hostname || '').toLowerCase();
+          var isLocal =
+            host === 'localhost' ||
+            host === '127.0.0.1' ||
+            host === '[::1]' ||
+            host === '0.0.0.0' ||
+            /^192\.168\./.test(host) ||
+            /^10\./.test(host) ||
+            host.endsWith('.local');
+          if (!isLocal) {
+            if (loc.protocol === 'http:') {
+              loc.replace('https://' + loc.host + loc.pathname + loc.search + loc.hash);
+              return;
+            }
+            var cspMeta = document.createElement('meta');
+            cspMeta.httpEquiv = 'Content-Security-Policy';
+            cspMeta.content = 'upgrade-insecure-requests';
+            document.head.appendChild(cspMeta);
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <title>SGE-NG – Sistema de Gestão Escolar de Angola</title>
+    <meta
+      name="description"
+      content="Plataforma oficial de gestão escolar para Angola (SGE-NG): matrículas, notas MAC, pautas, passes, documentos e sincronização offline."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="Dite Zola NG" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- OpenGraph -->
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_AO" />
+    <meta property="og:site_name" content="SGE-NG" />
+    <meta property="og:title" content="SGE-NG – Sistema de Gestão Escolar de Angola" />
+    <meta
+      property="og:description"
+      content="Plataforma oficial de gestão escolar para Angola (SGE-NG): matrículas, notas MAC, pautas, passes, documentos e sincronização offline."
+    />
+
+    <!-- Twitter / X Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SGE-NG – Sistema de Gestão Escolar de Angola" />
+    <meta
+      name="twitter:description"
+      content="Plataforma oficial de gestão escolar para Angola (SGE-NG): matrículas, notas MAC, pautas, passes, documentos e sincronização offline."
+    />
+
+    <!-- PWA & Mobile -->
     <meta name="theme-color" content="#0F2942" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="SGE-NG" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Favicons & Manifest & Sitemap -->
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="alternate icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+
+    <!-- Schema.org Structured Data -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "SGE-NG - Sistema de Gestão Escolar",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "All",
+        "inLanguage": "pt-AO",
+        "description": "Plataforma oficial de gestão escolar para Angola: matrículas, notas MAC, pautas, passes escolares, documentos oficiais e operação offline.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "AOA"
+        }
+      }
+    </script>
   </head>
   <body class="bg-white text-gray-900 antialiased selection:bg-blue-100 selection:text-blue-900">
     <div id="root">
@@ -30,7 +103,7 @@
     </div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Failsafe: se por qualquer motivo o carregamento demorar mais de 3.5s, oferece botão de desbloqueio imediato
+      // Failsafe: se por qualquer motivo o carregamento demorar mais de 3s, oferece botão de desbloqueio imediato
       setTimeout(function() {
         var loader = document.getElementById('sge-loader');
         if (loader && loader.parentNode) {
@@ -51,4 +124,3 @@
     </script>
   </body>
 </html>
-

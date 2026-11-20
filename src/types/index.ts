@@ -158,6 +158,7 @@ export interface TermoExame {
   homologadoPor?: string;
   homologadoEm?: string;
   observacoes?: string;
+  atualizadoEm?: string;
 }
 
 export interface CursoEscolar {
@@ -242,8 +243,10 @@ export interface Aluno {
   classeId: string;
   escolaId: string;
   curso?: string; // ex: "Formação de Professores do 1.º Ciclo", "Ciências Humanas", "Ciências Económicas e Jurídicas"
+  cursoId?: string;
+  areaFormacao?: string;
   opcaoCurso?: string; // ex: "Língua Portuguesa e EMC"
-  periodo?: 'Matinal' | 'Vespertino' | 'Noturno';
+  periodo?: 'Matinal' | 'Vespertino' | 'Noturno' | string;
   livroRegisto?: string; // ex: "02" ou "220518MA2003"
   folhaRegisto?: string; // ex: "64" ou "EJ-2024/2025"
   propinaStatus: 'Regularizada' | 'Pendente' | 'Isento';
@@ -270,9 +273,12 @@ export interface Turma {
   classe: string; // "Iniciação", "1ª", "2ª", ..., "13ª"
   nivelEnsino: NivelEnsino;
   curso?: string; // "Geral", "Ciências Físicas e Biológicas", "Informática"
-  turno: 'Manhã' | 'Tarde' | 'Noite';
+  cursoId?: string;
+  areaFormacao?: string;
+  turno: 'Manhã' | 'Tarde' | 'Noite' | string;
   periodo?: 'Matinal' | 'Vespertino' | 'Noturno' | string;
   sala: string;
+  salaId?: string;
   capacidade?: number;
   capacidadeMaxima?: number;
   anoLectivo: string;
@@ -280,6 +286,7 @@ export interface Turma {
   coordenadorNome?: string;
   directorTurmaNome?: string;
   ordem?: number;
+  atualizadoEm?: string;
 }
 
 export interface Disciplina {
@@ -296,6 +303,10 @@ export interface Disciplina {
   classe?: string; // Classe associada (ex: '7ª')
   classes?: string[]; // Classes associadas quando criada para múltiplas classes (ex: ['7ª', '8ª', '9ª'])
   ciclo?: string; // Ciclo curricular (ex: 'Ensino Primário', 'Iº Ciclo', 'IIº Ciclo')
+  curso?: string; // Curso específico quando aplicável
+  cursos?: string[]; // Cursos associados (vazio ou ['TODOS'] = tronco comum / todos os cursos da classe)
+  areaFormacao?: string;
+  atualizadoEm?: string;
 }
 
 export interface AtribuicaoDocente {
@@ -306,6 +317,7 @@ export interface AtribuicaoDocente {
   disciplinaId: string;
   ehCoordenadorTurma: boolean; // Presidente de Turma
   anoLectivo: string;
+  atualizadoEm?: string;
 }
 
 export interface Funcionario {
@@ -386,6 +398,7 @@ export interface TipoAvaliacaoConfig {
   classesPermitidas?: string[];
   ciclosPermitidos?: string[];
   trimestresPermitidos?: Trimestre[];
+  atualizadoEm?: string;
 }
 
 export interface RegraCalculoMAC {
@@ -453,6 +466,7 @@ export interface AvaliacaoCriada {
   escolaId: string;
   turmaId: string;
   disciplinaId: string;
+  disciplinaNome?: string;
   professorId: string;
   trimestre: Trimestre;
   anoLectivo: string;
@@ -463,6 +477,7 @@ export interface AvaliacaoCriada {
   pontuacaoMaxima: number;
   peso: number;
   bloqueada: boolean;
+  atualizadoEm?: string;
 }
 
 export interface NotaEstudante {
@@ -472,6 +487,7 @@ export interface NotaEstudante {
   valorNota: number; // 0-10 ou 0-20
   conceitoIniciacao?: ConceitoQualitativoIniciacao;
   dataLancamento: string;
+  atualizadoEm?: string;
 }
 
 export interface NotaTrimestralConsolidada {
@@ -480,6 +496,7 @@ export interface NotaTrimestralConsolidada {
   alunoId: string;
   turmaId: string;
   disciplinaId: string;
+  disciplinaNome?: string;
   trimestre: Trimestre;
   anoLectivo: string;
   mac: number; // Média de Avaliação Contínua (MAC)
@@ -494,6 +511,7 @@ export interface NotaTrimestralConsolidada {
   assiduidadeConceito?: string; // Excelente, Muito Bom, Bom, Regular
   faltas: number;
   validadaPelaDirecao: boolean;
+  atualizadoEm?: string;
 }
 
 export type NotaConsolidada = NotaTrimestralConsolidada;
@@ -519,6 +537,7 @@ export interface SolicitacaoAlteracaoNota {
   respostaDirecao?: string;
   dataSolicitacao: string;
   dataResposta?: string;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -681,6 +700,7 @@ export interface ComissaoJuri {
   pautaHomologada?: boolean;
   pautaHomologadaEm?: string;
   pautaHomologadaPor?: string;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -712,6 +732,7 @@ export interface PresencaFuncionario {
   horaEntrada?: string;
   horaSaida?: string;
   justificativa?: string;
+  atualizadoEm?: string;
 }
 
 export type RegistoAssiduidade = PresencaFuncionario;
@@ -754,6 +775,7 @@ export interface MensagemInterna {
   dataHora: string;
   criadaEm?: string;
   lida?: boolean;
+  atualizadoEm?: string;
 }
 
 export type Mensagem = MensagemInterna;
@@ -772,6 +794,7 @@ export interface DocumentoBiblioteca {
   dataUpload: string;
   carregadoEm?: string;
   uploadPorNome: string;
+  atualizadoEm?: string;
 }
 
 export interface ReciboPagamento {
@@ -787,6 +810,7 @@ export interface ReciboPagamento {
   metodoPagamento: 'Dinheiro' | 'Multicaixa / TPA' | 'Transferência Bancária';
   dataHora: string;
   operadorNome: string;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -839,6 +863,7 @@ export interface ConfiguracaoFinanceiraEscola {
   bancoNome?: string;
   delegacoesCobranca?: DelegacaoCobrancaFinanceira[];
   emolumentosPersonalizados?: ItemEmolumentoConfig[];
+  atualizadoEm?: string;
 }
 
 export interface DelegacaoCobrancaFinanceira {
@@ -857,6 +882,7 @@ export interface DelegacaoCobrancaFinanceira {
   dataDelegacao: string;
   delegadoPorNome: string;
   observacoes?: string;
+  atualizadoEm?: string;
 }
 
 export type TipoPagamentoEscolar = TipoEmolumento;
@@ -886,6 +912,7 @@ export interface TransacaoFinanceira {
   observacao?: string;
   observacoes?: string;
   status: 'Confirmado' | 'Pendente' | 'Anulado';
+  atualizadoEm?: string;
 }
 
 export type MetodoPagamentoEscolar = 'Dinheiro' | 'Multicaixa / TPA' | 'Transferência Bancária' | 'Depósito' | 'Outro' | 'Cheque';
@@ -917,6 +944,7 @@ export interface DespesaEscolar {
   registadoPorNome: string;
   aprovadoPorNome?: string;
   observacao?: string;
+  atualizadoEm?: string;
 }
 
 export type CategoriaPatrimonio = 
@@ -965,6 +993,7 @@ export interface ItemPatrimonio {
   revisadoEm?: string;
   revisadoPor?: string;
   statusInventario?: 'Confirmado' | 'Danificado' | 'Inexistente' | 'Para_Abate' | string;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -1051,6 +1080,7 @@ export interface HistoricoEscolarCompleto {
   livroRegisto?: string;
   folhaRegisto?: string;
   termoNumero?: string;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -1077,6 +1107,18 @@ export interface ConfiguracaoSistema {
   insigniaChunksCount?: number;
   insigniaOtimizada?: boolean;
   atualizadoEm?: string;
+  // Configurações Gerais, Segurança, Privacidade & Desempenho
+  forcarHTTPS?: boolean;
+  bannerCookiesAtivo?: boolean;
+  exigirConsentimentoPoliticas?: boolean;
+  protecaoAntiSpamAtiva?: boolean;
+  limiteSubmissoesPorMinuto?: number;
+  otimizacaoCarregamentoAtiva?: boolean;
+  emailDPO?: string;
+  telefoneSuporte?: string;
+  politicaVersao?: string;
+  idiomaSistema?: string;
+  fusoHorario?: string;
 }
 
 // ==========================================
@@ -1103,6 +1145,7 @@ export interface AnoLectivoConfig {
   trimestres: PeriodoTrimestre[];
   descricao?: string;
   criadoEm: string;
+  atualizadoEm?: string;
 }
 
 export interface TurnoConfig {
@@ -1116,6 +1159,7 @@ export interface TurnoConfig {
   toleranciaMinutos?: number;
   diasSemana?: string[];
   ativo: boolean;
+  atualizadoEm?: string;
 }
 
 export interface ClasseConfig {
@@ -1128,6 +1172,31 @@ export interface ClasseConfig {
   nivelEnsino?: NivelEnsino;
   descricao?: string;
   ordem?: number;
+  atualizadoEm?: string;
+}
+
+export interface AreaFormacaoConfig {
+  id: string;
+  escolaId?: string;
+  nome: string;
+  codigo?: string;
+  ciclo?: string;
+  nivelEnsino?: NivelEnsino;
+  descricao?: string;
+  ativo?: boolean;
+  atualizadoEm?: string;
+}
+
+export interface SalaAulaConfig {
+  id: string;
+  escolaId?: string;
+  nome: string;
+  codigo?: string;
+  capacidade?: number;
+  tipo?: 'Sala de Aula' | 'Laboratório' | 'Oficina' | 'Auditório' | string;
+  bloco?: string;
+  ativo?: boolean;
+  atualizadoEm?: string;
 }
 
 export interface CursoConfig {
@@ -1136,9 +1205,14 @@ export interface CursoConfig {
   nome: string;
   codigo?: string;
   area: string;
+  areaFormacaoId?: string;
   duracao: string;
+  nivelEnsino?: NivelEnsino;
+  ciclo?: string;
+  classesPermitidas?: string[];
   descricao?: string;
   ativo?: boolean;
+  atualizadoEm?: string;
 }
 
 export interface ClasseEscolar {
@@ -1151,6 +1225,7 @@ export interface ClasseEscolar {
   ciclo?: string;
   regimeAvaliacao?: string;
   ativa?: boolean;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -1257,6 +1332,7 @@ export interface ConfiguracaoPassesEscola {
   chancelaDigitalAtiva: boolean;
   assinaturaDiretorUrl?: string; // Assinatura digitalizada do diretor
   tamanhoFoto?: 'padrao' | 'grande' | 'maximo'; // Tamanho ampliado da foto 3x4
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -1294,6 +1370,7 @@ export interface HorarioAulaItem {
   professorNome: string;
   sala: string;
   anoLectivo: string;
+  atualizadoEm?: string;
 }
 
 export interface NotificacaoAulaProfessor {
@@ -1323,6 +1400,7 @@ export interface PresencaAlunoItem {
   justificativa?: string;
   registadoPorId: string;
   registadoPorNome: string;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -1352,6 +1430,7 @@ export interface RegistroAlteracaoNotaDirecao {
   alteradoPorRole: 'DiretorGeral' | 'SubdiretorPedagogico' | 'AdminGeral';
   dataHora: string;
   lidoPeloProfessor?: boolean;
+  atualizadoEm?: string;
 }
 
 // ==========================================
@@ -1369,6 +1448,7 @@ export interface ConfiguracaoDocumentoCustomizado {
   textoFechamento: string;
   textoRodape: string;
   artigoLegalDecreto: string;
+  atualizadoEm?: string;
   disposicao: {
     orientacao: 'retrato' | 'paisagem';
     alinhamentoLogo: 'centro' | 'esquerda' | 'duplo';

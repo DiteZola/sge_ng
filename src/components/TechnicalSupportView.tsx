@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Escola, Funcionario, SolicitacaoApoioTecnico } from '../types';
 import { dbService } from '../services/storage';
+import { antiSpamService } from '../services/antiSpamService';
 
 interface TechnicalSupportViewProps {
   currentUser: Funcionario;
@@ -67,6 +68,7 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
   const [urgencia, setUrgencia] = useState<'Baixa' | 'Media' | 'Alta' | 'Critica'>('Alta');
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
   const [erroMsg, setErroMsg] = useState<string | null>(null);
+  const [hpTicketTrap, setHpTicketTrap] = useState('');
 
   // Painel inline de notas técnicas (sem window.prompt)
   const [respostaAlvo, setRespostaAlvo] = useState<{
@@ -108,6 +110,17 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
 
     if (!motivo.trim() || !descricao.trim()) {
       setErroMsg('Por favor, preencha o motivo e a descrição detalhada do problema técnico.');
+      return;
+    }
+
+    const validacao = antiSpamService.validarSubmissao({
+      acao: 'apoio_tecnico',
+      honeypotValor: hpTicketTrap,
+      conteudoPrincipal: `${motivo} ${descricao}`,
+      identificadorAutor: currentUser.id
+    });
+    if (!validacao.permitido) {
+      setErroMsg(validacao.motivo || 'Submissão bloqueada pela proteção anti-spam.');
       return;
     }
 
@@ -326,6 +339,15 @@ export const TechnicalSupportView: React.FC<TechnicalSupportViewProps> = ({
           </div>
 
           <form onSubmit={handleCriarSolicitacao} className="space-y-4">
+            <div className="sr-only" aria-hidden="true">
+              <input
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                value={hpTicketTrap}
+                onChange={(e) => setHpTicketTrap(e.target.value)}
+              />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-gray-700 mb-1">

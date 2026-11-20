@@ -30,7 +30,9 @@ import {
   Info,
   UserCheck,
   Coins,
-  Edit
+  Edit,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -63,9 +65,10 @@ import {
 } from '../types';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
-import { downloadElementAsPdf } from '../utils/pdfGenerator';
+import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { AngolaDateInput } from './AngolaDateInput';
+import { FeeReceiptsA4Modal, ReciboEmolumentoA4Item } from './FeeReceiptsA4Sheet';
 import {
   normalizarClasse,
   CLASSES_ENSINO_PRIMARIO,
@@ -175,6 +178,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [showNovaDespesaModal, setShowNovaDespesaModal] = useState(false);
   const [showNovoPatrimonioModal, setShowNovoPatrimonioModal] = useState(false);
   const [reciboParaImprimir, setReciboParaImprimir] = useState<TransacaoFinanceira | null>(null);
+  const [selectedRecibosA4Ids, setSelectedRecibosA4Ids] = useState<string[]>([]);
+  const [showRecibosA4Modal, setShowRecibosA4Modal] = useState(false);
 
   // Estados de Delegação de Cobrança
   const [showNovaDelegacaoModal, setShowNovaDelegacaoModal] = useState(false);
@@ -1186,7 +1191,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               <p className="text-xs text-gray-500">Registo contínuo de entradas financeiras da escola</p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Search className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" />
                 <input
@@ -1195,9 +1200,21 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   onChange={(e) => setBuscaPagamento(sanitizeSearchInput(e.target.value, 80))}
                   maxLength={80}
                   placeholder="Buscar recibo, aluno ou matrícula..."
-                  className="pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 w-64"
+                  className="pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 w-56 sm:w-64"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => setShowRecibosA4Modal(true)}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shrink-0"
+              >
+                <Receipt className="h-4 w-4" />
+                <span>
+                  {selectedRecibosA4Ids.length > 0
+                    ? `Folha A4 (${selectedRecibosA4Ids.length} Recibos)`
+                    : '8 Recibos / Folha A4'}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => setShowNovoPagamentoModal(true)}
@@ -1214,13 +1231,14 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-700 font-bold border-b border-gray-200 uppercase text-[10px]">
                 <tr>
+                  <th className="py-3 px-2.5 w-8 text-center">A4</th>
                   <th className="py-3 px-3">Recibo N.º</th>
                   <th className="py-3 px-3">Aluno / Processo</th>
                   <th className="py-3 px-3">Turma / Classe</th>
                   <th className="py-3 px-3">Tipo / Referência</th>
                   <th className="py-3 px-3">Valor (Kz)</th>
                   <th className="py-3 px-3">Método</th>
-                  <th className="py-3 px-3">Data / Operador</th>
+                  <th className="py-3 px-3">Data / Atendente</th>
                   <th className="py-3 px-3 text-right">Ações</th>
                 </tr>
               </thead>
@@ -1231,8 +1249,24 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                     t.numeroRecibo.toLowerCase().includes(buscaPagamento.toLowerCase()) ||
                     t.codigoMatricula.toLowerCase().includes(buscaPagamento.toLowerCase())
                   )
-                  .map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
+                  .map((t) => {
+                    const isChecked = selectedRecibosA4Ids.includes(t.id);
+                    return (
+                    <tr key={t.id} className={`hover:bg-slate-50/80 transition-colors ${isChecked ? 'bg-emerald-50/50' : ''}`}>
+                      <td className="py-2.5 px-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedRecibosA4Ids(prev =>
+                              prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id]
+                            )
+                          }
+                          className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                          title="Selecionar para folha A4 de 8 recibos"
+                        >
+                          {isChecked ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 text-gray-400" />}
+                        </button>
+                      </td>
                       <td className="py-2.5 px-3 font-mono font-bold text-blue-700">
                         {t.numeroRecibo}
                       </td>
@@ -1258,7 +1292,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         </span>
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="text-gray-900 font-medium">{t.dataHora}</div>
+                        <div className="text-gray-900 font-medium">{formatarDataHoraAngolana(t.dataHora)}</div>
                         <div className="text-[10px] text-gray-500">{t.operadorNome}</div>
                       </td>
                       <td className="py-2.5 px-3 text-right whitespace-nowrap">
@@ -1296,7 +1330,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
               </tbody>
             </table>
           </div>
@@ -2337,7 +2372,6 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 )}
               </div>
               <p className="text-xs font-extrabold uppercase tracking-widest text-amber-600">República de Angola</p>
-              <p className="text-[11px] font-semibold uppercase text-slate-500">Ministério da Educação</p>
               <h4 className="text-sm font-black text-slate-900">{escola.nomeOficial}</h4>
               <p className="text-xs text-slate-600">Subdirecção Administrativa • Balanço do Ano Lectivo {escola.anoLectivoActivo}</p>
             </div>
@@ -2358,7 +2392,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             </div>
 
             <div className="pt-4 text-xs text-slate-600 space-y-2">
-              <p><strong>Observações Contabilísticas:</strong> Todas as receitas foram arrecadadas mediante a emissão de recibos numerados sequencialmente em conformidade com as regras do MED. As despesas de gerador e material possuem comprovativos anexos em arquivo físico na secretaria da instituição.</p>
+              <p><strong>Observações Contabilísticas:</strong> Todas as receitas foram arrecadadas mediante a emissão de recibos numerados sequencialmente em conformidade com as normas administrativas vigentes. As despesas de gerador e material possuem comprovativos anexos em arquivo físico na secretaria da instituição.</p>
               <div className="pt-8 flex justify-between text-center">
                 <div>
                   <div className="w-48 border-t border-slate-400 mx-auto" />
@@ -2848,7 +2882,6 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   )}
                 </div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">República de Angola</p>
-                <p className="text-[9px] font-bold uppercase text-slate-500">Ministério da Educação</p>
                 <p className="text-xs font-bold text-slate-900">{escola.nomeOficial}</p>
                 <p className="text-[10px] font-mono text-blue-800 font-bold">N.º {reciboParaImprimir.numeroRecibo}</p>
               </div>
@@ -2882,6 +2915,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                     <span className="font-mono font-bold text-slate-900">{reciboParaImprimir.numeroComprovativo}</span>
                   </div>
                 )}
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Data de Emissão:</span>
+                  <span className="font-medium text-slate-900">{formatarDataHoraAngolana(reciboParaImprimir.dataHora)}</span>
+                </div>
               </div>
 
               <div className="flex justify-between items-center py-1">
@@ -2891,10 +2928,15 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </span>
               </div>
 
-              <div className="pt-2 text-[9px] text-slate-400 text-center border-t border-slate-200 space-y-2">
-                <p>Emitido em {formatarDataHoraAngolana(reciboParaImprimir.dataHora)} • Operador: {reciboParaImprimir.operadorNome}</p>
-                <p>O presente recibo serve de comprovativo oficial perante a administração escolar.</p>
-                <div className="flex justify-center pt-1">
+              <div className="pt-2 text-[9px] text-slate-700 border-t border-slate-200 flex items-end justify-between gap-3">
+                <div className="flex-1 flex flex-col items-center justify-end text-center min-w-0">
+                  <span className="text-[8px] font-bold uppercase text-slate-900">A Direcção da Escola</span>
+                  <div className="w-40 max-w-full border-b border-black my-4" />
+                  <span className="text-[8.5px] font-bold text-slate-950 whitespace-normal break-words">
+                    {reciboParaImprimir.operadorNome || currentUser.nomeCompleto}
+                  </span>
+                </div>
+                <div className="shrink-0">
                   <OfficialQrCode
                     value={gerarPayloadQrDocumento({
                       docType: 'RECIBO_PAGAMENTO',
@@ -2905,7 +2947,6 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                       anoLectivo: escola.anoLectivoActivo
                     })}
                     size={54}
-                    label="Validar Recibo"
                   />
                 </div>
               </div>
@@ -2931,7 +2972,15 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </button>
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() => {
+                  const el = document.getElementById('recibo-imprimir-modal');
+                  if (el) {
+                    imprimirElementoDiretamente(el, `Recibo_${reciboParaImprimir.numeroRecibo || 'Pagamento'}`, {
+                      orientation: 'portrait',
+                      format: 'a4'
+                    });
+                  }
+                }}
                 className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-md cursor-pointer"
               >
                 <Printer className="h-4 w-4" />
@@ -2941,6 +2990,33 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
           </div>
         </div>
       )}
+
+      {/* MODAL: EMISSÃO DE RECIBOS EM FOLHA A4 (8 POR FOLHA) */}
+      <FeeReceiptsA4Modal
+        isOpen={showRecibosA4Modal}
+        onClose={() => setShowRecibosA4Modal(false)}
+        escola={escola}
+        todosRecibos={transacoes
+          .filter(t => t.status !== 'Anulado')
+          .map((t): ReciboEmolumentoA4Item => ({
+            id: t.id,
+            numeroRecibo: t.numeroRecibo,
+            alunoId: t.alunoId,
+            alunoNome: t.alunoNome,
+            codigoMatricula: t.codigoMatricula,
+            classeTurma: t.turmaNome || t.classe,
+            descricao: `${t.tipo}${t.mesReferencia ? ` (${t.mesReferencia})` : ''}`,
+            valorKz: t.valorKz,
+            multaKz: t.multaKz,
+            valorTotalKz: t.valorTotalKz,
+            metodoPagamento: t.metodoPagamento,
+            numeroComprovativo: t.numeroComprovativo,
+            dataHora: t.dataHora,
+            operadorNome: t.operadorNome
+          }))}
+        initialSelectedIds={selectedRecibosA4Ids}
+        nomeAtendentePadrao={currentUser.nomeCompleto}
+      />
 
       {/* MODAL: NOVA DELEGAÇÃO DE COBRANÇA FINANCEIRA */}
       {showNovaDelegacaoModal && (

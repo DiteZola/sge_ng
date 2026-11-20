@@ -18,6 +18,8 @@ import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf } from '../utils/pdfGenerator';
 import { downloadExcelFile } from '../utils/curriculoAngola';
+import { normalizarClasse, TODAS_CLASSES_OFICIAIS_MED, filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
+import { ordenarClassesMED } from '../utils/enrollmentProgression';
 
 interface StudentRankingSectionProps {
   escola: Escola;
@@ -150,6 +152,8 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   const [filtroClasse, setFiltroClasse] = useState<string>('todas');
   const [filtroTurma, setFiltroTurma] = useState<string>('todas');
   const [filtroCurso, setFiltroCurso] = useState<string>('todos');
+  const [filtroTurno, setFiltroTurno] = useState<string>('todos');
+  const [filtroSala, setFiltroSala] = useState<string>('todas');
   const [termoPesquisa, setTermoPesquisa] = useState<string>('');
   const [apenasMinhasTurmas, setApenasMinhasTurmas] = useState<boolean>(() => {
     return currentUser?.ehProfessor || currentUser?.role === 'Professor' || false;
@@ -197,32 +201,63 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
     return m;
   }, [todasTurmas]);
 
-  // Lista de classes disponíveis
+  // Lista de classes disponíveis (Classes configuradas + Turmas + Alunos + MED)
   const classesDisponiveis = useMemo(() => {
-    const set = new Set<string>();
-    todasTurmas.forEach(t => { if (t.classe) set.add(t.classe); });
-    todosAlunos.forEach(a => { if (a.classeId) set.add(a.classeId); });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [todasTurmas, todosAlunos]);
+    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome));
+    const fromTurmas = todasTurmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
+    const fromAlunos = todosAlunos.map(a => normalizarClasse(a.classeId)).filter(Boolean);
+    return ordenarClassesMED([
+      ...fromCfg,
+      ...fromTurmas,
+      ...fromAlunos,
+      ...TODAS_CLASSES_OFICIAIS_MED
+    ]);
+  }, [escola.id, todasTurmas, todosAlunos]);
 
-  // Lista de turmas filtradas pela classe
+  // Lista de cursos disponíveis (dinâmicos da Direção + Turmas + Alunos)
+  const cursosDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    dbService.getCursos(escola.id).filter(c => c.ativo !== false).forEach(c => {
+      if (c.nome) set.add(c.nome);
+    });
+    todosCursos.forEach(c => { if (c.nome) set.add(c.nome); });
+    todasTurmas.forEach(t => { if (t.curso) set.add(t.curso); });
+    todosAlunos.forEach(a => { if (a.curso) set.add(a.curso); });
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [escola.id, todosCursos, todasTurmas, todosAlunos]);
+
+  const turnosDisponiveis = useMemo(() => {
+    const set = new Set<string>(['Manhã', 'Tarde', 'Noite']);
+    dbService.getTurnosConfigs(escola.id).filter(t => t.ativo !== false).forEach(t => {
+      if (t.nome) set.add(t.nome);
+    });
+    todasTurmas.forEach(t => { if (t.turno) set.add(t.turno); });
+    return Array.from(set);
+  }, [escola.id, todasTurmas]);
+
+  const salasDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    dbService.getSalasAulas(escola.id).filter(s => s.ativo !== false).forEach(s => {
+      if (s.nome) set.add(s.nome);
+    });
+    todasTurmas.forEach(t => { if (t.sala) set.add(t.sala); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [escola.id, todasTurmas]);
+
+  // Lista de turmas filtradas pela classe, curso, turno e sala
   const turmasFiltradas = useMemo(() => {
     let base = todasTurmas;
     if (isProfessor && apenasMinhasTurmas) {
       base = base.filter(t => turmasDoProfessorIds.includes(t.id));
     }
-    if (filtroClasse === 'todas') return base;
-    return base.filter(t => t.classe === filtroClasse);
-  }, [todasTurmas, filtroClasse, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds]);
-
-  // Lista de cursos disponíveis
-  const cursosDisponiveis = useMemo(() => {
-    const set = new Set<string>();
-    todosCursos.forEach(c => { if (c.nome) set.add(c.nome); });
-    todasTurmas.forEach(t => { if (t.curso) set.add(t.curso); });
-    todosAlunos.forEach(a => { if (a.curso) set.add(a.curso); });
-    return Array.from(set).filter(Boolean);
-  }, [todosCursos, todasTurmas, todosAlunos]);
+    return base.filter(t => {
+      if (filtroClasse !== 'todas' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
+      if (filtroCurso !== 'todos' && (t.curso || '').trim().toLowerCase() !== filtroCurso.trim().toLowerCase()) return false;
+      if (filtroTurno !== 'todos' && (t.turno || '').trim().toLowerCase() !== filtroTurno.trim().toLowerCase()) return false;
+      if (filtroSala !== 'todas' && (t.sala || '').trim().toLowerCase() !== filtroSala.trim().toLowerCase()) return false;
+      return true;
+    });
+  }, [todasTurmas, filtroClasse, filtroCurso, filtroTurno, filtroSala, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds]);
 
   // Alunos filtrados e com médias
   const alunosComMedia = useMemo(() => {
@@ -239,10 +274,11 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         if (turmasDoProfessorIds.length > 0 && !turmasDoProfessorIds.includes(a.turmaId)) return false;
       }
 
+      const turma = turmasMap.get(a.turmaId);
+
       if (filtroClasse !== 'todas') {
-        const turma = turmasMap.get(a.turmaId);
-        const classeDoAluno = turma?.classe || a.classeId;
-        if (classeDoAluno !== filtroClasse) return false;
+        const classeDoAluno = normalizarClasse(turma?.classe || a.classeId);
+        if (classeDoAluno !== normalizarClasse(filtroClasse)) return false;
       }
 
       if (filtroTurma !== 'todas') {
@@ -250,9 +286,18 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       }
 
       if (filtroCurso !== 'todos') {
-        const turma = turmasMap.get(a.turmaId);
-        const cursoDoAluno = turma?.curso || a.curso;
-        if (cursoDoAluno !== filtroCurso) return false;
+        const cursoDoAluno = (turma?.curso || a.curso || '').trim().toLowerCase();
+        if (cursoDoAluno !== filtroCurso.trim().toLowerCase()) return false;
+      }
+
+      if (filtroTurno !== 'todos') {
+        const turnoDoAluno = (turma?.turno || a.periodo || '').trim().toLowerCase();
+        if (turnoDoAluno !== filtroTurno.trim().toLowerCase()) return false;
+      }
+
+      if (filtroSala !== 'todas') {
+        const salaDoAluno = (turma?.sala || '').trim().toLowerCase();
+        if (salaDoAluno !== filtroSala.trim().toLowerCase()) return false;
       }
 
       if (termoPesquisa.trim()) {
@@ -296,7 +341,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         notaAprovacao
       };
     });
-  }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, termoPesquisa, turmasMap, escola.id, escola.anoLectivoActivo, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds, refreshTick]);
+  }, [todosAlunos, filtroClasse, filtroTurma, filtroCurso, filtroTurno, filtroSala, termoPesquisa, turmasMap, escola.id, escola.anoLectivoActivo, isProfessor, apenasMinhasTurmas, turmasDoProfessorIds, refreshTick]);
 
   // Quadro Geral de Todos os Estudantes Matriculados e Confirmados no Ano Activo
   const todosEstudantesRankeados: AlunoRankeado[] = useMemo(() => {
@@ -383,25 +428,69 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
     .map((item, idx) => ({ ...item, posicao: idx + 1 }));
   }, [todosFuncionarios, todosAssiduidade, todasAtribuicoes, todasNotas, todasDisciplinas, escola.id, refreshTick]);
 
-  // 4. RANKING DE DISCIPLINAS (NOTAS CONSOLIDADAS + FALLBACK AVALIAÇÕES MAC DA ESCOLA ATIVA)
+  // 4. RANKING DE DISCIPLINAS (NOTAS CONSOLIDADAS + FALLBACK AVALIAÇÕES MAC DA ESCOLA ATIVA & FILTROS ACADÉMICOS)
   const rankingDisciplinas: DisciplinaRankeada[] = useMemo(() => {
-    const alunosIdsEscola = new Set(
-      todosAlunos
-        .filter(a => !escola.id || escola.id === 'todas' || a.escolaId === escola.id)
-        .map(a => a.id)
-    );
-    const turmasIdsEscola = new Set(
-      todasTurmas
+    const anoActivo = escola.anoLectivoActivo || '';
+    const temFiltroTurmaAluno =
+      filtroClasse !== 'todas' ||
+      filtroTurma !== 'todas' ||
+      filtroCurso !== 'todos' ||
+      filtroTurno !== 'todos' ||
+      filtroSala !== 'todas';
+
+    const alunosFiltradosMap = new Map<string, Aluno>();
+    todosAlunos.forEach(a => {
+      if (escola.id && escola.id !== 'todas' && a.escolaId !== escola.id) return;
+      const turma = turmasMap.get(a.turmaId);
+      const anoAl = a.anoLectivo || a.anoMatricula || turma?.anoLectivo;
+      if (anoActivo && anoAl && anoAl !== anoActivo) return;
+      if (isProfessor && apenasMinhasTurmas && turmasDoProfessorIds.length > 0 && !turmasDoProfessorIds.includes(a.turmaId)) {
+        return;
+      }
+      if (filtroClasse !== 'todas') {
+        const cl = normalizarClasse(turma?.classe || a.classeId);
+        if (cl !== normalizarClasse(filtroClasse)) return;
+      }
+      if (filtroTurma !== 'todas' && a.turmaId !== filtroTurma) return;
+      if (filtroCurso !== 'todos') {
+        const cur = (turma?.curso || a.curso || '').trim().toLowerCase();
+        if (cur !== filtroCurso.trim().toLowerCase()) return;
+      }
+      if (filtroTurno !== 'todos') {
+        const trn = (turma?.turno || a.periodo || '').trim().toLowerCase();
+        if (trn !== filtroTurno.trim().toLowerCase()) return;
+      }
+      if (filtroSala !== 'todas') {
+        const sl = (turma?.sala || '').trim().toLowerCase();
+        if (sl !== filtroSala.trim().toLowerCase()) return;
+      }
+      alunosFiltradosMap.set(a.id, a);
+    });
+
+    const turmasFiltradasIds = new Set(
+      turmasFiltradas
         .filter(t => !escola.id || escola.id === 'todas' || t.escolaId === escola.id)
+        .filter(t => !anoActivo || !t.anoLectivo || t.anoLectivo === anoActivo)
+        .filter(t => filtroTurma === 'todas' || t.id === filtroTurma)
         .map(t => t.id)
     );
-    const disciplinasEscola = todasDisciplinas.filter(
+
+    let disciplinasEscola = todasDisciplinas.filter(
       d => !escola.id || escola.id === 'todas' || d.escolaId === escola.id
     );
+    if (filtroClasse !== 'todas') {
+      disciplinasEscola = filtrarDisciplinasDaClasse(
+        disciplinasEscola,
+        filtroClasse,
+        filtroCurso !== 'todos' ? filtroCurso : undefined
+      );
+    }
 
     return disciplinasEscola.map(disc => {
       const nomeNormDisc = (disc.nome || '').trim().toLowerCase();
-      const primarioDisc = (disc.nivelEnsino || '').toLowerCase().includes('prim');
+      const primarioDisc =
+        (filtroClasse !== 'todas' && isClassePrimariaRanking(filtroClasse)) ||
+        (disc.nivelEnsino || '').toLowerCase().includes('prim');
       const escala: 10 | 20 = primarioDisc ? 10 : 20;
       const limiarAprovacao = primarioDisc ? 5.0 : 9.5;
 
@@ -410,9 +499,13 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           !escola.id ||
           escola.id === 'todas' ||
           (n as any).escolaId === escola.id ||
-          alunosIdsEscola.has(n.alunoId) ||
-          turmasIdsEscola.has(n.turmaId);
+          alunosFiltradosMap.has(n.alunoId) ||
+          turmasFiltradasIds.has(n.turmaId);
         if (!pertenceEscola) return false;
+        if (anoActivo && n.anoLectivo && n.anoLectivo !== anoActivo) return false;
+        if (temFiltroTurmaAluno || (isProfessor && apenasMinhasTurmas)) {
+          if (!alunosFiltradosMap.has(n.alunoId) && !turmasFiltradasIds.has(n.turmaId)) return false;
+        }
         const matchId = n.disciplinaId === disc.id;
         const matchNome = ((n as any).disciplinaNome || '').trim().toLowerCase() === nomeNormDisc;
         return matchId || (nomeNormDisc && matchNome);
@@ -433,13 +526,19 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           todasAvaliacoes
             .filter(av => {
               const pertenceEscola = !escola.id || escola.id === 'todas' || av.escolaId === escola.id;
-              return pertenceEscola && (av.disciplinaId === disc.id || ((av as any).disciplinaNome || '').trim().toLowerCase() === nomeNormDisc);
+              if (!pertenceEscola) return false;
+              if (anoActivo && av.anoLectivo && av.anoLectivo !== anoActivo) return false;
+              if (temFiltroTurmaAluno || (isProfessor && apenasMinhasTurmas)) {
+                if (av.turmaId && !turmasFiltradasIds.has(av.turmaId)) return false;
+              }
+              return av.disciplinaId === disc.id || ((av as any).disciplinaNome || '').trim().toLowerCase() === nomeNormDisc;
             })
             .map(av => av.id)
         );
 
         todasNotasIndividuais.forEach(ni => {
           if (avIdsDisc.has(ni.avaliacaoId)) {
+            if (temFiltroTurmaAluno && !alunosFiltradosMap.has(ni.alunoId)) return;
             const val = ni.valorNota ?? (ni as any).valor;
             if (typeof val === 'number' && !isNaN(val) && val > 0) {
               valores.push(val);
@@ -471,7 +570,26 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
     .filter(d => d.totalAvaliados > 0)
     .sort((a, b) => (b.mediaGeral / (b.escala || 20)) - (a.mediaGeral / (a.escala || 20)))
     .map((item, idx) => ({ ...item, posicao: idx + 1 }));
-  }, [todasDisciplinas, todasNotas, todasAvaliacoes, todasNotasIndividuais, todosAlunos, todasTurmas, escola.id, refreshTick]);
+  }, [
+    todasDisciplinas,
+    todasNotas,
+    todasAvaliacoes,
+    todasNotasIndividuais,
+    todosAlunos,
+    turmasFiltradas,
+    turmasMap,
+    filtroClasse,
+    filtroTurma,
+    filtroCurso,
+    filtroTurno,
+    filtroSala,
+    isProfessor,
+    apenasMinhasTurmas,
+    turmasDoProfessorIds,
+    escola.id,
+    escola.anoLectivoActivo,
+    refreshTick
+  ]);
 
   const topDisciplinas = useMemo(() => {
     const positivas = rankingDisciplinas.filter(d => d.mediaGeral >= (d.limiarAprovacao ?? 9.5));
@@ -626,8 +744,10 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       partes.push(`Turma: ${t?.nome || filtroTurma}`);
     }
     if (filtroCurso !== 'todos') partes.push(`Curso: ${filtroCurso}`);
+    if (filtroTurno !== 'todos') partes.push(`Turno: ${filtroTurno}`);
+    if (filtroSala !== 'todas') partes.push(`Sala: ${filtroSala}`);
     return partes.length > 0 ? partes.join(' • ') : 'Toda a Escola (Geral)';
-  }, [filtroClasse, filtroTurma, filtroCurso, turmasMap, isProfessor, apenasMinhasTurmas, currentUser]);
+  }, [filtroClasse, filtroTurma, filtroCurso, filtroTurno, filtroSala, turmasMap, isProfessor, apenasMinhasTurmas, currentUser]);
 
   return (
     <div className="space-y-6">
@@ -790,15 +910,15 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         </div>
       </div>
 
-      {/* Seletores de Filtros (para Top 5, Todos e Risco) */}
-      {(rankingTab === 'top5' || rankingTab === 'risco' || rankingTab === 'todos') && (
+      {/* Seletores de Filtros (para Top 5, Todos, Risco e Disciplinas) */}
+      {(rankingTab === 'top5' || rankingTab === 'risco' || rankingTab === 'todos' || rankingTab === 'disciplinas') && (
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3 no-print">
           <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
             <Filter className="h-4 w-4 text-blue-600" />
-            <span>Filtrar Alunos por Âmbito:</span>
+            <span>Filtrar por Classe, Turma, Curso, Turno e Sala:</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-600 mb-1">Classe:</label>
               <select
@@ -817,6 +937,57 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </div>
 
             <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Curso:</label>
+              <select
+                value={filtroCurso}
+                onChange={(e) => {
+                  setFiltroCurso(e.target.value);
+                  setFiltroTurma('todas');
+                }}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="todos">Todos os Cursos</option>
+                {cursosDisponiveis.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Turno:</label>
+              <select
+                value={filtroTurno}
+                onChange={(e) => {
+                  setFiltroTurno(e.target.value);
+                  setFiltroTurma('todas');
+                }}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="todos">Todos os Turnos</option>
+                {turnosDisponiveis.map(tr => (
+                  <option key={tr} value={tr}>{tr}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Sala:</label>
+              <select
+                value={filtroSala}
+                onChange={(e) => {
+                  setFiltroSala(e.target.value);
+                  setFiltroTurma('todas');
+                }}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+              >
+                <option value="todas">Todas as Salas</option>
+                {salasDisponiveis.map(sl => (
+                  <option key={sl} value={sl}>{sl}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label className="block text-[11px] font-bold text-slate-600 mb-1">Turma:</label>
               <select
                 value={filtroTurma}
@@ -830,33 +1001,21 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
               </select>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Curso:</label>
-              <select
-                value={filtroCurso}
-                onChange={(e) => setFiltroCurso(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
-              >
-                <option value="todos">Todos os Cursos</option>
-                {cursosDisponiveis.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Pesquisar:</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={termoPesquisa}
-                  onChange={(e) => setTermoPesquisa(e.target.value)}
-                  placeholder="Nome, BI ou N.º Processo..."
-                  className="w-full pl-8 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
-                />
-                <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            {rankingTab !== 'disciplinas' && (
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Pesquisar:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={termoPesquisa}
+                    onChange={(e) => setTermoPesquisa(e.target.value)}
+                    placeholder="Nome, BI ou N.º Processo..."
+                    className="w-full pl-8 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                  />
+                  <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
