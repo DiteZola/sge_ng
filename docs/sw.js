@@ -79,7 +79,7 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "sw-notifications.js",
-    "revision": "97d9956d063ce7c77cc5c11217ae40ca"
+    "revision": "5379ec376b6350ac6d17f082b9ff2612"
   }, {
     "url": "pwa-maskable-512x512.png",
     "revision": "c7972da76b104ae95a78489402274a55"
@@ -91,181 +91,205 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "revision": "a5c54e034b26c7583b844dbf9890ca57"
   }, {
     "url": "manifest.json",
-    "revision": "1004cdacc50c5738838c08083d01058d"
+    "revision": "e443656b619d7fe9e8b90e788bb8af7b"
   }, {
     "url": "index.html",
-    "revision": "7c55ff4babece5843b2a14461f242793"
+    "revision": "b2e7ad444cd9624db553ea5cd66863e0"
   }, {
     "url": "icon.svg",
     "revision": "293309fdc038c89ab9bbbe70fd91b917"
   }, {
     "url": "favicon.ico",
     "revision": "843944875402099b19ca3eda4be12c81"
+  }, {
+    "url": "favicon-32x32.png",
+    "revision": "b8dd4d35477638c0f96aae5b04bf3a31"
+  }, {
+    "url": "favicon-16x16.png",
+    "revision": "abf064b518c8ef030c37a4bdbf92ee70"
   }, {
     "url": "apple-touch-icon.png",
     "revision": "80f4d91273c38518c75fd2e474d0cc75"
   }, {
     "url": "404.html",
-    "revision": "df01c1b5b38f4151e55bfb95329ffe2a"
+    "revision": "8cc7989e491dbf21f2cd906915a6eb99"
+  }, {
+    "url": "assets/xlsx-iJMskejc.js",
+    "revision": null
   }, {
     "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
     "revision": null
   }, {
-    "url": "assets/vendor-xlsx-iJMskejc.js",
+    "url": "assets/vendor-react-rvEbAo8W.js",
     "revision": null
   }, {
-    "url": "assets/vendor-react-Dg0ur_gx.js",
+    "url": "assets/vendor-icons-BXEfg-fa.js",
     "revision": null
   }, {
-    "url": "assets/vendor-qr-fR3kqfDd.js",
-    "revision": null
-  }, {
-    "url": "assets/vendor-pdf-Sn3ZASOC.js",
-    "revision": null
-  }, {
-    "url": "assets/vendor-firebase-Dd8ZQi0_.js",
-    "revision": null
-  }, {
-    "url": "assets/vendor-charts-7UFzEllA.js",
+    "url": "assets/vendor-firebase-Dfr8U4TP.js",
     "revision": null
   }, {
     "url": "assets/rolldown-runtime-hePW80VL.js",
     "revision": null
   }, {
-    "url": "assets/qrCodeUtils-BMcUOLHb.js",
+    "url": "assets/qrCodeUtils-D2IljzvD.js",
     "revision": null
   }, {
     "url": "assets/purify.es-Bvo9QlJ8.js",
     "revision": null
   }, {
-    "url": "assets/pdfGenerator-CSnDGJu3.js",
+    "url": "assets/pdfGenerator-CsdMdira.js",
     "revision": null
   }, {
-    "url": "assets/index.es-CCVB7FyY.js",
+    "url": "assets/pautaExcelExporter-DgBiJ3IY.js",
     "revision": null
   }, {
-    "url": "assets/index-CHz8vPkP.js",
+    "url": "assets/index.es-DnXOONCy.js",
     "revision": null
   }, {
-    "url": "assets/index-BTyrNJe4.css",
+    "url": "assets/index-yJOsIg-y.js",
+    "revision": null
+  }, {
+    "url": "assets/index-Cl4UapjK.css",
     "revision": null
   }, {
     "url": "assets/imageCompressor-BY9DaNCq.js",
     "revision": null
   }, {
-    "url": "assets/directorHelper-CAOWYizn.js",
+    "url": "assets/enrollmentProgression-Cu8v6ZfX.js",
     "revision": null
   }, {
-    "url": "assets/curriculoAngola-BsuHwveT.js",
+    "url": "assets/directorHelper-BWyqntYW.js",
     "revision": null
   }, {
-    "url": "assets/academicHierarchyService-C5mDLpi3.js",
+    "url": "assets/dateFormat-SosUOu7Q.js",
     "revision": null
   }, {
-    "url": "assets/UserProfileView-BQCNIfad.js",
+    "url": "assets/curriculoAngola-Bv-MPFlv.js",
     "revision": null
   }, {
-    "url": "assets/TechnicalSupportView-DEGThRP_.js",
+    "url": "assets/academicHierarchyService-Cq3V8VkJ.js",
     "revision": null
   }, {
-    "url": "assets/SystemInitialSetupView-BGCf-T-Y.js",
+    "url": "assets/UserProfileView-CX3rxfq7.js",
     "revision": null
   }, {
-    "url": "assets/SystemAuditBackupView-suTSiDvV.js",
+    "url": "assets/TechnicalSupportView-OoAsnvSM.js",
     "revision": null
   }, {
-    "url": "assets/StudentsView-C0C6wws_.js",
+    "url": "assets/SystemAuditBackupView-Covdowb8.js",
     "revision": null
   }, {
-    "url": "assets/StudentRankingSection-dDfBBc02.js",
+    "url": "assets/StudentsView-Cr8p9yJv.js",
     "revision": null
   }, {
-    "url": "assets/StudentPassesView-2qZCuC4K.js",
+    "url": "assets/StudentRankingSection-fDb-O5dt.js",
     "revision": null
   }, {
-    "url": "assets/StudentClassListPdfDocument-CdEka2_7.js",
+    "url": "assets/StudentPassesView-db9-P9dF.js",
     "revision": null
   }, {
-    "url": "assets/StudentAttendanceReportView-JY1GD10C.js",
+    "url": "assets/StudentClassListPdfDocument-CHc2GkbP.js",
     "revision": null
   }, {
-    "url": "assets/StatisticsView-D_aoY3vx.js",
+    "url": "assets/StudentAttendanceReportView-Ce4DBGug.js",
     "revision": null
   }, {
-    "url": "assets/SchoolCalendarView-u5cpqrw_.js",
+    "url": "assets/StatisticsView-XlO1JNmR.js",
     "revision": null
   }, {
-    "url": "assets/ScheduleTimetableView-wN5NdBG6.js",
+    "url": "assets/SchoolCalendarView-DuFT1_gw.js",
     "revision": null
   }, {
-    "url": "assets/ReportsView-D-pcyg7q.js",
+    "url": "assets/ScheduleTimetableView-D8uL9N4U.js",
     "revision": null
   }, {
-    "url": "assets/RealtimeSecurityModal-DIb_GtVd.js",
+    "url": "assets/ReportsView-BTjrh4Up.js",
     "revision": null
   }, {
-    "url": "assets/QrScannerModal-CLfQIcoW.js",
+    "url": "assets/RealtimeSecurityModal-DdEQbUIl.js",
     "revision": null
   }, {
-    "url": "assets/PrintingDocumentsView-Cjde3IXM.js",
+    "url": "assets/QrScannerModal-0B0gb7DG.js",
     "revision": null
   }, {
-    "url": "assets/PatrimonyView-CeTTikdB.js",
+    "url": "assets/PrintingDocumentsView-eYXaMe2J.js",
     "revision": null
   }, {
-    "url": "assets/ParentStudentReportView-12_jJKmv.js",
+    "url": "assets/PieChart-Dfnot2Dd.js",
     "revision": null
   }, {
-    "url": "assets/JuryCommissionView-CUNvr_NN.js",
+    "url": "assets/PatrimonyView-BUo13M0X.js",
     "revision": null
   }, {
-    "url": "assets/InitialSetupModal-CwuwFOp5.js",
+    "url": "assets/ParentStudentReportView-DqKsI-di.js",
     "revision": null
   }, {
-    "url": "assets/HumanResourcesView-BYf77VYG.js",
+    "url": "assets/ModalJustificarFaltaFuncionario-C92LxuIb.js",
     "revision": null
   }, {
-    "url": "assets/GuidedTourModal-X_lcVZG4.js",
+    "url": "assets/JuryCommissionView-CssT0IiM.js",
     "revision": null
   }, {
-    "url": "assets/ExecutiveDirectionView-DnLaetOv.js",
+    "url": "assets/InitialSetupModal-CiQfqAjr.js",
     "revision": null
   }, {
-    "url": "assets/EvaluationMacView-HziDILCk.js",
+    "url": "assets/HumanResourcesView-DlpTbg4w.js",
     "revision": null
   }, {
-    "url": "assets/DocumentTemplateConfigModal-DGeWPN5z.js",
+    "url": "assets/GuidedTourModal-oifHKRPS.js",
     "revision": null
   }, {
-    "url": "assets/DashboardView-C-4jsYyy.js",
+    "url": "assets/FeeReceiptsA4Sheet-C2A4NJgF.js",
     "revision": null
   }, {
-    "url": "assets/CommunicationLibraryView-_OlDdulT.js",
+    "url": "assets/ExecutiveDirectionView-BLjpe_pq.js",
     "revision": null
   }, {
-    "url": "assets/ArchitectureDocsView-D-K3Fq84.js",
+    "url": "assets/EvaluationMacView-B9C_XKjU.js",
     "revision": null
   }, {
-    "url": "assets/AngolaDateInput-DO_gpgfD.js",
+    "url": "assets/DocumentTemplateConfigModal-YIlEX55t.js",
     "revision": null
   }, {
-    "url": "assets/AdministrativeFinanceView-DQWQLPQk.js",
+    "url": "assets/DashboardView-DBwRVHgc.js",
     "revision": null
   }, {
-    "url": "assets/AdminGlobalSchoolsView-Dd211k_d.js",
+    "url": "assets/CommunicationLibraryView-Dn9vgP1O.js",
     "revision": null
   }, {
-    "url": "assets/AcademicManagementView-B7b8xJk7.js",
+    "url": "assets/ArchitectureDocsView-BU5dJf2a.js",
+    "revision": null
+  }, {
+    "url": "assets/AngolaDateInput-D9ql2JGI.js",
+    "revision": null
+  }, {
+    "url": "assets/AdministrativeFinanceView-Djy3Jm1c.js",
+    "revision": null
+  }, {
+    "url": "assets/AdminGlobalSchoolsView-BLcaDa70.js",
+    "revision": null
+  }, {
+    "url": "assets/AcademicManagementView-EqLxUytC.js",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",
     "revision": "80f4d91273c38518c75fd2e474d0cc75"
+  }, {
+    "url": "favicon-16x16.png",
+    "revision": "abf064b518c8ef030c37a4bdbf92ee70"
+  }, {
+    "url": "favicon-32x32.png",
+    "revision": "b8dd4d35477638c0f96aae5b04bf3a31"
   }, {
     "url": "favicon.ico",
     "revision": "843944875402099b19ca3eda4be12c81"
   }, {
     "url": "icon.svg",
     "revision": "293309fdc038c89ab9bbbe70fd91b917"
+  }, {
+    "url": "manifest.json",
+    "revision": "e443656b619d7fe9e8b90e788bb8af7b"
   }, {
     "url": "pwa-192x192.png",
     "revision": "a5c54e034b26c7583b844dbf9890ca57"
@@ -276,14 +300,19 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "url": "pwa-maskable-512x512.png",
     "revision": "c7972da76b104ae95a78489402274a55"
   }, {
-    "url": "sw-notifications.js",
-    "revision": "97d9956d063ce7c77cc5c11217ae40ca"
+    "url": "robots.txt",
+    "revision": "cb9147dc3564429734ece795725c5fef"
   }, {
-    "url": "manifest.webmanifest",
-    "revision": "2ecd418ae8f0d668a169a01baff4d66f"
+    "url": "sitemap.xml",
+    "revision": "d8530abaca2f156cd106d97a7d511f3f"
+  }, {
+    "url": "sw-notifications.js",
+    "revision": "5379ec376b6350ac6d17f082b9ff2612"
   }], {});
   workbox.cleanupOutdatedCaches();
-  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html")));
+  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
+    denylist: [/robots\.txt$/i, /sitemap\.xml$/i]
+  }));
   workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
     "cacheName": "google-fonts-cache",
     plugins: [new workbox.ExpirationPlugin({

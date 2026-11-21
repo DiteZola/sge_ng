@@ -71,6 +71,11 @@ import {
   avaliarExpressaoNota,
   isClasseFinal
 } from '../services/macEngine';
+import {
+  aplicarNotasAdministrativas,
+  calcularNotasAdministrativasProporcionais,
+  TipoComponenteNotaAdministrativa
+} from '../services/administrativeGradeService';
 import { handleStrictNumericKeyDown, handleStrictNumericPaste } from './StrictNumericInput';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { exportarPautaTrimestralComFormulasExcel } from '../utils/pautaExcelExporter';
@@ -271,6 +276,12 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   const [exameDigitados, setExameDigitados] = useState<Record<string, string>>({});
   const [notasInvalidas, setNotasInvalidas] = useState<Record<string, string>>({});
 
+  // Modal de Atribuição de Notas Administrativas Proporcionais (Direção)
+  const [modalNotasAdmOpen, setModalNotasAdmOpen] = useState(false);
+  const [admAlvoTipo, setAdmAlvoTipo] = useState<TipoComponenteNotaAdministrativa>('PROVA_TRIMESTRAL');
+  const [admApenasEmFalta, setAdmApenasEmFalta] = useState(true);
+  const [admJustificativa, setAdmJustificativa] = useState('Atribuição administrativa proporcional por incumprimento de prazo de lançamento docente.');
+
   // Modal de Configuração de Regra de Cálculo MAC (Direção)
   const [editingRegraNivel, setEditingRegraNivel] = useState<'Primario' | 'ICiclo' | 'IICiclo'>('ICiclo');
   const [regraFormulaTipo, setRegraFormulaTipo] = useState<'ARITMETICA_SIMPLES' | 'PONDERADA_POR_TIPO' | 'FORMULA_CUSTOMIZADA'>('PONDERADA_POR_TIPO');
@@ -448,7 +459,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     );
   }, [alunos, selectedTurmaId, buscaAlunoTabela]);
 
-  const isDirecao = ['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral', 'SubdirectorAdministrativo', 'ChefeSecretaria'].includes(currentUser.role);
+  const isDirecao = ['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'ChefeSecretaria'].includes(currentUser.role);
 
   // Verificação oficial de autorização para lançar notas de Exame (Comissão de Júri ou Direção)
   const isMembroJuriOuDirecao = useMemo(() => {
@@ -468,6 +479,95 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       return false;
     }
   }, [isDirecao, currentUser.id, selectedTurmaId, selectedClasse]);
+
+  const alunosCompletosDaTurma = useMemo(
+    () => alunos.filter(a => a.turmaId === selectedTurmaId),
+    [alunos, selectedTurmaId]
+  );
+
+  const previewNotasAdm = useMemo(() => {
+    if (!modalNotasAdmOpen || !turmaAtiva || !selectedDisciplinaId) return null;
+    return calcularNotasAdministrativasProporcionais({
+      turma: turmaAtiva,
+      disciplinaId: selectedDisciplinaId,
+      trimestre: selectedTrimestre,
+      anoLectivo: turmaAtiva.anoLectivo || escola.anoLectivoActivo || '',
+      alunosDaTurma: alunosCompletosDaTurma,
+      avaliacoes,
+      notasAvaliacoes: notas,
+      notasConsolidadas,
+      regraVigente,
+      alvoTipo: admAlvoTipo,
+      apenasEmFalta: admApenasEmFalta
+    });
+  }, [
+    modalNotasAdmOpen,
+    turmaAtiva,
+    selectedDisciplinaId,
+    selectedTrimestre,
+    escola.anoLectivoActivo,
+    alunosCompletosDaTurma,
+    avaliacoes,
+    notas,
+    notasConsolidadas,
+    regraVigente,
+    admAlvoTipo,
+    admApenasEmFalta
+  ]);
+
+  const handleConfirmarNotasAdministrativas = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isDirecao || !turmaAtiva || !selectedDisciplinaId || !previewNotasAdm) return;
+    if (previewNotasAdm.totalAplicaveis === 0) return;
+
+    const resultado = aplicarNotasAdministrativas({
+      escola,
+      turma: turmaAtiva,
+      disciplina: disciplinaAtiva,
+      disciplinaId: selectedDisciplinaId,
+      trimestre: selectedTrimestre,
+      currentUser,
+      regraVigente,
+      alvoTipo: admAlvoTipo,
+      itensPreview: previewNotasAdm.itens,
+      justificativa: admJustificativa.trim() || 'Atribuição administrativa proporcional pela Direção.'
+    });
+
+    // Limpar estados digitados locais para refletir de imediato as novas notas na tabela
+    const limparIds = new Set(previewNotasAdm.itens.filter(i => i.aplicar).map(i => i.alunoId));
+    if (admAlvoTipo === 'AVALIACAO' && resultado.avaliacaoCriadaOuUsada) {
+      const avId = resultado.avaliacaoCriadaOuUsada.id;
+      setValoresDigitados(prev => {
+        const next = { ...prev };
+        limparIds.forEach(alId => delete next[`${avId}-${alId}`]);
+        return next;
+      });
+    } else if (admAlvoTipo === 'PROVA_TRIMESTRAL') {
+      setPtDigitadas(prev => {
+        const next = { ...prev };
+        limparIds.forEach(alId => delete next[alId]);
+        return next;
+      });
+    } else if (admAlvoTipo === 'NPP') {
+      setNppDigitadas(prev => {
+        const next = { ...prev };
+        limparIds.forEach(alId => delete next[alId]);
+        return next;
+      });
+    } else if (admAlvoTipo === 'EXAME') {
+      setExameDigitados(prev => {
+        const next = { ...prev };
+        limparIds.forEach(alId => delete next[alId]);
+        return next;
+      });
+    }
+
+    setModalNotasAdmOpen(false);
+    setRetificacaoSucessoMsg(
+      `${resultado.aplicadasCount} nota(s) administrativa(s) atribuída(s) proporcionalmente em ${disciplinaAtiva?.nome || 'Disciplina'} (${previewNotasAdm.minimoPermitido} a ${previewNotasAdm.maximoPermitido} valores)!`
+    );
+    setTimeout(() => setRetificacaoSucessoMsg(null), 6000);
+  };
 
   // Exportar pauta/notas da turma atual para Excel (.xlsx) com fórmulas reais
   const handleExportarNotasExcel = () => {
@@ -1306,11 +1406,22 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {isDirecao && turmaAtiva && selectedDisciplinaId && (
+                <button
+                  type="button"
+                  onClick={() => setModalNotasAdmOpen(true)}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer text-xs whitespace-nowrap shrink-0"
+                  title="Atribuir notas administrativas proporcionais para avaliações, provas ou exames em falta"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>Atribuir Notas Administrativas</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleExportarNotasExcel}
-                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer text-xs"
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer text-xs whitespace-nowrap shrink-0"
                 title="Descarregar pauta em formato Excel (.xlsx)"
               >
                 <FileSpreadsheet className="h-4 w-4" />
@@ -1492,7 +1603,17 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                       return (
                         <tr key={aluno.id} className="hover:bg-gray-50/70">
                           <td className="p-3 sticky left-0 bg-white z-10 font-medium">
-                            <div className="font-bold text-gray-900">{aluno.nomeCompleto}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-gray-900">{aluno.nomeCompleto}</span>
+                              {notaConsol?.origemNota === 'Administrativa' && (
+                                <span
+                                  className="px-1.5 py-0.5 text-[9px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300 rounded"
+                                  title={`Nota administrativa atribuída por ${notaConsol.notaAdministrativaInfo?.atribuidaPorNome || 'Direção'}`}
+                                >
+                                  ADM
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[10px] text-gray-500">{aluno.codigoMatricula}</div>
                           </td>
 
@@ -2966,6 +3087,176 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   <ShieldCheck className="w-4 h-4" />
                   <span>Homologar Retificação & Notificar Professor</span>
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Atribuição de Notas Administrativas Proporcionais pela Direção */}
+      {modalNotasAdmOpen && turmaAtiva && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-5 sm:p-6 border border-gray-200 flex flex-col max-h-[90vh]">
+            <div className="flex items-start justify-between border-b border-gray-200 pb-3 mb-4 shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-gray-900">
+                    Atribuir Notas Administrativas Proporcionais (Direção)
+                  </h3>
+                  <p className="text-xs text-gray-600">
+                    Turma <strong>{turmaAtiva.nome}</strong> ({turmaAtiva.classe}) • {disciplinaAtiva?.nome || 'Disciplina'} • {selectedTrimestre}º Trimestre
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalNotasAdmOpen(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
+                aria-label="Fechar modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmarNotasAdministrativas} className="flex flex-col min-h-0 flex-1 space-y-4 text-xs">
+              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+                <div>
+                  <span className="font-black uppercase text-[11px] tracking-wide block">
+                    Regra de Proporcionalidade Oficial ({escalaInfo.ehPrimario ? 'Ensino Primário: 4.0 a 10.0' : 'I e II Ciclos: 8.0 a 20.0'})
+                  </span>
+                  <span className="text-[11px] text-amber-900">
+                    Calculado proporcionalmente pelo desempenho individual de cada aluno nas restantes disciplinas. Alunos com melhores médias recebem notas mais altas; estas notas passam a contar para pautas, boletins, rankings e estatísticas.
+                  </span>
+                </div>
+                {previewNotasAdm && (
+                  <span className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg font-black text-amber-900 tabular-nums whitespace-nowrap shrink-0">
+                    {previewNotasAdm.totalAplicaveis} de {previewNotasAdm.itens.length} aluno(s) a atualizar
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Componente em Falta</label>
+                  <select
+                    value={admAlvoTipo}
+                    onChange={(e) => setAdmAlvoTipo(e.target.value as TipoComponenteNotaAdministrativa)}
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                  >
+                    <option value="AVALIACAO">Avaliação Contínua (MAC)</option>
+                    <option value="PROVA_TRIMESTRAL">Prova Trimestral (PT / NPT)</option>
+                    {provaProfessorAtiva && <option value="NPP">Prova do Professor (NPP)</option>}
+                    {ehClasseFinal && <option value="EXAME">Exame (Classe Final)</option>}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Âmbito de Aplicação</label>
+                  <select
+                    value={admApenasEmFalta ? 'FALTA' : 'TODOS'}
+                    onChange={(e) => setAdmApenasEmFalta(e.target.value === 'FALTA')}
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                  >
+                    <option value="FALTA">Apenas alunos sem nota lançada</option>
+                    <option value="TODOS">Toda a turma (substituir em falta e existentes)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Despacho / Justificativa</label>
+                  <input
+                    type="text"
+                    required
+                    value={admJustificativa}
+                    onChange={(e) => setAdmJustificativa(e.target.value)}
+                    placeholder="Motivo administrativo..."
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white text-gray-900"
+                  />
+                </div>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl overflow-y-auto flex-1 min-h-[220px]">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
+                  <thead className="bg-gray-100 border-b border-gray-200 sticky top-0 z-10 text-[11px] font-black text-gray-700 uppercase">
+                    <tr>
+                      <th className="p-2.5">Estudante</th>
+                      <th className="p-2.5 text-center">Média Noutras Disc.</th>
+                      <th className="p-2.5 text-center">Disc. Base</th>
+                      <th className="p-2.5 text-center">Nota Atual</th>
+                      <th className="p-2.5 text-center">Nota Administrativa ({previewNotasAdm?.minimoPermitido}–{previewNotasAdm?.maximoPermitido})</th>
+                      <th className="p-2.5 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {!previewNotasAdm || previewNotasAdm.itens.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-gray-500">
+                          Nenhum aluno matriculado nesta turma.
+                        </td>
+                      </tr>
+                    ) : (
+                      previewNotasAdm.itens.map((item) => (
+                        <tr key={item.alunoId} className={item.aplicar ? 'bg-white hover:bg-amber-50/40' : 'bg-gray-50/70 opacity-65'}>
+                          <td className="p-2.5">
+                            <div className="font-bold text-gray-900">{item.alunoNome}</div>
+                            <div className="text-[10px] text-gray-500">{item.codigoMatricula} • {item.motivoBase}</div>
+                          </td>
+                          <td className="p-2.5 text-center font-mono font-bold text-blue-900">
+                            {item.disciplinasBaseCount > 0 ? `${item.mediaOutrasDisciplinas.toFixed(1)}/${escalaMaxima}` : '—'}
+                          </td>
+                          <td className="p-2.5 text-center font-mono text-gray-700">
+                            {item.disciplinasBaseCount}
+                          </td>
+                          <td className="p-2.5 text-center font-mono text-gray-700">
+                            {item.notaAtual !== null ? item.notaAtual.toFixed(1) : 'Em falta'}
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <span className="inline-block px-2.5 py-0.5 rounded font-mono font-black text-amber-950 bg-amber-100 border border-amber-300">
+                              {item.notaProposta.toFixed(1)}
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-center">
+                            {item.aplicar ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900">
+                                Aplicar
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-200 text-gray-700">
+                                Mantida
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-gray-200 shrink-0">
+                <span className="text-[11px] text-gray-500">
+                  As notas são guardadas offline e sincronizadas automaticamente com o Firebase.
+                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalNotasAdmOpen(false)}
+                    className="px-3.5 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!previewNotasAdm || previewNotasAdm.totalAplicaveis === 0}
+                    className="px-4 py-2 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-lg shadow-xs flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirmar e Atribuir ({previewNotasAdm?.totalAplicaveis || 0})</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

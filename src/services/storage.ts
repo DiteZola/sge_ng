@@ -441,6 +441,19 @@ function setLocal<T>(key: string, value: T): void {
             persistedToLocalStorage = true;
           } catch {}
         }
+      } else if (Array.isArray(value) && key === STORAGE_KEYS.BIBLIOTECA) {
+        const slimBib = value.map((item: any) => {
+          if (item && typeof item === 'object' && item.tipoRecurso !== 'Link') {
+            return { ...item, url: '__idb_pdf__', arquivoUrl: '__idb_pdf__' };
+          }
+          return item;
+        });
+        try {
+          const slimSer = JSON.stringify(slimBib);
+          localStorage.setItem(key, slimSer);
+          setCachedLocalEntry(key, slimSer, slimBib, false);
+          persistedToLocalStorage = true;
+        } catch {}
       } else if (key === STORAGE_KEYS.CURRENT_USER && value && typeof value === 'object') {
         const u: any = value;
         if (u.id && typeof u.fotoUrl === 'string' && u.fotoUrl.length > 2048 && u.fotoUrl !== '__idb_media__') {
@@ -4218,11 +4231,33 @@ export const dbService = {
   getBiblioteca: (): DocumentoBiblioteca[] => getLocal(STORAGE_KEYS.BIBLIOTECA, DEFAULT_BIBLIOTECA),
   salvarDocumento: (doc: DocumentoBiblioteca) => {
     const docs = dbService.getBiblioteca();
-    const docComTimestamp = { ...doc, atualizadoEm: new Date().toISOString() };
-    docs.unshift(docComTimestamp);
+    const isLink = doc.tipoRecurso === 'Link';
+    const docComTimestamp: DocumentoBiblioteca = {
+      ...doc,
+      arquivoArmazenamentoId: isLink ? doc.arquivoArmazenamentoId : (doc.arquivoArmazenamentoId || doc.id),
+      url: isLink ? doc.url : '__idb_pdf__',
+      arquivoUrl: isLink ? doc.arquivoUrl : '__idb_pdf__',
+      atualizadoEm: new Date().toISOString()
+    };
+    const idx = docs.findIndex(d => d.id === docComTimestamp.id);
+    if (idx >= 0) {
+      docs[idx] = docComTimestamp;
+    } else {
+      docs.unshift(docComTimestamp);
+    }
     setLocal(STORAGE_KEYS.BIBLIOTECA, docs);
     firebaseSyncEngine.salvarDocumentoBiblioteca(docComTimestamp);
-    dbService.registarLog('Biblioteca Digital', `Documento "${docComTimestamp.titulo}" carregado.`);
+    dbService.registarLog('Biblioteca Digital', `Documento "${docComTimestamp.titulo}" carregado na biblioteca.`);
+  },
+  excluirDocumento: (id: string) => {
+    const docs = dbService.getBiblioteca();
+    const alvo = docs.find(d => d.id === id);
+    const filtrados = docs.filter(d => d.id !== id);
+    setLocal(STORAGE_KEYS.BIBLIOTECA, filtrados);
+    firebaseSyncEngine.eliminarDocumentoBiblioteca(id, alvo?.arquivoChunksCount);
+    if (alvo) {
+      dbService.registarLog('Biblioteca Digital', `Documento "${alvo.titulo}" removido da biblioteca.`);
+    }
   },
   getAcessosBiblioteca: (escolaId?: string): RegistoAcessoBiblioteca[] => {
     const lista = getLocal<RegistoAcessoBiblioteca[]>(STORAGE_KEYS.BIBLIOTECA_ACESSOS, []);
@@ -5825,6 +5860,7 @@ export const dbService = {
     firebaseSyncEngine.salvarMensagem(msgComTs);
   },
   salvarLivro: (livro: any) => dbService.salvarDocumento(livro),
+  excluirLivro: (id: string) => dbService.excluirDocumento(id),
   limparLogs: () => dbService.limparLogsAntigos(),
   criarBackupJSON: () => {
     const nonAdmin = isSessaoAutenticadaNaoAdminGeral();

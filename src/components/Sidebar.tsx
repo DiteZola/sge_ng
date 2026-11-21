@@ -372,7 +372,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'biblioteca',
           label: 'Biblioteca Escolar',
           icon: Library,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'Professor', 'Secretaria', 'Bibliotecario']
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Bibliotecario', 'Encarregado', 'Tesoureiro', 'Estagiario', 'TecnicoTI']
         },
         {
           id: 'patrimonio',

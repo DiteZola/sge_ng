@@ -65,13 +65,13 @@
     <meta name="apple-mobile-web-app-title" content="SGE-NG" />
 
     <!-- Favicons & Manifest & Sitemap -->
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-    <link rel="shortcut icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
+    <link rel="shortcut icon" href="./favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="./sitemap.xml" />
 
     <!-- Schema.org Structured Data -->
     <script type="application/ld+json">
@@ -103,7 +103,7 @@
     </div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Failsafe: se por qualquer motivo o carregamento demorar mais de 3s, oferece botão de desbloqueio imediato
+      // Failsafe: se por qualquer motivo o carregamento demorar mais de 4s, limpa caches obsoletas e permite reiniciar imediatamente
       setTimeout(function() {
         var loader = document.getElementById('sge-loader');
         if (loader && loader.parentNode) {
@@ -112,15 +112,23 @@
             emergencyDiv = document.createElement('div');
             emergencyDiv.id = 'sge-emergency-action';
             emergencyDiv.style.cssText = 'margin-top: 24px; text-align: center;';
-            emergencyDiv.innerHTML = '<button id="btn-force-start" style="padding: 10px 22px; background: #2563eb; color: #fff; border: 1px solid #60a5fa; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s;">Iniciar Aplicação Agora</button><div style="font-size: 11px; color: #94a3b8; margin-top: 8px;">Caso a rede esteja lenta, clique para inicializar diretamente.</div>';
+            emergencyDiv.innerHTML = '<button id="btn-force-start" style="padding: 10px 22px; background: #2563eb; color: #fff; border: 1px solid #60a5fa; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.2s;">Recarregar e Iniciar Agora</button><div style="font-size: 11px; color: #94a3b8; margin-top: 8px;">Caso a rede esteja lenta ou com cache antiga, clique para atualizar.</div>';
             loader.appendChild(emergencyDiv);
             document.getElementById('btn-force-start').onclick = function() {
-              sessionStorage.setItem('sge_force_mount', 'true');
+              try {
+                sessionStorage.setItem('sge_force_mount', 'true');
+                if ('serviceWorker' in navigator && navigator.onLine) {
+                  navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    return Promise.all(regs.map(function(r) { return r.update().catch(function(){}); }));
+                  }).finally(function() { window.location.reload(); });
+                  return;
+                }
+              } catch (e) {}
               window.location.reload();
             };
           }
         }
-      }, 3000);
+      }, 4000);
     </script>
   </body>
 </html>

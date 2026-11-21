@@ -14,10 +14,12 @@ import {
   deleteField
 } from "firebase/firestore";
 import { firestoreDb } from "./firebaseClient";
-import { offlineStorage } from "./offlineStorage";
+import { offlineStorage, base64ToBlob } from "./offlineStorage";
 import { invalidateLocalCache } from "./localCache";
-import { Funcionario, ConfiguracaoSistema, Escola, Aluno, Turma, NotaTrimestralConsolidada, SolicitacaoApoioTecnico, Mensagem } from "../types";
+import { Funcionario, ConfiguracaoSistema, Escola, Aluno, Turma, NotaTrimestralConsolidada, SolicitacaoApoioTecnico, Mensagem, DocumentoBiblioteca } from "../types";
 import { comprimirImagemBase64 } from "../utils/imageOptimizer";
+
+const PDF_CHUNK_SIZE = 300000;
 
 export interface SyncStatus {
   isOnline: boolean;
@@ -389,6 +391,17 @@ class FirebaseSyncEngine {
           }
         } catch {}
       }
+    }
+
+    if ((colecaoHint || '').toLowerCase() === 'biblioteca') {
+      if (typeof payload.url === 'string' && payload.url.startsWith('data:') && payload.url.length > 2048) {
+        payload.url = '__idb_pdf__';
+      }
+      if (typeof payload.arquivoUrl === 'string' && payload.arquivoUrl.startsWith('data:') && payload.arquivoUrl.length > 2048) {
+        payload.arquivoUrl = '__idb_pdf__';
+      }
+      delete payload.arquivoBase64;
+      delete payload.pdfBase64;
     }
 
     // Proteção final contra limite rígido de 1MB do Firestore
@@ -763,6 +776,16 @@ class FirebaseSyncEngine {
                       delTasks.push(deleteDoc(doc(firestoreDb!, ec, docId)));
                     }
                   }
+                  if (col === 'biblioteca') {
+                    await offlineStorage.removerPdfBiblioteca(docId);
+                    try {
+                      const qChunks = query(collection(firestoreDb!, 'biblioteca_arquivos'), where('docId', '==', docId));
+                      const snapChunks = await withTimeout(getDocs(qChunks), 5000);
+                      if (snapChunks !== FIRESTORE_TIMEOUT_TOKEN && !snapChunks.empty) {
+                        snapChunks.docs.forEach(d => delTasks.push(deleteDoc(d.ref)));
+                      }
+                    } catch {}
+                  }
                   const delRes = await withTimeout(Promise.allSettled(delTasks), 7000);
                   if (delRes !== FIRESTORE_TIMEOUT_TOKEN && delRes[0].status === 'fulfilled') {
                     offlineStorage.removerPendencia(p.id);
@@ -785,14 +808,20 @@ class FirebaseSyncEngine {
                     }
                     return;
                   }
-                  const payload = await this.prepararPayloadComLimiteDeTamanho(
-                    {
-                      ...p.dados,
-                      id: p.dados.id || docId,
-                      sincronizadoEm: new Date().toISOString()
-                    },
-                    col
-                  );
+                  let dadosAjustados = { ...p.dados, id: p.dados.id || docId, sincronizadoEm: new Date().toISOString() };
+                  if (col === 'biblioteca' && dadosAjustados.tipoRecurso !== 'Link') {
+                    const b64Local = await offlineStorage.obterPdfBibliotecaBase64(docId);
+                    if (b64Local) {
+                      const totalChunks = await this.enviarChunksPdfParaFirestore(docId, b64Local, dadosAjustados.escolaId);
+                      if (totalChunks <= 0) {
+                        failedCount++;
+                        return;
+                      }
+                      dadosAjustados.arquivoChunksCount = totalChunks;
+                      dadosAjustados.arquivoArmazenamentoId = docId;
+                    }
+                  }
+                  const payload = await this.prepararPayloadComLimiteDeTamanho(dadosAjustados, col);
                   const setTasks = [setDoc(doc(firestoreDb!, col, docId), payload, { merge: true })];
                   if (p.extraColecoes) {
                     for (const ec of p.extraColecoes) {
@@ -914,9 +943,12 @@ class FirebaseSyncEngine {
 
     this.bootstrapLevePromise = (async () => {
       if (!this.canUseFirestore() || !firestoreDb) return;
+      this.emSincronizacao = true;
+      this.atualizarProgresso(25, 'A sincronizar escolas e configurações após abertura...');
       try {
         await offlineStorage.hidratarArmazenamentoDoIndexedDB();
         await this.processarPendenciasOffline();
+        this.atualizarProgresso(60, 'A atualizar escolas e anos letivos com o Firebase...');
         await Promise.allSettled([
           this.buscarConfiguracaoSistema(),
           this.puxarColecaoArray<Escola>("escolas", STORAGE_KEYS.ESCOLAS, {
@@ -933,10 +965,26 @@ class FirebaseSyncEngine {
             }
           })()
         ]);
+        this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+        this.emSincronizacao = false;
+        this.atualizarProgresso(100, 'Sincronização concluída com sucesso!');
         this.agendarNotificacaoRemota();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sge_sync_notificacao', {
+            detail: {
+              sucesso: true,
+              mensagem: 'Aplicação pronta no dispositivo e sincronizada com o Firebase!',
+              hora: this.ultimaSincronizacao
+            }
+          }));
+        }
       } catch (err) {
         console.warn('[SGE Firebase Sync] Aviso no bootstrap leve:', err);
+        this.emSincronizacao = false;
+        this.atualizarProgresso(0, '');
       } finally {
+        this.emSincronizacao = false;
+        this.notificarStatus();
         this.bootstrapLevePromise = null;
       }
     })();
@@ -2988,8 +3036,185 @@ class FirebaseSyncEngine {
     return this.eliminarDocumentoDireto("horarios", id, undefined, `Remoção de horário ${id}`);
   }
 
-  public async salvarDocumentoBiblioteca(docItem: any): Promise<boolean> {
-    return this.gravarDocumentoDireto("biblioteca", docItem.id, docItem, undefined, `Documento biblioteca ${docItem.titulo || docItem.id}`);
+  private async enviarChunksPdfParaFirestore(docId: string, base64: string, escolaId?: string): Promise<number> {
+    if (!docId || !base64 || !this.canUseFirestore() || !firestoreDb) return 0;
+    try {
+      const totalChunks = Math.max(1, Math.ceil(base64.length / PDF_CHUNK_SIZE));
+      const nowIso = new Date().toISOString();
+      const CONCURRENCY = 4;
+      for (let i = 0; i < totalChunks; i += CONCURRENCY) {
+        const tasks: Promise<void>[] = [];
+        for (let j = i; j < Math.min(totalChunks, i + CONCURRENCY); j++) {
+          const slice = base64.slice(j * PDF_CHUNK_SIZE, (j + 1) * PDF_CHUNK_SIZE);
+          const chunkId = `${docId}_chunk_${j}`;
+          tasks.push(
+            setDoc(doc(firestoreDb, 'biblioteca_arquivos', chunkId), {
+              id: chunkId,
+              docId,
+              escolaId: escolaId || '',
+              chunkIndex: j,
+              totalChunks,
+              data: slice,
+              atualizadoEm: nowIso
+            })
+          );
+        }
+        const batchRes = await withTimeout(Promise.allSettled(tasks), 12000);
+        if (batchRes === FIRESTORE_TIMEOUT_TOKEN || batchRes.some(r => r.status === 'rejected')) {
+          return 0;
+        }
+      }
+      return totalChunks;
+    } catch {
+      return 0;
+    }
+  }
+
+  public async salvarDocumentoBiblioteca(docItem: DocumentoBiblioteca): Promise<boolean> {
+    if (!docItem?.id) return false;
+    const docId = docItem.id;
+    const isLink = docItem.tipoRecurso === 'Link';
+    const metaPayload: DocumentoBiblioteca = {
+      ...docItem,
+      arquivoArmazenamentoId: isLink ? docItem.arquivoArmazenamentoId : docId,
+      url: isLink ? docItem.url : '__idb_pdf__',
+      arquivoUrl: isLink ? docItem.arquivoUrl : '__idb_pdf__'
+    };
+
+    if (!isLink) {
+      const b64Local = await offlineStorage.obterPdfBibliotecaBase64(docId);
+      if (b64Local) {
+        metaPayload.arquivoChunksCount = Math.max(1, Math.ceil(b64Local.length / PDF_CHUNK_SIZE));
+        if (this.canUseFirestore() && firestoreDb) {
+          const uploaded = await this.enviarChunksPdfParaFirestore(docId, b64Local, docItem.escolaId);
+          if (uploaded <= 0) {
+            offlineStorage.adicionarPendencia(
+              'biblioteca',
+              'ATUALIZAR',
+              `Manual PDF ${docItem.titulo || docId}`,
+              metaPayload,
+              docId
+            );
+            this.agendarProcessamentoPendencias(true);
+            return false;
+          }
+          metaPayload.arquivoChunksCount = uploaded;
+        }
+      }
+    }
+
+    return this.gravarDocumentoDireto('biblioteca', docId, metaPayload, undefined, `Documento biblioteca ${docItem.titulo || docId}`);
+  }
+
+  public async baixarPdfBiblioteca(docItem: DocumentoBiblioteca): Promise<Blob | null> {
+    if (!docItem?.id) return null;
+    // 1. Verificar primeiro no dispositivo (IndexedDB — 100% instantâneo offline)
+    const blobLocal = await offlineStorage.obterPdfBibliotecaBlob(docItem.id);
+    if (blobLocal) return blobLocal;
+
+    // 2. Suporte a dataURL legado guardado diretamente no documento
+    const rawUrl = docItem.arquivoUrl || docItem.url || '';
+    if (rawUrl.startsWith('data:')) {
+      const parsedBlob = base64ToBlob(rawUrl);
+      if (parsedBlob) {
+        await offlineStorage.salvarPdfBiblioteca(docItem.id, parsedBlob, {
+          nome: docItem.arquivoNome || `${docItem.titulo}.pdf`,
+          mimeType: docItem.arquivoMimeType || 'application/pdf',
+          updatedAt: docItem.atualizadoEm
+        });
+        return parsedBlob;
+      }
+    }
+
+    // 3. Descarregar fragmentos da nuvem Firestore quando online e guardar offline no dispositivo
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const chunksData: string[] = [];
+        const totalEsperado = Number(docItem.arquivoChunksCount || 0);
+        if (totalEsperado > 0) {
+          const indices = Array.from({ length: totalEsperado }, (_, i) => i);
+          const snaps = await withTimeout(
+            Promise.all(indices.map(i => getDoc(doc(firestoreDb!, 'biblioteca_arquivos', `${docItem.id}_chunk_${i}`)))),
+            15000
+          );
+          if (snaps !== FIRESTORE_TIMEOUT_TOKEN) {
+            const ordered = snaps
+              .filter(s => s.exists())
+              .map(s => s.data() as { chunkIndex: number; data: string })
+              .sort((a, b) => a.chunkIndex - b.chunkIndex);
+            if (ordered.length === totalEsperado) {
+              ordered.forEach(c => chunksData.push(c.data));
+            }
+          }
+        } else {
+          const q = query(collection(firestoreDb, 'biblioteca_arquivos'), where('docId', '==', docItem.id));
+          const snap = await withTimeout(getDocs(q), 12000);
+          if (snap !== FIRESTORE_TIMEOUT_TOKEN && !snap.empty) {
+            const ordered = snap.docs
+              .map(d => d.data() as { chunkIndex: number; data: string })
+              .sort((a, b) => a.chunkIndex - b.chunkIndex);
+            ordered.forEach(c => chunksData.push(c.data));
+          }
+        }
+
+        if (chunksData.length > 0) {
+          const fullBase64 = chunksData.join('');
+          const blob = base64ToBlob(fullBase64);
+          if (blob) {
+            await offlineStorage.salvarPdfBiblioteca(docItem.id, blob, {
+              nome: docItem.arquivoNome || `${docItem.titulo}.pdf`,
+              mimeType: docItem.arquivoMimeType || 'application/pdf',
+              updatedAt: docItem.atualizadoEm
+            });
+            return blob;
+          }
+        }
+      } catch (err) {
+        console.warn('[SGE Biblioteca] Erro ao descarregar PDF do Firebase:', err);
+      }
+    }
+
+    // 4. Fallback para URL externa se existir e estiver online
+    if (rawUrl && rawUrl.startsWith('http') && typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch(rawUrl);
+        if (resp.ok) {
+          const fetchedBlob = await resp.blob();
+          await offlineStorage.salvarPdfBiblioteca(docItem.id, fetchedBlob, {
+            nome: docItem.arquivoNome || `${docItem.titulo}.pdf`,
+            mimeType: 'application/pdf'
+          });
+          return fetchedBlob;
+        }
+      } catch {}
+    }
+
+    return null;
+  }
+
+  public async eliminarDocumentoBiblioteca(docId: string, arquivoChunksCount?: number): Promise<boolean> {
+    if (!docId) return false;
+    await offlineStorage.removerPdfBiblioteca(docId);
+    if (this.canUseFirestore() && firestoreDb) {
+      try {
+        const tasks: Promise<void>[] = [];
+        if (arquivoChunksCount && arquivoChunksCount > 0) {
+          for (let i = 0; i < arquivoChunksCount; i++) {
+            tasks.push(deleteDoc(doc(firestoreDb, 'biblioteca_arquivos', `${docId}_chunk_${i}`)));
+          }
+        } else {
+          const q = query(collection(firestoreDb, 'biblioteca_arquivos'), where('docId', '==', docId));
+          const snap = await withTimeout(getDocs(q), 5000);
+          if (snap !== FIRESTORE_TIMEOUT_TOKEN && !snap.empty) {
+            snap.docs.forEach(d => tasks.push(deleteDoc(d.ref)));
+          }
+        }
+        if (tasks.length > 0) {
+          await withTimeout(Promise.allSettled(tasks), 7000);
+        }
+      } catch {}
+    }
+    return this.eliminarDocumentoDireto('biblioteca', docId, undefined, `Remoção documento biblioteca ${docId}`);
   }
 
   public async salvarAcessoBiblioteca(acesso: any): Promise<boolean> {

@@ -174,7 +174,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
       titulo,
       mensagem: msg,
       detalhes: `${item.horaInicio} - ${item.horaFim} • Sala ${item.sala}`,
-      icon: escola.logotipoUrl || escola.logotipo || '/pwa-192x192.png',
+      icon: escola.logotipoUrl || escola.logotipo || './pwa-192x192.png',
       navegacao: { tab: 'horarios', entityId: item.id },
       tocarSom: false
     });

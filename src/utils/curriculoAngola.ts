@@ -147,9 +147,16 @@ export function obterDisciplinasPorClasseECurso(
   return lista.slice().sort((a, b) => (a.ordem || 99) - (b.ordem || 99));
 }
 
-import { downloadElementAsPdf } from './pdfGenerator';
+import type { PdfExportOptions } from './pdfGenerator';
 
-export { downloadElementAsPdf };
+export async function downloadElementAsPdf(
+  elementOrId: HTMLElement | string,
+  filename: string,
+  options?: PdfExportOptions
+): Promise<boolean> {
+  const { downloadElementAsPdf: generatePdf } = await import('./pdfGenerator');
+  return generatePdf(elementOrId, filename, options);
+}
 
 /**
  * Utilitários para download de documentos e dados

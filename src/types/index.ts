@@ -480,6 +480,15 @@ export interface AvaliacaoCriada {
   atualizadoEm?: string;
 }
 
+export interface NotaAdministrativaMetadata {
+  atribuidaPorNome: string;
+  atribuidaPorRole: string;
+  dataHora: string;
+  mediaOutrasDisciplinas: number;
+  disciplinasBaseCount: number;
+  observacao?: string;
+}
+
 export interface NotaEstudante {
   id: string;
   avaliacaoId: string;
@@ -487,6 +496,8 @@ export interface NotaEstudante {
   valorNota: number; // 0-10 ou 0-20
   conceitoIniciacao?: ConceitoQualitativoIniciacao;
   dataLancamento: string;
+  origemNota?: 'Professor' | 'Administrativa' | 'Direcao';
+  notaAdministrativaInfo?: NotaAdministrativaMetadata;
   atualizadoEm?: string;
 }
 
@@ -511,6 +522,8 @@ export interface NotaTrimestralConsolidada {
   assiduidadeConceito?: string; // Excelente, Muito Bom, Bom, Regular
   faltas: number;
   validadaPelaDirecao: boolean;
+  origemNota?: 'Professor' | 'Administrativa' | 'Direcao';
+  notaAdministrativaInfo?: NotaAdministrativaMetadata;
   atualizadoEm?: string;
 }
 
@@ -787,12 +800,21 @@ export interface DocumentoBiblioteca {
   autor: string;
   categoria: string;
   classe?: string;
+  disciplina?: string;
+  descricao?: string;
   tamanhoBytes: number;
   tamanhoMb?: number;
   url: string;
   arquivoUrl?: string;
+  arquivoNome?: string;
+  arquivoMimeType?: string;
+  arquivoArmazenamentoId?: string;
+  arquivoChunksCount?: number;
+  tipoRecurso?: 'PDF' | 'Link';
   dataUpload: string;
   carregadoEm?: string;
+  uploadPorId?: string;
+  uploadPorRole?: string;
   uploadPorNome: string;
   atualizadoEm?: string;
 }

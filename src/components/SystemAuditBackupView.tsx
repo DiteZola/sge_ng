@@ -119,8 +119,8 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
       setPerfMetrics(measureLoadingPerformance());
       setAntiSpamStats(antiSpamService.obterEstatisticasAntiSpam());
       Promise.all([
-        fetch('/robots.txt').then(r => r.ok).catch(() => false),
-        fetch('/sitemap.xml').then(r => r.ok).catch(() => false)
+        fetch('./robots.txt').then(r => r.ok).catch(() => false),
+        fetch('./sitemap.xml').then(r => r.ok).catch(() => false)
       ]).then(([robotsOk, sitemapOk]) => setSeoCheckStatus({ robotsOk, sitemapOk }));
     }
   }, [activeTab, escola.id, logs.length, alunos.length, funcionarios.length]);

@@ -12,44 +12,27 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'favicon-16x16.png', 'favicon-32x32.png', 'apple-touch-icon.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'sw-notifications.js'],
-        manifest: {
-          id: '/',
-          name: 'SGE-NG · Sistema de Gestão Escolar de Angola',
-          short_name: 'SGE-NG',
-          description: 'Sistema Integrado de Gestão Escolar e Académica de Angola com suporte offline integral.',
-          theme_color: '#0F2942',
-          background_color: '#F8FAFC',
-          display: 'standalone',
-          start_url: '/',
-          scope: '/',
-          icons: [
-            {
-              src: '/pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-maskable-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
-            },
-          ],
-        },
+        manifest: false,
+        includeAssets: [
+          'favicon.ico',
+          'favicon-16x16.png',
+          'favicon-32x32.png',
+          'apple-touch-icon.png',
+          'icon.svg',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'pwa-maskable-512x512.png',
+          'manifest.json',
+          'robots.txt',
+          'sitemap.xml',
+          'sw-notifications.js'
+        ],
         workbox: {
-          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
           importScripts: ['./sw-notifications.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json}'],
           navigateFallback: 'index.html',
-          navigateFallbackDenylist: [/^\/robots\.txt$/, /^\/sitemap\.xml$/],
+          navigateFallbackDenylist: [/robots\.txt$/i, /sitemap\.xml$/i],
           cleanupOutdatedCaches: true,
           skipWaiting: true,
           clientsClaim: true,
@@ -96,25 +79,13 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (!id.includes('node_modules')) return;
-            if (id.includes('react') || id.includes('react-dom')) {
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
               return 'vendor-react';
             }
-            if (id.includes('firebase') || id.includes('@firebase')) {
+            if (/[\\/]node_modules[\\/](firebase|@firebase)[\\/]/.test(id)) {
               return 'vendor-firebase';
             }
-            if (id.includes('jspdf') || id.includes('html2canvas')) {
-              return 'vendor-pdf';
-            }
-            if (id.includes('xlsx')) {
-              return 'vendor-xlsx';
-            }
-            if (id.includes('recharts')) {
-              return 'vendor-charts';
-            }
-            if (id.includes('qrcode') || id.includes('jsqr')) {
-              return 'vendor-qr';
-            }
-            if (id.includes('lucide-react')) {
+            if (/[\\/]node_modules[\\/]lucide-react[\\/]/.test(id)) {
               return 'vendor-icons';
             }
           },

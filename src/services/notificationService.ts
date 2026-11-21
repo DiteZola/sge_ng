@@ -119,8 +119,9 @@ class NotificationService {
 
     try {
       if (isDev) {
+        const swUrl = new URL('./sw-notifications.js', document.baseURI).href;
         navigator.serviceWorker
-          .register('/sw-notifications.js')
+          .register(swUrl)
           .then((reg) => {
             this.swRegistration = reg;
           })
@@ -188,9 +189,20 @@ class NotificationService {
       if (typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function') {
         const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
         for (const e of entries) {
-          if (e?.name && e.name.startsWith(origin) && !e.name.includes('.hot-update.') && !e.name.startsWith(`${origin}/api/`)) {
-            collected.add(e.name);
+          if (!e?.name || !e.name.startsWith(origin)) continue;
+          const pathPart = e.name.slice(origin.length);
+          if (
+            pathPart.startsWith('/api/') ||
+            pathPart.startsWith('/src/') ||
+            pathPart.startsWith('/@') ||
+            pathPart.startsWith('/node_modules/') ||
+            e.name.includes('.hot-update.') ||
+            e.name.includes('?v=') ||
+            e.name.includes('?t=')
+          ) {
+            continue;
           }
+          collected.add(e.name);
         }
       }
       if (collected.size === 0) return;
@@ -418,13 +430,23 @@ class NotificationService {
     return item;
   }
 
+  private resolveAppAsset(relPath: string): string {
+    if (typeof document !== 'undefined') {
+      try {
+        return new URL(relPath, document.baseURI).href;
+      } catch {}
+    }
+    return relPath;
+  }
+
   private async exibirViaServiceWorker(item: NotificacaoSistemaItem, customIcon?: string): Promise<void> {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
       return;
     }
 
     const bodyTexto = item.detalhes ? `${item.mensagem}\n${item.detalhes}` : item.mensagem;
-    const iconUrl = customIcon || '/pwa-192x192.png';
+    const defaultIcon = this.resolveAppAsset('./pwa-192x192.png');
+    const iconUrl = customIcon || defaultIcon;
     const notifOptions: NotificationOptions & {
       renotify?: boolean;
       vibrate?: number[];
@@ -432,14 +454,14 @@ class NotificationService {
     } = {
       body: bodyTexto,
       icon: iconUrl,
-      badge: '/pwa-192x192.png',
+      badge: defaultIcon,
       tag: item.tagSW || item.id,
       renotify: true,
       requireInteraction: Boolean(item.urgente),
       vibrate: item.urgente ? [220, 100, 220, 100, 220] : [140, 70, 140],
       silent: !this.getPreferencias().somAtivo,
       data: {
-        url: '/',
+        url: this.resolveAppAsset('./'),
         tab: item.navegacao?.tab || 'dashboard',
         subTab: item.navegacao?.subTab || '',
         entityId: item.navegacao?.entityId || item.id,
@@ -546,7 +568,7 @@ class NotificationService {
           detalhes: `${sol.disciplinaNome} (${sol.turmaNome}) • Motivo: ${sol.motivo}`,
           urgente: true,
           tagSW: `sge-sol-nota-${sol.id}`,
-          icon: escolaObj?.logotipoUrl || escolaObj?.logotipo || '/pwa-192x192.png',
+          icon: escolaObj?.logotipoUrl || escolaObj?.logotipo || './pwa-192x192.png',
           navegacao: {
             tab: 'coordenacao',
             subTab: 'solicitacoes',
@@ -574,7 +596,7 @@ class NotificationService {
           detalhes: `${sol.disciplinaNome} • ${sol.respostaDirecao || 'Despacho da Direção Pedagógica'}`,
           urgente: sol.estado === 'Rejeitado',
           tagSW: `sge-sol-resp-${sol.id}`,
-          icon: escolaObj?.logotipoUrl || escolaObj?.logotipo || '/pwa-192x192.png',
+          icon: escolaObj?.logotipoUrl || escolaObj?.logotipo || './pwa-192x192.png',
           navegacao: {
             tab: 'coordenacao',
             subTab: 'solicitacoes',
@@ -645,7 +667,7 @@ class NotificationService {
       detalhes: `Enviado por ${msg.remetenteNome} (${msg.remetenteCargo || msg.remetentePapel})`,
       urgente: true,
       tagSW: `sge-msg-urg-${msg.id}`,
-      icon: escolaObj?.logotipoUrl || escolaObj?.logotipo || '/pwa-192x192.png',
+      icon: escolaObj?.logotipoUrl || escolaObj?.logotipo || './pwa-192x192.png',
       navegacao: {
         tab: ehBiblioteca ? 'biblioteca' : 'comunicacao',
         entityId: msg.id
@@ -686,7 +708,7 @@ class NotificationService {
     escola: Escola,
     currentUser: Funcionario
   ) {
-    const icon = escola.logotipoUrl || escola.logotipo || '/pwa-192x192.png';
+    const icon = escola.logotipoUrl || escola.logotipo || './pwa-192x192.png';
     const uid = Date.now();
 
     if (tipo === 'SOLICITACAO_NOTA') {

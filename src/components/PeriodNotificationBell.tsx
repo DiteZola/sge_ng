@@ -146,7 +146,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
       const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
       const horaAtualStr = formatMinutos(minutosAgora);
       const dataHoje = agora.toISOString().slice(0, 10);
-      const iconEscola = escola.logotipoUrl || escola.logotipo || '/pwa-192x192.png';
+      const iconEscola = escola.logotipoUrl || escola.logotipo || './pwa-192x192.png';
 
       // 1. Verificar grelha horária detalhada da escola
       const horarios = dbService.obterHorarios(escola.id);

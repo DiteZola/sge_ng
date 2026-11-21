@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   MessageSquare, 
   BookOpen, 
@@ -17,7 +17,13 @@ import {
   Bell,
   QrCode,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  Eye,
+  Trash2,
+  Search,
+  X,
+  Loader2,
+  HardDrive
 } from 'lucide-react';
 import {
   Mensagem,
@@ -30,6 +36,9 @@ import {
   TipoAcessoBiblioteca
 } from '../types';
 import { dbService } from '../services/storage';
+import { offlineStorage } from '../services/offlineStorage';
+import { firebaseSyncEngine } from '../services/firebaseSyncEngine';
+import { TODAS_CLASSES_OFICIAIS_MED } from '../services/academicHierarchyService';
 import { QrScannerModal } from './QrScannerModal';
 import { antiSpamService } from '../services/antiSpamService';
 
@@ -41,8 +50,10 @@ interface CommunicationLibraryViewProps {
   turmas?: Turma[];
   mensagens: Mensagem[];
   livros: DocumentoBiblioteca[];
+  initialSubTab?: 'comunicados' | 'mensagens_diretas' | 'biblioteca';
   onEnviarMensagem: (msg: Mensagem) => void;
   onAdicionarLivro: (livro: DocumentoBiblioteca) => void;
+  onExcluirLivro?: (livroId: string) => void;
   onMarcarComoLida?: (id: string) => void;
   onMarcarTodasComoLidas?: () => void;
 }
@@ -55,12 +66,20 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   turmas = [],
   mensagens,
   livros,
+  initialSubTab,
   onEnviarMensagem,
   onAdicionarLivro,
+  onExcluirLivro,
   onMarcarComoLida,
   onMarcarTodasComoLidas
 }) => {
-  const [activeTab, setActiveTab] = useState<'comunicados' | 'mensagens_diretas' | 'biblioteca'>('comunicados');
+  const [activeTab, setActiveTab] = useState<'comunicados' | 'mensagens_diretas' | 'biblioteca'>(initialSubTab || 'comunicados');
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
   const [filtroMensagens, setFiltroMensagens] = useState<'todas' | 'nao_lidas' | 'lidas'>('todas');
   const [showQrScannerBiblioteca, setShowQrScannerBiblioteca] = useState(false);
   const [tipoAcessoQr, setTipoAcessoQr] = useState<TipoAcessoBiblioteca>('Entrada_Biblioteca');
@@ -170,13 +189,121 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   const [hpMsgTrap, setHpMsgTrap] = useState('');
   const [erroAntiSpam, setErroAntiSpam] = useState<string | null>(null);
 
-  // Estado upload de livro
+  // Estado upload de livro PDF (Direção & Professores) e leitor/descarga offline
   const [showNovoLivroModal, setShowNovoLivroModal] = useState(false);
   const [livroTitulo, setLivroTitulo] = useState('');
   const [livroAutor, setLivroAutor] = useState('');
-  const [livroCategoria, setLivroCategoria] = useState<'Manual MED' | 'Literatura' | 'Regulamento'>('Manual MED');
-  const [livroClasse, setLivroClasse] = useState('6ª');
+  const [livroCategoria, setLivroCategoria] = useState<'Manual MED' | 'Livro Didático' | 'Sebenta / Apontamentos' | 'Literatura' | 'Regulamento'>('Manual MED');
+  const [livroClasse, setLivroClasse] = useState('Todas');
+  const [livroDisciplina, setLivroDisciplina] = useState('');
+  const [livroDescricao, setLivroDescricao] = useState('');
+  const [livroModoUpload, setLivroModoUpload] = useState<'PDF' | 'Link'>('PDF');
   const [livroUrl, setLivroUrl] = useState('');
+  const [arquivoPdfSelecionado, setArquivoPdfSelecionado] = useState<File | null>(null);
+  const [salvandoLivroPdf, setSalvandoLivroPdf] = useState(false);
+  const [erroUploadPdf, setErroUploadPdf] = useState<string | null>(null);
+
+  const [buscaBiblioteca, setBuscaBiblioteca] = useState('');
+  const [filtroCategoriaBib, setFiltroCategoriaBib] = useState('TODAS');
+  const [pdfsLocaisIds, setPdfsLocaisIds] = useState<Set<string>>(new Set());
+  const [carregandoPdfId, setCarregandoPdfId] = useState<string | null>(null);
+  const [leitorLivro, setLeitorLivro] = useState<DocumentoBiblioteca | null>(null);
+  const [leitorBlobUrl, setLeitorBlobUrl] = useState<string | null>(null);
+  const [feedbackBiblioteca, setFeedbackBiblioteca] = useState<string | null>(null);
+
+  const podeGerirLivros = useMemo(() => {
+    const rolesGestao = [
+      'AdminGeral',
+      'DiretorGeral',
+      'SubdiretorPedagogico',
+      'SubdirectorAdministrativo',
+      'SubdiretorAdministrativo',
+      'CoordenadorPedagogico',
+      'CoordenadorTurno',
+      'CoordenadorDisciplina',
+      'Professor',
+      'Bibliotecario'
+    ];
+    return rolesGestao.includes(currentUser.role) || Boolean(currentUser.ehProfessor);
+  }, [currentUser.role, currentUser.ehProfessor]);
+
+  const podeControlarAcessoBiblioteca = useMemo(() => {
+    return [
+      'AdminGeral',
+      'DiretorGeral',
+      'SubdiretorPedagogico',
+      'SubdirectorAdministrativo',
+      'SubdiretorAdministrativo',
+      'CoordenadorPedagogico',
+      'Secretaria',
+      'ChefeSecretaria',
+      'Secretario',
+      'SecretarioEscolar',
+      'Bibliotecario',
+      'Professor'
+    ].includes(currentUser.role);
+  }, [currentUser.role]);
+
+  const atualizarStatusPdfsLocais = async () => {
+    try {
+      const ids = await offlineStorage.listarIdsPdfsLocais();
+      setPdfsLocaisIds(new Set(ids));
+    } catch {}
+  };
+
+  useEffect(() => {
+    atualizarStatusPdfsLocais();
+  }, [livros.length, activeTab]);
+
+  useEffect(() => {
+    return () => {
+      if (leitorBlobUrl) {
+        URL.revokeObjectURL(leitorBlobUrl);
+      }
+    };
+  }, [leitorBlobUrl]);
+
+  const livrosFiltrados = useMemo(() => {
+    const q = buscaBiblioteca.trim().toLowerCase();
+    return livros.filter(l => {
+      if (filtroCategoriaBib !== 'TODAS' && l.categoria !== filtroCategoriaBib) return false;
+      if (!q) return true;
+      return (
+        (l.titulo || '').toLowerCase().includes(q) ||
+        (l.autor || '').toLowerCase().includes(q) ||
+        (l.classe || '').toLowerCase().includes(q) ||
+        (l.disciplina || '').toLowerCase().includes(q) ||
+        (l.uploadPorNome || '').toLowerCase().includes(q)
+      );
+    });
+  }, [livros, buscaBiblioteca, filtroCategoriaBib]);
+
+  const handleSelecionarArquivoPdf = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErroUploadPdf(null);
+    const file = e.target.files?.[0];
+    if (!file) {
+      setArquivoPdfSelecionado(null);
+      return;
+    }
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      setErroUploadPdf('Selecione exclusivamente um ficheiro em formato PDF (.pdf).');
+      e.target.value = '';
+      setArquivoPdfSelecionado(null);
+      return;
+    }
+    const maxBytes = 15 * 1024 * 1024; // 15 MB por livro para sincronização chunked estável
+    if (file.size > maxBytes) {
+      setErroUploadPdf('O ficheiro PDF excede o limite de 15 MB para armazenamento offline e sincronização.');
+      e.target.value = '';
+      setArquivoPdfSelecionado(null);
+      return;
+    }
+    setArquivoPdfSelecionado(file);
+    if (!livroTitulo.trim()) {
+      setLivroTitulo(file.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' '));
+    }
+  };
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,29 +384,189 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     setFeedbackQrBiblioteca('Alerta urgente da Biblioteca enviado e notificado via Service Worker ao staff!');
   };
 
-  const handleSalvarLivro = (e: React.FormEvent) => {
+  const handleSalvarLivro = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!livroTitulo) return;
+    if (!podeGerirLivros) return;
+    setErroUploadPdf(null);
+    if (!livroTitulo.trim()) {
+      setErroUploadPdf('Informe o título do livro ou manual.');
+      return;
+    }
 
-    const novo: DocumentoBiblioteca = {
-      id: `doc-${Date.now()}`,
+    const docId = `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const hoje = new Date().toISOString().split('T')[0];
+
+    if (livroModoUpload === 'PDF') {
+      if (!arquivoPdfSelecionado) {
+        setErroUploadPdf('Anexe um ficheiro PDF do seu computador ou telemóvel para guardar na biblioteca.');
+        return;
+      }
+
+      setSalvandoLivroPdf(true);
+      try {
+        const salvo = await offlineStorage.salvarPdfBiblioteca(docId, arquivoPdfSelecionado, {
+          nome: arquivoPdfSelecionado.name,
+          mimeType: arquivoPdfSelecionado.type || 'application/pdf',
+          updatedAt: new Date().toISOString()
+        });
+
+        const tamanhoBytes = salvo.tamanhoBytes || arquivoPdfSelecionado.size;
+        const tamanhoMb = Math.max(0.01, Math.round((tamanhoBytes / (1024 * 1024)) * 100) / 100);
+
+        const novo: DocumentoBiblioteca = {
+          id: docId,
+          escolaId: escola.id,
+          titulo: livroTitulo.trim(),
+          autor: livroAutor.trim() || currentUser.nomeCompleto,
+          categoria: livroCategoria,
+          classe: livroClasse,
+          disciplina: livroDisciplina.trim() || undefined,
+          descricao: livroDescricao.trim() || undefined,
+          tamanhoBytes,
+          tamanhoMb,
+          url: '__idb_pdf__',
+          arquivoUrl: '__idb_pdf__',
+          arquivoNome: arquivoPdfSelecionado.name,
+          arquivoMimeType: arquivoPdfSelecionado.type || 'application/pdf',
+          arquivoArmazenamentoId: docId,
+          arquivoChunksCount: salvo.chunksCount,
+          tipoRecurso: 'PDF',
+          dataUpload: hoje,
+          carregadoEm: hoje,
+          uploadPorId: currentUser.id,
+          uploadPorRole: currentUser.role,
+          uploadPorNome: currentUser.nomeCompleto
+        };
+
+        onAdicionarLivro(novo);
+        await atualizarStatusPdfsLocais();
+        setShowNovoLivroModal(false);
+        setLivroTitulo('');
+        setLivroAutor('');
+        setLivroDisciplina('');
+        setLivroDescricao('');
+        setArquivoPdfSelecionado(null);
+        setFeedbackBiblioteca(
+          `Livro "${novo.titulo}" (${tamanhoMb} MB) adicionado offline à biblioteca e pronto para leitura e download!`
+        );
+      } catch {
+        setErroUploadPdf('Não foi possível processar o ficheiro PDF. Tente novamente.');
+      } finally {
+        setSalvandoLivroPdf(false);
+      }
+      return;
+    }
+
+    // Modo Link externo opcional
+    if (!livroUrl.trim()) {
+      setErroUploadPdf('Informe o endereço URL do documento PDF.');
+      return;
+    }
+    const novoLink: DocumentoBiblioteca = {
+      id: docId,
       escolaId: escola.id,
-      titulo: livroTitulo,
-      autor: livroAutor || 'Ministério da Educação de Angola',
+      titulo: livroTitulo.trim(),
+      autor: livroAutor.trim() || 'Ministério da Educação (MED)',
       categoria: livroCategoria,
       classe: livroClasse,
-      tamanhoBytes: 3.5 * 1024 * 1024,
-      tamanhoMb: 3.5,
-      url: livroUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      arquivoUrl: livroUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      dataUpload: new Date().toISOString().split('T')[0],
-      carregadoEm: new Date().toISOString().split('T')[0],
+      disciplina: livroDisciplina.trim() || undefined,
+      descricao: livroDescricao.trim() || undefined,
+      tamanhoBytes: 0,
+      tamanhoMb: 0,
+      url: livroUrl.trim(),
+      arquivoUrl: livroUrl.trim(),
+      tipoRecurso: 'Link',
+      dataUpload: hoje,
+      carregadoEm: hoje,
+      uploadPorId: currentUser.id,
+      uploadPorRole: currentUser.role,
       uploadPorNome: currentUser.nomeCompleto
     };
 
-    onAdicionarLivro(novo);
+    onAdicionarLivro(novoLink);
     setShowNovoLivroModal(false);
     setLivroTitulo('');
+    setLivroUrl('');
+    setLivroDisciplina('');
+    setLivroDescricao('');
+    setFeedbackBiblioteca(`Referência "${novoLink.titulo}" adicionada à biblioteca.`);
+  };
+
+  const handleLerLivroPdf = async (livro: DocumentoBiblioteca) => {
+    setCarregandoPdfId(livro.id);
+    setFeedbackBiblioteca(null);
+    try {
+      const blob = await firebaseSyncEngine.baixarPdfBiblioteca(livro);
+      if (blob) {
+        if (leitorBlobUrl) URL.revokeObjectURL(leitorBlobUrl);
+        const objUrl = URL.createObjectURL(blob);
+        setLeitorBlobUrl(objUrl);
+        setLeitorLivro(livro);
+        await atualizarStatusPdfsLocais();
+      } else if (livro.tipoRecurso === 'Link' && livro.arquivoUrl && livro.arquivoUrl.startsWith('http')) {
+        if (leitorBlobUrl) URL.revokeObjectURL(leitorBlobUrl);
+        setLeitorBlobUrl(livro.arquivoUrl);
+        setLeitorLivro(livro);
+      } else {
+        setFeedbackBiblioteca(
+          'Este livro ainda não foi descarregado para o dispositivo e está sem internet neste momento. Conecte-se uma vez para sincronizar o ficheiro PDF.'
+        );
+      }
+    } finally {
+      setCarregandoPdfId(null);
+    }
+  };
+
+  const handleBaixarLivroPdf = async (livro: DocumentoBiblioteca) => {
+    setCarregandoPdfId(livro.id);
+    setFeedbackBiblioteca(null);
+    try {
+      const blob = await firebaseSyncEngine.baixarPdfBiblioteca(livro);
+      const nomeDownload =
+        livro.arquivoNome ||
+        `${(livro.titulo || 'livro_sge').replace(/[^a-zA-Z0-9À-ÿ_-]+/g, '_')}.pdf`;
+      if (blob) {
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = nomeDownload;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(objUrl), 2500);
+        await atualizarStatusPdfsLocais();
+        setFeedbackBiblioteca(`Download de "${nomeDownload}" concluído.`);
+      } else if (livro.tipoRecurso === 'Link' && livro.arquivoUrl && livro.arquivoUrl.startsWith('http')) {
+        const a = document.createElement('a');
+        a.href = livro.arquivoUrl;
+        a.download = nomeDownload;
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        setFeedbackBiblioteca(
+          'Ficheiro PDF indisponível offline no momento. Conecte-se à internet para descarregar da nuvem.'
+        );
+      }
+    } finally {
+      setCarregandoPdfId(null);
+    }
+  };
+
+  const handleRemoverLivro = (livro: DocumentoBiblioteca) => {
+    if (!podeGerirLivros) return;
+    if (onExcluirLivro) {
+      onExcluirLivro(livro.id);
+    } else {
+      dbService.excluirDocumento(livro.id);
+    }
+    if (leitorLivro?.id === livro.id) {
+      setLeitorLivro(null);
+      if (leitorBlobUrl) URL.revokeObjectURL(leitorBlobUrl);
+      setLeitorBlobUrl(null);
+    }
+    setFeedbackBiblioteca(`Documento "${livro.titulo}" removido da biblioteca.`);
   };
 
   return (
@@ -607,7 +894,8 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
       {/* 2. BIBLIOTECA DIGITAL */}
       {activeTab === 'biblioteca' && (
         <div className="space-y-6">
-          {/* Controlo de Acesso & Empréstimos via QR Code do Passe */}
+          {/* Controlo de Acesso & Empréstimos via QR Code do Passe (Direção, Bibliotecário, Secretaria e Professores) */}
+          {podeControlarAcessoBiblioteca && (
           <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
@@ -690,54 +978,170 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
               </div>
             )}
           </div>
+          )}
 
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold text-gray-900">Biblioteca Digital & Manuais Escolares do MED</h3>
-              <p className="text-xs text-gray-500">Repositório de manuais didáticos, programas curriculares e regulamentos</p>
+              <h3 className="text-base font-bold text-gray-900">Biblioteca Digital & Manuais Escolares (PDF Offline)</h3>
+              <p className="text-xs text-gray-500">
+                Repositório escolar de livros, sebentas e manuais em PDF para leitura em ecrã e download no dispositivo
+              </p>
             </div>
 
-            <button
-              onClick={() => setShowNovoLivroModal(true)}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Adicionar Ficheiro PDF</span>
-            </button>
+            {podeGerirLivros && (
+              <button
+                type="button"
+                onClick={() => {
+                  setErroUploadPdf(null);
+                  setShowNovoLivroModal(true);
+                }}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded-lg transition-colors inline-flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Adicionar Ficheiro PDF</span>
+              </button>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {livros.map((livro) => (
-              <div key={livro.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs space-y-3 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800 border border-green-200">
-                      {livro.categoria}
-                    </span>
-                    <span className="text-[10px] text-gray-500 font-semibold">{livro.classe}</span>
-                  </div>
-
-                  <h4 className="font-bold text-gray-900 text-sm mt-2 leading-snug">{livro.titulo}</h4>
-                  <p className="text-xs text-gray-500 mt-0.5">{livro.autor}</p>
-                </div>
-
-                <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
-                  <span className="text-gray-400 text-[11px]">{livro.tamanhoMb} MB • PDF</span>
-                  <a
-                    href={livro.arquivoUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-bold text-blue-700 hover:text-blue-900 inline-flex items-center space-x-1"
-                  >
-                    <span>Ler PDF</span>
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                </div>
+          {feedbackBiblioteca && (
+            <div className="p-3 bg-blue-50 border border-blue-300 rounded-xl text-xs text-blue-950 flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="h-4 w-4 text-blue-700 shrink-0" />
+                <span>{feedbackBiblioteca}</span>
               </div>
-            ))}
+              <button
+                type="button"
+                onClick={() => setFeedbackBiblioteca(null)}
+                className="font-bold text-blue-800 hover:underline cursor-pointer shrink-0"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {/* Barra de pesquisa e filtro por categoria */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white border border-gray-200 rounded-xl p-3">
+            <div className="sm:col-span-2 relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={buscaBiblioteca}
+                onChange={(e) => setBuscaBiblioteca(e.target.value)}
+                placeholder="Pesquisar livro por título, autor, disciplina ou classe..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+              />
+            </div>
+            <div>
+              <select
+                value={filtroCategoriaBib}
+                onChange={(e) => setFiltroCategoriaBib(e.target.value)}
+                className="w-full py-1.5 px-2.5 text-xs font-semibold bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+              >
+                <option value="TODAS">Todas as Categorias ({livros.length})</option>
+                <option value="Manual MED">Manual MED</option>
+                <option value="Livro Didático">Livro Didático</option>
+                <option value="Sebenta / Apontamentos">Sebenta / Apontamentos</option>
+                <option value="Literatura">Literatura</option>
+                <option value="Regulamento">Regulamento</option>
+              </select>
+            </div>
           </div>
+
+          {livrosFiltrados.length === 0 ? (
+            <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-8 text-center space-y-2">
+              <BookOpen className="h-8 w-8 text-gray-400 mx-auto" />
+              <p className="text-sm font-bold text-gray-800">
+                {livros.length === 0 ? 'Nenhum livro PDF carregado ainda nesta biblioteca.' : 'Nenhum livro corresponde à pesquisa.'}
+              </p>
+              <p className="text-xs text-gray-500">
+                {podeGerirLivros
+                  ? 'Clique em "Adicionar Ficheiro PDF" para carregar manuais, sebentas ou livros disponíveis para leitura e download.'
+                  : 'Quando a Direção ou os Professores publicarem ficheiros PDF, aparecerão aqui prontos para ler e descarregar.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {livrosFiltrados.map((livro) => {
+                const estaLocal = pdfsLocaisIds.has(livro.id);
+                const emCarregamento = carregandoPdfId === livro.id;
+                const podeApagar =
+                  podeGerirLivros &&
+                  (['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'Bibliotecario'].includes(currentUser.role) ||
+                    livro.uploadPorId === currentUser.id ||
+                    livro.uploadPorNome === currentUser.nomeCompleto);
+
+                return (
+                  <div key={livro.id} className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800 border border-green-200">
+                          {livro.categoria}
+                        </span>
+                        <span className="text-[10px] text-gray-600 font-semibold">
+                          {livro.classe || 'Geral'}{livro.disciplina ? ` • ${livro.disciplina}` : ''}
+                        </span>
+                      </div>
+
+                      <h4 className="font-bold text-gray-900 text-sm mt-2 leading-snug">{livro.titulo}</h4>
+                      <p className="text-xs text-gray-600 mt-0.5">Autor: {livro.autor}</p>
+                      {livro.descricao && (
+                        <p className="text-[11px] text-gray-500 mt-1 line-clamp-2">{livro.descricao}</p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500">
+                        <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-gray-100 border border-gray-200 font-medium">
+                          <HardDrive className="h-3 w-3 text-emerald-700" />
+                          <span>{estaLocal ? 'Salvo no dispositivo (Offline)' : livro.tipoRecurso === 'Link' ? 'Ligação Externa' : 'Disponível na Nuvem'}</span>
+                        </span>
+                        <span>Por {livro.uploadPorNome}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-gray-500 text-[11px] font-medium tabular-nums">
+                        {livro.tamanhoMb && livro.tamanhoMb > 0 ? `${livro.tamanhoMb} MB • PDF` : 'PDF'}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={emCarregamento}
+                          onClick={() => handleLerLivroPdf(livro)}
+                          className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold inline-flex items-center space-x-1 cursor-pointer whitespace-nowrap"
+                          title="Abrir e ler livro PDF neste ecrã (funciona offline)"
+                        >
+                          {emCarregamento ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                          <span>Ler PDF</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={emCarregamento}
+                          onClick={() => handleBaixarLivroPdf(livro)}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold inline-flex items-center space-x-1 cursor-pointer whitespace-nowrap"
+                          title="Descarregar ficheiro PDF para o dispositivo"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Baixar</span>
+                        </button>
+                        {podeApagar && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverLivro(livro)}
+                            className="p-1.5 rounded-lg text-red-700 hover:bg-red-50 border border-red-200 cursor-pointer"
+                            title="Remover livro da biblioteca"
+                            aria-label="Remover livro"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Histórico de Acessos e Empréstimos via QR Code */}
+          {podeControlarAcessoBiblioteca && (
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -797,6 +1201,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -811,33 +1216,131 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
         onStudentMatched={handleRegistarAcessoQrBiblioteca}
       />
 
-      {/* Modal Novo Livro */}
-      {showNovoLivroModal && (
-        <div className="fixed inset-0 bg-gray-900/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-5 border-2 border-green-600 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-gray-900">Cadastrar Documento na Biblioteca</h3>
-            <form onSubmit={handleSalvarLivro} className="space-y-3 text-xs">
+      {/* Modal Adicionar Livro PDF à Biblioteca (Direção & Professores) */}
+      {showNovoLivroModal && podeGerirLivros && (
+        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 border-2 border-green-700 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div>
-                <label className="font-semibold text-gray-700 block mb-1">Título do Documento</label>
+                <h3 className="text-base font-black text-gray-900">Adicionar Livro / Manual PDF à Biblioteca</h3>
+                <p className="text-[11px] text-gray-500">
+                  O ficheiro fica guardado no dispositivo (offline) e é sincronizado com o Firebase para leitura e download por outros utilizadores.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNovoLivroModal(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
+                aria-label="Fechar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {erroUploadPdf && (
+              <div className="p-2.5 bg-red-50 border border-red-300 rounded-lg text-xs font-bold text-red-900">
+                {erroUploadPdf}
+              </div>
+            )}
+
+            <form onSubmit={handleSalvarLivro} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLivroModoUpload('PDF')}
+                  className={`py-2 px-3 rounded-lg font-bold border text-xs flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    livroModoUpload === 'PDF'
+                      ? 'bg-green-50 border-green-700 text-green-900'
+                      : 'bg-gray-50 border-gray-200 text-gray-600'
+                  }`}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>Ficheiro PDF (.pdf)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLivroModoUpload('Link')}
+                  className={`py-2 px-3 rounded-lg font-bold border text-xs flex items-center justify-center space-x-1.5 cursor-pointer ${
+                    livroModoUpload === 'Link'
+                      ? 'bg-green-50 border-green-700 text-green-900'
+                      : 'bg-gray-50 border-gray-200 text-gray-600'
+                  }`}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Ligação Externa</span>
+                </button>
+              </div>
+
+              {livroModoUpload === 'PDF' ? (
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">
+                    Selecionar Ficheiro PDF (Máx: 15 MB) <span className="text-red-600">*</span>
+                  </label>
+                  <label className="flex flex-col items-center justify-center w-full border-2 border-dashed border-green-400 bg-green-50/50 hover:bg-green-50 rounded-xl p-4 cursor-pointer transition-colors">
+                    <FileText className="h-6 w-6 text-green-700 mb-1" />
+                    <span className="font-bold text-green-900 text-center">
+                      {arquivoPdfSelecionado
+                        ? `${arquivoPdfSelecionado.name} (${(arquivoPdfSelecionado.size / (1024 * 1024)).toFixed(2)} MB)`
+                        : 'Clique aqui para escolher um ficheiro .PDF'}
+                    </span>
+                    <span className="text-[10px] text-gray-500 mt-0.5">
+                      Fica disponível para ler e baixar offline
+                    </span>
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      onChange={handleSelecionarArquivoPdf}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">URL do Documento PDF</label>
+                  <input
+                    type="url"
+                    required
+                    value={livroUrl}
+                    onChange={(e) => setLivroUrl(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Título do Livro / Manual <span className="text-red-600">*</span></label>
                 <input
                   type="text"
                   required
                   value={livroTitulo}
                   onChange={(e) => setLivroTitulo(e.target.value)}
-                  placeholder="Ex: Manual de Língua Portuguesa - 6ª Classe"
-                  className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-600 focus:outline-none"
+                  placeholder="Ex: Manual de Matemática - 10ª Classe"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
                 />
               </div>
 
-              <div>
-                <label className="font-semibold text-gray-700 block mb-1">Autor / Editora</label>
-                <input
-                  type="text"
-                  value={livroAutor}
-                  onChange={(e) => setLivroAutor(e.target.value)}
-                  placeholder="Ex: Ministério da Educação (MED)"
-                  className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-600 focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Autor / Editora</label>
+                  <input
+                    type="text"
+                    value={livroAutor}
+                    onChange={(e) => setLivroAutor(e.target.value)}
+                    placeholder="Ex: Ministério da Educação (MED)"
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-gray-700 block mb-1">Disciplina (Opcional)</label>
+                  <input
+                    type="text"
+                    value={livroDisciplina}
+                    onChange={(e) => setLivroDisciplina(e.target.value)}
+                    placeholder="Ex: Matemática / Língua Portuguesa"
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -846,41 +1349,104 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                   <select
                     value={livroCategoria}
                     onChange={(e) => setLivroCategoria(e.target.value as any)}
-                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-600 focus:outline-none"
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
                   >
                     <option value="Manual MED">Manual MED</option>
+                    <option value="Livro Didático">Livro Didático</option>
+                    <option value="Sebenta / Apontamentos">Sebenta / Apontamentos</option>
                     <option value="Literatura">Literatura</option>
                     <option value="Regulamento">Regulamento</option>
                   </select>
                 </div>
                 <div>
                   <label className="font-semibold text-gray-700 block mb-1">Classe / Nível</label>
-                  <input
-                    type="text"
+                  <select
                     value={livroClasse}
                     onChange={(e) => setLivroClasse(e.target.value)}
-                    placeholder="Ex: 6ª Classe"
-                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-600 focus:outline-none"
-                  />
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+                  >
+                    <option value="Todas">Todas as Classes</option>
+                    {TODAS_CLASSES_OFICIAIS_MED.map(c => (
+                      <option key={c} value={c}>{c === 'Iniciação' ? 'Iniciação' : `${c} Classe`}</option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="font-semibold text-gray-700 block mb-1">Resumo / Observações (Opcional)</label>
+                <textarea
+                  rows={2}
+                  value={livroDescricao}
+                  onChange={(e) => setLivroDescricao(e.target.value)}
+                  placeholder="Breve descrição do conteúdo ou capítulos incluídos..."
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-600 focus:outline-none"
+                />
               </div>
 
               <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={() => setShowNovoLivroModal(false)}
-                  className="px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded"
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded"
+                  disabled={salvandoLivroPdf}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-green-700 hover:bg-green-800 disabled:opacity-50 rounded-lg flex items-center space-x-1.5 cursor-pointer"
                 >
-                  Salvar na Biblioteca
+                  {salvandoLivroPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  <span>{salvandoLivroPdf ? 'A guardar PDF...' : 'Publicar na Biblioteca'}</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Leitor Embutido de PDF Offline / Online */}
+      {leitorLivro && leitorBlobUrl && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-2 sm:p-5 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-gray-300">
+            <div className="px-4 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-black truncate">{leitorLivro.titulo}</h3>
+                <p className="text-[11px] text-slate-300 truncate">
+                  {leitorLivro.autor} • {leitorLivro.categoria} • {leitorLivro.classe || 'Geral'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleBaixarLivroPdf(leitorLivro)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Baixar PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLeitorLivro(null);
+                    if (leitorBlobUrl.startsWith('blob:')) URL.revokeObjectURL(leitorBlobUrl);
+                    setLeitorBlobUrl(null);
+                  }}
+                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                  <span>Fechar</span>
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-100 p-2 min-h-0">
+              <iframe
+                src={leitorBlobUrl}
+                title={`Leitor PDF - ${leitorLivro.titulo}`}
+                className="w-full h-full rounded-lg border border-gray-300 bg-white"
+              />
+            </div>
           </div>
         </div>
       )}

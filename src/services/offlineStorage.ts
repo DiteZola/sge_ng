@@ -51,13 +51,24 @@ export interface StoredMediaEntry {
   updatedAt: string;
 }
 
+export interface StoredPdfEntry {
+  id: string; // docId na biblioteca
+  nome: string;
+  mimeType: string;
+  tamanhoBytes: number;
+  base64: string;
+  blob?: Blob | null;
+  updatedAt: string;
+}
+
 const DB_NAME = 'SGE_NG_ANGOLA_OFFLINE_DB';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_ENTITIES = 'entities';
 const STORE_JOURNAL = 'journal';
 const STORE_SNAPSHOTS = 'snapshots';
 const STORE_MEDIA = 'media_blobs';
 const STORE_FUNCIONARIOS = 'funcionarios';
+const STORE_PDFS = 'biblioteca_pdfs';
 
 export function base64ToBlob(dataUrl: string): Blob | null {
   try {
@@ -137,6 +148,9 @@ class OfflineStorageEngine {
           }
           if (!db.objectStoreNames.contains(STORE_FUNCIONARIOS)) {
             db.createObjectStore(STORE_FUNCIONARIOS, { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains(STORE_PDFS)) {
+            db.createObjectStore(STORE_PDFS, { keyPath: 'id' });
           }
         };
 
@@ -1050,6 +1064,99 @@ class OfflineStorageEngine {
   }
 
   /**
+   * Persistência e Leitura Offline de Livros / Manuais PDF em IndexedDB (store biblioteca_pdfs)
+   */
+  public async salvarPdfBiblioteca(
+    docId: string,
+    blobOrBase64: Blob | string,
+    meta?: { nome?: string; mimeType?: string; updatedAt?: string }
+  ): Promise<{ base64: string; tamanhoBytes: number; chunksCount: number }> {
+    if (!docId) return { base64: '', tamanhoBytes: 0, chunksCount: 0 };
+
+    let base64 = '';
+    let blob: Blob | null = null;
+
+    if (typeof Blob !== 'undefined' && blobOrBase64 instanceof Blob) {
+      blob = blobOrBase64;
+      base64 = await blobToBase64(blobOrBase64);
+    } else if (typeof blobOrBase64 === 'string') {
+      base64 = blobOrBase64.trim();
+      if (base64.startsWith('data:')) {
+        blob = base64ToBlob(base64);
+      }
+    }
+
+    if (!base64 && !blob) {
+      return { base64: '', tamanhoBytes: 0, chunksCount: 0 };
+    }
+
+    const tamanhoBytes = blob?.size || Math.round((base64.length * 3) / 4);
+    const mimeType = meta?.mimeType || blob?.type || 'application/pdf';
+    const nome = meta?.nome || `documento-${docId}.pdf`;
+    const updatedAt = meta?.updatedAt || new Date().toISOString();
+
+    await this.dbReadyPromise;
+    await this.gravarNoIndexedDB(STORE_PDFS, {
+      id: docId,
+      nome,
+      mimeType,
+      tamanhoBytes,
+      base64,
+      blob,
+      updatedAt
+    } as StoredPdfEntry);
+
+    const chunksCount = base64 ? Math.max(1, Math.ceil(base64.length / 300000)) : 0;
+    return { base64, tamanhoBytes, chunksCount };
+  }
+
+  public async obterPdfBibliotecaEntry(docId: string): Promise<StoredPdfEntry | null> {
+    if (!docId) return null;
+    await this.dbReadyPromise;
+    return this.lerUmDoIndexedDB<StoredPdfEntry>(STORE_PDFS, docId);
+  }
+
+  public async obterPdfBibliotecaBlob(docId: string): Promise<Blob | null> {
+    const entry = await this.obterPdfBibliotecaEntry(docId);
+    if (!entry) return null;
+    if (typeof Blob !== 'undefined' && entry.blob instanceof Blob) {
+      return entry.blob;
+    }
+    if (entry.base64 && entry.base64.startsWith('data:')) {
+      return base64ToBlob(entry.base64);
+    }
+    return null;
+  }
+
+  public async obterPdfBibliotecaBase64(docId: string): Promise<string> {
+    const entry = await this.obterPdfBibliotecaEntry(docId);
+    if (!entry) return '';
+    if (entry.base64) return entry.base64;
+    if (typeof Blob !== 'undefined' && entry.blob instanceof Blob) {
+      return blobToBase64(entry.blob);
+    }
+    return '';
+  }
+
+  public async temPdfBibliotecaLocal(docId: string): Promise<boolean> {
+    if (!docId) return false;
+    const entry = await this.obterPdfBibliotecaEntry(docId);
+    return Boolean(entry && (entry.blob || entry.base64));
+  }
+
+  public async listarIdsPdfsLocais(): Promise<string[]> {
+    await this.dbReadyPromise;
+    const all = await this.lerTodosDoIndexedDB<StoredPdfEntry>(STORE_PDFS);
+    return all.filter(e => Boolean(e?.id && (e.blob || e.base64))).map(e => e.id);
+  }
+
+  public async removerPdfBiblioteca(docId: string): Promise<void> {
+    if (!docId) return;
+    await this.dbReadyPromise;
+    await this.eliminarDoIndexedDB(STORE_PDFS, docId);
+  }
+
+  /**
    * Compacta campos Base64 pesados ao guardar item na fila de pendências para evitar QuotaExceededError no localStorage,
    * assegurando que a mídia real permanece salva no IndexedDB (store media_blobs).
    */
@@ -1067,6 +1174,19 @@ class OfflineStorageEngine {
     const mediaEntityId = docId || dados.id || 'global';
     const imageKeys = ['fotoUrl', 'foto', 'logotipo', 'logotipoUrl', 'assinaturaDiretorUrl', 'insigniaNacionalUrl'];
     let cloned: Record<string, any> | null = null;
+
+    if (entNorm === 'biblioteca') {
+      const pdfKeys = ['url', 'arquivoUrl', 'arquivoBase64', 'pdfBase64'];
+      let clonedBib: Record<string, any> | null = null;
+      for (const k of pdfKeys) {
+        const val = dados[k];
+        if (typeof val === 'string' && val.startsWith('data:') && val.length > 2048) {
+          const target = clonedBib ?? (clonedBib = { ...dados });
+          target[k] = '__idb_pdf__';
+        }
+      }
+      return clonedBib ?? dados;
+    }
 
     for (const k of imageKeys) {
       const val = dados[k];

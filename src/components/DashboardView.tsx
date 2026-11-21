@@ -62,9 +62,12 @@ import {
 import { dbService } from '../services/storage';
 import { securityEngine, AlertaSegurancaVisual } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
-import { ParentStudentReportView } from './ParentStudentReportView';
 import { StudentRankingSection } from './StudentRankingSection';
 import * as XLSX from 'xlsx';
+
+const ParentStudentReportView = React.lazy(() =>
+  import('./ParentStudentReportView').then((m) => ({ default: m.ParentStudentReportView }))
+);
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
 import { obterInformacaoEscala } from '../services/macEngine';
 import { normalizarClasse, TODAS_CLASSES_OFICIAIS_MED } from '../services/academicHierarchyService';
@@ -3832,12 +3835,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
-                <ParentStudentReportView
-                  aluno={alunoDoEncarregado}
-                  escola={escola}
-                  turma={turmaDoAluno}
-                  notas={notasConsolidadas}
-                />
+                <React.Suspense
+                  fallback={
+                    <div className="p-6 text-center text-xs text-slate-500">
+                      A carregar boletim do educando...
+                    </div>
+                  }
+                >
+                  <ParentStudentReportView
+                    aluno={alunoDoEncarregado}
+                    escola={escola}
+                    turma={turmaDoAluno}
+                    notas={notasConsolidadas}
+                  />
+                </React.Suspense>
               </div>
             );
           })()}

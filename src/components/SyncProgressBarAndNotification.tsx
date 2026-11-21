@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Cloud, 
   CloudOff,
@@ -22,6 +22,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
   const [mensagemNotificacao, setMensagemNotificacao] = useState('');
   const [horaNotificacao, setHoraNotificacao] = useState('');
   const [modalDetalhesAberto, setModalDetalhesAberto] = useState(false);
+  const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // 1. Escuta de status do motor de sincronização
@@ -53,12 +54,14 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
         onSyncComplete();
       }
 
+      if (notifTimerRef.current) {
+        clearTimeout(notifTimerRef.current);
+      }
       // Auto-ocultar após 7 segundos mantendo o badge acessível
-      const timer = setTimeout(() => {
+      notifTimerRef.current = setTimeout(() => {
         setNotificacaoVisivel(false);
+        notifTimerRef.current = null;
       }, 7000);
-
-      return () => clearTimeout(timer);
     };
 
     const atualizarStatusSnapshot = () => {
@@ -73,6 +76,10 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
 
     return () => {
       unsub();
+      if (notifTimerRef.current) {
+        clearTimeout(notifTimerRef.current);
+        notifTimerRef.current = null;
+      }
       window.removeEventListener('sge_sync_progresso', handleProgresso);
       window.removeEventListener('sge_sync_notificacao', handleNotificacao);
       window.removeEventListener('sge_pending_sync_changed', atualizarStatusSnapshot);
@@ -117,8 +124,8 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
     }
   };
 
-  // Indicador compacto e NÃO-BLOQUEANTE durante a sincronização inicial num novo dispositivo
-  const deveExibirCardProgresso = !dispositivoJaConfigurado && !overlayMinimizado && status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100;
+  // Indicador compacto e NÃO-BLOQUEANTE durante a sincronização em segundo plano após abertura
+  const deveExibirCardProgresso = !overlayMinimizado && status.emSincronizacao && status.progressoPercentual > 0 && status.progressoPercentual < 100 && (!dispositivoJaConfigurado || status.totalPendentes === 0);
   // Indicador compacto ao reconectar quando há fila offline a ser escoada
   const deveExibirEscoamentoFila = dispositivoJaConfigurado && status.emSincronizacao && status.totalPendentes > 0;
   // Pill compacto e NÃO-BLOQUEANTE quando offline com alterações na fila local
@@ -126,11 +133,11 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
 
   return (
     <>
-      {/* 1. CARTÃO FLUTUANTE NÃO-BLOQUEANTE DE PROGRESSO INICIAL (permite usar o sistema imediatamente) */}
+      {/* 1. CARTÃO FLUTUANTE NÃO-BLOQUEANTE DE PROGRESSO EM SEGUNDO PLANO (permite usar o sistema imediatamente) */}
       {deveExibirCardProgresso && (
         <aside
-          aria-label="Progresso de sincronização inicial"
-          className="fixed bottom-5 right-5 z-40 bg-slate-900 border border-blue-500/40 rounded-2xl p-4 max-w-sm w-[calc(100vw-2rem)] shadow-2xl text-white animate-fadeIn"
+          aria-label="Progresso de sincronização em segundo plano"
+          className="fixed bottom-5 right-5 z-[95] bg-slate-900 border border-blue-500/40 rounded-2xl p-4 max-w-sm w-[calc(100vw-2rem)] shadow-2xl text-white animate-fadeIn"
         >
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center space-x-2">
@@ -184,7 +191,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
       {notificacaoVisivel && (
         <aside 
           aria-label="Notificações de sincronização"
-          className="fixed bottom-5 right-5 z-40 max-w-md w-full bg-white dark:bg-slate-900 border-2 border-emerald-500/80 rounded-2xl p-4 shadow-2xl transition-all duration-300 animate-slideUp text-gray-900 dark:text-white"
+          className="fixed bottom-5 right-5 z-[95] max-w-md w-[calc(100vw-2rem)] bg-white dark:bg-slate-900 border-2 border-emerald-500/80 rounded-2xl p-4 shadow-2xl transition-all duration-300 animate-slideUp text-gray-900 dark:text-white"
         >
           <div className="flex items-start space-x-3">
             <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
@@ -226,7 +233,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
       {deveExibirEscoamentoFila && (
         <aside
           aria-label="Sincronização da fila offline"
-          className="fixed bottom-5 right-5 z-40 bg-slate-900 border border-blue-500/40 rounded-2xl p-3.5 max-w-xs w-[calc(100vw-2rem)] shadow-2xl text-white"
+          className="fixed bottom-5 right-5 z-[95] bg-slate-900 border border-blue-500/40 rounded-2xl p-3.5 max-w-xs w-[calc(100vw-2rem)] shadow-2xl text-white"
         >
           <div className="flex items-center justify-between text-xs font-bold mb-1.5">
             <span className="flex items-center space-x-1.5 text-blue-300">
@@ -251,7 +258,7 @@ export const SyncProgressBarAndNotification: React.FC<SyncProgressBarAndNotifica
         <button
           type="button"
           onClick={() => setModalDetalhesAberto(true)}
-          className="fixed bottom-5 right-5 z-40 flex items-center space-x-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-950/95 hover:bg-amber-900 border border-amber-400/50 text-amber-50 shadow-xl text-xs font-semibold transition-all cursor-pointer"
+          className="fixed bottom-5 right-5 z-[95] flex items-center space-x-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-950/95 hover:bg-amber-900 border border-amber-400/50 text-amber-50 shadow-xl text-xs font-semibold transition-all cursor-pointer"
           title="Os dados estão salvos no dispositivo e serão sincronizados automaticamente quando voltar a ter internet"
         >
           <CloudOff className="w-4 h-4 text-amber-300 shrink-0" />

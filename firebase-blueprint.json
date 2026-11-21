@@ -191,6 +191,25 @@
         "ativa": { "type": "boolean" }
       },
       "required": ["id", "nome"]
+    },
+    "LibraryBook": {
+      "title": "LibraryBook",
+      "description": "Manuais, livros didáticos e documentos PDF da biblioteca escolar sincronizados offline e na nuvem",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "titulo": { "type": "string", "maxLength": 300 },
+        "autor": { "type": "string", "maxLength": 200 },
+        "categoria": { "type": "string", "maxLength": 100 },
+        "classe": { "type": "string", "maxLength": 60 },
+        "disciplina": { "type": "string", "maxLength": 120 },
+        "arquivoNome": { "type": "string", "maxLength": 260 },
+        "arquivoArmazenamentoId": { "type": "string", "maxLength": 128 },
+        "arquivoChunksCount": { "type": "number" },
+        "tipoRecurso": { "type": "string", "enum": ["PDF", "Link"] }
+      },
+      "required": ["id", "escolaId", "titulo"]
     }
   },
   "firestore": {
@@ -241,6 +260,14 @@
     "/classes_configs/{classeId}": {
       "schema": "ClasseConfig",
       "description": "Configuração das classes escolares da Iniciação à 13ª Classe"
+    },
+    "/biblioteca/{bookId}": {
+      "schema": "LibraryBook",
+      "description": "Livros e manuais PDF da Biblioteca Escolar"
+    },
+    "/biblioteca_arquivos/{chunkId}": {
+      "schema": "LibraryBook",
+      "description": "Fragmentos binários em Base64 de PDFs da biblioteca para sincronização offline-first"
     }
   }
 }

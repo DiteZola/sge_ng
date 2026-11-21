@@ -58,6 +58,8 @@ import {
   getDisciplinasDaTurma
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
+import { calcularNotasAdministrativasProporcionais } from '../services/administrativeGradeService';
+import { DEFAULT_REGRAS_MAC } from '../services/storage';
 
 interface ExamTermsViewProps {
   escola: Escola;
@@ -167,7 +169,64 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
   const [simNotaExame, setSimNotaExame] = useState<number>(12);
   const [notasInvalidasExame, setNotasInvalidasExame] = useState<Record<string, string>>({});
 
-  const podeConfigurar = ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo'].includes(currentUser.role);
+  const podeConfigurar = ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'ChefeSecretaria'].includes(currentUser.role);
+
+  const handlePreencherNotasExameAdministrativas = () => {
+    if (!podeConfigurar || !turmaSelecionada || !disciplinaSelecionada || notasAlunosForm.length === 0) return;
+    const notasExameActuais: Record<string, number | undefined> = {};
+    notasAlunosForm.forEach(item => {
+      notasExameActuais[item.alunoId] = item.notaExameEscrito > 0 ? item.notaExameEscrito : undefined;
+    });
+
+    const regras = dbService.getRegrasMAC();
+    const regraBase = regras[0] || DEFAULT_REGRAS_MAC[0];
+    const alunosDaTurma = alunos.filter(a => a.turmaId === turmaSelecionada.id && a.estado === 'Ativo');
+
+    const preview = calcularNotasAdministrativasProporcionais({
+      turma: turmaSelecionada,
+      disciplinaId: disciplinaSelecionada.id,
+      trimestre: '3',
+      anoLectivo: turmaSelecionada.anoLectivo || escola.anoLectivoActivo || '',
+      alunosDaTurma,
+      avaliacoes: dbService.getAvaliacoes(),
+      notasAvaliacoes: dbService.getNotas(),
+      notasConsolidadas: dbService.getNotasConsolidadas(),
+      regraVigente: regraBase,
+      alvoTipo: 'EXAME',
+      apenasEmFalta: true,
+      notasExameActuaisPorAluno: notasExameActuais
+    });
+
+    const mapaProposta = new Map(preview.itens.filter(i => i.aplicar).map(i => [i.alunoId, i.notaProposta]));
+    if (mapaProposta.size === 0) {
+      setSucessoMsg('Todos os alunos desta pauta já possuem nota de Prova de Exame (PE) preenchida.');
+      setTimeout(() => setSucessoMsg(null), 4000);
+      return;
+    }
+
+    const escalaMax = preview.escalaMaxima;
+    const notaAprov = escalaMax === 10 ? 5 : 10;
+    const notaRec = escalaMax === 10 ? 4 : 7;
+
+    setNotasAlunosForm(prev => prev.map(item => {
+      const novaPE = mapaProposta.get(item.alunoId);
+      if (novaPE === undefined) return item;
+      const mediaFinal = Math.round(((item.mediaFrequencia * formPesoMF) + (novaPE * formPesoExame)) * 10) / 10;
+      const res: 'Aprovado' | 'Não Aprovado' | 'Recurso' =
+        mediaFinal >= notaAprov ? 'Aprovado' : mediaFinal >= notaRec ? 'Recurso' : 'Não Aprovado';
+      return {
+        ...item,
+        notaExameEscrito: novaPE,
+        mediaFinal,
+        resultado: res
+      };
+    }));
+
+    setSucessoMsg(
+      `${mapaProposta.size} nota(s) de exame em falta atribuída(s) administrativamente (${preview.minimoPermitido} a ${preview.maximoPermitido} valores) proporcionalmente às restantes disciplinas.`
+    );
+    setTimeout(() => setSucessoMsg(null), 5000);
+  };
 
   const handleSalvarConfiguracoes = () => {
     if (!podeConfigurar) {
@@ -1083,13 +1142,26 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
 
           {/* Tabela de Lançamento de Notas dos Alunos */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-black text-gray-900 uppercase text-xs">
                 Pauta de Alunos e Notas do Exame ({notasAlunosForm.length} Alunos)
               </h4>
-              <span className="text-[11px] text-gray-500">
-                Insira a nota da prova escrita (PE) de 0 a 20 valores
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {podeConfigurar && notasAlunosForm.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePreencherNotasExameAdministrativas}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                    title="Preencher proporcionalmente as notas de exame em falta de acordo com as restantes disciplinas"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Atribuir PE Administrativas em Falta</span>
+                  </button>
+                )}
+                <span className="text-[11px] text-gray-500">
+                  Insira a nota da prova escrita (PE) de 0 a {turmaSelecionada && (turmaSelecionada.nivelEnsino === 'Primario' || ['Iniciação','1ª','2ª','3ª','4ª','5ª','6ª'].includes(turmaSelecionada.classe)) ? 10 : 20} valores
+                </span>
+              </div>
             </div>
 
             <div className="border border-gray-300 rounded-xl overflow-hidden max-h-96 overflow-y-auto">

@@ -34,7 +34,6 @@ import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndN
 import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { notificationService } from './services/notificationService';
 import { SystemInitialSetupView } from './components/SystemInitialSetupView';
-import { DashboardView } from './components/DashboardView';
 
 // Registro centralizado de importadores para pré-carregamento silencioso em segundo plano (garante uso 100% offline em todos os módulos)
 const PRELOAD_MODULE_IMPORTERS: Array<() => Promise<any>> = [];
@@ -137,6 +136,7 @@ class ModuleChunkErrorBoundary extends React.Component<
 }
 
 // Lazy-loading resiliente dos módulos pesados + pré-carregamento em background para funcionamento 100% offline
+const DashboardView = lazyResilient(() => import('./components/DashboardView').then(m => ({ default: m.DashboardView })), 'Painel Principal');
 const AcademicManagementView = lazyResilient(() => import('./components/AcademicManagementView').then(m => ({ default: m.AcademicManagementView })), 'Gestão Académica');
 const EvaluationMacView = lazyResilient(() => import('./components/EvaluationMacView').then(m => ({ default: m.EvaluationMacView })), 'Avaliações e Notas');
 const StudentsView = lazyResilient(() => import('./components/StudentsView').then(m => ({ default: m.StudentsView })), 'Estudantes');
@@ -402,27 +402,31 @@ export default function App() {
       }
     });
 
-    // Arranque em duas fases: bootstrap leve no ecrã de login e sincronização completa quando autenticado
+    // Arranque em duas fases APÓS abrir/renderizar o ecrã inicial: bootstrap leve no login e sincronização completa quando autenticado
+    let syncStartTimer: ReturnType<typeof setTimeout> | null = null;
     if (typeof navigator !== 'undefined' && navigator.onLine) {
-      const jaAutenticado =
-        typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+      syncStartTimer = setTimeout(() => {
+        if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+        const jaAutenticado =
+          typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
 
-      const promessaSync = jaAutenticado
-        ? firebaseSyncEngine.iniciarCicloInicialOnline()
-        : firebaseSyncEngine.iniciarCicloBootstrapLeve();
+        const promessaSync = jaAutenticado
+          ? firebaseSyncEngine.iniciarCicloInicialOnline()
+          : firebaseSyncEngine.iniciarCicloBootstrapLeve();
 
-      promessaSync.then(() => {
-        if (ativo) {
-          recarregarDados();
-          if (!dbService.temAdminGeral()) {
-            verificarAdmin();
-          } else {
-            setTemAdminGeral(true);
-            setMostrarSetupInicial(false);
-            setVerificandoAdminOnline(false);
+        promessaSync.then(() => {
+          if (ativo) {
+            recarregarDados();
+            if (!dbService.temAdminGeral()) {
+              verificarAdmin();
+            } else {
+              setTemAdminGeral(true);
+              setMostrarSetupInicial(false);
+              setVerificandoAdminOnline(false);
+            }
           }
-        }
-      });
+        });
+      }, 120);
     }
 
     const handleRemoteUpdate = () => {
@@ -459,25 +463,32 @@ export default function App() {
 
     const precarregarModulosOffline = () => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const conn = typeof navigator !== 'undefined' ? (navigator as any).connection : null;
+      if (conn?.saveData) {
+        notificationService.warmOfflineCache();
+        return;
+      }
       const runBatch = (idx: number) => {
         if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
         if (idx >= PRELOAD_MODULE_IMPORTERS.length) {
           notificationService.warmOfflineCache();
           return;
         }
-        const slice = PRELOAD_MODULE_IMPORTERS.slice(idx, idx + 3);
+        const slice = PRELOAD_MODULE_IMPORTERS.slice(idx, idx + 2);
         Promise.allSettled(slice.map((fn) => fn().catch(() => null))).finally(() => {
-          notificationService.warmOfflineCache();
           if (ativo) {
-            setTimeout(() => runBatch(idx + 3), 250);
+            setTimeout(() => runBatch(idx + 2), 350);
           }
         });
       };
-      if (typeof (window as any).requestIdleCallback === 'function') {
-        (window as any).requestIdleCallback(() => runBatch(0), { timeout: 2000 });
-      } else {
-        setTimeout(() => runBatch(0), 1200);
-      }
+      setTimeout(() => {
+        if (!ativo) return;
+        if (typeof (window as any).requestIdleCallback === 'function') {
+          (window as any).requestIdleCallback(() => runBatch(0), { timeout: 2500 });
+        } else {
+          runBatch(0);
+        }
+      }, 2200);
     };
     precarregarModulosOffline();
 
@@ -507,6 +518,7 @@ export default function App() {
     return () => {
       ativo = false;
       clearTimeout(timer);
+      if (syncStartTimer) clearTimeout(syncStartTimer);
       unsubStatus();
       unsubNavNotif();
       window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
@@ -775,6 +787,7 @@ export default function App() {
       'presencas',
       'pagamentos',
       'relatorios_financeiros',
+      'biblioteca',
       'patrimonio',
       'meu_perfil',
       'estudantes',
@@ -799,6 +812,7 @@ export default function App() {
       'presencas',
       'pagamentos',
       'relatorios_financeiros',
+      'biblioteca',
       'patrimonio',
       'meu_perfil',
       'estudantes',
@@ -849,6 +863,7 @@ export default function App() {
       'passes_escolares',
       'termos_exame',
       'pagamentos',
+      'biblioteca',
       'meu_perfil',
       'academico',
       'estudantes',
@@ -879,6 +894,7 @@ export default function App() {
       'termos_exame',
       'pagamentos',
       'relatorios_financeiros',
+      'biblioteca',
       'usuarios_perfis',
       'auditoria_logs',
       'meu_perfil',
@@ -910,6 +926,7 @@ export default function App() {
       'passes_escolares',
       'termos_exame',
       'pagamentos',
+      'biblioteca',
       'meu_perfil',
       'academico',
       'estudantes',
@@ -936,6 +953,7 @@ export default function App() {
       'comissao_juri',
       'pautas',
       'boletins',
+      'biblioteca',
       'meu_perfil',
       'academico',
       'estudantes',
@@ -952,6 +970,7 @@ export default function App() {
       'alunos',
       'boletins',
       'pagamentos',
+      'biblioteca',
       'meu_perfil',
       'estudantes',
       'comunicacao'
@@ -976,6 +995,7 @@ export default function App() {
       'termos_exame',
       'pagamentos',
       'relatorios_financeiros',
+      'biblioteca',
       'usuarios_perfis',
       'meu_perfil',
       'comunicacao',
@@ -992,6 +1012,7 @@ export default function App() {
       'horarios',
       'pautas',
       'boletins',
+      'biblioteca',
       'meu_perfil',
       'comunicacao',
       'relatorios',
@@ -1002,6 +1023,7 @@ export default function App() {
       'calendario_escolar',
       'pagamentos',
       'relatorios_financeiros',
+      'biblioteca',
       'patrimonio',
       'meu_perfil',
       'comunicacao'
@@ -1019,6 +1041,7 @@ export default function App() {
       'calendario_escolar',
       'horarios',
       'presencas',
+      'biblioteca',
       'meu_perfil',
       'comunicacao'
     ],
@@ -1030,6 +1053,7 @@ export default function App() {
       'auditoria_logs',
       'backup_restauro',
       'apoio_tecnico',
+      'biblioteca',
       'patrimonio',
       'meu_perfil',
       'comunicacao',
@@ -1329,6 +1353,11 @@ export default function App() {
 
   const handleAdicionarLivro = (livro: DocumentoBiblioteca) => {
     dbService.salvarLivro(livro);
+    setLivros(dbService.obterLivros());
+  };
+
+  const handleExcluirLivro = (livroId: string) => {
+    dbService.excluirLivro(livroId);
     setLivros(dbService.obterLivros());
   };
 
@@ -1655,6 +1684,7 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <>
+        <PWAInstallNotification />
         <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
         <LoginView
           escolas={escolas}
@@ -2072,8 +2102,10 @@ export default function App() {
                   turmas={turmasDaEscola}
                   mensagens={mensagensDaEscola}
                   livros={livrosDaEscola}
+                  initialSubTab={activeTab === 'biblioteca' ? 'biblioteca' : 'comunicados'}
                   onEnviarMensagem={handleEnviarMensagem}
                   onAdicionarLivro={handleAdicionarLivro}
+                  onExcluirLivro={handleExcluirLivro}
                   onMarcarComoLida={handleMarcarMensagemLida}
                   onMarcarTodasComoLidas={handleMarcarTodasMensagensLidas}
                 />
