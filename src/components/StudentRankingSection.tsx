@@ -752,14 +752,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
   return (
     <div className="space-y-6">
       {/* Abas Superiores de Alternância com Separação Total dos Lugares */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 no-print">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 no-print">
         <button
           type="button"
           onClick={() => setRankingTab('top5')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             rankingTab === 'top5'
               ? 'bg-amber-500 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
           }`}
         >
           <Trophy className="h-4 w-4" />
@@ -772,7 +772,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             rankingTab === 'todos'
               ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
           }`}
         >
           <Award className="h-4 w-4" />
@@ -785,7 +785,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             rankingTab === 'risco'
               ? 'bg-rose-600 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
           }`}
         >
           <AlertTriangle className="h-4 w-4" />
@@ -798,7 +798,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             rankingTab === 'professores'
               ? 'bg-purple-600 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
           }`}
         >
           <UserCheck className="h-4 w-4" />
@@ -811,7 +811,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             rankingTab === 'disciplinas'
               ? 'bg-indigo-600 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700'
           }`}
         >
           <BookOpen className="h-4 w-4" />
@@ -820,10 +820,10 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       </div>
 
       {/* Barra de Filtros e Ações */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex items-center space-x-2 text-slate-800">
-            <div className={`p-2.5 rounded-xl text-white ${
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 min-w-0">
+          <div className="flex items-center space-x-2 text-slate-800 dark:text-slate-100 min-w-0">
+            <div className={`p-2.5 rounded-xl text-white shrink-0 ${
               rankingTab === 'top5' ? 'bg-amber-500' :
               rankingTab === 'todos' ? 'bg-blue-600' :
               rankingTab === 'risco' ? 'bg-rose-600' :
@@ -835,15 +835,15 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
               {rankingTab === 'professores' && <UserCheck className="h-5 w-5" />}
               {rankingTab === 'disciplinas' && <BookOpen className="h-5 w-5" />}
             </div>
-            <div>
-              <h3 className="text-base font-black text-slate-900 tracking-tight">
+            <div className="min-w-0">
+              <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
                 {rankingTab === 'top5' && 'Quadro de Honra & Excelência Discente'}
                 {rankingTab === 'todos' && 'Classificação Geral de Desempenho de Todos os Alunos'}
                 {rankingTab === 'risco' && 'Plano de Intervenção & Atenção Pedagógica'}
                 {rankingTab === 'professores' && 'Ranking Oficial de Desempenho Docente'}
                 {rankingTab === 'disciplinas' && 'Aproveitamento Académico por Disciplina'}
               </h3>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                 {rankingTab === 'top5' && 'Exclusivo para os 5 estudantes com melhor rendimento académico da instituição'}
                 {rankingTab === 'todos' && `Lista integral de todos os ${alunosComMedia.length} alunos activos no ano lectivo ${escola.anoLectivoActivo || ''}`}
                 {rankingTab === 'risco' && 'Ficheiro independente para acompanhamento de recuperação pedagógica e notas baixas'}
@@ -857,13 +857,13 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
         {/* Botões de Download Exclusivos para a Aba Selecionada */}
         <div className="flex flex-wrap items-center gap-2.5">
           {feedbackExport && (
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 animate-fade-in">
+            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 animate-fade-in">
               {feedbackExport}
             </span>
           )}
 
           {isProfessor && (rankingTab === 'top5' || rankingTab === 'risco' || rankingTab === 'todos') && (
-            <label className="flex items-center space-x-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 cursor-pointer">
+            <label className="flex items-center space-x-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
               <input
                 type="checkbox"
                 checked={apenasMinhasTurmas}
@@ -912,22 +912,22 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
 
       {/* Seletores de Filtros (para Top 5, Todos, Risco e Disciplinas) */}
       {(rankingTab === 'top5' || rankingTab === 'risco' || rankingTab === 'todos' || rankingTab === 'disciplinas') && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-2xs space-y-3 no-print">
-          <div className="flex items-center space-x-2 text-xs font-bold text-slate-700">
-            <Filter className="h-4 w-4 text-blue-600" />
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-2xs space-y-3 no-print">
+          <div className="flex items-center space-x-2 text-xs font-bold text-slate-700 dark:text-slate-200">
+            <Filter className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <span>Filtrar por Classe, Turma, Curso, Turno e Sala:</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Classe:</label>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Classe:</label>
               <select
                 value={filtroClasse}
                 onChange={(e) => {
                   setFiltroClasse(e.target.value);
                   setFiltroTurma('todas');
                 }}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-600"
               >
                 <option value="todas">Todas as Classes</option>
                 {classesDisponiveis.map(c => (
@@ -937,14 +937,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Curso:</label>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Curso:</label>
               <select
                 value={filtroCurso}
                 onChange={(e) => {
                   setFiltroCurso(e.target.value);
                   setFiltroTurma('todas');
                 }}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-600"
               >
                 <option value="todos">Todos os Cursos</option>
                 {cursosDisponiveis.map(c => (
@@ -954,14 +954,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Turno:</label>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Turno:</label>
               <select
                 value={filtroTurno}
                 onChange={(e) => {
                   setFiltroTurno(e.target.value);
                   setFiltroTurma('todas');
                 }}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-600"
               >
                 <option value="todos">Todos os Turnos</option>
                 {turnosDisponiveis.map(tr => (
@@ -971,14 +971,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Sala:</label>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Sala:</label>
               <select
                 value={filtroSala}
                 onChange={(e) => {
                   setFiltroSala(e.target.value);
                   setFiltroTurma('todas');
                 }}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-600"
               >
                 <option value="todas">Todas as Salas</option>
                 {salasDisponiveis.map(sl => (
@@ -988,11 +988,11 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Turma:</label>
+              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Turma:</label>
               <select
                 value={filtroTurma}
                 onChange={(e) => setFiltroTurma(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-600"
               >
                 <option value="todas">Todas as Turmas</option>
                 {turmasFiltradas.map(t => (
@@ -1003,14 +1003,14 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
 
             {rankingTab !== 'disciplinas' && (
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Pesquisar:</label>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">Pesquisar:</label>
                 <div className="relative">
                   <input
                     type="text"
                     value={termoPesquisa}
                     onChange={(e) => setTermoPesquisa(e.target.value)}
                     placeholder="Nome, BI ou N.º Processo..."
-                    className="w-full pl-8 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-600"
+                    className="w-full pl-8 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-blue-600"
                   />
                   <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                 </div>
@@ -1023,11 +1023,12 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       {/* =========================================================================
           DOCUMENTO OFICIAL ISOLADO PARA A ABA ATIVA
           ========================================================================= */}
-      <div 
-        id={containerIdAtual}
-        data-doc-root="true"
-        className="documento-oficial-print bg-white border-2 border-slate-300 rounded-2xl p-6 sm:p-8 md:p-10 shadow-md text-slate-900 space-y-6 max-w-5xl mx-auto"
-      >
+      <div className="overflow-x-auto pb-2">
+        <div 
+          id={containerIdAtual}
+          data-doc-root="true"
+          className="documento-oficial-print bg-white border-2 border-slate-300 dark:border-slate-700 rounded-2xl p-6 sm:p-8 md:p-10 shadow-md text-slate-900 space-y-6 max-w-5xl mx-auto"
+        >
         {/* CABEÇALHO OFICIAL INSTITUCIONAL */}
         <div className="text-center space-y-1.5 border-b-2 border-slate-900 pb-5">
           <div className="flex justify-center mb-2">
@@ -1568,6 +1569,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
               [Carimbo Oficial da Escola]
             </p>
           </div>
+        </div>
         </div>
       </div>
     </div>

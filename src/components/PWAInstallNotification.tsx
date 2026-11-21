@@ -87,57 +87,57 @@ export const PWAInstallNotification: React.FC = () => {
       {/* Modal Guia de Instalação (iOS Safari / Instruções Manuais) */}
       {showIOSModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between border-b pb-3 border-slate-100">
-              <div className="flex items-center space-x-2.5 text-blue-900">
-                <Smartphone className="h-6 w-6 text-blue-700" />
-                <h3 className="font-black text-sm text-slate-900">Como Instalar no seu Dispositivo</h3>
+          <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-2.5 text-blue-900 dark:text-blue-300">
+                <Smartphone className="h-6 w-6 text-blue-700 dark:text-blue-400" />
+                <h3 className="font-black text-sm text-slate-900 dark:text-white">Como Instalar no seu Dispositivo</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowIOSModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
               Pode instalar o <strong>SGE-NG Angola</strong> no seu telemóvel, tablet ou computador para usá-lo como uma aplicação nativa rápida:
             </p>
 
-            <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+            <div className="space-y-3 bg-slate-50 dark:bg-slate-800/80 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
               <div className="flex items-start space-x-3">
-                <div className="p-2 bg-blue-100 text-blue-800 rounded-lg shrink-0">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 rounded-lg shrink-0">
                   <Share2 className="h-4 w-4" />
                 </div>
                 <div>
-                  <strong className="text-slate-900 block font-bold">1. No iPhone ou iPad (Safari):</strong>
-                  <span className="text-slate-600">
+                  <strong className="text-slate-900 dark:text-white block font-bold">1. No iPhone ou iPad (Safari):</strong>
+                  <span className="text-slate-600 dark:text-slate-300">
                     Toque no botão <strong>Partilhar</strong> (ícone de um quadrado com uma seta a apontar para cima) na barra inferior do Safari.
                   </span>
                 </div>
               </div>
 
               <div className="flex items-start space-x-3">
-                <div className="p-2 bg-indigo-100 text-indigo-800 rounded-lg shrink-0">
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 rounded-lg shrink-0">
                   <PlusSquare className="h-4 w-4" />
                 </div>
                 <div>
-                  <strong className="text-slate-900 block font-bold">2. Adicionar ao Ecrã Principal:</strong>
-                  <span className="text-slate-600">
+                  <strong className="text-slate-900 dark:text-white block font-bold">2. Adicionar ao Ecrã Principal:</strong>
+                  <span className="text-slate-600 dark:text-slate-300">
                     Role a lista para baixo e toque na opção <strong>"Adicionar ao Ecrã Principal"</strong>.
                   </span>
                 </div>
               </div>
 
               <div className="flex items-start space-x-3">
-                <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg shrink-0">
+                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 rounded-lg shrink-0">
                   <CheckCircle2 className="h-4 w-4" />
                 </div>
                 <div>
-                  <strong className="text-slate-900 block font-bold">3. No Android ou Chrome:</strong>
-                  <span className="text-slate-600">
+                  <strong className="text-slate-900 dark:text-white block font-bold">3. No Android ou Chrome:</strong>
+                  <span className="text-slate-600 dark:text-slate-300">
                     Toque nos três pontinhos no canto superior e clique em <strong>"Instalar aplicação"</strong> ou <strong>"Adicionar à tela inicial"</strong>.
                   </span>
                 </div>

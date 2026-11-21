@@ -103,6 +103,8 @@ export interface Escola {
   ensinoPrimario?: boolean;
   temIniciacao?: boolean; // Obrigatório no cadastro quando leciona Ensino Primário (Sim = possui Iniciação, Não = 1ª à 6ª classe)
   niveisEnsino?: string[]; // ex: ['Primario', 'ICiclo', 'IICiclo', 'Tecnico']
+  // Controlo de Visibilidade e Permissões de Empregados (Direção Geral)
+  visibilidadeEmpregados?: ConfiguracaoVisibilidadeEmpregados;
   // Sessão Provisória de Apoio Técnico Autorizada pelo Diretor
   sessaoApoioTecnicoAtiva?: {
     solicitacaoId: string;
@@ -111,6 +113,33 @@ export interface Escola {
     dataInicio: string;
     motivo: string;
   };
+  atualizadoEm?: string;
+}
+
+export interface RegraVisibilidadeDadosSensiveis {
+  verContactosAlunosEncarregados: boolean;
+  verDocumentosIdentificacaoAlunos: boolean;
+  verSituacaoFinanceiraPropinasAlunos: boolean;
+  verDadosSensiveisFuncionarios: boolean;
+  verEstatisticasGlobaisEscola: boolean;
+  verLogsAuditoriaSistema: boolean;
+}
+
+export interface RegraVisibilidadePorCargo {
+  ativo: boolean;
+  modulosBloqueados: string[];
+  modulosExtrasPermitidos?: string[];
+  dadosSensiveis: RegraVisibilidadeDadosSensiveis;
+}
+
+export interface ConfiguracaoVisibilidadeEmpregados {
+  ativo: boolean;
+  aplicarRestricaoPadraoTodosEmpregados: boolean;
+  padraoEmpregados: RegraVisibilidadeDadosSensiveis;
+  modulosBloqueadosPadrao: string[];
+  regrasPorCargo: Record<string, RegraVisibilidadePorCargo>;
+  atualizadoPorId?: string;
+  atualizadoPorNome?: string;
   atualizadoEm?: string;
 }
 
@@ -1344,12 +1373,16 @@ export interface ConfiguracaoPassesEscola {
   corPrimaria: string; // hex ex: "#1e3a8a"
   corSecundaria: string; // hex ex: "#f59e0b"
   corTexto: string; // hex ex: "#ffffff"
+  corTextoSecundario?: string; // hex ex: "#1e293b"
   corFundoFrente: string; // ex: "#ffffff"
+  corBorda?: string; // ex: "#1e3a8a"
   estiloTarja: 'gradiente' | 'solido' | 'elegante_dourado' | 'minimalista';
+  formatoLayout?: 'classico_horizontal' | 'moderno_faixa' | 'vertical_cracha' | 'bicolor_institucional' | 'minimalista_med';
+  tipoFundo?: 'solido' | 'gradiente_suave' | 'marca_dagua';
   mostrarVerso: boolean;
   regrasVerso: string[];
   elementos: ElementoPasseConfig[];
-  disposicaoGrade: '8_por_folha' | 'individual';
+  disposicaoGrade: '8_por_folha' | '4_por_folha' | 'individual';
   orientacao: 'horizontal' | 'vertical';
   chancelaDigitalAtiva: boolean;
   assinaturaDiretorUrl?: string; // Assinatura digitalizada do diretor
@@ -1459,10 +1492,53 @@ export interface RegistroAlteracaoNotaDirecao {
 // CONFIGURAÇÃO DE DIZERES E DISPOSIÇÃO DE DOCUMENTOS COM PRÉ-VISUALIZAÇÃO
 // ==========================================
 
+export interface ConfiguracaoCamposDocumento {
+  // Dados da Escola
+  mostrarProvinciaMunicipio: boolean;
+  mostrarGovernoGabinete: boolean;
+  mostrarNif: boolean;
+  mostrarDecreto: boolean;
+  mostrarContatosEmail: boolean;
+  mostrarDataLocalExtenso: boolean;
+  // Dados do Aluno
+  mostrarFoto: boolean;
+  mostrarNumeroProcessoMatricula: boolean;
+  mostrarNumeroOrdem: boolean;
+  mostrarBI: boolean;
+  mostrarDataEmissaoBI: boolean;
+  mostrarFiliacao: boolean;
+  mostrarDataNascimento: boolean;
+  mostrarNaturalidadeProvincia: boolean;
+  mostrarResidencia: boolean;
+  mostrarEncarregado: boolean;
+  mostrarContactoEncarregado: boolean;
+  mostrarTurmaSalaTurno: boolean;
+  mostrarCurso: boolean;
+  mostrarLivroFolhaRegisto: boolean;
+  // Dados Académicos & Avaliações
+  mostrarMacNppNptDetalhado: boolean;
+  mostrarFaltas: boolean;
+  mostrarComportamento: boolean;
+  mostrarMediaGeral: boolean;
+  mostrarSituacaoFinal: boolean;
+  mostrarEscalaExtenso: boolean;
+  mostrarHistoricoOcorrencias: boolean;
+  // Dados do Funcionário
+  mostrarFuncionarioFoto: boolean;
+  mostrarFuncionarioBI: boolean;
+  mostrarFuncionarioNif: boolean;
+  mostrarFuncionarioContatos: boolean;
+  mostrarFuncionarioNumeroAgente: boolean;
+  mostrarFuncionarioGrauEspecialidade: boolean;
+  mostrarFuncionarioCategoriaContrato: boolean;
+  mostrarFuncionarioDadosBancariosIbanInss: boolean;
+  mostrarFuncionarioCargaHoraria: boolean;
+}
+
 export interface ConfiguracaoDocumentoCustomizado {
   id: string;
   escolaId: string;
-  tipoDocumento: string; // 'boletim_oficial' | 'pauta_trimestral' | 'certificado' | 'declaracao_notas' | 'declaracao_matricula' | 'termo_exame' | 'cartao_estudante' | 'guia_transferencia' | 'recibo_pagamento'
+  tipoDocumento: string; // 'boletim_oficial' | 'pauta_trimestral' | 'certificado' | 'declaracao_notas' | 'declaracao_matricula' | 'termo_exame' | 'ficha_individual_aluno' | 'ficha_individual_funcionario' | 'ficha_presencas' | 'cartao_estudante' | 'guia_transferencia' | 'recibo_pagamento'
   tituloOficial: string;
   subtitulo: string;
   textoCabecalho: string;
@@ -1485,6 +1561,7 @@ export interface ConfiguracaoDocumentoCustomizado {
     tamanhoFonte: 'compacto' | 'padrao' | 'grande';
     corDestaque: string;
   };
+  camposDados?: ConfiguracaoCamposDocumento;
 }
 
 // ==========================================

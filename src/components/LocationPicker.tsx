@@ -180,8 +180,8 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
         {/* Província / Estado / Região */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="font-semibold text-gray-700 text-xs flex items-center space-x-1">
-              <Compass className="w-3.5 h-3.5 text-blue-600" />
+            <label className="font-semibold text-gray-700 dark:text-slate-300 text-xs flex items-center space-x-1">
+              <Compass className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <span>{ehEstrangeiro ? 'Província / Estado / Região *' : 'Província *'}</span>
             </label>
             {!ehEstrangeiro && (
@@ -198,7 +198,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                     setModoManualProvincia(true);
                   }
                 }}
-                className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center space-x-0.5 cursor-pointer"
+                className="text-[10px] text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-bold flex items-center space-x-0.5 cursor-pointer"
                 title={modoManualProvincia ? 'Voltar à lista de províncias' : 'Adicionar nova província que não está na lista'}
               >
                 {modoManualProvincia ? <List className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
@@ -214,7 +214,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                 onChange={(e) => onProvinciaChange(e.target.value)}
                 onBlur={handleGuardarNovaProvincia}
                 placeholder={ehEstrangeiro ? 'Ex: Kinshasa, Lisboa, Gauteng...' : 'Digite o nome da nova província...'}
-                className="w-full p-2 border border-blue-400 rounded-lg text-xs font-bold text-gray-900 bg-blue-50/30 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                className="w-full p-2 border border-blue-400 dark:border-blue-600 rounded-lg text-xs font-bold text-gray-900 dark:text-slate-100 bg-blue-50/30 dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
               />
               {!ehEstrangeiro && provinciaSelecionada.trim() && (
                 <button
@@ -231,7 +231,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
             <select
               value={provincias.includes(provinciaSelecionada) ? provinciaSelecionada : CUSTOM_SENTINEL}
               onChange={(e) => handleMudarProvinciaSelect(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+              className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg text-xs font-bold text-gray-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
             >
               {provincias.map(p => (
                 <option key={`prov-${p}`} value={p}>{p}</option>
@@ -240,7 +240,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
             </select>
           )}
           {feedbackCampo === 'prov' && (
-            <span className="text-[10px] text-emerald-700 font-semibold mt-0.5 block">Província adicionada à lista!</span>
+            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5 block">Província adicionada à lista!</span>
           )}
         </div>
 
@@ -248,8 +248,8 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
         {showMunicipio && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="font-semibold text-gray-700 text-xs flex items-center space-x-1">
-                <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+              <label className="font-semibold text-gray-700 dark:text-slate-300 text-xs flex items-center space-x-1">
+                <MapPin className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>{ehEstrangeiro ? 'Cidade / Município *' : 'Município / Localidade *'}</span>
               </label>
               {!ehEstrangeiro && municipios.length > 0 && (
@@ -265,7 +265,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                       setModoManualMunicipio(true);
                     }
                   }}
-                  className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold flex items-center space-x-0.5 cursor-pointer"
+                  className="text-[10px] text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 font-bold flex items-center space-x-0.5 cursor-pointer"
                   title={modoManualMunicipio ? 'Voltar à lista de municípios' : 'Adicionar novo município que não está na lista'}
                 >
                   {modoManualMunicipio ? <List className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
@@ -281,7 +281,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                   onChange={(e) => onMunicipioChange(e.target.value)}
                   onBlur={handleGuardarNovoMunicipio}
                   placeholder={ehEstrangeiro ? 'Digite a cidade ou distrito...' : 'Digite o nome do novo município...'}
-                  className="w-full p-2 border border-emerald-400 rounded-lg text-xs font-bold text-gray-900 bg-emerald-50/30 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  className="w-full p-2 border border-emerald-400 dark:border-emerald-600 rounded-lg text-xs font-bold text-gray-900 dark:text-slate-100 bg-emerald-50/30 dark:bg-slate-800 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                 />
                 {!ehEstrangeiro && municipioSelecionado.trim() && (
                   <button
@@ -298,7 +298,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
               <select
                 value={municipios.includes(municipioSelecionado) ? municipioSelecionado : CUSTOM_SENTINEL}
                 onChange={(e) => handleMudarMunicipioSelect(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg text-xs font-bold text-gray-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
               >
                 {municipios.map(m => (
                   <option key={`munc-${m}`} value={m}>{m}</option>
@@ -307,7 +307,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
               </select>
             )}
             {feedbackCampo === 'munc' && (
-              <span className="text-[10px] text-emerald-700 font-semibold mt-0.5 block">Município adicionado à lista!</span>
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5 block">Município adicionado à lista!</span>
             )}
           </div>
         )}
@@ -316,8 +316,8 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
         {onPaisChange && (
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="font-semibold text-gray-700 text-xs flex items-center space-x-1">
-                <Globe className="w-3.5 h-3.5 text-purple-600" />
+              <label className="font-semibold text-gray-700 dark:text-slate-300 text-xs flex items-center space-x-1">
+                <Globe className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
                 <span>País de Origem</span>
               </label>
               <button
@@ -332,7 +332,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                     setModoManualPais(true);
                   }
                 }}
-                className="text-[10px] text-purple-700 hover:text-purple-900 font-bold flex items-center space-x-0.5 cursor-pointer"
+                className="text-[10px] text-purple-700 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300 font-bold flex items-center space-x-0.5 cursor-pointer"
                 title={modoManualPais ? 'Voltar à lista de países' : 'Digitar outro país'}
               >
                 {modoManualPais ? <List className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
@@ -347,7 +347,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
                   onChange={(e) => onPaisChange(e.target.value)}
                   onBlur={handleGuardarNovoPais}
                   placeholder="Digite o nome do país..."
-                  className="w-full p-2 border border-purple-400 rounded-lg text-xs font-bold text-gray-900 bg-purple-50/30 focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                  className="w-full p-2 border border-purple-400 dark:border-purple-600 rounded-lg text-xs font-bold text-gray-900 dark:text-slate-100 bg-purple-50/30 dark:bg-slate-800 focus:ring-2 focus:ring-purple-600 focus:outline-none"
                 />
                 {(paisSelecionado || '').trim() && (
                   <button
@@ -364,7 +364,7 @@ export const LocationPicker: React.FC<LocationPickerProps> = ({
               <select
                 value={paises.includes(paisSelecionado) ? paisSelecionado : CUSTOM_SENTINEL}
                 onChange={(e) => handleMudarPaisSelect(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg text-xs font-bold text-gray-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
               >
                 {paises.map(p => (
                   <option key={`pais-${p}`} value={p}>{p}</option>
@@ -425,7 +425,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-1">
-        <label className="font-semibold text-gray-700 text-xs">{label}</label>
+        <label className="font-semibold text-gray-700 dark:text-slate-300 text-xs">{label}</label>
         <button
           type="button"
           onClick={() => {
@@ -439,7 +439,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
               setModoManual(true);
             }
           }}
-          className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center space-x-0.5 cursor-pointer"
+          className="text-[10px] text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-bold flex items-center space-x-0.5 cursor-pointer"
         >
           {modoManual ? <List className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
           <span>{modoManual ? 'Ver lista' : 'Outro / Digitar'}</span>
@@ -458,7 +458,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
             }
           }}
           placeholder={placeholder}
-          className="w-full p-2 border border-blue-400 rounded-md text-xs font-semibold text-gray-900 bg-blue-50/30 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+          className="w-full p-2 border border-blue-400 dark:border-blue-600 rounded-md text-xs font-semibold text-gray-900 dark:text-slate-100 bg-blue-50/30 dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
         />
       ) : (
         <select
@@ -471,7 +471,7 @@ export const NaturalidadeInput: React.FC<NaturalidadeInputProps> = ({
               onChange(e.target.value);
             }
           }}
-          className="w-full p-2 border border-gray-300 rounded-md text-xs font-semibold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+          className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-md text-xs font-semibold text-gray-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
         >
           <option value={CUSTOM_SENTINEL}>Outro (Digitar localidade / cidade estrangeira...)</option>
           <optgroup label="Províncias de Angola">
@@ -531,7 +531,7 @@ export const NacionalidadeInput: React.FC<NacionalidadeInputProps> = ({
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-1">
-        <label className="font-semibold text-gray-700 text-xs">{label}</label>
+        <label className="font-semibold text-gray-700 dark:text-slate-300 text-xs">{label}</label>
         <button
           type="button"
           onClick={() => {
@@ -544,7 +544,7 @@ export const NacionalidadeInput: React.FC<NacionalidadeInputProps> = ({
               setModoManual(true);
             }
           }}
-          className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center space-x-0.5 cursor-pointer"
+          className="text-[10px] text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 font-bold flex items-center space-x-0.5 cursor-pointer"
         >
           {modoManual ? <List className="w-3 h-3" /> : <Edit3 className="w-3 h-3" />}
           <span>{modoManual ? 'Da lista' : 'Outra / Digitar'}</span>
@@ -563,7 +563,7 @@ export const NacionalidadeInput: React.FC<NacionalidadeInputProps> = ({
             }
           }}
           placeholder={placeholder}
-          className="w-full p-2 border border-blue-400 rounded-md text-xs font-semibold text-gray-900 bg-blue-50/30 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+          className="w-full p-2 border border-blue-400 dark:border-blue-600 rounded-md text-xs font-semibold text-gray-900 dark:text-slate-100 bg-blue-50/30 dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
         />
       ) : (
         <select
@@ -576,7 +576,7 @@ export const NacionalidadeInput: React.FC<NacionalidadeInputProps> = ({
               onChange(e.target.value);
             }
           }}
-          className="w-full p-2 border border-gray-300 rounded-md text-xs font-semibold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+          className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-md text-xs font-semibold text-gray-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
         >
           {lista.map(n => (
             <option key={`nac-${n}`} value={n}>{n}</option>

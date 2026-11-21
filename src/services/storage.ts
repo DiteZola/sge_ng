@@ -62,7 +62,11 @@ import {
   TipoDelegacao,
   AcaoDelegadaLog,
   RegistoAcessoBiblioteca,
-  RelatorioAcontecimento
+  RelatorioAcontecimento,
+  ConfiguracaoCamposDocumento,
+  RegraVisibilidadeDadosSensiveis,
+  RegraVisibilidadePorCargo,
+  ConfiguracaoVisibilidadeEmpregados
 } from '../types';
 import { isClasseFinal } from './macEngine';
 import {
@@ -664,12 +668,76 @@ export const DEFAULT_PATRIMONIO: ItemPatrimonio[] = [];
 
 export const DEFAULT_HISTORICO_COMPLETO: Record<string, HistoricoEscolarCompleto> = {};
 
+export const DEFAULT_CAMPOS_DADOS_DOCUMENTO: ConfiguracaoCamposDocumento = {
+  // Dados da Escola
+  mostrarProvinciaMunicipio: true,
+  mostrarGovernoGabinete: true,
+  mostrarNif: true,
+  mostrarDecreto: true,
+  mostrarContatosEmail: true,
+  mostrarDataLocalExtenso: true,
+  // Dados do Aluno
+  mostrarFoto: true,
+  mostrarNumeroProcessoMatricula: true,
+  mostrarNumeroOrdem: true,
+  mostrarBI: true,
+  mostrarDataEmissaoBI: true,
+  mostrarFiliacao: true,
+  mostrarDataNascimento: true,
+  mostrarNaturalidadeProvincia: true,
+  mostrarResidencia: true,
+  mostrarEncarregado: true,
+  mostrarContactoEncarregado: true,
+  mostrarTurmaSalaTurno: true,
+  mostrarCurso: true,
+  mostrarLivroFolhaRegisto: true,
+  // Dados Académicos & Avaliações
+  mostrarMacNppNptDetalhado: true,
+  mostrarFaltas: true,
+  mostrarComportamento: true,
+  mostrarMediaGeral: true,
+  mostrarSituacaoFinal: true,
+  mostrarEscalaExtenso: true,
+  mostrarHistoricoOcorrencias: true,
+  // Dados do Funcionário
+  mostrarFuncionarioFoto: true,
+  mostrarFuncionarioBI: true,
+  mostrarFuncionarioNif: true,
+  mostrarFuncionarioContatos: true,
+  mostrarFuncionarioNumeroAgente: true,
+  mostrarFuncionarioGrauEspecialidade: true,
+  mostrarFuncionarioCategoriaContrato: true,
+  mostrarFuncionarioDadosBancariosIbanInss: true,
+  mostrarFuncionarioCargaHoraria: true
+};
+
+export const DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS: RegraVisibilidadeDadosSensiveis = {
+  verContactosAlunosEncarregados: true,
+  verDocumentosIdentificacaoAlunos: true,
+  verSituacaoFinanceiraPropinasAlunos: true,
+  verDadosSensiveisFuncionarios: true,
+  verEstatisticasGlobaisEscola: true,
+  verLogsAuditoriaSistema: true
+};
+
+export const DEFAULT_CONFIGURACAO_VISIBILIDADE_EMPREGADOS: ConfiguracaoVisibilidadeEmpregados = {
+  ativo: false,
+  aplicarRestricaoPadraoTodosEmpregados: true,
+  padraoEmpregados: { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS },
+  modulosBloqueadosPadrao: [],
+  regrasPorCargo: {}
+};
+
 export const DEFAULT_CONFIGURACAO_PASSES: ConfiguracaoPassesEscola = {
   corPrimaria: '#1e3a8a', // Azul Real MED
   corSecundaria: '#d97706', // Ouro / Dourado
   corTexto: '#ffffff',
+  corTextoSecundario: '#1e293b',
   corFundoFrente: '#ffffff',
+  corBorda: '#1e3a8a',
   estiloTarja: 'elegante_dourado',
+  formatoLayout: 'classico_horizontal',
+  tipoFundo: 'solido',
   mostrarVerso: true,
   regrasVerso: [
     'Este cartão é pessoal e intransmissível e de porte obrigatório no recinto escolar.',
@@ -680,6 +748,7 @@ export const DEFAULT_CONFIGURACAO_PASSES: ConfiguracaoPassesEscola = {
   disposicaoGrade: '8_por_folha',
   orientacao: 'horizontal',
   chancelaDigitalAtiva: true,
+  tamanhoFoto: 'padrao',
   elementos: [
     { id: 'el-insignia', chave: 'insignia', rotulo: 'Insígnia Oficial da República de Angola', ativo: true, ordem: 1, posicao: 'topo' },
     { id: 'el-logotipo', chave: 'logotipo', rotulo: 'Logótipo Oficial da Escola', ativo: true, ordem: 2, posicao: 'topo' },
@@ -6361,14 +6430,34 @@ export const dbService = {
   },
 
   // ==========================================
-  // CONFIGURAÇÃO DOS PASSES ESCOLARES (8 POR A4)
+  // CONFIGURAÇÃO DOS PASSES ESCOLARES (8 POR A4 / 4 POR A4 / INDIVIDUAL)
   // ==========================================
   obterConfiguracaoPasses: (escolaId: string): ConfiguracaoPassesEscola => {
     const configs = getLocal<Record<string, ConfiguracaoPassesEscola>>(STORAGE_KEYS.CONFIGURACOES_PASSES, {});
-    if (configs[escolaId]) {
-      return configs[escolaId];
+    const escola = dbService.getEscolaPorId(escolaId) || (dbService.getEscolaAtiva()?.id === escolaId ? dbService.getEscolaAtiva() : undefined);
+    const configEscola = escola?.configuracaoPasses;
+    const configSalva = configs[escolaId];
+
+    const baseElementosMap = new Map<string, ElementoPasseConfig>(
+      DEFAULT_CONFIGURACAO_PASSES.elementos.map(el => [el.chave, { ...el }])
+    );
+    const mergedSource = configSalva || configEscola;
+    if (mergedSource?.elementos && Array.isArray(mergedSource.elementos)) {
+      mergedSource.elementos.forEach(el => {
+        const prev = baseElementosMap.get(el.chave);
+        baseElementosMap.set(el.chave, prev ? { ...prev, ...el } : { ...el });
+      });
     }
-    return DEFAULT_CONFIGURACAO_PASSES;
+
+    return {
+      ...DEFAULT_CONFIGURACAO_PASSES,
+      ...(escola?.corPrimaria ? { corPrimaria: escola.corPrimaria, corBorda: escola.corPrimaria } : {}),
+      ...(escola?.corSecundaria ? { corSecundaria: escola.corSecundaria } : {}),
+      ...(escola?.corFundoPasses ? { corFundoFrente: escola.corFundoPasses } : {}),
+      ...(configEscola || {}),
+      ...(configSalva || {}),
+      elementos: Array.from(baseElementosMap.values()).sort((a, b) => a.ordem - b.ordem)
+    };
   },
 
   salvarConfiguracaoPasses: (escolaId: string, config: ConfiguracaoPassesEscola): void => {
@@ -6378,14 +6467,15 @@ export const dbService = {
     setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, configs);
     firebaseSyncEngine.salvarConfiguracaoPasses(escolaId, configComTs);
 
-    // Também sincroniza as cores da instituição
-    const escola = dbService.getEscolaAtiva();
-    if (escola && escola.id === escolaId) {
-      escola.corPrimaria = configComTs.corPrimaria;
-      escola.corSecundaria = configComTs.corSecundaria;
-      escola.corFundoPasses = configComTs.corFundoFrente;
-      escola.configuracaoPasses = configComTs;
-      dbService.salvarEscola(escola);
+    // Também sincroniza as cores e o formato na ficha da instituição correspondente
+    const escolaAlvo = dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva();
+    if (escolaAlvo && escolaAlvo.id === escolaId) {
+      escolaAlvo.corPrimaria = configComTs.corPrimaria;
+      escolaAlvo.corSecundaria = configComTs.corSecundaria;
+      escolaAlvo.corFundoPasses = configComTs.corFundoFrente;
+      escolaAlvo.layoutPassesPadrao = configComTs.disposicaoGrade === 'individual' ? 'individual' : '8_por_folha';
+      escolaAlvo.configuracaoPasses = configComTs;
+      dbService.salvarEscola(escolaAlvo);
     }
   },
 
@@ -7029,15 +7119,103 @@ export const dbService = {
           tamanhoFonte: 'compacto',
           corDestaque: '#16a34a'
         }
+      },
+      ficha_individual_aluno: {
+        id: `conf-ficha-aluno-${escId}`,
+        escolaId: escId,
+        tipoDocumento: 'ficha_individual_aluno',
+        tituloOficial: 'FICHA INDIVIDUAL DO ESTUDANTE',
+        subtitulo: 'Cadastro Biográfico, Filiação, Matrícula e Ocorrências Disciplinares',
+        textoCabecalho: 'REPÚBLICA DE ANGOLA\nMINISTÉRIO DA EDUCAÇÃO\nGABINETE PROVINCIAL DA EDUCAÇÃO',
+        textoCorpoAbertura: 'Registo cadastral e biográfico oficial do estudante matriculado nesta instituição de ensino.',
+        textoFechamento: 'Os dados constantes nesta ficha correspondem aos documentos apresentados no acto de matrícula.',
+        textoRodape: 'Documento de uso interno e acompanhamento pedagógico-administrativo.',
+        artigoLegalDecreto: 'Regulamento Geral das Escolas do Ensino Primário e Secundário',
+        disposicao: {
+          orientacao: 'retrato',
+          alinhamentoLogo: 'duplo',
+          exibirInsigniaRepublica: true,
+          exibirLogoEscola: true,
+          exibirCarimboBranco: true,
+          exibirCodigoQR: true,
+          exibirAssinaturaDiretor: true,
+          exibirAssinaturaSubdiretor: false,
+          exibirAssinaturaSecretaria: true,
+          exibirAssinaturaProfessor: false,
+          tamanhoFonte: 'padrao',
+          corDestaque: '#1e3a8a'
+        }
+      },
+      ficha_individual_funcionario: {
+        id: `conf-ficha-func-${escId}`,
+        escolaId: escId,
+        tipoDocumento: 'ficha_individual_funcionario',
+        tituloOficial: 'FICHA INDIVIDUAL DO FUNCIONÁRIO / DOCENTE',
+        subtitulo: 'Registo Funcional, Habilitações Académicas, Carga Horária e Assiduidade',
+        textoCabecalho: 'REPÚBLICA DE ANGOLA\nMINISTÉRIO DA EDUCAÇÃO\nGABINETE PROVINCIAL DA EDUCAÇÃO',
+        textoCorpoAbertura: 'Registo oficial do colaborador ou docente vinculado à instituição de ensino.',
+        textoFechamento: 'Confirmado pelos Recursos Humanos e homologado pela Direcção da Escola.',
+        textoRodape: 'Ficha cadastral sujeita a sigilo administrativo e actualização periódica.',
+        artigoLegalDecreto: 'Estatuto da Carreira dos Agentes de Educação de Angola',
+        disposicao: {
+          orientacao: 'retrato',
+          alinhamentoLogo: 'duplo',
+          exibirInsigniaRepublica: true,
+          exibirLogoEscola: true,
+          exibirCarimboBranco: true,
+          exibirCodigoQR: true,
+          exibirAssinaturaDiretor: true,
+          exibirAssinaturaSubdiretor: true,
+          exibirAssinaturaSecretaria: true,
+          exibirAssinaturaProfessor: false,
+          tamanhoFonte: 'padrao',
+          corDestaque: '#0f172a'
+        }
+      },
+      ficha_presencas: {
+        id: `conf-ficha-presencas-${escId}`,
+        escolaId: escId,
+        tipoDocumento: 'ficha_presencas',
+        tituloOficial: 'FOLHA OFICIAL DE CONTROLO DE ASSIDUIDADE E PRESENÇAS',
+        subtitulo: 'Mapa Nominal de Frequência Diária e Registo de Faltas',
+        textoCabecalho: 'REPÚBLICA DE ANGOLA\nMINISTÉRIO DA EDUCAÇÃO\nGABINETE PROVINCIAL DA EDUCAÇÃO',
+        textoCorpoAbertura: 'Lista oficial de controlo de assiduidade diária dos estudantes pertencentes à turma indicada.',
+        textoFechamento: 'O Director de Turma e o Secretário Pedagógico conferem os registos de presenças e ausências.',
+        textoRodape: 'Documento de registo diário obrigatório em sala de aula.',
+        artigoLegalDecreto: 'Normativo de Frequência Escolar — Ministério da Educação',
+        disposicao: {
+          orientacao: 'paisagem',
+          alinhamentoLogo: 'duplo',
+          exibirInsigniaRepublica: true,
+          exibirLogoEscola: true,
+          exibirCarimboBranco: false,
+          exibirCodigoQR: true,
+          exibirAssinaturaDiretor: true,
+          exibirAssinaturaSubdiretor: true,
+          exibirAssinaturaSecretaria: false,
+          exibirAssinaturaProfessor: true,
+          tamanhoFonte: 'compacto',
+          corDestaque: '#1e3a8a'
+        }
       }
     };
 
-    // Mesclar o guardado com o padrão garantindo todos os subcampos de disposicao
-    const resultado: Record<string, ConfiguracaoDocumentoCustomizado> = { ...padrao };
+    // Mesclar o guardado com o padrão garantindo todos os subcampos de disposicao e camposDados
+    const resultado: Record<string, ConfiguracaoDocumentoCustomizado> = {};
+    Object.keys(padrao).forEach(k => {
+      resultado[k] = {
+        ...padrao[k],
+        camposDados: {
+          ...DEFAULT_CAMPOS_DADOS_DOCUMENTO,
+          ...(padrao[k].camposDados || {})
+        }
+      };
+    });
+
     Object.keys(todos).forEach(k => {
       if (todos[k].escolaId === escId) {
         const tipo = todos[k].tipoDocumento;
-        const base = padrao[tipo];
+        const base = resultado[tipo];
         resultado[tipo] = base
           ? {
               ...base,
@@ -7045,9 +7223,20 @@ export const dbService = {
               disposicao: {
                 ...base.disposicao,
                 ...(todos[k].disposicao || {})
+              },
+              camposDados: {
+                ...DEFAULT_CAMPOS_DADOS_DOCUMENTO,
+                ...(base.camposDados || {}),
+                ...(todos[k].camposDados || {})
               }
             }
-          : todos[k];
+          : {
+              ...todos[k],
+              camposDados: {
+                ...DEFAULT_CAMPOS_DADOS_DOCUMENTO,
+                ...(todos[k].camposDados || {})
+              }
+            };
       }
     });
 
@@ -7374,6 +7563,156 @@ export const dbService = {
       `Removido o relatório "${alvo.titulo}" (${alvo.categoria} - ${alvo.data}).`
     );
     return true;
+  },
+
+  // ============================================================================
+  // VISIBILIDADE DE MÓDULOS E DADOS SENSÍVEIS DOS EMPREGADOS (DIREÇÃO GERAL)
+  // ============================================================================
+  getVisibilidadeEmpregados: (escolaId?: string): ConfiguracaoVisibilidadeEmpregados => {
+    const escola = escolaId ? (dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva()) : dbService.getEscolaAtiva();
+    const salva = escola?.visibilidadeEmpregados;
+    if (!salva) {
+      return {
+        ...DEFAULT_CONFIGURACAO_VISIBILIDADE_EMPREGADOS,
+        padraoEmpregados: { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS },
+        modulosBloqueadosPadrao: [],
+        regrasPorCargo: {}
+      };
+    }
+
+    const regrasMescladas: Record<string, RegraVisibilidadePorCargo> = {};
+    if (salva.regrasPorCargo && typeof salva.regrasPorCargo === 'object') {
+      Object.entries(salva.regrasPorCargo).forEach(([cargo, regra]) => {
+        if (!regra) return;
+        regrasMescladas[cargo] = {
+          ativo: !!regra.ativo,
+          modulosBloqueados: Array.isArray(regra.modulosBloqueados) ? [...regra.modulosBloqueados] : [],
+          modulosExtrasPermitidos: Array.isArray(regra.modulosExtrasPermitidos) ? [...regra.modulosExtrasPermitidos] : [],
+          dadosSensiveis: {
+            ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS,
+            ...(regra.dadosSensiveis || {})
+          }
+        };
+      });
+    }
+
+    return {
+      ...DEFAULT_CONFIGURACAO_VISIBILIDADE_EMPREGADOS,
+      ...salva,
+      padraoEmpregados: {
+        ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS,
+        ...(salva.padraoEmpregados || {})
+      },
+      modulosBloqueadosPadrao: Array.isArray(salva.modulosBloqueadosPadrao) ? [...salva.modulosBloqueadosPadrao] : [],
+      regrasPorCargo: regrasMescladas
+    };
+  },
+
+  salvarVisibilidadeEmpregados: (
+    escolaId: string,
+    config: ConfiguracaoVisibilidadeEmpregados,
+    operadorNome?: string
+  ): ConfiguracaoVisibilidadeEmpregados => {
+    const agora = new Date().toISOString();
+    const user = dbService.getCurrentUser();
+    const configFinal: ConfiguracaoVisibilidadeEmpregados = {
+      ...DEFAULT_CONFIGURACAO_VISIBILIDADE_EMPREGADOS,
+      ...config,
+      padraoEmpregados: {
+        ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS,
+        ...(config.padraoEmpregados || {})
+      },
+      modulosBloqueadosPadrao: Array.isArray(config.modulosBloqueadosPadrao) ? [...config.modulosBloqueadosPadrao] : [],
+      regrasPorCargo: config.regrasPorCargo || {},
+      atualizadoPorId: config.atualizadoPorId || user?.id,
+      atualizadoPorNome: operadorNome || config.atualizadoPorNome || user?.nomeCompleto || 'Direcção Geral',
+      atualizadoEm: agora
+    };
+
+    const escola = dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva();
+    if (escola && escola.id === escolaId) {
+      const escolaAtualizada: Escola = {
+        ...escola,
+        visibilidadeEmpregados: configFinal,
+        atualizadoEm: agora
+      };
+      dbService.salvarEscola(escolaAtualizada);
+    }
+
+    dbService.registarLog(
+      'Ajuste de Visibilidade de Empregados',
+      `A Direcção (${configFinal.atualizadoPorNome}) actualizou as regras de visibilidade e acesso de empregados (Controlo activo: ${configFinal.ativo ? 'Sim' : 'Não'}).`
+    );
+
+    return configFinal;
+  },
+
+  getVisibilidadeEfetivaUsuario: (
+    user?: Funcionario | null,
+    escola?: Escola | null
+  ): {
+    irrestrito: boolean;
+    modulosBloqueados: Set<string>;
+    modulosExtrasPermitidos: Set<string>;
+    dadosSensiveis: RegraVisibilidadeDadosSensiveis;
+  } => {
+    const usuario = user || dbService.getCurrentUser();
+    if (!usuario || usuario.role === 'AdminGeral' || usuario.role === 'DiretorGeral') {
+      return {
+        irrestrito: true,
+        modulosBloqueados: new Set<string>(),
+        modulosExtrasPermitidos: new Set<string>(),
+        dadosSensiveis: { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS }
+      };
+    }
+
+    const escAlvo = escola || (usuario.escolaId ? dbService.getEscolaPorId(usuario.escolaId) : undefined) || dbService.getEscolaAtiva();
+    const cfg = dbService.getVisibilidadeEmpregados(escAlvo?.id);
+
+    if (!cfg.ativo) {
+      return {
+        irrestrito: false,
+        modulosBloqueados: new Set<string>(),
+        modulosExtrasPermitidos: new Set<string>(),
+        dadosSensiveis: { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS }
+      };
+    }
+
+    const regraCargo = cfg.regrasPorCargo?.[usuario.role];
+    const regraCargoAtiva = regraCargo && regraCargo.ativo;
+
+    const bloqueados = new Set<string>(
+      cfg.aplicarRestricaoPadraoTodosEmpregados ? (cfg.modulosBloqueadosPadrao || []) : []
+    );
+    const extras = new Set<string>();
+
+    let dados: RegraVisibilidadeDadosSensiveis = cfg.aplicarRestricaoPadraoTodosEmpregados
+      ? { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS, ...(cfg.padraoEmpregados || {}) }
+      : { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS };
+
+    if (regraCargoAtiva) {
+      // A regra específica do cargo prevalece sobre a restrição padrão
+      dados = {
+        ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS,
+        ...(regraCargo.dadosSensiveis || {})
+      };
+      // Extras definidos para o cargo liberam o que estava bloqueado no padrão
+      (regraCargo.modulosExtrasPermitidos || []).forEach(m => {
+        extras.add(m);
+        bloqueados.delete(m);
+      });
+      (regraCargo.modulosBloqueados || []).forEach(m => {
+        bloqueados.add(m);
+        extras.delete(m);
+      });
+    }
+
+    return {
+      irrestrito: false,
+      modulosBloqueados: bloqueados,
+      modulosExtrasPermitidos: extras,
+      dadosSensiveis: dados
+    };
   }
 };
 

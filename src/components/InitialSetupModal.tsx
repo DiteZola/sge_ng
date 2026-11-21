@@ -87,7 +87,7 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto no-print animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-gray-200">
+      <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 dark:border-slate-700">
         {/* Cabeçalho do Assistente */}
         <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white p-6 relative">
           <button
@@ -115,15 +115,15 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
 
         {/* Notificações de Erro / Sucesso */}
         {erro && (
-          <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center space-x-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+          <div className="mx-6 mt-4 p-3 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-xl text-xs flex items-center space-x-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
             <span>{erro}</span>
           </div>
         )}
 
         {sucesso && (
-          <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center space-x-2">
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+          <div className="mx-6 mt-4 p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs flex items-center space-x-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>Administrador Geral ativado com sucesso! Sistema pronto para operação institucional.</span>
           </div>
         )}
@@ -131,20 +131,20 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
         {/* Formulário Direto sem Dependência de Escola */}
         <div className="p-6">
           <form onSubmit={handleConcluir} className="space-y-4">
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 text-xs text-indigo-950 space-y-1">
-              <div className="flex items-center space-x-1.5 font-bold text-indigo-900">
-                <Sparkles className="h-4 w-4 text-indigo-600 shrink-0" />
+            <div className="bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/80 rounded-xl p-3.5 text-xs text-indigo-950 dark:text-indigo-200 space-y-1">
+              <div className="flex items-center space-x-1.5 font-bold text-indigo-900 dark:text-indigo-200">
+                <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 <span>Independência Institucional do Administrador Geral</span>
               </div>
-              <p className="leading-relaxed text-indigo-900/90 text-[11px]">
+              <p className="leading-relaxed text-indigo-900/90 dark:text-indigo-300 text-[11px]">
                 O cadastro do Administrador Geral <strong>não depende de nenhuma escola</strong>. Ele opera com soberania nacional no Ministério da Educação (MED) para gerir toda a rede de instituições, nomear diretores e auditar os registos com cifragem militar AES-256.
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
               <div className="space-y-1 sm:col-span-2">
-                <label className="font-bold text-gray-800 flex items-center space-x-1">
-                  <User className="h-3.5 w-3.5 text-indigo-600" />
+                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1">
+                  <User className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Nome Completo do Administrador Geral *</span>
                 </label>
                 <input
@@ -153,13 +153,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                   value={adminNome}
                   onChange={(e) => setAdminNome(e.target.value)}
                   placeholder="Ex: Dr. Alberto Kwanza"
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-gray-900 shadow-2xs"
+                  className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-slate-900 dark:text-slate-100 shadow-2xs"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-gray-800 flex items-center space-x-1">
-                  <Mail className="h-3.5 w-3.5 text-indigo-600" />
+                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1">
+                  <Mail className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>E-mail Institucional *</span>
                 </label>
                 <input
@@ -168,13 +168,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   placeholder="admin.geral@med.gov.ao"
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-gray-900 shadow-2xs"
+                  className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-slate-900 dark:text-slate-100 shadow-2xs"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-gray-800 flex items-center space-x-1">
-                  <Phone className="h-3.5 w-3.5 text-indigo-600" />
+                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1">
+                  <Phone className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Telefone Institucional *</span>
                 </label>
                 <input
@@ -183,13 +183,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                   value={adminTelefone}
                   onChange={(e) => setAdminTelefone(e.target.value)}
                   placeholder="+244 923 000 111"
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-gray-900 shadow-2xs"
+                  className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-slate-900 dark:text-slate-100 shadow-2xs"
                 />
               </div>
 
               <div className="space-y-1 sm:col-span-2">
-                <label className="font-bold text-gray-800 flex items-center space-x-1">
-                  <FileText className="h-3.5 w-3.5 text-indigo-600" />
+                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1">
+                  <FileText className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Nº do Bilhete de Identidade (BI) *</span>
                 </label>
                 <input
@@ -198,13 +198,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                   value={adminBI}
                   onChange={(e) => setAdminBI(e.target.value)}
                   placeholder="001928374LA049"
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl uppercase font-mono focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-gray-900 shadow-2xs"
+                  className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl uppercase font-mono focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-slate-900 dark:text-slate-100 shadow-2xs"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-gray-800 flex items-center space-x-1">
-                  <Lock className="h-3.5 w-3.5 text-indigo-600" />
+                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1">
+                  <Lock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Palavra-passe Mestre *</span>
                 </label>
                 <input
@@ -212,13 +212,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                   required
                   value={adminSenha}
                   onChange={(e) => setAdminSenha(e.target.value)}
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-gray-900 shadow-2xs"
+                  className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-slate-900 dark:text-slate-100 shadow-2xs"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-gray-800 flex items-center space-x-1">
-                  <Lock className="h-3.5 w-3.5 text-indigo-600" />
+                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1">
+                  <Lock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Confirmar Palavra-passe *</span>
                 </label>
                 <input
@@ -226,28 +226,28 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                   required
                   value={adminConfirmarSenha}
                   onChange={(e) => setAdminConfirmarSenha(e.target.value)}
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-gray-900 shadow-2xs"
+                  className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-600 focus:outline-none text-sm text-slate-900 dark:text-slate-100 shadow-2xs"
                 />
               </div>
             </div>
 
-            <div className="pt-2 flex items-center justify-between border-t border-gray-100">
-              <div className="flex items-center space-x-1.5 text-[11px] text-gray-500">
-                <Cpu className="h-3.5 w-3.5 text-indigo-600" />
+            <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                <Cpu className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                 <span>Chave AES-256 PBKDF2</span>
               </div>
               <div className="flex items-center space-x-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-xs font-bold text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors cursor-pointer"
+                  className="px-4 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl transition-colors cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={salvando}
-                  className="px-5 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:bg-indigo-300 text-white font-bold text-xs rounded-xl transition-colors shadow-xs flex items-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
+                  className="px-5 py-2 bg-indigo-700 hover:bg-indigo-800 disabled:bg-indigo-300 dark:disabled:bg-indigo-900 text-white font-bold text-xs rounded-xl transition-colors shadow-xs flex items-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   <span>{salvando ? 'Ativando...' : 'Ativar Sistema & Cadastrar Admin'}</span>

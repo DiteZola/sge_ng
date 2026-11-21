@@ -226,15 +226,15 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto no-print">
-      <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-6">
-        <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+      <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 my-6">
+        <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-start space-x-2.5">
-            <div className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
+            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
               <QrCode className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-slate-900">{modalTitle}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">{modalSubtitle}</p>
+              <h3 className="text-base font-black text-slate-900 dark:text-white">{modalTitle}</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{modalSubtitle}</p>
             </div>
           </div>
           <button
@@ -243,25 +243,25 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
               pararCamera();
               onClose();
             }}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {children && (
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl p-3">
             {children}
           </div>
         )}
 
         {/* Seleção de Modo de Leitura */}
-        <div className="grid grid-cols-3 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+        <div className="grid grid-cols-3 gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
           <button
             type="button"
             onClick={() => setModo('camera')}
             className={`py-2 px-2 rounded-lg flex items-center justify-center space-x-1.5 cursor-pointer transition-all ${
-              modo === 'camera' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              modo === 'camera' ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Camera className="w-3.5 h-3.5" />
@@ -271,7 +271,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
             type="button"
             onClick={() => setModo('imagem')}
             className={`py-2 px-2 rounded-lg flex items-center justify-center space-x-1.5 cursor-pointer transition-all ${
-              modo === 'imagem' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              modo === 'imagem' ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
@@ -281,7 +281,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
             type="button"
             onClick={() => setModo('manual')}
             className={`py-2 px-2 rounded-lg flex items-center justify-center space-x-1.5 cursor-pointer transition-all ${
-              modo === 'manual' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              modo === 'manual' ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             <Keyboard className="w-3.5 h-3.5" />
@@ -329,12 +329,12 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
         {/* MODO 2: CARREGAMENTO DE IMAGEM */}
         {modo === 'imagem' && (
-          <label className="flex flex-col items-center justify-center border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 rounded-xl p-6 cursor-pointer transition-colors text-center space-y-2">
-            <Upload className="w-8 h-8 text-blue-600" />
-            <span className="text-xs font-bold text-blue-950">
+          <label className="flex flex-col items-center justify-center border-2 border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/40 dark:bg-blue-950/30 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-xl p-6 cursor-pointer transition-colors text-center space-y-2">
+            <Upload className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+            <span className="text-xs font-bold text-blue-950 dark:text-blue-200">
               Clique para selecionar uma fotografia ou captura de ecrã do Passe / Documento QR
             </span>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
               Suporta PNG, JPG, JPEG e WEBP com descodificação instantânea local
             </span>
             <input
@@ -348,11 +348,11 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
 
         {/* MODO 3: LEITOR USB / DIGITAÇÃO MANUAL */}
         {modo === 'manual' && (
-          <form onSubmit={handleSubmeterManual} className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <label className="block text-xs font-bold text-slate-700">
+          <form onSubmit={handleSubmeterManual} className="space-y-3 bg-slate-50 dark:bg-slate-800/70 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
               Código QR Lido (Leitor USB/Bluetooth) ou N.º Matrícula / Processo / BI do Estudante:
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
@@ -361,7 +361,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
                   value={codigoManual}
                   onChange={(e) => setCodigoManual(e.target.value)}
                   placeholder="Ex: SGE1|PASS|... ou 2025/MED-1234 ou BI"
-                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
+                  className="w-full pl-9 pr-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               </div>
               <button
@@ -379,32 +379,32 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
           <div
             className={`p-3 rounded-xl border text-xs flex items-start space-x-2 ${
               mensagemStatus.tipo === 'ok'
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                : 'bg-red-50 border-red-300 text-red-900'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                : 'bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200'
             }`}
           >
             {mensagemStatus.tipo === 'ok' ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
             ) : (
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
             )}
             <div className="flex-1">
               <p className="font-bold">{mensagemStatus.texto}</p>
               {alunoEncontrado && (
-                <div className="mt-2 p-2 bg-white rounded-lg border border-emerald-200 flex items-center space-x-3">
+                <div className="mt-2 p-2 bg-white dark:bg-slate-800 rounded-lg border border-emerald-200 dark:border-emerald-700 flex items-center space-x-3">
                   {alunoEncontrado.fotoUrl ? (
                     <img
                       src={alunoEncontrado.fotoUrl}
                       alt={alunoEncontrado.nomeCompleto}
-                      className="w-10 h-12 rounded object-cover border border-slate-300 shrink-0"
+                      className="w-10 h-12 rounded object-cover border border-slate-300 dark:border-slate-600 shrink-0"
                     />
                   ) : null}
                   <div className="text-[11px] space-y-0.5">
-                    <div className="font-black text-slate-900 uppercase">{alunoEncontrado.nomeCompleto}</div>
-                    <div className="text-slate-600">
+                    <div className="font-black text-slate-900 dark:text-white uppercase">{alunoEncontrado.nomeCompleto}</div>
+                    <div className="text-slate-600 dark:text-slate-300">
                       Classe/Turma: <strong>{turmaAluno?.classe || alunoEncontrado.classeId} • {turmaAluno?.nome || '—'}</strong>
                     </div>
-                    <div className="flex items-center space-x-1 text-emerald-700 font-bold">
+                    <div className="flex items-center space-x-1 text-emerald-700 dark:text-emerald-400 font-bold">
                       <ShieldCheck className="w-3.5 h-3.5" />
                       <span>
                         {ultimoResultado?.checksumValid ? 'Assinatura Digital SGE/MED Verificada' : 'Estudante Localizado na Escola'}
@@ -417,14 +417,14 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end pt-2 border-t border-slate-100">
+        <div className="flex justify-end pt-2 border-t border-slate-100 dark:border-slate-800">
           <button
             type="button"
             onClick={() => {
               pararCamera();
               onClose();
             }}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold cursor-pointer"
+            className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
           >
             Fechar Leitor
           </button>

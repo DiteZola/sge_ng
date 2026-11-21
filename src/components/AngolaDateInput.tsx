@@ -219,7 +219,7 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
   return (
     <div className={`space-y-1 ${className}`}>
       {label && (
-        <label className="font-semibold text-gray-700 block mb-1 text-xs">
+        <label className="font-semibold text-gray-700 dark:text-slate-300 block mb-1 text-xs">
           {label} {required && <span className="text-red-500 font-bold">*</span>}
         </label>
       )}
@@ -239,14 +239,14 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
           autoComplete="off"
           className={`w-full p-2 pr-9 text-xs font-mono font-bold rounded-lg border transition-colors focus:outline-none cursor-text ${
             erroValidacao
-              ? 'border-2 border-red-700 bg-red-100/70 text-red-950 ring-2 ring-red-500 focus:border-red-800'
-              : 'border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600'
+              ? 'border-2 border-red-700 dark:border-red-500 bg-red-100/70 dark:bg-red-950/50 text-red-950 dark:text-red-200 ring-2 ring-red-500 focus:border-red-800'
+              : 'border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-600 focus:border-blue-600'
           }`}
         />
 
         {/* Botão de abrir datepicker nativo integrado estritamente restrito ao ícone do calendário */}
         <div 
-          className="absolute right-1 top-1 bottom-1 w-7 flex items-center justify-center cursor-pointer text-gray-400 hover:text-blue-600 transition-colors"
+          className="absolute right-1 top-1 bottom-1 w-7 flex items-center justify-center cursor-pointer text-gray-400 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
           title="Escolher data no calendário"
         >
           <Calendar className="w-4 h-4 pointer-events-none" />
@@ -263,8 +263,8 @@ export const AngolaDateInput: React.FC<AngolaDateInputProps> = ({
       </div>
 
       {erroValidacao && (
-        <div className="flex items-center space-x-1 text-[11px] text-red-900 bg-red-50 border border-red-300 p-1.5 rounded font-bold">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-700" />
+        <div className="flex items-center space-x-1 text-[11px] text-red-900 dark:text-red-200 bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-800 p-1.5 rounded font-bold">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-700 dark:text-red-400" />
           <span>{erroValidacao}</span>
         </div>
       )}

@@ -455,34 +455,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile backdrop */}
       {mobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-gray-900/50 z-20 lg:hidden"
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-2xs z-20 lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar container */}
       <aside className={`
-        fixed lg:static top-16 bottom-0 left-0 z-20
-        w-72 bg-white border-r border-gray-200 flex flex-col justify-between
+        fixed lg:sticky top-16 bottom-0 lg:bottom-auto left-0 z-20
+        lg:h-[calc(100vh-4rem)] w-72 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between
         transition-transform duration-200 ease-in-out no-print
         ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         {/* Barra de Pesquisa Rápida de Módulos */}
-        <div className="p-2.5 pb-0 border-b border-gray-100 bg-white">
+        <div className="p-2.5 pb-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
             <input
               type="text"
               value={filtroMenu}
               onChange={(e) => setFiltroMenu(e.target.value)}
               placeholder="Pesquisar módulo ou menu..."
-              className="w-full pl-8 pr-7 py-1.5 bg-gray-50 hover:bg-gray-100/70 focus:bg-white border border-gray-200 rounded-lg text-xs placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all font-medium"
+              className="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-800/90 focus:bg-white dark:focus:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all font-medium"
             />
             {filtroMenu && (
               <button
                 type="button"
                 onClick={() => setFiltroMenu('')}
-                className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-700 text-xs font-bold px-1"
+                className="absolute right-2 top-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-bold px-1 cursor-pointer"
                 title="Limpar pesquisa"
               >
                 ✕
@@ -569,7 +569,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             return (
               <div key={grupo.categoria} className="space-y-1">
-                <div className="px-3 py-1 text-[11px] font-black text-gray-400 uppercase tracking-wider">
+                <div className="px-3 py-1 text-[11px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
                   {grupo.categoria}
                 </div>
 
@@ -591,24 +591,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         className={`
                           w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left cursor-pointer
                           ${isActive 
-                            ? 'bg-blue-50 text-blue-700 border-2 border-blue-600 shadow-2xs font-bold' 
-                            : 'text-gray-700 hover:bg-gray-100/80 hover:text-gray-950 border border-transparent'}
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-2 border-blue-600 dark:border-blue-500 shadow-2xs font-bold' 
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-white border border-transparent'}
                         `}
                       >
                         <div className="flex items-center space-x-2.5 min-w-0">
-                          <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600' : 'text-gray-500'}`} />
+                          <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`} />
                           <span className="truncate">{item.label}</span>
                         </div>
                         {badgeExibido ? (
                           <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ml-1.5 ${
                             badgeExibido.startsWith('Delegado') 
-                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                              : (isActive ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-600')
+                              ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                              : (isActive ? 'bg-blue-200 dark:bg-blue-900 text-blue-800 dark:text-blue-200' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400')
                           }`}>
                             {badgeExibido}
                           </span>
                         ) : (
-                          isActive && <ChevronRight className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                          isActive && <ChevronRight className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                         )}
                       </button>
                     );
@@ -628,43 +628,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 if (mobileMenuOpen) setMobileMenuOpen(false);
                 onOpenTour();
               }}
-              className="w-full flex items-center justify-between p-2 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 border border-amber-200 text-amber-950 transition-all text-xs font-bold shadow-2xs group cursor-pointer"
+              className="w-full flex items-center justify-between p-2 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/40 hover:from-amber-100 hover:to-orange-100 dark:hover:from-amber-900/60 dark:hover:to-orange-900/50 border border-amber-200 dark:border-amber-800/80 text-amber-950 dark:text-amber-200 transition-all text-xs font-bold shadow-2xs group cursor-pointer"
               title="Abrir o Guia do Sistema e Tour da Dashboard"
             >
               <div className="flex items-center space-x-2">
-                <Compass className="w-4 h-4 text-amber-600 group-hover:rotate-45 transition-transform" />
+                <Compass className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:rotate-45 transition-transform" />
                 <span>Tour da Plataforma</span>
               </div>
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
             </button>
           </div>
         )}
 
         {/* User Account & Logout in Sidebar Footer */}
         {currentUser && (
-          <div className="p-3 mx-2 mb-2 bg-gray-50/80 border border-gray-200 rounded-xl shadow-2xs">
+          <div className="p-3 mx-2 mb-2 bg-slate-50/80 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs">
             <button
               type="button"
               onClick={() => handleSelect('meu_perfil')}
-              className="w-full flex items-center space-x-2.5 mb-2 p-1 rounded-lg hover:bg-white transition-colors text-left cursor-pointer group"
+              className="w-full flex items-center space-x-2.5 mb-2 p-1 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition-colors text-left cursor-pointer group"
               title="Abrir Meu Perfil para atualizar dados, foto ou palavra-passe"
             >
               {currentUser.fotoUrl && currentUser.fotoUrl.trim() !== '' ? (
                 <img 
                   src={currentUser.fotoUrl} 
                   alt={currentUser.nomeCompleto} 
-                  className="h-8 w-8 rounded-full object-cover border border-blue-200 shrink-0" 
+                  className="h-8 w-8 rounded-full object-cover border border-blue-200 dark:border-blue-600 shrink-0" 
                 />
               ) : (
-                <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-700 font-black text-xs flex items-center justify-center shrink-0 border border-blue-200">
+                <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/70 text-blue-700 dark:text-blue-200 font-black text-xs flex items-center justify-center shrink-0 border border-blue-200 dark:border-blue-700">
                   {currentUser.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold text-gray-900 truncate group-hover:text-blue-700">
+                <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-700 dark:group-hover:text-blue-300">
                   {currentUser.nomeCompleto}
                 </p>
-                <p className="text-[10px] text-gray-500 font-semibold truncate">
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold truncate">
                   {currentUser.cargo || currentUser.role}
                 </p>
               </div>
@@ -674,9 +674,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={onLogout}
-                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 text-xs font-bold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800/80 rounded-lg transition-colors cursor-pointer"
               >
-                <LogOut className="h-3.5 w-3.5 text-red-600" />
+                <LogOut className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
                 <span>Terminar Sessão</span>
               </button>
             )}
@@ -684,16 +684,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* Informações Oficiais e Desenvolvedor no Rodapé do Menu */}
-        <div className="p-2.5 border-t border-gray-200 bg-gray-50/70 text-xs text-gray-600 space-y-1">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-gray-700">
+        <div className="p-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
             <span>SGE-NG Angola</span>
-            <span className="text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.2 rounded-sm text-[10px]">
+            <span className="text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-100 dark:bg-emerald-950/70 px-1.5 py-0.2 rounded-sm text-[10px]">
               Offline-First
             </span>
           </div>
-          <div className="flex items-center justify-between text-[10px] text-gray-500">
+          <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
             <span>© {new Date().getFullYear()} MED Angola</span>
-            <span className="font-semibold text-gray-600">Dite Zola NG</span>
+            <span className="font-semibold text-slate-600 dark:text-slate-300">Dite Zola NG</span>
           </div>
         </div>
       </aside>

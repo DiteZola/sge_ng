@@ -34,6 +34,7 @@ import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndN
 import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { notificationService } from './services/notificationService';
 import { SystemInitialSetupView } from './components/SystemInitialSetupView';
+import { useTheme } from './services/themeService';
 
 // Registro centralizado de importadores para pré-carregamento silencioso em segundo plano (garante uso 100% offline em todos os módulos)
 const PRELOAD_MODULE_IMPORTERS: Array<() => Promise<any>> = [];
@@ -53,12 +54,12 @@ function lazyResilient<T extends React.ComponentType<any>>(
       } catch (secondErr) {
         console.warn(`[SGE Offline] Módulo "${moduleLabel}" indisponível sem cache prévia:`, secondErr || firstErr);
         const FallbackOfflineModule = (() => (
-          <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 text-center space-y-3 max-w-lg mx-auto my-10 shadow-xs">
-            <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+          <div className="bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-300 dark:border-amber-700 rounded-2xl p-6 text-center space-y-3 max-w-lg mx-auto my-10 shadow-xs">
+            <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 flex items-center justify-center mx-auto">
               <ShieldAlert className="h-6 w-6" />
             </div>
-            <h3 className="text-base font-bold text-amber-950">Módulo em Carregamento Offline ({moduleLabel})</h3>
-            <p className="text-xs text-amber-800 leading-relaxed">
+            <h3 className="text-base font-bold text-amber-950 dark:text-amber-200">Módulo em Carregamento Offline ({moduleLabel})</h3>
+            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
               Este módulo ainda não estava armazenado em cache antes de perder a ligação à internet. Os seus dados estão 100% protegidos no dispositivo. Tente novamente ou regresse ao Painel Principal.
             </p>
             <div className="flex items-center justify-center gap-2 pt-2">
@@ -104,12 +105,12 @@ class ModuleChunkErrorBoundary extends React.Component<
   override render() {
     if (this.state.hasError) {
       return (
-        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-6 text-center space-y-3 max-w-lg mx-auto my-10">
-          <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+        <div className="bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-300 dark:border-amber-700 rounded-2xl p-6 text-center space-y-3 max-w-lg mx-auto my-10">
+          <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 flex items-center justify-center mx-auto">
             <ShieldAlert className="h-6 w-6" />
           </div>
-          <h3 className="text-base font-bold text-amber-950">Não foi possível abrir o módulo agora</h3>
-          <p className="text-xs text-amber-800 leading-relaxed">
+          <h3 className="text-base font-bold text-amber-950 dark:text-amber-200">Não foi possível abrir o módulo agora</h3>
+          <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
             Ocorreu uma falha temporária ao carregar este ecrã no modo atual. Todos os seus dados locais continuam intactos.
           </p>
           <div className="flex items-center justify-center gap-2 pt-1">
@@ -123,7 +124,7 @@ class ModuleChunkErrorBoundary extends React.Component<
             <button
               type="button"
               onClick={this.props.onResetToDashboard}
-              className="px-4 py-2 bg-white border border-amber-300 text-amber-900 text-xs font-bold rounded-lg hover:bg-amber-100 cursor-pointer"
+              className="px-4 py-2 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs font-bold rounded-lg hover:bg-amber-100 dark:hover:bg-slate-700 cursor-pointer"
             >
               Painel Principal
             </button>
@@ -163,6 +164,7 @@ const StatisticsView = lazyResilient(() => import('./components/StatisticsView')
 const GuidedTourModal = lazyResilient(() => import('./components/GuidedTourModal').then(m => ({ default: m.GuidedTourModal })), 'Guia do Sistema');
 
 export default function App() {
+  const { isDark } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
       return typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
@@ -1701,7 +1703,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FFFFFF] text-[#111827] flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="min-h-screen w-full overflow-x-clip bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-blue-100 dark:selection:bg-blue-900/60 selection:text-blue-900 dark:selection:text-blue-100 transition-colors duration-200">
       {/* Barra de Progresso e Notificação de Sincronização em Tempo Real com o Firebase */}
       <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
 
@@ -1803,7 +1805,7 @@ export default function App() {
       )}
 
       {/* Main Container */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
+      <div className="flex-1 flex w-full max-w-[1600px] mx-auto min-w-0">
         {/* Sidebar de Navegação Oficial categorizada por grupos e RBAC */}
         <Sidebar
           activeTab={activeTab}
@@ -1817,14 +1819,14 @@ export default function App() {
         />
 
         {/* Content Area com Proteção de Rotas RBAC */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
+        <main className="flex-1 w-full min-w-0 p-3 sm:p-5 lg:p-6 xl:p-8 overflow-x-hidden">
           {!isAbaPermitida ? (
-            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-6 text-center space-y-3 max-w-lg mx-auto mt-12">
-              <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto">
+            <div className="bg-amber-50 dark:bg-amber-950/50 border-2 border-amber-300 dark:border-amber-800 rounded-xl p-6 text-center space-y-3 max-w-lg mx-auto mt-12">
+              <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 flex items-center justify-center mx-auto">
                 <ShieldAlert className="h-6 w-6" />
               </div>
-              <h3 className="text-base font-bold text-amber-900">Acesso Restrito ao Perfil</h3>
-              <p className="text-xs text-amber-700 leading-relaxed">
+              <h3 className="text-base font-bold text-amber-900 dark:text-amber-200">Acesso Restrito ao Perfil</h3>
+              <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
                 O seu perfil de acesso atual (<strong>{currentUser.cargo || currentUser.role}</strong>) não possui permissões administrativas para trabalhar com este módulo.
               </p>
               <button
@@ -1840,8 +1842,8 @@ export default function App() {
             <ModuleChunkErrorBoundary activeTab={activeTab} onResetToDashboard={() => setActiveTab('dashboard')}>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center py-20 text-xs font-semibold text-slate-500">
-                  <div className="h-5 w-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2.5" />
+                <div className="flex items-center justify-center py-20 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <div className="h-5 w-5 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full animate-spin mr-2.5" />
                   <span>A carregar módulo...</span>
                 </div>
               }
@@ -2205,7 +2207,7 @@ export default function App() {
       </div>
 
       {/* Rodapé Oficial da Aplicação com Copyright, Ano Atual e Desenvolvedor Dite Zola NG */}
-      <Footer variant="light" />
+      <Footer variant={isDark ? 'dark' : 'light'} />
 
       <Suspense fallback={null}>
         {/* Modal de Configuração Inicial - Apenas chamado antes do primeiro cadastro */}

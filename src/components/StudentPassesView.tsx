@@ -56,6 +56,7 @@ import {
 } from '../types';
 import { InsigniaAngola } from '../constants/insignia';
 import { dbService, DEFAULT_CONFIGURACAO_PASSES } from '../services/storage';
+import { SchoolPassCard } from './SchoolPassCard';
 
 interface StudentPassesViewProps {
   escola: Escola;
@@ -102,10 +103,16 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   
   // Painel de Configurações do Passe
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [passConfig, setPassConfig] = useState<ConfiguracaoPassesEscola>(() => {
-    return escola.configuracaoPasses || dbService.obterConfiguracaoPasses(escola.id);
+  const [passConfig, setPassConfig] = useState<ConfiguracaoPassesEscola>(() =>
+    dbService.obterConfiguracaoPasses(escola.id)
+  );
+  const [fotoPosicao, setFotoPosicao] = useState<'esquerda' | 'direita'>(() => {
+    const cfg = dbService.obterConfiguracaoPasses(escola.id);
+    const elFoto = cfg.elementos.find(e => e.chave === 'foto');
+    return elFoto?.posicao === 'direita' ? 'direita' : 'esquerda';
   });
-  const [fotoPosicao, setFotoPosicao] = useState<'esquerda' | 'direita'>('esquerda');
+  const [previewFaceModal, setPreviewFaceModal] = useState<'frente' | 'verso' | 'ambos'>('frente');
+  const [novaRegraVerso, setNovaRegraVerso] = useState('');
   const [configSalvaSucesso, setConfigSalvaSucesso] = useState(false);
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
@@ -113,7 +120,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   useEffect(() => {
     const syncListener = () => {
       setConfigSistema(dbService.getConfiguracaoSistema());
-      setPassConfig(escola.configuracaoPasses || dbService.obterConfiguracaoPasses(escola.id));
+      setPassConfig(dbService.obterConfiguracaoPasses(escola.id));
     };
     window.addEventListener('sge_dados_atualizados_remoto', syncListener);
     return () => window.removeEventListener('sge_dados_atualizados_remoto', syncListener);
@@ -253,14 +260,15 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
     return mapa;
   }, [alunos]);
 
-  // Agrupar passes em folhas A4 de 8 passes cada (2 colunas × 4 linhas)
+  // Agrupar passes em folhas A4 de acordo com a disposição escolhida (8, 4 ou 1 por folha)
+  const passesPorPagina = passConfig.disposicaoGrade === 'individual' ? 1 : passConfig.disposicaoGrade === '4_por_folha' ? 4 : 8;
   const paginasPasses = useMemo(() => {
     const paginas: Aluno[][] = [];
-    for (let i = 0; i < alunosFiltrados.length; i += 8) {
-      paginas.push(alunosFiltrados.slice(i, i + 8));
+    for (let i = 0; i < alunosFiltrados.length; i += passesPorPagina) {
+      paginas.push(alunosFiltrados.slice(i, i + passesPorPagina));
     }
     return paginas;
-  }, [alunosFiltrados]);
+  }, [alunosFiltrados, passesPorPagina]);
 
   const formatarDocumentoIdentificacao = (al: Aluno): { rotulo: string; numero: string } => {
     const tipo = al.tipoDocumento || 'BI';
@@ -444,7 +452,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Topo Oficial com Ações e Configuração */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-xs space-y-4 no-print">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs space-y-4 no-print">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center space-x-2">
@@ -454,14 +462,16 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
               >
                 Identificação Estudantil Oficial
               </span>
-              <span className="text-xs text-gray-500">Padrão A4: 8 Passes por Folha</span>
+              <span className="text-xs text-gray-500 dark:text-slate-400">
+                Padrão A4: {passesPorPagina === 1 ? '1 Passe Individual' : `${passesPorPagina} Passes por Folha`} • {passConfig.orientacao === 'vertical' ? 'Vertical' : 'Horizontal'}
+              </span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1 flex items-center space-x-2">
-              <CreditCard className="h-6 w-6 text-blue-600" />
+            <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white mt-1 flex items-center space-x-2">
+              <CreditCard className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               <span>Passes Escolares Oficiais & Configuração Visual</span>
             </h1>
-            <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
-              Personalize cores da instituição, altere tamanho de foto, carregue assinatura do diretor e imprima 8 passes em folha A4.
+            <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 mt-0.5">
+              Personalize formato, cores autênticas da instituição, disposição em folha A4 e assinatura do director.
             </p>
           </div>
 
@@ -470,19 +480,19 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowConfigModal(true)}
-                className="px-4 py-2 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+                className="px-4 py-2 text-xs font-bold text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/70 border border-blue-300 dark:border-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               >
-                <Sliders className="h-4 w-4 text-blue-700" />
-                <span>Configurar Elementos & Cores</span>
+                <Sliders className="h-4 w-4 text-blue-700 dark:text-blue-300" />
+                <span>Personalizar Formato & Cores</span>
               </button>
             )}
 
             <button
               type="button"
               onClick={handleExportarXLSX}
-              className="px-3.5 py-2 text-xs font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+              className="px-3.5 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700 border border-gray-300 dark:border-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
             >
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span>Exportar Excel</span>
             </button>
 
@@ -500,10 +510,10 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
             <button
               type="button"
               onClick={handleBaixarHTML}
-              className="px-3.5 py-2 text-xs font-bold text-blue-950 bg-blue-100 hover:bg-blue-200 border border-blue-300 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-2xs"
+              className="px-3.5 py-2 text-xs font-bold text-blue-950 dark:text-blue-200 bg-blue-100 dark:bg-blue-950/60 hover:bg-blue-200 dark:hover:bg-blue-900 border border-blue-300 dark:border-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               title="Baixar arquivo dos passes em formato web offline"
             >
-              <Download className="h-4 w-4 text-blue-700" />
+              <Download className="h-4 w-4 text-blue-700 dark:text-blue-300" />
               <span>Baixar HTML</span>
             </button>
 
@@ -513,7 +523,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
               className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
             >
               <Printer className="h-4 w-4" />
-              <span>Imprimir 8 Passes (Folha A4)</span>
+              <span>Imprimir ({passesPorPagina === 1 ? 'Individual' : `${passesPorPagina}/Folha A4`})</span>
             </button>
           </div>
         </div>
@@ -658,45 +668,47 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
         </div>
 
         {/* Parâmetros de Datas e Informações */}
-        <div className="flex flex-wrap items-center justify-between text-xs pt-2 border-t border-gray-100 gap-3">
-          <div className="flex items-center space-x-4">
+        <div className="flex flex-wrap items-center justify-between text-xs pt-2 border-t border-gray-100 dark:border-slate-800 gap-3">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center space-x-1.5">
-              <span className="font-bold text-gray-700">Data de Emissão:</span>
+              <span className="font-bold text-gray-700 dark:text-slate-300">Data de Emissão:</span>
               <input
                 type="date"
                 value={dataEmissao}
                 onChange={(e) => setDataEmissao(e.target.value)}
-                className="p-1 border border-gray-300 rounded font-bold"
+                className="p-1 border border-gray-300 dark:border-slate-700 rounded font-bold bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100"
               />
             </div>
             <div className="flex items-center space-x-1.5">
-              <span className="font-bold text-gray-700">Validade do Passe:</span>
+              <span className="font-bold text-gray-700 dark:text-slate-300">Validade do Passe:</span>
               <input
                 type="date"
                 value={dataValidade}
                 onChange={(e) => setDataValidade(e.target.value)}
-                className="p-1 border border-gray-300 rounded font-bold"
+                className="p-1 border border-gray-300 dark:border-slate-700 rounded font-bold bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100"
               />
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 text-gray-600 font-bold">
+          <div className="flex items-center space-x-2 text-gray-600 dark:text-slate-400 font-bold">
             <span>Passes listados: <strong>{alunosFiltrados.length}</strong></span>
             <span>•</span>
-            <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
+            <span className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 flex items-center space-x-1">
               <Scissors className="h-3 w-3" />
-              <span>Grade de 8 passes por folha A4 com guias de corte</span>
+              <span>
+                {passesPorPagina === 1 ? '1 passe individual por folha' : `Grade de ${passesPorPagina} passes por folha A4`}
+              </span>
             </span>
           </div>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* GRADE DE 8 PASSES POR FOLHA A4 (2 COLUNAS × 4 LINHAS COM MARGEM INFERIOR) */}
+      {/* GRADE DE PASSES POR FOLHA A4                                              */}
       {/* ========================================================================= */}
       <div className="space-y-4">
         {alunosFiltrados.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center text-gray-500">
+          <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-12 text-center text-gray-500 dark:text-slate-400">
             Nenhum aluno encontrado para os critérios selecionados.
           </div>
         ) : (
@@ -705,221 +717,42 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
               <div
                 key={`passes-page-${pageIndex}`}
                 data-passes-page="true"
-                className="passes-sheet-page bg-white/60 print:bg-white pb-5 mb-4 print:pb-4 print:mb-0"
+                className="passes-sheet-page bg-white/80 dark:bg-slate-900/50 print:bg-white p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 print:border-0 pb-5 mb-4 print:pb-4 print:mb-0"
               >
-                <div className="flex items-center justify-between text-[11px] text-gray-500 font-semibold mb-2 px-1 no-print">
+                <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-slate-400 font-semibold mb-2 px-1 no-print">
                   <span>
-                    Folha {pageIndex + 1} de {paginasPasses.length} (A4 • 8 passes por página)
+                    Folha {pageIndex + 1} de {paginasPasses.length} (A4 • {passesPorPagina === 1 ? 'Passe Individual' : `${passesPorPagina} passes por página`})
                   </span>
                   <span>
-                    Passes {pageIndex * 8 + 1} a {pageIndex * 8 + grupoPagina.length}
+                    Passes {pageIndex * passesPorPagina + 1} a {pageIndex * passesPorPagina + grupoPagina.length}
                   </span>
                 </div>
-                <div className="passes-sheet-grid grid grid-cols-1 md:grid-cols-2 gap-3 print:grid-cols-2 print:gap-2.5">
+                <div
+                  className={`passes-sheet-grid grid gap-3 print:gap-2.5 ${
+                    passesPorPagina === 1
+                      ? 'grid-cols-1 max-w-md mx-auto'
+                      : 'grid-cols-1 md:grid-cols-2 print:grid-cols-2'
+                  }`}
+                >
                   {grupoPagina.map((aluno, idxInPage) => {
                     const turma = turmas.find(t => t.id === aluno.turmaId) || turmaExemplo;
-                    const anoLectivoNome = aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || escola.anoLectivoActivo || '—';
-                    const numProcesso = aluno.numeroProcesso || aluno.codigoMatricula || '—';
-                    const classeExibida = turma?.classe || aluno.classeId || '—';
-                    const numeroSequencial = mapaNumeroSequencial.get(aluno.id) ?? (pageIndex * 8 + idxInPage + 1);
-                    const docInfo = formatarDocumentoIdentificacao(aluno);
-                    const clNorm = normalizarClasse(classeExibida);
-                    const ehSegundoCicloPass = isSegundoCiclo(clNorm);
-
+                    const numeroSequencial = mapaNumeroSequencial.get(aluno.id) ?? (pageIndex * passesPorPagina + idxInPage + 1);
                     return (
-                      <div
+                      <SchoolPassCard
                         key={aluno.id}
-                        className="bg-white border-2 rounded-xl shadow-xs hover:shadow-md transition-shadow relative flex flex-col justify-between print:shadow-none print:break-inside-avoid print:border-black min-h-[246px] h-auto select-none text-black"
-                        style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
-                      >
-                        {/* FRENTE DO PASSE */}
-                        {(visualizacao === 'frente' || visualizacao === 'ambos') && (
-                          <div className="p-2 bg-white relative flex flex-col justify-between flex-1">
-                            {/* Topo Oficial: Província e Município PRIMEIRO, Nome da Escola DEPOIS */}
-                            <div className="border-b pb-1 flex items-center justify-between gap-1.5" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
-                              {isAtivo('insignia') && (
-                                <div className="h-7 w-7 flex items-center justify-center shrink-0">
-                                  {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                                    <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-7 w-7 object-contain" />
-                                  ) : (
-                                    <InsigniaAngola size={24} />
-                                  )}
-                                </div>
-                              )}
-
-                              <div className="flex-1 text-center min-w-0 px-1">
-                                <p className="text-[7px] font-black uppercase text-gray-700 tracking-wider leading-[1.15]">
-                                  República de Angola
-                                </p>
-                                <p className="text-[7px] font-bold uppercase text-gray-600 whitespace-normal break-words leading-[1.15]">
-                                  Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
-                                </p>
-                                <h4
-                                  className="text-[8px] font-black uppercase whitespace-normal break-words leading-[1.15] mt-0.5"
-                                  style={{ color: passConfig.corPrimaria || '#1e3a8a' }}
-                                >
-                                  {escola.nomeOficial}
-                                </h4>
-                              </div>
-
-                              {isAtivo('logotipo') && (
-                                <div className="h-7 w-7 flex items-center justify-center shrink-0">
-                                  {Boolean((escola.logotipoUrl || escola.logotipo)?.trim()) ? (
-                                    <img src={escola.logotipoUrl || escola.logotipo} alt="Logo" className="h-7 w-7 object-contain rounded" />
-                                  ) : (
-                                    <Award className="h-5 w-5" style={{ color: passConfig.corPrimaria }} />
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Tarja Oficial */}
-                            <div
-                              className="text-white text-center py-0.5 my-1 rounded-xs shadow-2xs"
-                              style={{
-                                backgroundColor: passConfig.corPrimaria || '#1e3a8a',
-                                color: passConfig.corTexto || '#ffffff'
-                              }}
-                            >
-                              <span className="text-[7.5px] font-black uppercase tracking-widest block">
-                                Cartão de Estudante • {anoLectivoNome}
-                              </span>
-                            </div>
-
-                            {/* Corpo do Cartão: Foto Ampliada (sem Nº 1 por baixo) & Dados Completos + QR Code limpo */}
-                            <div className={`flex items-center gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
-                              {isAtivo('foto') && (
-                                <div className="shrink-0 flex flex-col items-center">
-                                  {aluno.fotoUrl && aluno.fotoUrl.trim() !== '' ? (
-                                    <img
-                                      src={aluno.fotoUrl}
-                                      alt={aluno.nomeCompleto}
-                                      className="h-[104px] w-[82px] rounded-md object-cover border-2 border-slate-700 shadow-2xs print:border-black"
-                                    />
-                                  ) : (
-                                    <div className="h-[104px] w-[82px] rounded-md border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[8px] text-gray-400 font-bold shadow-2xs print:border-black">
-                                      <User className="h-8 w-8 text-gray-300 mb-0.5" />
-                                      <span>FOTO 3x4</span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Dados Académicos e Pessoais do Aluno */}
-                              <div className="flex-1 min-w-0 text-[8.5px] leading-[1.2] space-y-0.5">
-                                {isAtivo('nome') && (
-                                  <div className="font-black uppercase whitespace-normal break-words text-gray-950 text-[9px] leading-[1.15]">
-                                    {aluno.nomeCompleto}
-                                  </div>
-                                )}
-
-                                {isAtivo('classeTurma') && (
-                                  <>
-                                    <div className="text-gray-800 whitespace-normal break-words">
-                                      Classe: <strong className="text-gray-950">{classeExibida}</strong> • <strong className="font-mono text-gray-950">Nº {numeroSequencial}</strong>
-                                    </div>
-                                    <div className="text-gray-800 whitespace-normal break-words">
-                                      Turma: <strong className="text-gray-950">{turma?.nome || '—'}</strong>
-                                      {isAtivo('turno') && (
-                                        <> • Turno: <strong className="text-gray-950">{turma?.turno || 'Manhã'}</strong></>
-                                      )}
-                                    </div>
-                                  </>
-                                )}
-
-                                {ehSegundoCicloPass && isAtivo('curso') && (
-                                  <div className="text-gray-700 whitespace-normal break-words text-[8px]">
-                                    Curso: <strong className="text-gray-950">{aluno.curso || turma?.curso || 'Geral'}</strong>
-                                  </div>
-                                )}
-
-                                {isAtivo('numeroBI') && (
-                                  <div className="text-gray-800 font-mono whitespace-normal break-words text-[8px]">
-                                    {docInfo.rotulo} <strong className="text-gray-950">{docInfo.numero}</strong>
-                                  </div>
-                                )}
-
-                                {isAtivo('numeroProcesso') && (
-                                  <div className="text-gray-700 font-mono whitespace-normal break-words text-[8px]">
-                                    Proc. Nº: <strong className="text-gray-950">{numProcesso}</strong>
-                                  </div>
-                                )}
-
-                                {isAtivo('encarregado') && aluno.encarregadoNome && (
-                                  <div className="text-gray-600 whitespace-normal break-words text-[7.5px]">
-                                    Enc.: {aluno.encarregadoNome}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Apenas QR Code (sem texto/palavra ao lado ou por baixo) */}
-                              {isAtivo('qrCode') && (
-                                <div className="shrink-0 flex items-center justify-center">
-                                  <OfficialQrCode
-                                    value={gerarPayloadQrEstudante(aluno, escola, turma)}
-                                    size={44}
-                                    className="border-gray-300"
-                                  />
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Rodapé Oficial: Validade, Título e Nome Completo do Director da Escola */}
-                            <div className="pt-1 mt-1 border-t border-gray-200 flex items-end justify-between gap-1.5 text-[7.5px] text-gray-700">
-                              {isAtivo('validade') && (
-                                <div className="shrink-0">
-                                  <span>Val: <strong className="text-gray-950">{dataValidade || '—'}</strong></span>
-                                </div>
-                              )}
-
-                              {isAtivo('assinaturaDiretor') && (
-                                <div className="flex-1 flex flex-col items-center justify-end text-center min-w-0">
-                                  <span className="text-[6.5px] font-bold uppercase text-gray-800 leading-[1.1] mb-0.5 whitespace-normal break-words max-w-full">
-                                    {tituloDiretorOficial}
-                                  </span>
-                                  {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
-                                    <img
-                                      src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
-                                      alt="Assinatura do Director"
-                                      className="h-3.5 w-auto max-w-[75px] object-contain my-0.5"
-                                    />
-                                  ) : (
-                                    <div className="border-b border-gray-500 w-24 my-1"></div>
-                                  )}
-                                  <span className="font-bold text-gray-950 text-[7px] leading-[1.1] whitespace-normal break-words max-w-full">
-                                    {nomeDiretorCompleto}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* VERSO DO PASSE (REGRAS E AVISOS) */}
-                        {(visualizacao === 'verso' || visualizacao === 'ambos') && (
-                          <div className={`p-2.5 bg-gray-50 relative flex flex-col justify-between flex-1 text-[8px] leading-tight text-gray-700 ${visualizacao === 'ambos' ? 'border-t border-dashed border-gray-400' : ''}`}>
-                            <div>
-                              <div className="text-center font-black uppercase text-[8.5px] border-b pb-1 text-gray-900">
-                                Regulamento de Uso do Cartão
-                              </div>
-                              <ul className="list-disc pl-3 pt-2 space-y-1.5">
-                                {passConfig.regrasVerso.map((r, idx) => (
-                                  <li key={idx}>{r}</li>
-                                ))}
-                              </ul>
-                            </div>
-
-                            <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-[7.5px]">
-                              <div>
-                                <span>Emissão: <strong>{dataEmissao}</strong></span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-bold">{escola.nomeOficial}</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                        aluno={aluno}
+                        turma={turma}
+                        escola={escola}
+                        passConfig={passConfig}
+                        configSistema={configSistema}
+                        visualizacao={visualizacao}
+                        numeroSequencial={numeroSequencial}
+                        dataEmissao={dataEmissao}
+                        dataValidade={dataValidade}
+                        nomeDiretorCompleto={nomeDiretorCompleto}
+                        tituloDiretorOficial={tituloDiretorOficial}
+                        fotoPosicao={fotoPosicao}
+                      />
                     );
                   })}
                 </div>
@@ -930,56 +763,165 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL CONFIGURADOR DE ELEMENTOS & CORES DO PASSE (DIREÇÃO)                */}
+      {/* MODAL CONFIGURADOR DE FORMATO, CORES & ELEMENTOS DO PASSE (DIREÇÃO)       */}
       {/* ========================================================================= */}
       {showConfigModal && (
-        <div className="fixed inset-0 bg-gray-900/60 z-50 flex items-center justify-center p-4 overflow-y-auto no-print">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-6 my-8 border border-gray-200">
-            <div className="flex items-center justify-between border-b pb-3">
+        <div className="fixed inset-0 bg-gray-900/70 dark:bg-slate-950/80 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto no-print">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-5xl w-full p-5 sm:p-6 shadow-2xl space-y-5 my-6 border border-gray-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-200 dark:border-slate-800 pb-3">
               <div>
-                <h3 className="text-lg font-black text-gray-900 flex items-center space-x-2">
-                  <Palette className="h-5 w-5 text-blue-600" />
-                  <span>Configurador Oficial de Passes Escolares & Cores da Instituição</span>
+                <h3 className="text-base sm:text-lg font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                  <Palette className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <span>Personalização de Formato & Cores dos Passes Escolares</span>
                 </h3>
-                <p className="text-xs text-gray-500">
-                  Defina as cores institucionais, ative/desative campos e posicione elementos com pré-visualização em tempo real.
+                <p className="text-xs text-gray-500 dark:text-slate-400">
+                  Configure o modelo autêntico da sua instituição, cores institucionais, fundo, disposição na folha e elementos visíveis.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setShowConfigModal(false)}
-                className="text-gray-400 hover:text-gray-600 font-bold text-lg cursor-pointer"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 font-bold text-lg cursor-pointer px-2"
               >
                 ✕
               </button>
             </div>
 
             {configSalvaSucesso && (
-              <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-800 flex items-center space-x-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                <span>Configuração de cores e elementos validada e gravada com sucesso!</span>
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center space-x-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Configuração de formato, cores e elementos validada e gravada com sucesso!</span>
               </div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Coluna 1: Opções de Cores e Seleção de Elementos */}
-              <div className="space-y-5 text-xs">
-                {/* 1. Escolha de Cores da Escola */}
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
-                  <h4 className="font-black text-gray-900 flex items-center space-x-1.5">
-                    <Palette className="h-4 w-4 text-blue-600" />
-                    <span>Cores do Sistema e do Cartão de Estudante</span>
+              {/* Coluna 1: Formato, Cores e Seleção de Elementos */}
+              <div className="space-y-4 text-xs">
+                {/* 1. Formato e Disposição */}
+                <div className="p-4 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded-xl space-y-3">
+                  <h4 className="font-black text-gray-900 dark:text-white flex items-center space-x-1.5">
+                    <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>Formato, Estilo & Disposição em A4</span>
                   </h4>
-                  
-                  {/* Paleta Rápida Angola */}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Modelo de Layout</label>
+                      <select
+                        value={passConfig.formatoLayout || 'classico_horizontal'}
+                        onChange={(e) => {
+                          const fmt = e.target.value as ConfiguracaoPassesEscola['formatoLayout'];
+                          setPassConfig(prev => ({
+                            ...prev,
+                            formatoLayout: fmt,
+                            orientacao: fmt === 'vertical_cracha' ? 'vertical' : prev.orientacao
+                          }));
+                        }}
+                        className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                      >
+                        <option value="classico_horizontal">Clássico Oficial MED</option>
+                        <option value="moderno_faixa">Moderno com Faixa Lateral</option>
+                        <option value="bicolor_institucional">Bicolor Cabeçalho Sólido</option>
+                        <option value="vertical_cracha">Crachá Vertical</option>
+                        <option value="minimalista_med">Minimalista Limpo</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Orientação do Cartão</label>
+                      <select
+                        value={passConfig.orientacao}
+                        onChange={(e) => setPassConfig(prev => ({ ...prev, orientacao: e.target.value as any }))}
+                        className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                      >
+                        <option value="horizontal">Horizontal (Cartão Padrão)</option>
+                        <option value="vertical">Vertical (Crachá Alto)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Passes por Folha A4</label>
+                      <select
+                        value={passConfig.disposicaoGrade}
+                        onChange={(e) => setPassConfig(prev => ({ ...prev, disposicaoGrade: e.target.value as any }))}
+                        className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                      >
+                        <option value="8_por_folha">8 Passes por Folha A4</option>
+                        <option value="4_por_folha">4 Passes por Folha A4</option>
+                        <option value="individual">Individual (1 por Folha)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Estilo da Tarja</label>
+                      <select
+                        value={passConfig.estiloTarja}
+                        onChange={(e) => setPassConfig(prev => ({ ...prev, estiloTarja: e.target.value as any }))}
+                        className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                      >
+                        <option value="elegante_dourado">Elegante c/ Friso Secundário</option>
+                        <option value="gradiente">Gradiente Institucional</option>
+                        <option value="solido">Sólido Clássico</option>
+                        <option value="minimalista">Minimalista Suave</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Fundo do Cartão</label>
+                      <select
+                        value={passConfig.tipoFundo || 'solido'}
+                        onChange={(e) => setPassConfig(prev => ({ ...prev, tipoFundo: e.target.value as any }))}
+                        className="w-full p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                      >
+                        <option value="solido">Fundo Liso Uniforme</option>
+                        <option value="gradiente_suave">Gradiente Suave da Escola</option>
+                        <option value="marca_dagua">Com Marca d'Água do Logótipo</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Tamanho & Posição da Foto</label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <select
+                          value={passConfig.tamanhoFoto || 'padrao'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, tamanhoFoto: e.target.value as any }))}
+                          className="p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        >
+                          <option value="padrao">Foto Padrão</option>
+                          <option value="grande">Foto Grande</option>
+                          <option value="maximo">Foto Máxima</option>
+                        </select>
+                        <select
+                          value={fotoPosicao}
+                          onChange={(e) => setFotoPosicao(e.target.value as any)}
+                          className="p-2 border border-gray-300 dark:border-slate-700 rounded-lg font-bold bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        >
+                          <option value="esquerda">À Esquerda</option>
+                          <option value="direita">À Direita</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Cores Autênticas da Escola */}
+                <div className="p-4 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded-xl space-y-3">
+                  <h4 className="font-black text-gray-900 dark:text-white flex items-center space-x-1.5">
+                    <Palette className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span>Cores Autênticas da Instituição</span>
+                  </h4>
+
+                  {/* Paletas Rápidas */}
                   <div>
-                    <label className="block text-[11px] font-bold text-gray-700 mb-1.5">Paletas de Cores:</label>
-                    <div className="flex flex-wrap gap-2">
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1.5">Paletas Institucionais:</label>
+                    <div className="flex flex-wrap gap-1.5">
                       {[
-                        { nome: 'Azul Real', prim: '#1e3a8a', sec: '#d97706' },
-                        { nome: 'Verde Esperança', prim: '#065f46', sec: '#f59e0b' },
-                        { nome: 'Bordô Académico', prim: '#881337', sec: '#d97706' },
-                        { nome: 'Dourado Imperial', prim: '#78350f', sec: '#fbbf24' },
-                        { nome: 'Grafite Executivo', prim: '#1e293b', sec: '#38bdf8' }
+                        { nome: 'Azul Real', prim: '#1e3a8a', sec: '#d97706', fundo: '#ffffff', txt: '#ffffff', txtCorpo: '#111827' },
+                        { nome: 'Verde Esperança', prim: '#065f46', sec: '#f59e0b', fundo: '#ffffff', txt: '#ffffff', txtCorpo: '#064e3b' },
+                        { nome: 'Bordô Académico', prim: '#881337', sec: '#d97706', fundo: '#fffafb', txt: '#ffffff', txtCorpo: '#1f2937' },
+                        { nome: 'Dourado Imperial', prim: '#78350f', sec: '#f59e0b', fundo: '#fffdf7', txt: '#ffffff', txtCorpo: '#292524' },
+                        { nome: 'Grafite Executivo', prim: '#0f172a', sec: '#0284c7', fundo: '#f8fafc', txt: '#ffffff', txtCorpo: '#0f172a' },
+                        { nome: 'Angola Rubro-Ouro', prim: '#991b1b', sec: '#eab308', fundo: '#ffffff', txt: '#ffffff', txtCorpo: '#111827' }
                       ].map(paleta => (
                         <button
                           key={paleta.nome}
@@ -987,56 +929,150 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                           onClick={() => setPassConfig(prev => ({
                             ...prev,
                             corPrimaria: paleta.prim,
-                            corSecundaria: paleta.sec
+                            corSecundaria: paleta.sec,
+                            corFundoFrente: paleta.fundo,
+                            corTexto: paleta.txt,
+                            corTextoSecundario: paleta.txtCorpo,
+                            corBorda: paleta.prim
                           }))}
-                          className="px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center space-x-1.5 hover:shadow-2xs transition-all cursor-pointer bg-white"
+                          className="px-2 py-1 rounded-lg border border-gray-300 dark:border-slate-700 text-[11px] font-bold flex items-center space-x-1.5 hover:shadow-2xs transition-all cursor-pointer bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-200"
                         >
-                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: paleta.prim }} />
+                          <span className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: paleta.prim }} />
+                          <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: paleta.sec }} />
                           <span>{paleta.nome}</span>
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3 pt-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
                     <div>
-                      <label className="block text-[11px] font-bold text-gray-700 mb-1">Cor Primária (Hexadecimal)</label>
-                      <div className="flex items-center space-x-2">
+                      <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-1">Cor Primária</label>
+                      <div className="flex items-center space-x-1.5">
                         <input
                           type="color"
                           value={passConfig.corPrimaria}
-                          onChange={(e) => setPassConfig(prev => ({ ...prev, corPrimaria: e.target.value }))}
-                          className="h-8 w-10 border border-gray-300 rounded cursor-pointer p-0.5"
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corPrimaria: e.target.value, corBorda: e.target.value }))}
+                          className="h-7 w-9 border border-gray-300 dark:border-slate-700 rounded cursor-pointer p-0.5 bg-white"
                         />
                         <input
                           type="text"
                           value={passConfig.corPrimaria}
                           onChange={(e) => setPassConfig(prev => ({ ...prev, corPrimaria: e.target.value }))}
-                          className="flex-1 p-1.5 border border-gray-300 rounded font-mono font-bold"
+                          className="w-full p-1 border border-gray-300 dark:border-slate-700 rounded font-mono text-[11px] bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-gray-700 mb-1">Posição da Fotografia</label>
-                      <select
-                        value={fotoPosicao}
-                        onChange={(e) => setFotoPosicao(e.target.value as any)}
-                        className="w-full p-2 border border-gray-300 rounded-lg font-bold bg-white"
-                      >
-                        <option value="esquerda">Foto à Esquerda (Padrão)</option>
-                        <option value="direita">Foto à Direita</option>
-                      </select>
+                      <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-1">Cor Secundária</label>
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="color"
+                          value={passConfig.corSecundaria}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corSecundaria: e.target.value }))}
+                          className="h-7 w-9 border border-gray-300 dark:border-slate-700 rounded cursor-pointer p-0.5 bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={passConfig.corSecundaria}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corSecundaria: e.target.value }))}
+                          className="w-full p-1 border border-gray-300 dark:border-slate-700 rounded font-mono text-[11px] bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-1">Fundo da Frente</label>
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="color"
+                          value={passConfig.corFundoFrente || '#ffffff'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corFundoFrente: e.target.value }))}
+                          className="h-7 w-9 border border-gray-300 dark:border-slate-700 rounded cursor-pointer p-0.5 bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={passConfig.corFundoFrente || '#ffffff'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corFundoFrente: e.target.value }))}
+                          className="w-full p-1 border border-gray-300 dark:border-slate-700 rounded font-mono text-[11px] bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-1">Texto da Tarja</label>
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="color"
+                          value={passConfig.corTexto || '#ffffff'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corTexto: e.target.value }))}
+                          className="h-7 w-9 border border-gray-300 dark:border-slate-700 rounded cursor-pointer p-0.5 bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={passConfig.corTexto || '#ffffff'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corTexto: e.target.value }))}
+                          className="w-full p-1 border border-gray-300 dark:border-slate-700 rounded font-mono text-[11px] bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-1">Texto do Cartão</label>
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="color"
+                          value={passConfig.corTextoSecundario || '#111827'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corTextoSecundario: e.target.value }))}
+                          className="h-7 w-9 border border-gray-300 dark:border-slate-700 rounded cursor-pointer p-0.5 bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={passConfig.corTextoSecundario || '#111827'}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corTextoSecundario: e.target.value }))}
+                          className="w-full p-1 border border-gray-300 dark:border-slate-700 rounded font-mono text-[11px] bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-1">Cor da Borda</label>
+                      <div className="flex items-center space-x-1.5">
+                        <input
+                          type="color"
+                          value={passConfig.corBorda || passConfig.corPrimaria}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corBorda: e.target.value }))}
+                          className="h-7 w-9 border border-gray-300 dark:border-slate-700 rounded cursor-pointer p-0.5 bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={passConfig.corBorda || passConfig.corPrimaria}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, corBorda: e.target.value }))}
+                          className="w-full p-1 border border-gray-300 dark:border-slate-700 rounded font-mono text-[11px] bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   {/* Upload da Assinatura do Diretor Geral */}
-                  <div className="pt-2 border-t border-gray-200">
-                    <label className="block text-[11px] font-bold text-gray-800 mb-1">
-                      Assinatura Digitalizada do Diretor Geral (Para passes e visto do boletim)
-                    </label>
+                  <div className="pt-2 border-t border-gray-200 dark:border-slate-700">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold text-gray-800 dark:text-slate-200">
+                        Assinatura Digitalizada do Director Geral
+                      </label>
+                      <label className="flex items-center space-x-1.5 text-[11px] text-gray-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={passConfig.chancelaDigitalAtiva !== false}
+                          onChange={(e) => setPassConfig(prev => ({ ...prev, chancelaDigitalAtiva: e.target.checked }))}
+                          className="rounded text-blue-600"
+                        />
+                        <span>Chancela activa</span>
+                      </label>
+                    </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <label className="cursor-pointer px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-800 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors">
+                      <label className="cursor-pointer px-3 py-1.5 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 border border-blue-300 dark:border-blue-800 text-blue-800 dark:text-blue-200 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors">
                         <Upload className="h-3.5 w-3.5" />
                         <span>Carregar Imagem de Assinatura</span>
                         <input
@@ -1072,28 +1108,23 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                         </div>
                       )}
                     </div>
-                    <span className="text-[10px] text-gray-500 mt-1 block">
-                      A assinatura carregada será usada na chancela dos passes escolares e no visto superior esquerdo dos boletins de notas.
-                    </span>
                   </div>
                 </div>
 
-                {/* 2. Seleção de Informações a Incluir */}
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
-                  <h4 className="font-black text-gray-900 flex items-center space-x-1.5">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                {/* 3. Seleção de Informações a Incluir */}
+                <div className="p-4 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded-xl space-y-2.5">
+                  <h4 className="font-black text-gray-900 dark:text-white flex items-center space-x-1.5">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     <span>Informações a Incluir no Passe Escolar</span>
                   </h4>
-                  <p className="text-[11px] text-gray-500">
-                    Marque os elementos que deseja imprimir no cartão de estudante da instituição:
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 max-h-56 overflow-y-auto custom-scrollbar">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 max-h-48 overflow-y-auto custom-scrollbar">
                     {passConfig.elementos.map(elem => (
                       <label
                         key={elem.id}
                         className={`flex items-center space-x-2 p-2 rounded-lg border cursor-pointer transition-colors ${
-                          elem.ativo ? 'bg-blue-50/70 border-blue-300 text-blue-950 font-bold' : 'bg-white border-gray-200 text-gray-500'
+                          elem.ativo
+                            ? 'bg-blue-50/70 dark:bg-blue-950/60 border-blue-300 dark:border-blue-800 text-blue-950 dark:text-blue-200 font-bold'
+                            : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400'
                         }`}
                       >
                         <input
@@ -1109,146 +1140,133 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                 </div>
               </div>
 
-              {/* Coluna 2: Pré-visualização em Tempo Real (Live Preview) */}
+              {/* Coluna 2: Pré-visualização em Tempo Real + Normas do Verso */}
               <div className="space-y-4">
-                <div className="border border-gray-200 rounded-xl p-4 bg-slate-100 flex flex-col items-center justify-center">
-                  <div className="text-center mb-3">
-                    <span className="text-[11px] font-black uppercase text-gray-700 tracking-wider">
-                      Pré-Visualização em Tempo Real do Cartão
-                    </span>
-                    <p className="text-[10px] text-gray-500">Dimensões reais de impressão (85.6mm x 54mm)</p>
+                <div className="border border-gray-200 dark:border-slate-700 rounded-xl p-4 bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center space-y-3">
+                  <div className="w-full flex items-center justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-black uppercase text-gray-700 dark:text-slate-200 tracking-wider">
+                        Pré-Visualização em Tempo Real
+                      </span>
+                      <p className="text-[10px] text-gray-500 dark:text-slate-400">
+                        Modelo: {passConfig.formatoLayout || 'classico_horizontal'} • Cores exactas na impressão
+                      </p>
+                    </div>
+                    <div className="flex bg-white dark:bg-slate-800 p-0.5 rounded-lg border border-gray-300 dark:border-slate-700 text-[10px] font-bold">
+                      {(['frente', 'verso', 'ambos'] as const).map(face => (
+                        <button
+                          key={face}
+                          type="button"
+                          onClick={() => setPreviewFaceModal(face)}
+                          className={`px-2 py-1 rounded-md capitalize cursor-pointer ${
+                            previewFaceModal === face
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {face}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Cartão Preview FRENTE */}
-                  <div 
-                    className="w-[340px] min-h-[245px] h-auto bg-white border-2 rounded-xl p-2.5 shadow-md flex flex-col justify-between select-none"
-                    style={{ borderColor: passConfig.corPrimaria || '#1e3a8a' }}
-                  >
-                    {/* Topo Oficial: Província e Município antes do Nome da Escola */}
-                    <div className="border-b pb-1 flex items-center justify-between" style={{ borderColor: `${passConfig.corPrimaria}40` }}>
-                      {isAtivo('insignia') && (
-                        <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                          {Boolean(configSistema.insigniaNacionalUrl?.trim()) ? (
-                            <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-6 w-6 object-contain" />
-                          ) : (
-                            <InsigniaAngola size={20} />
-                          )}
-                        </div>
-                      )}
-
-                      <div className="flex-1 text-center min-w-0 px-1">
-                        <p className="text-[6.5px] font-black uppercase text-gray-600 tracking-wider leading-tight">República de Angola</p>
-                        <p className="text-[6.5px] font-bold uppercase text-gray-500 whitespace-normal break-words leading-tight">
-                          Província: {escola.provincia || 'Luanda'} • Município: {escola.municipio || 'Luanda'}
-                        </p>
-                        <h4 className="text-[8px] font-black uppercase whitespace-normal break-words leading-tight" style={{ color: passConfig.corPrimaria }}>
-                          {escola.nomeOficial}
-                        </h4>
-                      </div>
-
-                      {isAtivo('logotipo') && (
-                        <div className="h-6 w-6 flex items-center justify-center shrink-0">
-                          <Award className="h-4 w-4" style={{ color: passConfig.corPrimaria }} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Tarja */}
-                    <div 
-                      className="text-white text-center py-0.5 my-1 rounded-xs"
-                      style={{ backgroundColor: passConfig.corPrimaria || '#1e3a8a' }}
-                    >
-                      <span className="text-[7.5px] font-black uppercase tracking-widest block">
-                        Cartão de Estudante • {escola.anoLectivoActivo || '—'}
-                      </span>
-                    </div>
-
-                    {/* Corpo */}
-                    <div className={`flex items-center gap-2 my-auto ${fotoPosicao === 'direita' ? 'flex-row-reverse' : 'flex-row'}`}>
-                      {isAtivo('foto') && (
-                        alunoExemplo.fotoUrl && alunoExemplo.fotoUrl.trim() !== '' ? (
-                          <img 
-                            src={alunoExemplo.fotoUrl} 
-                            alt="Foto" 
-                            className="h-24 w-20 rounded object-cover border-2 border-slate-700 shadow-2xs shrink-0"
-                          />
-                        ) : (
-                          <div className="h-24 w-20 rounded border-2 border-slate-400 bg-slate-100 flex flex-col items-center justify-center text-[7.5px] text-gray-400 font-bold shadow-2xs shrink-0">
-                            <User className="h-7 w-7 text-gray-300 mb-0.5" />
-                            <span>FOTO 3x4</span>
-                          </div>
-                        )
-                      )}
-
-                      <div className="flex-1 min-w-0 text-[8px] leading-tight space-y-0.5">
-                        {isAtivo('nome') && <div className="font-black uppercase whitespace-normal break-words text-gray-900">{alunoExemplo.nomeCompleto}</div>}
-                        {isAtivo('classeTurma') && (
-                          <>
-                            <div className="text-gray-700 whitespace-normal break-words">
-                              Classe: <strong>{turmaExemplo?.classe || alunoExemplo.classeId || '10ª'}</strong> • <strong className="font-mono">Nº {mapaNumeroSequencial.get(alunoExemplo.id) || 1}</strong>
-                            </div>
-                            <div className="text-gray-700 whitespace-normal break-words">
-                              Turma: <strong>{turmaExemplo?.nome || 'Turma A'}</strong>
-                              {isAtivo('turno') && <> • Turno: <strong>{turmaExemplo?.turno || 'Manhã'}</strong></>}
-                            </div>
-                          </>
-                        )}
-                        {isSegundoCiclo(normalizarClasse(turmaExemplo?.classe || alunoExemplo.classeId || '')) && isAtivo('curso') && (
-                          <div className="text-gray-700 whitespace-normal break-words">Curso: <strong>{alunoExemplo.curso || turmaExemplo?.curso || 'Geral'}</strong></div>
-                        )}
-                        {isAtivo('numeroBI') && (
-                          <div className="text-gray-700 font-mono whitespace-normal break-words">
-                            {formatarDocumentoIdentificacao(alunoExemplo).rotulo} <strong>{formatarDocumentoIdentificacao(alunoExemplo).numero}</strong>
-                          </div>
-                        )}
-                        {isAtivo('numeroProcesso') && <div className="text-gray-700 font-mono whitespace-normal break-words">Proc: <strong>{alunoExemplo.numeroProcesso}</strong></div>}
-                        {isAtivo('encarregado') && <div className="text-gray-600 whitespace-normal break-words text-[7px]">Enc: {alunoExemplo.encarregadoNome}</div>}
-                      </div>
-
-                      {isAtivo('qrCode') && (
-                        <div className="shrink-0 flex items-center justify-center">
-                          <OfficialQrCode
-                            value={gerarPayloadQrEstudante(alunoExemplo, escola, turmaExemplo)}
-                            size={38}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Rodapé */}
-                    <div className="pt-1 border-t border-gray-200 flex items-end justify-between gap-2 text-[7px] text-gray-600">
-                      {isAtivo('validade') && <span>Val: <strong>{dataValidade || '—'}</strong></span>}
-                      {isAtivo('assinaturaDiretor') && (
-                        <div className="flex-1 flex flex-col items-center min-w-0">
-                          <span className="text-[6px] font-bold uppercase text-gray-700 whitespace-normal break-words text-center max-w-full">{tituloDiretorOficial}</span>
-                          {Boolean((passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl)?.trim()) ? (
-                            <img
-                              src={passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl}
-                              alt="Assinatura"
-                              className="h-4 w-auto max-w-[60px] object-contain"
-                            />
-                          ) : (
-                            <div className="border-b border-gray-400 w-16 my-0.5" />
-                          )}
-                          <span className="font-bold text-gray-900 text-[6.5px] whitespace-normal break-words text-center max-w-full">{nomeDiretorCompleto}</span>
-                        </div>
-                      )}
-                    </div>
+                  <div className={passConfig.orientacao === 'vertical' || passConfig.formatoLayout === 'vertical_cracha' ? 'w-[260px]' : 'w-[340px]'}>
+                    <SchoolPassCard
+                      aluno={alunoExemplo}
+                      turma={turmaExemplo}
+                      escola={escola}
+                      passConfig={passConfig}
+                      configSistema={configSistema}
+                      visualizacao={previewFaceModal}
+                      numeroSequencial={mapaNumeroSequencial.get(alunoExemplo.id) || 1}
+                      dataEmissao={dataEmissao}
+                      dataValidade={dataValidade}
+                      nomeDiretorCompleto={nomeDiretorCompleto}
+                      tituloDiretorOficial={tituloDiretorOficial}
+                      fotoPosicao={fotoPosicao}
+                    />
                   </div>
                 </div>
 
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
-                  <strong>Validação Institucional:</strong> Ao clicar em salvar, todos os cartões escolares gerados na escola e as impressões em folha A4 obedecerão a este padrão de diagramação.
+                {/* Normas do Verso */}
+                <div className="p-4 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded-xl space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-black text-gray-900 dark:text-white">Normas do Verso do Cartão</h4>
+                    <label className="flex items-center space-x-1.5 text-[11px] font-bold text-gray-700 dark:text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={passConfig.mostrarVerso !== false}
+                        onChange={(e) => setPassConfig(prev => ({ ...prev, mostrarVerso: e.target.checked }))}
+                        className="rounded text-blue-600"
+                      />
+                      <span>Incluir Verso</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {(passConfig.regrasVerso || []).map((regra, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={regra}
+                          onChange={(e) => {
+                            const copia = [...(passConfig.regrasVerso || [])];
+                            copia[idx] = e.target.value;
+                            setPassConfig(prev => ({ ...prev, regrasVerso: copia }));
+                          }}
+                          className="flex-1 p-1.5 text-[11px] border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const copia = (passConfig.regrasVerso || []).filter((_, i) => i !== idx);
+                            setPassConfig(prev => ({ ...prev, regrasVerso: copia }));
+                          }}
+                          className="px-2 py-1 text-[10px] font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded cursor-pointer"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      value={novaRegraVerso}
+                      onChange={(e) => setNovaRegraVerso(e.target.value)}
+                      placeholder="Adicionar norma para o verso do passe..."
+                      className="flex-1 p-1.5 text-[11px] border border-gray-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!novaRegraVerso.trim()) return;
+                        setPassConfig(prev => ({
+                          ...prev,
+                          regrasVerso: [...(prev.regrasVerso || []), novaRegraVerso.trim()]
+                        }));
+                        setNovaRegraVerso('');
+                      }}
+                      className="px-3 py-1.5 text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-900 dark:text-blue-200">
+                  <strong>Validação Institucional:</strong> Ao salvar, todas as cores, o modelo visual e a disposição escolhidos aplicam-se automaticamente aos passes desta escola e à central de impressão.
                 </div>
               </div>
             </div>
 
             {/* Rodapé do Modal */}
-            <div className="flex items-center justify-end space-x-3 pt-3 border-t">
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-gray-200 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setShowConfigModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-xl text-gray-700 font-bold text-xs hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 border border-gray-300 dark:border-slate-700 rounded-xl text-gray-700 dark:text-slate-200 font-bold text-xs hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer"
               >
                 Cancelar
               </button>

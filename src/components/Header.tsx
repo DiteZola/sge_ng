@@ -1,8 +1,7 @@
-import React from 'react';
-import { 
-  Building2, 
-  Menu, 
-  X, 
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Menu,
+  X,
   Calendar,
   Layers,
   ShieldCheck,
@@ -10,9 +9,11 @@ import {
   User,
   LifeBuoy,
   Cpu,
-  Bell,
   MessageSquare,
-  Compass
+  Compass,
+  Sun,
+  Moon,
+  ChevronDown
 } from 'lucide-react';
 import { Escola, Funcionario } from '../types';
 import { SystemIntegrityStatus } from '../services/firebaseClient';
@@ -21,6 +22,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import { PeriodNotificationBell } from './PeriodNotificationBell';
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
+import { useTheme } from '../services/themeService';
 
 interface HeaderProps {
   escola: Escola;
@@ -50,10 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectAnoLectivo,
   onSelectTrimestre,
   currentUser,
-  integrity,
   mobileMenuOpen,
   setMobileMenuOpen,
-  onOpenPublicPortal,
   onNavigateToPerfil,
   onNavigateToComunicacao,
   onNavigateToTab,
@@ -61,66 +61,98 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSecurityEngine,
   onOpenTour
 }) => {
-  // O Administrador Geral não vê escolas no topo a não ser quando há sessão de apoio técnico efetivamente ativa
-  const isAdminGeral = currentUser.role === 'AdminGeral';
+  const { isDark, toggleDarkMode } = useTheme();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Escolas com sessão de apoio técnico efetivamente ativa
+  const isAdminGeral = currentUser.role === 'AdminGeral';
   const escolasComApoioAutorizado = escolas.filter(e => Boolean(e.sessaoApoioTecnicoAtiva && e.sessaoApoioTecnicoAtiva.dataInicio));
+  const configSistema = dbService.getConfiguracaoSistema();
+
+  useEffect(() => {
+    if (!profileMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProfileMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [profileMenuOpen]);
+
+  const userInitials = currentUser.nomeCompleto
+    .split(' ')
+    .filter(Boolean)
+    .map(n => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+  const msgsVisiveisCount = dbService.obterMensagens().filter(m =>
+    m.escolaId === escola.id &&
+    !m.lida &&
+    (isAdminGeral || (m.remetentePapel !== 'AdminGeral' && m.destinatarioId !== 'admin-geral'))
+  ).length;
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs no-print">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo & Instituição Contextual */}
-          <div className="flex items-center space-x-3">
+    <header className="w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-30 shadow-xs no-print transition-colors">
+      <div className="w-full max-w-[1600px] mx-auto px-3 sm:px-5 lg:px-8">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 h-16 min-w-0">
+          {/* Zona 1: Menu Mobile + Logótipo & Instituição (flexível sem estourar largura) */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 xl:flex-initial">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-md text-gray-700 hover:text-blue-600 hover:bg-gray-100 focus:outline-none cursor-pointer"
-              aria-label="Abrir Menu"
+              className="lg:hidden p-2 rounded-lg text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 cursor-pointer shrink-0 transition-colors"
+              aria-label={mobileMenuOpen ? 'Fechar Menu' : 'Abrir Menu'}
             >
-              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
 
-            <div className="flex items-center space-x-2.5">
-              {/* Insígnia do Administrador Geral como Logótipo Oficial do Sistema */}
-              <div className="h-10 w-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center shadow-xs shrink-0 p-1 overflow-hidden" title="Logótipo Oficial do Sistema">
-                <InsigniaAngola 
-                  size={36} 
-                  customUrl={dbService.getConfiguracaoSistema().insigniaNacionalUrl} 
-                  className="object-contain" 
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shadow-2xs shrink-0 p-1 overflow-hidden"
+                title="Logótipo Oficial do Sistema"
+              >
+                <InsigniaAngola
+                  size={34}
+                  customUrl={configSistema.insigniaNacionalUrl}
+                  className="object-contain"
                 />
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-extrabold text-gray-950 text-base sm:text-lg tracking-tight">
-                    {dbService.getConfiguracaoSistema().nomeSistema || 'SGE-NG'}
-                  </span>
-                  <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
-                    MED Angola
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-extrabold text-slate-950 dark:text-white text-sm sm:text-base tracking-tight whitespace-nowrap">
+                    {configSistema.nomeSistema || 'SGE-NG'}
                   </span>
                   {isAdminGeral && (
-                    <span className="hidden md:inline-flex items-center space-x-1 px-1.5 py-0.5 text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded">
-                      <ShieldCheck className="h-3 w-3" />
-                      <span>Administração Central</span>
+                    <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                      <ShieldCheck className="h-3 w-3 shrink-0" />
+                      <span>DTI Central</span>
                     </span>
                   )}
                 </div>
 
-                {/* Exibição da Instituição com Proteção de Privacidade */}
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center min-w-0">
                   {isAdminGeral ? (
-                    // O Administrador Geral opera de maneira macro, só podendo inspecionar uma escola se houver apoio técnico autorizado
                     escolasComApoioAutorizado.length > 0 ? (
-                      <div className="flex items-center space-x-1 text-xs">
-                        <span className="text-[10px] font-bold px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded flex items-center space-x-1">
+                      <div className="flex items-center gap-1.5 text-xs min-w-0">
+                        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 rounded shrink-0">
                           <LifeBuoy className="w-2.5 h-2.5" />
-                          <span>Apoio Técnico Ativo:</span>
+                          <span>Apoio:</span>
                         </span>
                         <select
                           value={escola.id}
                           onChange={(e) => onSelectEscola(e.target.value)}
-                          className="text-xs text-indigo-900 font-bold bg-transparent border-0 p-0 pr-4 truncate max-w-[180px] sm:max-w-xs focus:ring-0 cursor-pointer"
+                          className="text-xs text-indigo-900 dark:text-indigo-200 font-bold bg-transparent border-0 p-0 pr-4 truncate max-w-[140px] sm:max-w-[220px] focus:ring-0 cursor-pointer"
                         >
                           {escolasComApoioAutorizado.map(esc => (
                             <option key={esc.id} value={esc.id}>
@@ -130,14 +162,13 @@ export const Header: React.FC<HeaderProps> = ({
                         </select>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-600 font-semibold truncate max-w-[220px] sm:max-w-xs block">
-                        Direção de Tecnologias de Informação (DTI / MED)
+                      <span className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 font-medium truncate max-w-[160px] sm:max-w-[260px] block">
+                        Direção de Tecnologias de Informação (MED)
                       </span>
                     )
                   ) : (
-                    // Para Diretores, Professores e Secretaria, a escola é a sua instituição oficial
-                    <span 
-                      className="text-xs text-gray-800 font-bold truncate max-w-[200px] sm:max-w-xs md:max-w-md block"
+                    <span
+                      className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-300 font-semibold truncate max-w-[150px] sm:max-w-[240px] lg:max-w-[280px] block"
                       title={escola.nomeOficial}
                     >
                       {escola.nomeOficial}
@@ -148,16 +179,16 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Centro: Ano Lectivo & Trimestre */}
+          {/* Zona 2: Ano Lectivo & Trimestre (visível em desktop amplo xl+, acessível no menu de perfil em telas menores) */}
           {!isAdminGeral && (
-            <div className="hidden md:flex items-center space-x-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 text-xs">
-              <div className="flex items-center space-x-1 text-gray-700">
-                <Calendar className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                <span className="font-medium text-gray-500">Ano:</span>
+            <div className="hidden xl:flex items-center gap-2.5 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0">
+              <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                <Calendar className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span className="font-medium text-slate-500 dark:text-slate-400">Ano:</span>
                 <select
                   value={escola.anoLectivoActivo || ''}
                   onChange={(e) => onSelectAnoLectivo(e.target.value)}
-                  className="bg-transparent font-extrabold text-gray-900 border-0 p-0 text-xs focus:ring-0 cursor-pointer hover:text-blue-700"
+                  className="bg-transparent font-bold text-slate-900 dark:text-white border-0 p-0 text-xs focus:ring-0 cursor-pointer hover:text-blue-700 dark:hover:text-blue-300"
                 >
                   {(!escola.anoLectivoActivo || anosLectivos.length === 0) && (
                     <option value="">Sem ano ativo</option>
@@ -168,15 +199,15 @@ export const Header: React.FC<HeaderProps> = ({
                 </select>
               </div>
 
-              <span className="text-gray-300">|</span>
+              <span className="text-slate-300 dark:text-slate-600">|</span>
 
-              <div className="flex items-center space-x-1 text-gray-700">
-                <Layers className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                <span className="font-medium text-gray-500">Trimestre:</span>
+              <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                <Layers className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <select
                   value={escola.trimestreActivo || '1'}
                   onChange={(e) => onSelectTrimestre(e.target.value as '1' | '2' | '3')}
-                  className="bg-transparent font-extrabold text-gray-900 border-0 p-0 text-xs focus:ring-0 cursor-pointer hover:text-green-700"
+                  aria-label="Selecionar Trimestre Ativo"
+                  className="bg-transparent font-bold text-slate-900 dark:text-white border-0 p-0 text-xs focus:ring-0 cursor-pointer hover:text-emerald-700 dark:hover:text-emerald-300"
                 >
                   <option value="1">Iº Trimestre</option>
                   <option value="2">IIº Trimestre</option>
@@ -184,119 +215,254 @@ export const Header: React.FC<HeaderProps> = ({
                 </select>
               </div>
 
-              <span className="text-gray-300">|</span>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                escola.estadoAno === 'Aberto' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+              <span className="text-slate-300 dark:text-slate-600">|</span>
+              <span className={`text-[11px] font-bold whitespace-nowrap ${
+                escola.estadoAno === 'Aberto'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-amber-700 dark:text-amber-400'
               }`}>
                 {escola.estadoAno || 'Planeamento'}
               </span>
             </div>
           )}
 
-          {/* Direita: PWA, Estado Offline, Meu Perfil & Logout */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
-            {/* Botão de Instalação PWA */}
+          {/* Zona 3: Ações compactas + Notificações + Foto de Perfil com Menu (Inclui Tema e Terminar Sessão) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Botão de Instalação PWA (compacto em ecrãs pequenos) */}
             <PWAInstallButton />
 
-            {/* Widget Interativo de Estado Offline */}
+            {/* Widget de Estado Offline e Sincronização */}
             <OfflineStatusWidget />
 
-            {/* Notificações no Topo do Aplicativo & Avisos em Tempo Real */}
-            <div className="flex items-center space-x-1">
-              {/* Sino acústico e Centro de Notificações Service Worker */}
+            {/* Sino de Alertas e Mensagens Internas */}
+            <div className="flex items-center gap-1 sm:gap-1.5">
               <PeriodNotificationBell escola={escola} currentUser={currentUser} onNavigate={onNavigateToTab} />
 
-              {/* Botão de Notificações / Mensagens Internas da Escola */}
               {onNavigateToComunicacao && (
                 <button
                   type="button"
                   onClick={onNavigateToComunicacao}
-                  className="relative p-2 rounded-lg text-gray-600 hover:text-blue-700 hover:bg-blue-50 border border-gray-200 transition-colors cursor-pointer"
+                  className="relative p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 transition-colors cursor-pointer shrink-0"
                   title="Comunicação e Mensagens Internas da Escola"
+                  aria-label="Comunicação e Mensagens Internas"
                 >
-                  <MessageSquare className="w-4 h-4 text-gray-700 hover:text-blue-700" />
-                  {(() => {
-                    const msgsVisiveis = dbService.obterMensagens().filter(m =>
-                      m.escolaId === escola.id &&
-                      !m.lida &&
-                      (isAdminGeral || (m.remetentePapel !== 'AdminGeral' && m.destinatarioId !== 'admin-geral'))
-                    );
-                    return msgsVisiveis.length > 0 ? (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs animate-bounce">
-                        {msgsVisiveis.length}
-                      </span>
-                    ) : null;
-                  })()}
+                  <MessageSquare className="w-4 h-4" />
+                  {msgsVisiveisCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs">
+                      {msgsVisiveisCount > 9 ? '9+' : msgsVisiveisCount}
+                    </span>
+                  )}
                 </button>
               )}
             </div>
 
-            {/* Motor de Segurança & Criptografia AES-256 (Exclusivo Admin Geral) */}
+            {/* Motor de Segurança & Criptografia AES-256 (Exclusivo Admin Geral em desktop) */}
             {isAdminGeral && onOpenSecurityEngine && (
               <button
                 type="button"
                 onClick={onOpenSecurityEngine}
-                className="hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all cursor-pointer shadow-xs"
+                className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 text-indigo-900 dark:text-indigo-200 text-xs font-bold transition-all cursor-pointer shrink-0"
                 title="Abrir Motor de Segurança & Criptografia AES-256 em Tempo Real"
               >
-                <Cpu className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
-                <span className="hidden md:inline">AES-256</span>
+                <Cpu className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span className="hidden xl:inline">AES-256</span>
               </button>
             )}
 
-            {/* Botão de Tour Guiado / Guia do Sistema */}
-            {onOpenTour && (
+            {/* Foto de Perfil com Menu Dropdown (Meu Perfil, Tema, Guia e Terminar Sessão) */}
+            <div className="relative" ref={profileDropdownRef}>
               <button
                 type="button"
-                onClick={onOpenTour}
-                className="flex items-center space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 text-amber-950 text-xs font-bold transition-all cursor-pointer shadow-2xs group"
-                title="Abrir o Guia do Sistema e Tour da Dashboard"
+                onClick={() => setProfileMenuOpen((v) => !v)}
+                className={`flex items-center gap-2 p-1 sm:px-2 sm:py-1 rounded-xl border transition-all text-left cursor-pointer shrink-0 ${
+                  profileMenuOpen
+                    ? 'border-blue-500 bg-blue-50/70 dark:bg-slate-800 dark:border-blue-400'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+                aria-expanded={profileMenuOpen}
+                aria-haspopup="menu"
+                title="Abrir Menu da Conta (Meu Perfil, Tema e Terminar Sessão)"
               >
-                <Compass className="w-4 h-4 text-amber-600 group-hover:rotate-45 transition-transform shrink-0" />
-                <span className="hidden md:inline">Guia do Sistema</span>
-              </button>
-            )}
+                {currentUser.fotoUrl && currentUser.fotoUrl.trim() !== '' ? (
+                  <img
+                    src={currentUser.fotoUrl}
+                    alt={currentUser.nomeCompleto}
+                    className="w-8 h-8 rounded-full object-cover border border-blue-300 dark:border-blue-500/60 shrink-0"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-200 flex items-center justify-center font-bold text-xs border border-blue-200 dark:border-blue-700 shrink-0">
+                    {userInitials}
+                  </div>
+                )}
 
-            {/* Botão Meu Perfil (Substitui o seletor de perfis vulnerável) */}
-            <button
-              type="button"
-              onClick={onNavigateToPerfil}
-              className="flex items-center space-x-2 p-1.5 sm:px-3 sm:py-1.5 rounded-lg border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all text-left cursor-pointer"
-              title="Aceder ao Meu Perfil para atualizar dados, foto e senha"
-            >
-              {currentUser.fotoUrl && currentUser.fotoUrl.trim() !== '' ? (
-                <img 
-                  src={currentUser.fotoUrl} 
-                  alt={currentUser.nomeCompleto} 
-                  className="w-7 h-7 rounded-full object-cover border border-blue-300 shrink-0" 
+                <div className="hidden md:flex flex-col text-left leading-tight min-w-0 max-w-[125px]">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                    {currentUser.nomeCompleto}
+                  </span>
+                  <span className="text-[10px] text-blue-700 dark:text-blue-400 font-semibold truncate">
+                    {currentUser.cargo || currentUser.role}
+                  </span>
+                </div>
+
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0 transition-transform duration-150 ${
+                    profileMenuOpen ? 'rotate-180' : ''
+                  }`}
                 />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs border border-blue-200 shrink-0">
-                  {currentUser.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
+              </button>
+
+              {profileMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-2 w-72 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 overflow-hidden"
+                >
+                  {/* Identidade no topo do menu */}
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3">
+                    {currentUser.fotoUrl && currentUser.fotoUrl.trim() !== '' ? (
+                      <img
+                        src={currentUser.fotoUrl}
+                        alt={currentUser.nomeCompleto}
+                        className="w-10 h-10 rounded-full object-cover border border-blue-300 dark:border-blue-500 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/70 text-blue-700 dark:text-blue-200 flex items-center justify-center font-black text-sm border border-blue-200 dark:border-blue-700 shrink-0">
+                        {userInitials}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+                        {currentUser.nomeCompleto}
+                      </p>
+                      <p className="text-[11px] font-semibold text-blue-700 dark:text-blue-400 truncate">
+                        {currentUser.cargo || currentUser.role}
+                      </p>
+                      {!isAdminGeral && (
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {escola.nomeOficial}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Seletor rápido Ano / Trimestre para ecrãs < xl */}
+                  {!isAdminGeral && (
+                    <div className="xl:hidden px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 space-y-2">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ano Letivo:</span>
+                        <select
+                          value={escola.anoLectivoActivo || ''}
+                          onChange={(e) => onSelectAnoLectivo(e.target.value)}
+                          className="text-xs font-bold bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1"
+                        >
+                          {(!escola.anoLectivoActivo || anosLectivos.length === 0) && (
+                            <option value="">Sem ano ativo</option>
+                          )}
+                          {anosLectivos.map(ano => (
+                            <option key={ano} value={ano}>{ano}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Trimestre:</span>
+                        <select
+                          value={escola.trimestreActivo || '1'}
+                          onChange={(e) => onSelectTrimestre(e.target.value as '1' | '2' | '3')}
+                          className="text-xs font-bold bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1"
+                        >
+                          <option value="1">Iº Trimestre</option>
+                          <option value="2">IIº Trimestre</option>
+                          <option value="3">IIIº Trimestre</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ações da Conta */}
+                  <div className="p-1.5 space-y-0.5">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        onNavigateToPerfil();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                    >
+                      <User className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span>Meu Perfil &amp; Palavra-passe</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        toggleDarkMode();
+                      }}
+                      className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        {isDark ? (
+                          <Sun className="w-4 h-4 text-amber-400 shrink-0" />
+                        ) : (
+                          <Moon className="w-4 h-4 text-indigo-600 shrink-0" />
+                        )}
+                        <span>{isDark ? 'Mudar para Tema Claro' : 'Ativar Tema Escuro'}</span>
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                        {isDark ? 'Escuro' : 'Claro'}
+                      </span>
+                    </button>
+
+                    {onOpenTour && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onOpenTour();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                      >
+                        <Compass className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>Guia do Sistema (Tour)</span>
+                      </button>
+                    )}
+
+                    {isAdminGeral && onOpenSecurityEngine && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onOpenSecurityEngine();
+                        }}
+                        className="lg:hidden w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                      >
+                        <Cpu className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span>Motor de Segurança AES-256</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {onLogout && (
+                    <div className="p-1.5 border-t border-slate-200 dark:border-slate-800">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onLogout();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 transition-colors cursor-pointer text-left"
+                      >
+                        <LogOut className="w-4 h-4 shrink-0" />
+                        <span>Terminar Sessão</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
-              <div className="hidden sm:flex flex-col text-left leading-tight">
-                <span className="text-xs font-bold text-gray-900 truncate max-w-[130px]" title={currentUser.nomeCompleto}>
-                  {currentUser.nomeCompleto}
-                </span>
-                <span className="text-[10px] text-blue-700 font-semibold truncate max-w-[130px]">
-                  {currentUser.cargo || currentUser.role}
-                </span>
-              </div>
-            </button>
-
-            {/* Botão Logout */}
-            {onLogout && (
-              <button
-                type="button"
-                onClick={onLogout}
-                className="flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 hover:text-red-800 border border-red-200 rounded-lg transition-all cursor-pointer shadow-2xs"
-                title="Terminar Sessão e Voltar ao Ecrã de Login"
-              >
-                <LogOut className="h-3.5 w-3.5 text-red-600 shrink-0" />
-                <span className="hidden sm:inline">Sair</span>
-              </button>
-            )}
+            </div>
           </div>
         </div>
       </div>

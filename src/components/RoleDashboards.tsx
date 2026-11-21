@@ -150,9 +150,9 @@ const RoleHeaderCard: React.FC<{
   escola: Escola;
   actions: React.ReactNode;
 }> = ({ badge, badgeClass, title, subtitle, configSistema, escola, actions }) => (
-  <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
     <div className="flex items-start sm:items-center space-x-3.5 min-w-0">
-      <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 shrink-0 flex items-center justify-center">
+      <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0 flex items-center justify-center">
         <InsigniaAngola
           size={44}
           customUrl={configSistema.insigniaNacionalUrl}
@@ -164,14 +164,14 @@ const RoleHeaderCard: React.FC<{
           <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md border ${badgeClass}`}>
             {badge}
           </span>
-          <span className="text-xs text-slate-500 font-semibold truncate">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold truncate">
             {escola.nomeOficial} · {escola.anoLectivoActivo || 'Sem Ano'}
           </span>
         </div>
-        <h1 className="text-lg sm:text-xl font-black text-slate-950 tracking-tight mt-1 truncate">
+        <h1 className="text-lg sm:text-xl font-black text-slate-950 dark:text-white tracking-tight mt-1 truncate">
           {title}
         </h1>
-        <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{subtitle}</p>
+        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-2">{subtitle}</p>
       </div>
     </div>
     <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>
@@ -183,34 +183,34 @@ const RecentNoticesCard: React.FC<{
   onNavigateComunicacao: () => void;
   titulo?: string;
 }> = ({ mensagens, onNavigateComunicacao, titulo = 'Comunicados & Avisos Recentes' }) => (
-  <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+  <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
     <div className="flex items-center justify-between mb-3">
-      <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-        <Bell className="h-4 w-4 text-blue-600 shrink-0" />
+      <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+        <Bell className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
         <span>{titulo}</span>
       </h3>
       <button
         type="button"
         onClick={onNavigateComunicacao}
-        className="text-xs font-bold text-blue-700 hover:underline cursor-pointer whitespace-nowrap"
+        className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
       >
         Ver todos →
       </button>
     </div>
     {mensagens.length === 0 ? (
-      <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+      <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
         Nenhum comunicado registado recentemente.
       </div>
     ) : (
       <div className="space-y-2 text-xs">
         {mensagens.slice(0, 3).map((m) => (
-          <div key={m.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+          <div key={m.id} className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-bold text-slate-900 truncate">{m.titulo || m.assunto || 'Aviso Institucional'}</span>
-              <span className="text-[10px] text-slate-500 font-mono shrink-0">{(m.dataHora || m.criadaEm || '').slice(0, 16)}</span>
+              <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{m.titulo || m.assunto || 'Aviso Institucional'}</span>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono shrink-0">{(m.dataHora || m.criadaEm || '').slice(0, 16)}</span>
             </div>
-            <p className="text-slate-600 mt-1 line-clamp-2">{m.conteudo}</p>
-            <div className="text-[10px] text-slate-500 mt-1 font-semibold">
+            <p className="text-slate-600 dark:text-slate-300 mt-1 line-clamp-2">{m.conteudo}</p>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-semibold">
               {m.remetenteNome} ({m.remetentePapel})
             </div>
           </div>
@@ -258,7 +258,7 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
     <div className="space-y-6">
       <RoleHeaderCard
         badge={currentUser.cargo || 'Subdireção Pedagógica'}
-        badgeClass="bg-indigo-50 text-indigo-800 border-indigo-200"
+        badgeClass="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800"
         title={`Coordenação Pedagógica · ${escola.nomeOficial}`}
         subtitle={`Supervisão curricular, lançamento MAC, fecho de pautas (${escola.trimestreActivo}º Trimestre) e rendimento discente.`}
         configSistema={configSistema}
@@ -276,7 +276,7 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
             <button
               type="button"
               onClick={() => onNavigate('pautas')}
-              className="px-3.5 py-2 text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <FileText className="h-4 w-4 shrink-0" />
               <span>Pautas Trimestrais</span>
@@ -284,17 +284,17 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
             <button
               type="button"
               onClick={() => onNavigate('presencas')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <ClipboardList className="h-4 w-4 text-emerald-600 shrink-0" />
+              <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Presenças</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('horarios')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+              <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Horários</span>
             </button>
           </>
@@ -303,14 +303,14 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
 
       {/* PRIORIDADE 1: Solicitações Pendentes de Alteração de Notas */}
       {solicitacoesPendentes.length > 0 && (
-        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start space-x-3">
-            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-xs font-black text-amber-950 uppercase tracking-wide">
+              <h3 className="text-xs font-black text-amber-950 dark:text-amber-200 uppercase tracking-wide">
                 {solicitacoesPendentes.length} Pedido(s) de Alteração de Nota Pendente(s)
               </h3>
-              <p className="text-xs text-amber-900 mt-0.5">
+              <p className="text-xs text-amber-900 dark:text-amber-300 mt-0.5">
                 Último pedido: {solicitacoesPendentes[0].professorNome} solicitou ajuste em {solicitacoesPendentes[0].disciplinaNome} ({solicitacoesPendentes[0].turmaNome}) para {solicitacoesPendentes[0].alunoNome}.
               </p>
             </div>
@@ -327,71 +327,71 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
 
       {/* PRIORIDADE 2: 4 KPIs Pedagógicos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Efetivo Discente</span>
-            <Users className="h-4 w-4 text-blue-600" />
+            <Users className="h-4 w-4 text-blue-600 dark:text-blue-400" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-slate-950 tabular-nums">{alunosAno.length}</span>
-            <span className="text-xs font-semibold text-slate-500">{turmas.length} turmas</span>
+            <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">{alunosAno.length}</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{turmas.length} turmas</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
             {alunosAno.filter(a => a.estado === 'Ativo').length} ativos · {alunosAno.filter(a => a.estado === 'Desistente').length} desistentes
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Taxa de Aproveitamento</span>
-            <Award className="h-4 w-4 text-emerald-600" />
+            <Award className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-emerald-700 tabular-nums">
+            <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
               {alunosComNotaCount > 0 ? `${taxaAprovacaoEscola}%` : '—'}
             </span>
-            <span className="text-xs text-slate-500 font-semibold">positivos</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">positivos</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
             {alunosComNotaCount} aluno(s) com notas avaliadas
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Assiduidade Discente</span>
-            <Calendar className="h-4 w-4 text-teal-600" />
+            <Calendar className="h-4 w-4 text-teal-600 dark:text-teal-400" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-teal-700 tabular-nums">
+            <span className="text-2xl font-black text-teal-700 dark:text-teal-400 tabular-nums">
               {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}%` : '—'}
             </span>
-            <span className="text-xs text-slate-500 font-semibold">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
               {resumoAssiduidadeAlunos.turmasComChamadaHoje} turma(s) hoje
             </span>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px]">
-            <span className="text-slate-500">
+            <span className="text-slate-500 dark:text-slate-400">
               {resumoAssiduidadeAlunos.injustificadasTotal + resumoAssiduidadeAlunos.justificadasTotal} faltas registadas
             </span>
-            <button type="button" onClick={() => onNavigate('presencas')} className="text-teal-700 font-bold hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('presencas')} className="text-teal-700 dark:text-teal-400 font-bold hover:underline cursor-pointer">
               Mapa →
             </button>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Corpo Docente & Risco</span>
-            <UserCheck className="h-4 w-4 text-indigo-600" />
+            <UserCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-slate-950 tabular-nums">{professoresEscola.length}</span>
-            <span className="text-xs font-bold text-rose-600 tabular-nums">{alunosEmRiscoCount} em alerta</span>
+            <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">{professoresEscola.length}</span>
+            <span className="text-xs font-bold text-rose-600 dark:text-rose-400 tabular-nums">{alunosEmRiscoCount} em alerta</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500 flex items-center justify-between">
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
             <span>{solicitacoesPendentes.length} pedido(s) nota</span>
-            <button type="button" onClick={() => onNavigate('professores')} className="text-blue-700 font-bold hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('professores')} className="text-blue-700 dark:text-blue-400 font-bold hover:underline cursor-pointer">
               Docentes →
             </button>
           </div>
@@ -399,20 +399,20 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
       </div>
 
       {/* PRIORIDADE 3: Estado de Cumprimento do Lançamento de Notas por Professor */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs p-5">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <BarChart3 className="h-4 w-4 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
               <span>Cumprimento de Lançamento de Notas (Trimestre {escola.trimestreActivo})</span>
             </h3>
-            <p className="text-xs text-slate-500">Acompanhamento do fecho das pautas antes da homologação.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Acompanhamento do fecho das pautas antes da homologação.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onEnviarLembreteNotas}
-              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
+              className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
             >
               <Send className="h-3.5 w-3.5" />
               <span>Cobrar Pautas</span>
@@ -420,7 +420,7 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
             <button
               type="button"
               onClick={() => onNavigate('avaliacoes')}
-              className="text-xs font-bold text-blue-700 hover:underline cursor-pointer whitespace-nowrap"
+              className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
             >
               Abrir MAC →
             </button>
@@ -428,7 +428,7 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
         </div>
 
         {professoresEscola.length === 0 ? (
-          <div className="p-5 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
+          <div className="p-5 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-center text-xs text-slate-500 dark:text-slate-400">
             Nenhum professor registado nesta escola até ao momento.
           </div>
         ) : (
@@ -453,29 +453,29 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
                     : 'Pendente';
 
               return (
-                <div key={`${prof.id}-${idx}`} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70">
+                <div key={`${prof.id}-${idx}`} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-slate-900 truncate">{prof.nomeCompleto}</h4>
-                      <p className="text-[11px] text-slate-500 truncate">{prof.cargo || 'Professor'}</p>
+                      <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{prof.nomeCompleto}</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{prof.cargo || 'Professor'}</p>
                     </div>
                     <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md border shrink-0 ${
                       status === 'Concluído'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                         : status === 'Em Andamento'
-                          ? 'bg-amber-50 text-amber-700 border-amber-200'
-                          : 'bg-slate-100 text-slate-600 border-slate-200'
+                          ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'
                     }`}>
                       {status}
                     </span>
                   </div>
-                  <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-600 tabular-nums">
+                  <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300 tabular-nums">
                     <span>{turmasDoProf.length} atribuição(ões)</span>
-                    <span className="font-bold text-slate-900">{pctLancado}%</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{pctLancado}%</span>
                   </div>
-                  <div className="w-full bg-slate-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full mt-1.5 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-slate-300'}`}
+                      className={`h-full rounded-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'}`}
                       style={{ width: `${pctLancado}%` }}
                     />
                   </div>
@@ -488,48 +488,48 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
 
       {/* PRIORIDADE 4: Disciplinas em Destaque vs Menor Rendimento + Gráficos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-black text-slate-900 flex items-center space-x-2">
-              <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+              <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span>Disciplinas em Destaque</span>
             </h4>
-            <span className="text-xs font-bold text-emerald-700 tabular-nums">{melhoresDisciplinas.length}</span>
+            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{melhoresDisciplinas.length}</span>
           </div>
           {melhoresDisciplinas.length === 0 ? (
-            <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Sem disciplinas com notas consolidadas positivas.
             </div>
           ) : (
             <div className="space-y-2">
               {melhoresDisciplinas.map((disc, idx) => (
-                <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/50 border border-emerald-100 text-xs">
-                  <span className="font-bold text-slate-900 truncate">{idx + 1}. {disc.nomeCompleto}</span>
-                  <span className="font-black text-emerald-700 tabular-nums shrink-0 ml-2">{disc.media.toFixed(1)} val. ({disc.taxaAprovacao}%)</span>
+                <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60 text-xs">
+                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{idx + 1}. {disc.nomeCompleto}</span>
+                  <span className="font-black text-emerald-700 dark:text-emerald-400 tabular-nums shrink-0 ml-2">{disc.media.toFixed(1)} val. ({disc.taxaAprovacao}%)</span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-black text-slate-900 flex items-center space-x-2">
-              <TrendingDown className="h-4 w-4 text-rose-600" />
+            <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center space-x-2">
+              <TrendingDown className="h-4 w-4 text-rose-600 dark:text-rose-400" />
               <span>Disciplinas que Requerem Intervenção</span>
             </h4>
-            <span className="text-xs font-bold text-rose-700 tabular-nums">{pioresDisciplinas.length}</span>
+            <span className="text-xs font-bold text-rose-700 dark:text-rose-400 tabular-nums">{pioresDisciplinas.length}</span>
           </div>
           {pioresDisciplinas.length === 0 ? (
-            <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Nenhuma disciplina com rendimento negativo identificada.
             </div>
           ) : (
             <div className="space-y-2">
               {pioresDisciplinas.map((disc, idx) => (
-                <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-lg bg-rose-50/50 border border-rose-100 text-xs">
-                  <span className="font-bold text-slate-900 truncate">{idx + 1}. {disc.nomeCompleto}</span>
-                  <span className="font-black text-rose-700 tabular-nums shrink-0 ml-2">{disc.media.toFixed(1)} val. ({disc.negativas} neg.)</span>
+                <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-lg bg-rose-50/50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/60 text-xs">
+                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{idx + 1}. {disc.nomeCompleto}</span>
+                  <span className="font-black text-rose-700 dark:text-rose-400 tabular-nums shrink-0 ml-2">{disc.media.toFixed(1)} val. ({disc.negativas} neg.)</span>
                 </div>
               ))}
             </div>
@@ -539,22 +539,22 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
 
       {/* PRIORIDADE 5: Performance & Assiduidade Gráficos + Ranking */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-          <h4 className="text-sm font-black text-slate-900 mb-3 flex items-center space-x-2">
-            <BarChart3 className="h-4 w-4 text-indigo-600" />
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+          <h4 className="text-sm font-black text-slate-900 dark:text-white mb-3 flex items-center space-x-2">
+            <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
             <span>Médias por Disciplina</span>
           </h4>
           {dadosDesempenhoDisciplinas.length === 0 ? (
-            <div className="h-56 flex items-center justify-center bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-500">
+            <div className="h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
               Aguardando lançamento de notas.
             </div>
           ) : (
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dadosDesempenhoDisciplinas.slice(0, 8)}>
-                  <XAxis dataKey="disciplina" stroke="#64748b" fontSize={10} />
-                  <YAxis stroke="#64748b" fontSize={10} domain={[0, 20]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                  <XAxis dataKey="disciplina" stroke="#94a3b8" fontSize={10} />
+                  <YAxis stroke="#94a3b8" fontSize={10} domain={[0, 20]} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px', border: '1px solid #334155' }} />
                   <Bar dataKey="media" name="Média" fill="#4f46e5" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -562,22 +562,22 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-          <h4 className="text-sm font-black text-slate-900 mb-3 flex items-center space-x-2">
-            <Clock className="h-4 w-4 text-teal-600" />
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+          <h4 className="text-sm font-black text-slate-900 dark:text-white mb-3 flex items-center space-x-2">
+            <Clock className="h-4 w-4 text-teal-600 dark:text-teal-400" />
             <span>Assiduidade por Turma (%)</span>
           </h4>
           {dadosAssiduidade.length === 0 ? (
-            <div className="h-56 flex items-center justify-center bg-slate-50 rounded-lg border border-dashed border-slate-200 text-xs text-slate-500">
+            <div className="h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
               Sem chamadas registadas.
             </div>
           ) : (
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dadosAssiduidade}>
-                  <XAxis dataKey="turma" stroke="#64748b" fontSize={10} />
-                  <YAxis stroke="#64748b" fontSize={10} unit="%" domain={[0, 100]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                  <XAxis dataKey="turma" stroke="#94a3b8" fontSize={10} />
+                  <YAxis stroke="#94a3b8" fontSize={10} unit="%" domain={[0, 100]} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px', border: '1px solid #334155' }} />
                   <Bar dataKey="Presenças" fill="#10b981" stackId="a" />
                   <Bar dataKey="Justificadas" fill="#f59e0b" stackId="a" />
                   <Bar dataKey="Injustificadas" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
@@ -672,7 +672,7 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
     <div className="space-y-6">
       <RoleHeaderCard
         badge={currentUser.cargo || 'Subdireção Administrativa'}
-        badgeClass="bg-blue-50 text-blue-800 border-blue-200"
+        badgeClass="bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-800"
         title={`Gestão Administrativa, Caixa & Património · ${escola.nomeOficial}`}
         subtitle="Controlo financeiro de propinas e emolumentos, despesas operacionais, inventário patrimonial e assiduidade institucional."
         configSistema={configSistema}
@@ -690,7 +690,7 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
             <button
               type="button"
               onClick={() => onNavigate('relatorios_financeiros')}
-              className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <TrendingUp className="h-4 w-4 shrink-0" />
               <span>Relatórios Financeiros</span>
@@ -698,17 +698,17 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
             <button
               type="button"
               onClick={() => onNavigate('patrimonio')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Boxes className="h-4 w-4 text-amber-600 shrink-0" />
+              <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Património</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('declaracoes')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <FileText className="h-4 w-4 text-indigo-600 shrink-0" />
+              <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Declarações</span>
             </button>
           </>
@@ -717,87 +717,87 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
 
       {/* PRIORIDADE 1: 4 Indicadores Financeiros */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Total Arrecadado</span>
-            <TrendingUp className="h-4 w-4 text-emerald-600" />
+            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <div className="mt-2 text-xl font-black text-emerald-700 font-mono tabular-nums">
+          <div className="mt-2 text-xl font-black text-emerald-700 dark:text-emerald-400 font-mono tabular-nums">
             {totalReceitas.toLocaleString('pt-AO')} Kz
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">{transacoes.length} transações confirmadas</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{transacoes.length} transações confirmadas</div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Despesas Executadas</span>
-            <TrendingDown className="h-4 w-4 text-rose-600" />
+            <TrendingDown className="h-4 w-4 text-rose-600 dark:text-rose-400" />
           </div>
-          <div className="mt-2 text-xl font-black text-rose-700 font-mono tabular-nums">
+          <div className="mt-2 text-xl font-black text-rose-700 dark:text-rose-400 font-mono tabular-nums">
             {totalDespesas.toLocaleString('pt-AO')} Kz
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">{despesas.length} lançamentos de despesa</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{despesas.length} lançamentos de despesa</div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Saldo Líquido em Caixa</span>
-            <Wallet className="h-4 w-4 text-blue-600" />
+            <Wallet className="h-4 w-4 text-blue-600 dark:text-blue-400" />
           </div>
-          <div className={`mt-2 text-xl font-black font-mono tabular-nums ${saldoCaixa >= 0 ? 'text-slate-950' : 'text-rose-700'}`}>
+          <div className={`mt-2 text-xl font-black font-mono tabular-nums ${saldoCaixa >= 0 ? 'text-slate-950 dark:text-white' : 'text-rose-700 dark:text-rose-400'}`}>
             {saldoCaixa.toLocaleString('pt-AO')} Kz
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">Ano Letivo {escola.anoLectivoActivo}</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Ano Letivo {escola.anoLectivoActivo}</div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Adimplência de Propinas</span>
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-amber-700 tabular-nums">{taxaAdimplencia}%</span>
-            <span className="text-xs font-semibold text-rose-700 tabular-nums">{alunosDevedores.length} pendentes</span>
+            <span className="text-2xl font-black text-amber-700 dark:text-amber-400 tabular-nums">{taxaAdimplencia}%</span>
+            <span className="text-xs font-semibold text-rose-700 dark:text-rose-400 tabular-nums">{alunosDevedores.length} pendentes</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">{alunos.length} estudantes no total</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{alunos.length} estudantes no total</div>
         </div>
       </div>
 
       {/* PRIORIDADE 2: Últimos Movimentos & Despesas por Categoria */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <CreditCard className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <CreditCard className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span>Últimas Cobranças & Recibos</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('pagamentos')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('pagamentos')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Abrir Caixa →
             </button>
           </div>
           {transacoes.length === 0 && recibos.length === 0 ? (
-            <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Nenhum pagamento registado até ao momento.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50 text-[11px] text-slate-600 border-b border-slate-200">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-[11px] text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
                   <tr>
                     <th className="py-2 px-3">Estudante</th>
                     <th className="py-2 px-3">Tipo</th>
                     <th className="py-2 px-3 text-right">Valor</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {(transacoes.length > 0 ? transacoes.slice(0, 5) : recibos.slice(0, 5)).map((item: any) => (
-                    <tr key={item.id} className="hover:bg-slate-50">
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
                       <td className="py-2 px-3">
-                        <div className="font-bold text-slate-900 truncate max-w-[180px]">{item.alunoNome}</div>
-                        <div className="text-[10px] text-slate-500">{item.numeroRecibo || 'Recibo'} · {item.turmaNome || ''}</div>
+                        <div className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[180px]">{item.alunoNome}</div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400">{item.numeroRecibo || 'Recibo'} · {item.turmaNome || ''}</div>
                       </td>
-                      <td className="py-2 px-3 text-slate-700">{item.tipo || item.mesReferencia || 'Propina'}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700 tabular-nums">
+                      <td className="py-2 px-3 text-slate-700 dark:text-slate-300">{item.tipo || item.mesReferencia || 'Propina'}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                         {Number(item.valorTotalKz || item.valorKz || item.valorPagoKz || 0).toLocaleString('pt-AO')} Kz
                       </td>
                     </tr>
@@ -808,27 +808,27 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <BarChart3 className="h-4 w-4 text-rose-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <BarChart3 className="h-4 w-4 text-rose-600 dark:text-rose-400" />
               <span>Despesas por Categoria</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('relatorios_financeiros')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('relatorios_financeiros')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Balanço →
             </button>
           </div>
           {despesasPorCategoria.length === 0 ? (
-            <div className="h-52 flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-xs text-slate-500">
+            <div className="h-52 flex items-center justify-center bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 dark:text-slate-400">
               Nenhuma despesa operacional lançada.
             </div>
           ) : (
             <div className="h-52 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={despesasPorCategoria}>
-                  <XAxis dataKey="categoria" stroke="#64748b" fontSize={10} />
-                  <YAxis stroke="#64748b" fontSize={10} tickFormatter={v => `${Math.round(v / 1000)}k`} />
-                  <Tooltip formatter={(v: any) => [`${Number(v).toLocaleString('pt-AO')} Kz`, 'Despesa']} contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                  <XAxis dataKey="categoria" stroke="#94a3b8" fontSize={10} />
+                  <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={v => `${Math.round(v / 1000)}k`} />
+                  <Tooltip formatter={(v: any) => [`${Number(v).toLocaleString('pt-AO')} Kz`, 'Despesa']} contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px', border: '1px solid #334155' }} />
                   <Bar dataKey="valor" fill="#e11d48" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -839,62 +839,62 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
 
       {/* PRIORIDADE 3: Património, Turnos & Assiduidade */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <Boxes className="h-4 w-4 text-amber-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400" />
               <span>Património Escolar</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('patrimonio')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('patrimonio')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Inventário →
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2.5 text-xs">
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-500 font-semibold block">Itens Inventariados</span>
-              <strong className="text-lg font-black text-slate-950 tabular-nums">{patrimonio.length}</strong>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">Itens Inventariados</span>
+              <strong className="text-lg font-black text-slate-950 dark:text-white tabular-nums">{patrimonio.length}</strong>
             </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-500 font-semibold block">Requerem Reparação</span>
-              <strong className={`text-lg font-black tabular-nums ${bensDanificados > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">Requerem Reparação</span>
+              <strong className={`text-lg font-black tabular-nums ${bensDanificados > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                 {bensDanificados}
               </strong>
             </div>
           </div>
-          <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg text-xs flex items-center justify-between">
-            <span className="font-semibold text-amber-950">Valor Estimado:</span>
-            <span className="font-mono font-black text-amber-900 tabular-nums">{valorPatrimonio.toLocaleString('pt-AO')} Kz</span>
+          <div className="p-3 bg-amber-50/70 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg text-xs flex items-center justify-between">
+            <span className="font-semibold text-amber-950 dark:text-amber-200">Valor Estimado:</span>
+            <span className="font-mono font-black text-amber-900 dark:text-amber-300 tabular-nums">{valorPatrimonio.toLocaleString('pt-AO')} Kz</span>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <UserCheck className="h-4 w-4 text-teal-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <UserCheck className="h-4 w-4 text-teal-600 dark:text-teal-400" />
               <span>Assiduidade & Turnos</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('presencas')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('presencas')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Presenças →
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2.5 text-xs">
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-500 font-semibold block">Pessoal Registado</span>
-              <strong className="text-lg font-black text-slate-950 tabular-nums">{funcionarios.length}</strong>
-              <span className="text-[10px] text-emerald-700 block">{funcsPresentesHoje} pres. hoje</span>
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">Pessoal Registado</span>
+              <strong className="text-lg font-black text-slate-950 dark:text-white tabular-nums">{funcionarios.length}</strong>
+              <span className="text-[10px] text-emerald-700 dark:text-emerald-400 block">{funcsPresentesHoje} pres. hoje</span>
             </div>
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[10px] text-slate-500 font-semibold block">Freq. Alunos</span>
-              <strong className="text-lg font-black text-teal-700 tabular-nums">
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold block">Freq. Alunos</span>
+              <strong className="text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums">
                 {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}%` : '—'}
               </strong>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-1.5 text-center text-[11px]">
             {dadosTurnos.map(t => (
-              <div key={t.name} className="p-2 bg-slate-50 rounded-lg border border-slate-200">
-                <span className="font-bold text-slate-700 block">{t.name}</span>
-                <span className="font-black text-slate-950 tabular-nums">{t.value}</span>
+              <div key={t.name} className="p-2 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700">
+                <span className="font-bold text-slate-700 dark:text-slate-300 block">{t.name}</span>
+                <span className="font-black text-slate-950 dark:text-white tabular-nums">{t.value}</span>
               </div>
             ))}
           </div>
@@ -999,7 +999,7 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Corpo Docente"
-        badgeClass="bg-emerald-50 text-emerald-800 border-emerald-200"
+        badgeClass="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800"
         title={`Olá, Prof. ${currentUser.nomeCompleto}`}
         subtitle={`Agenda de aulas, chamadas diárias, lançamento MAC (${escola.trimestreActivo}º Trimestre) e acompanhamento das suas turmas.`}
         configSistema={configSistema}
@@ -1017,7 +1017,7 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('presencas')}
-              className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <ClipboardList className="h-4 w-4 shrink-0" />
               <span>Fichas de Presenças</span>
@@ -1025,17 +1025,17 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('horarios')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+              <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>O Meu Horário</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('pautas')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <FileText className="h-4 w-4 text-indigo-600 shrink-0" />
+              <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Pautas</span>
             </button>
           </>
@@ -1043,14 +1043,14 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
       />
 
       {minhasAlteracoesDirecao.length > 0 && (
-        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-start space-x-2.5 text-xs">
-            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <strong className="text-amber-950 block">
+              <strong className="text-amber-950 dark:text-amber-200 block">
                 {minhasAlteracoesDirecao.length} alteração(ões) executiva(s) de nota registada(s) pela Direção
               </strong>
-              <span className="text-amber-800">
+              <span className="text-amber-800 dark:text-amber-300">
                 Consulte o módulo de Avaliação MAC para conferir as justificações averbadas.
               </span>
             </div>
@@ -1067,27 +1067,27 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
 
       {/* PRIORIDADE 1: 4 KPIs Reais do Professor */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Turmas Atribuídas</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{turmasExibidas.length}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{minhasAtribuicoes.length} disciplina(s)/turma</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Turmas Atribuídas</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{turmasExibidas.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{minhasAtribuicoes.length} disciplina(s)/turma</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Estudantes Lecionados</span>
-          <div className="text-2xl font-black text-emerald-700 mt-1 tabular-nums">{totalAlunosLecionados}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Nas turmas sob sua docência</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Estudantes Lecionados</span>
+          <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">{totalAlunosLecionados}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Nas turmas sob sua docência</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Aulas Hoje ({diaHoje})</span>
-          <div className="text-2xl font-black text-blue-700 mt-1 tabular-nums">{aulasHoje.length}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{meuHorario.length} tempos semanais no total</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Aulas Hoje ({diaHoje})</span>
+          <div className="text-2xl font-black text-blue-700 dark:text-blue-400 mt-1 tabular-nums">{aulasHoje.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{meuHorario.length} tempos semanais no total</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Minha Assiduidade</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Minha Assiduidade</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">
             {minhaTaxaPresenca !== null ? `${minhaTaxaPresenca}%` : '—'}
           </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
             {minhaAssiduidadeRegistos.length > 0
               ? `${minhaAssiduidadeRegistos.length} registo(s) de ponto`
               : 'Sem faltas ou apontamentos registados'}
@@ -1097,18 +1097,18 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
 
       {/* PRIORIDADE 2: Horário de Hoje + Minhas Turmas & Disciplinas */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <Clock className="h-4 w-4 text-blue-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <span>Aulas de Hoje ({diaHoje})</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('horarios')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('horarios')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Semana →
             </button>
           </div>
           {aulasHoje.length === 0 ? (
-            <div className="p-5 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-5 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               {meuHorario.length === 0
                 ? 'O seu horário semanal ainda não foi atribuído pela Coordenação.'
                 : `Sem tempos letivos agendados para ${diaHoje}.`}
@@ -1116,16 +1116,16 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
           ) : (
             <div className="space-y-2">
               {aulasHoje.map(aula => (
-                <div key={aula.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs">
+                <div key={aula.id} className="p-3 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between text-xs">
                   <div className="min-w-0">
-                    <div className="font-bold text-slate-900 truncate">{aula.disciplinaNome}</div>
-                    <div className="text-[11px] text-slate-500">
+                    <div className="font-bold text-slate-900 dark:text-slate-100 truncate">{aula.disciplinaNome}</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
                       {aula.turmaNome || aula.classe} · Sala {aula.sala || '—'}
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-2 font-mono">
-                    <div className="font-bold text-blue-700">{aula.horaInicio}–{aula.horaFim}</div>
-                    <div className="text-[10px] text-slate-500">{aula.numeroTempo}º Tempo</div>
+                    <div className="font-bold text-blue-700 dark:text-blue-400">{aula.horaInicio}–{aula.horaFim}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">{aula.numeroTempo}º Tempo</div>
                   </div>
                 </div>
               ))}
@@ -1133,21 +1133,21 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
           )}
         </div>
 
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <GraduationCap className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <GraduationCap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span>Minhas Turmas & Disciplinas Atribuídas</span>
             </h3>
-            <span className="text-xs font-semibold text-slate-500 tabular-nums">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
               {minhasAtribuicoes.length} atribuição(ões)
             </span>
           </div>
 
           {minhasAtribuicoes.length === 0 ? (
-            <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center space-y-2">
-              <p className="text-xs font-bold text-slate-700">Ainda sem turmas/disciplinas atribuídas ao seu perfil</p>
-              <p className="text-[11px] text-slate-500">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-center space-y-2">
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Ainda sem turmas/disciplinas atribuídas ao seu perfil</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Solicite à Subdireção Pedagógica a vinculação das suas disciplinas e turmas para iniciar o lançamento de MAC e presenças.
               </p>
             </div>
@@ -1163,26 +1163,26 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
                 const pct = alunosTurma.length > 0 ? Math.min(100, Math.round((notasLanc.length / alunosTurma.length) * 100)) : 0;
 
                 return (
-                  <div key={at.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-white transition-colors">
+                  <div key={at.id} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 hover:bg-white dark:hover:bg-slate-800 transition-colors">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-[11px] font-bold text-emerald-700 truncate">
+                        <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 truncate">
                           {d?.nome || 'Disciplina'} {at.ehCoordenadorTurma ? '· Dir. Turma' : ''}
                         </div>
-                        <h4 className="text-sm font-black text-slate-950 truncate mt-0.5">
+                        <h4 className="text-sm font-black text-slate-950 dark:text-white truncate mt-0.5">
                           {t?.nome || 'Turma'} ({t?.classe || '—'})
                         </h4>
-                        <p className="text-[11px] text-slate-500">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
                           {t?.turno || '—'} · Sala {t?.sala || '—'} · {alunosTurma.length} alunos
                         </p>
                       </div>
-                      <span className="text-xs font-mono font-bold text-slate-800 tabular-nums shrink-0">{pct}% MAC</span>
+                      <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 tabular-nums shrink-0">{pct}% MAC</span>
                     </div>
-                    <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs">
+                    <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
                       <button
                         type="button"
                         onClick={() => onNavigate('avaliacoes')}
-                        className="font-bold text-emerald-700 hover:underline inline-flex items-center space-x-1 cursor-pointer"
+                        className="font-bold text-emerald-700 dark:text-emerald-400 hover:underline inline-flex items-center space-x-1 cursor-pointer"
                       >
                         <span>Lançar Notas</span>
                         <ArrowUpRight className="h-3 w-3" />
@@ -1190,7 +1190,7 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
                       <button
                         type="button"
                         onClick={() => onNavigate('presencas')}
-                        className="font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                        className="font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white cursor-pointer"
                       >
                         Fazer Chamada
                       </button>
@@ -1205,25 +1205,25 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
 
       {/* PRIORIDADE 3: Rendimento Real das Minhas Turmas & Avisos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <BarChart3 className="h-4 w-4 text-emerald-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <BarChart3 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <span>Rendimento & Assiduidade Real das Minhas Turmas</span>
             </h3>
           </div>
           {!temDadosGrafico ? (
-            <div className="h-56 flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center p-4 text-xs text-slate-500">
+            <div className="h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center p-4 text-xs text-slate-500 dark:text-slate-400">
               Os indicadores aparecerão automaticamente assim que lançar notas ou registar chamadas nas suas turmas.
             </div>
           ) : (
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dadosReaisTurmas}>
-                  <XAxis dataKey="turma" stroke="#64748b" fontSize={11} />
-                  <YAxis yAxisId="left" domain={[0, 20]} stroke="#059669" fontSize={10} />
-                  <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#4f46e5" fontSize={10} unit="%" />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                  <XAxis dataKey="turma" stroke="#94a3b8" fontSize={11} />
+                  <YAxis yAxisId="left" domain={[0, 20]} stroke="#10b981" fontSize={10} />
+                  <YAxis yAxisId="right" orientation="right" domain={[0, 100]} stroke="#818cf8" fontSize={10} unit="%" />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px', border: '1px solid #334155' }} />
                   <Legend wrapperStyle={{ fontSize: '11px' }} />
                   <Bar yAxisId="left" dataKey="MediaNotas" name="Média Real" fill="#10b981" radius={[4, 4, 0, 0]} />
                   <Bar yAxisId="right" dataKey="Assiduidade" name="Assiduidade (%)" fill="#6366f1" radius={[4, 4, 0, 0]} />
@@ -1280,7 +1280,7 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge={currentUser.cargo || 'Secretaria Escolar'}
-        badgeClass="bg-indigo-50 text-indigo-800 border-indigo-200"
+        badgeClass="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800"
         title="Balcão de Atendimento & Serviços Administrativos"
         subtitle="Matrículas e confirmações, emissão de declarações, certificados, passes escolares e registo de emolumentos."
         configSistema={configSistema}
@@ -1298,7 +1298,7 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('declaracoes')}
-              className="px-3.5 py-2 text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <FileText className="h-4 w-4 shrink-0" />
               <span>Emitir Declaração</span>
@@ -1306,26 +1306,26 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('passes_escolares')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <CreditCard className="h-4 w-4 text-blue-600 shrink-0" />
+              <CreditCard className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Passes Escolares</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('pagamentos')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <DollarSign className="h-4 w-4 text-emerald-600 shrink-0" />
+              <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Pagamentos & Recibos</span>
             </button>
             {podeRelatoriosFinanceiros && (
               <button
                 type="button"
                 onClick={() => onNavigate('relatorios_financeiros')}
-                className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <TrendingUp className="h-4 w-4 text-indigo-600 shrink-0" />
+                <TrendingUp className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 <span>Balanço Financeiro</span>
               </button>
             )}
@@ -1335,34 +1335,34 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
 
       {/* PRIORIDADE 1: 4 Indicadores de Balcão */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Matriculados ({anoActivo || 'Total'})</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{alunosAno.length}</div>
-          <div className="text-[11px] text-emerald-700 font-semibold mt-1">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Matriculados ({anoActivo || 'Total'})</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{alunosAno.length}</div>
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold mt-1">
             {alunosAno.filter(a => a.estado === 'Ativo').length} ativos · {turmas.length} turmas
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Novos Ingressos (Inic./1ª)</span>
-          <div className="text-2xl font-black text-indigo-700 mt-1 tabular-nums">{novosIngressos}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Primeira matrícula no ano letivo</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Novos Ingressos (Inic./1ª)</span>
+          <div className="text-2xl font-black text-indigo-700 dark:text-indigo-400 mt-1 tabular-nums">{novosIngressos}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Primeira matrícula no ano letivo</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Recibos & Movimentos</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{Math.max(recibos.length, transacoes.length)}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{transferidos} transferência(s) registada(s)</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Recibos & Movimentos</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{Math.max(recibos.length, transacoes.length)}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{transferidos} transferência(s) registada(s)</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Propinas Regularizadas</span>
-          <div className="text-2xl font-black text-emerald-700 mt-1 tabular-nums">{pctPropinasOk}%</div>
-          <div className="text-[11px] text-slate-500 mt-1">{propinasOk} de {alunos.length} estudantes</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Propinas Regularizadas</span>
+          <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">{pctPropinasOk}%</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{propinasOk} de {alunos.length} estudantes</div>
         </div>
       </div>
 
       {/* PRIORIDADE 2: Balcão Rápido de Emissão Documental */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-        <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center space-x-2">
-          <FileText className="h-4 w-4 text-indigo-600" />
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+        <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center space-x-2">
+          <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
           <span>Balcão Rápido de Emissão de Documentos</span>
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1380,12 +1380,12 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
                 key={item.tab}
                 type="button"
                 onClick={() => onNavigate(item.tab)}
-                className="p-3.5 bg-slate-50 hover:bg-indigo-50/70 border border-slate-200 hover:border-indigo-300 rounded-xl text-left transition-colors cursor-pointer flex items-start space-x-3"
+                className="p-3.5 bg-slate-50 dark:bg-slate-800/70 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl text-left transition-colors cursor-pointer flex items-start space-x-3"
               >
-                <Icon className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
+                <Icon className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
                 <div>
-                  <div className="font-bold text-xs text-slate-900">{item.title}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">{item.desc}</div>
+                  <div className="font-bold text-xs text-slate-900 dark:text-slate-100">{item.title}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{item.desc}</div>
                 </div>
               </button>
             );
@@ -1395,27 +1395,27 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
 
       {/* PRIORIDADE 3: Distribuição Real por Classe + Matrículas Recentes */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <BarChart3 className="h-4 w-4 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
               <span>Efetivo Matriculado por Classe (Dados Reais)</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('alunos')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('alunos')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Ver Alunos →
             </button>
           </div>
           {resumoPorClasse.length === 0 ? (
-            <div className="h-52 flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-xs text-slate-500">
+            <div className="h-52 flex items-center justify-center bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 dark:text-slate-400">
               Nenhuma matrícula registada no ano letivo selecionado.
             </div>
           ) : (
             <div className="h-52 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={resumoPorClasse}>
-                  <XAxis dataKey="classe" stroke="#64748b" fontSize={11} />
-                  <YAxis stroke="#64748b" fontSize={10} allowDecimals={false} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                  <XAxis dataKey="classe" stroke="#94a3b8" fontSize={11} />
+                  <YAxis stroke="#94a3b8" fontSize={10} allowDecimals={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px', border: '1px solid #334155' }} />
                   <Legend wrapperStyle={{ fontSize: '11px' }} />
                   <Bar dataKey="total" name="Matriculados" fill="#4f46e5" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="ativos" name="Ativos" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -1468,7 +1468,7 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Coordenação de Turno"
-        badgeClass="bg-teal-50 text-teal-800 border-teal-200"
+        badgeClass="bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 border-teal-200 dark:border-teal-800"
         title={`Supervisão de Turnos & Assiduidade · ${escola.nomeOficial}`}
         subtitle="Controlo diário de chamadas, pontualidade das turmas, horários por turno e ocorrências."
         configSistema={configSistema}
@@ -1486,7 +1486,7 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('horarios')}
-              className="px-3.5 py-2 text-xs font-bold text-teal-900 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-teal-900 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <Clock className="h-4 w-4 shrink-0" />
               <span>Horários</span>
@@ -1494,17 +1494,17 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('turnos')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Users className="h-4 w-4 text-blue-600 shrink-0" />
+              <Users className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Turnos & Turmas</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('relatorios')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <FileText className="h-4 w-4 text-indigo-600 shrink-0" />
+              <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Relatórios</span>
             </button>
           </>
@@ -1512,49 +1512,49 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Assiduidade Média</span>
-          <div className="text-2xl font-black text-teal-700 mt-1 tabular-nums">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Assiduidade Média</span>
+          <div className="text-2xl font-black text-teal-700 dark:text-teal-400 mt-1 tabular-nums">
             {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}%` : '—'}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">{resumoAssiduidadeAlunos.totalRegistos} chamadas registadas</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{resumoAssiduidadeAlunos.totalRegistos} chamadas registadas</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Turmas c/ Chamada Hoje</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Turmas c/ Chamada Hoje</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">
             {resumoAssiduidadeAlunos.turmasComChamadaHoje} / {turmas.length}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">{resumoAssiduidadeAlunos.presentesHoje} presentes hoje</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{resumoAssiduidadeAlunos.presentesHoje} presentes hoje</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Faltas Registadas Hoje</span>
-          <div className="text-2xl font-black text-rose-700 mt-1 tabular-nums">{resumoAssiduidadeAlunos.faltasHoje}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{resumoAssiduidadeAlunos.injustificadasTotal} injustificadas no total</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Faltas Registadas Hoje</span>
+          <div className="text-2xl font-black text-rose-700 dark:text-rose-400 mt-1 tabular-nums">{resumoAssiduidadeAlunos.faltasHoje}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{resumoAssiduidadeAlunos.injustificadasTotal} injustificadas no total</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Tempos Agendados Hoje</span>
-          <div className="text-2xl font-black text-blue-700 mt-1 tabular-nums">{horariosHoje.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{getDiaSemanaAtualPt()}</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tempos Agendados Hoje</span>
+          <div className="text-2xl font-black text-blue-700 dark:text-blue-400 mt-1 tabular-nums">{horariosHoje.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{getDiaSemanaAtualPt()}</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-          <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center space-x-2">
-            <BarChart3 className="h-4 w-4 text-teal-600" />
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center space-x-2">
+            <BarChart3 className="h-4 w-4 text-teal-600 dark:text-teal-400" />
             <span>Frequência por Turma (%)</span>
           </h3>
           {dadosAssiduidade.length === 0 ? (
-            <div className="h-56 flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-xs text-slate-500">
+            <div className="h-56 flex items-center justify-center bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-500 dark:text-slate-400">
               Sem registos de presenças lançados até ao momento.
             </div>
           ) : (
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dadosAssiduidade}>
-                  <XAxis dataKey="turma" stroke="#64748b" fontSize={10} />
-                  <YAxis stroke="#64748b" fontSize={10} unit="%" domain={[0, 100]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                  <XAxis dataKey="turma" stroke="#94a3b8" fontSize={10} />
+                  <YAxis stroke="#94a3b8" fontSize={10} unit="%" domain={[0, 100]} />
+                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px', border: '1px solid #334155' }} />
                   <Bar dataKey="Presenças" fill="#0d9488" stackId="a" />
                   <Bar dataKey="Justificadas" fill="#f59e0b" stackId="a" />
                   <Bar dataKey="Injustificadas" fill="#ef4444" stackId="a" radius={[4, 4, 0, 0]} />
@@ -1565,15 +1565,15 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-2.5">
-            <h3 className="text-sm font-bold text-slate-900">Distribuição por Turno</h3>
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs space-y-2.5">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Distribuição por Turno</h3>
             {turnos.map(t => (
-              <div key={t.turno} className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between text-xs">
+              <div key={t.turno} className="p-3 bg-slate-50 dark:bg-slate-800/70 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
                 <div>
-                  <div className="font-bold text-slate-900">{t.turno}</div>
-                  <div className="text-[11px] text-slate-500">{t.turmas} turma(s)</div>
+                  <div className="font-bold text-slate-900 dark:text-slate-100">{t.turno}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">{t.turmas} turma(s)</div>
                 </div>
-                <span className="font-black text-slate-950 tabular-nums">{t.alunos} alunos</span>
+                <span className="font-black text-slate-950 dark:text-white tabular-nums">{t.alunos} alunos</span>
               </div>
             ))}
           </div>
@@ -1610,7 +1610,7 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Coordenação de Disciplina"
-        badgeClass="bg-purple-50 text-purple-800 border-purple-200"
+        badgeClass="bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 border-purple-200 dark:border-purple-800"
         title={`Coordenação Curricular & Rendimento · ${escola.nomeOficial}`}
         subtitle="Análise de rendimento por disciplina, acompanhamento das pautas e recuperação pedagógica."
         configSistema={configSistema}
@@ -1628,7 +1628,7 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
             <button
               type="button"
               onClick={() => onNavigate('estatisticas')}
-              className="px-3.5 py-2 text-xs font-bold text-purple-900 bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-purple-900 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <BarChart3 className="h-4 w-4 shrink-0" />
               <span>Estatísticas</span>
@@ -1636,17 +1636,17 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
             <button
               type="button"
               onClick={() => onNavigate('historico_escolar')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <BookOpen className="h-4 w-4 text-blue-600 shrink-0" />
+              <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Histórico Escolar</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('presencas')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <ClipboardList className="h-4 w-4 text-emerald-600 shrink-0" />
+              <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Presenças</span>
             </button>
           </>
@@ -1654,67 +1654,67 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Disciplinas com Notas</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{dadosDesempenhoDisciplinas.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Monitorizadas no trimestre</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Disciplinas com Notas</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{dadosDesempenhoDisciplinas.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Monitorizadas no trimestre</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Média Curricular (/20)</span>
-          <div className="text-2xl font-black text-purple-700 mt-1 tabular-nums">{mediaGlobalDisciplinas ?? '—'}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Normalizada por ciclo</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Média Curricular (/20)</span>
+          <div className="text-2xl font-black text-purple-700 dark:text-purple-400 mt-1 tabular-nums">{mediaGlobalDisciplinas ?? '—'}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Normalizada por ciclo</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Aprovação Global</span>
-          <div className="text-2xl font-black text-emerald-700 mt-1 tabular-nums">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Aprovação Global</span>
+          <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">
             {dadosDesempenhoDisciplinas.length > 0 ? `${taxaAprovacaoEscola}%` : '—'}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">Positivas no ano ativo</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Positivas no ano ativo</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Disciplinas em Atenção</span>
-          <div className="text-2xl font-black text-rose-700 mt-1 tabular-nums">{pioresDisciplinas.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Prioridade de acompanhamento</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Disciplinas em Atenção</span>
+          <div className="text-2xl font-black text-rose-700 dark:text-rose-400 mt-1 tabular-nums">{pioresDisciplinas.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Prioridade de acompanhamento</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-          <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center space-x-2">
-            <TrendingUp className="h-4 w-4 text-emerald-600" />
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center space-x-2">
+            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             <span>Disciplinas com Melhor Aproveitamento</span>
           </h3>
           {melhoresDisciplinas.length === 0 ? (
-            <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Sem notas lançadas até ao momento.
             </div>
           ) : (
             <div className="space-y-2">
               {melhoresDisciplinas.map((d, idx) => (
-                <div key={d.nomeCompleto} className="p-2.5 bg-emerald-50/50 border border-emerald-100 rounded-lg flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-900 truncate">{idx + 1}. {d.nomeCompleto}</span>
-                  <span className="font-black text-emerald-700 tabular-nums shrink-0">{d.media.toFixed(1)} val. ({d.taxaAprovacao}%)</span>
+                <div key={d.nomeCompleto} className="p-2.5 bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60 rounded-lg flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{idx + 1}. {d.nomeCompleto}</span>
+                  <span className="font-black text-emerald-700 dark:text-emerald-400 tabular-nums shrink-0">{d.media.toFixed(1)} val. ({d.taxaAprovacao}%)</span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
-          <h3 className="text-sm font-bold text-slate-900 mb-3 flex items-center space-x-2">
-            <TrendingDown className="h-4 w-4 text-rose-600" />
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 flex items-center space-x-2">
+            <TrendingDown className="h-4 w-4 text-rose-600 dark:text-rose-400" />
             <span>Disciplinas que Requerem Recuperação</span>
           </h3>
           {pioresDisciplinas.length === 0 ? (
-            <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Nenhuma disciplina abaixo da meta curricular.
             </div>
           ) : (
             <div className="space-y-2">
               {pioresDisciplinas.map((d, idx) => (
-                <div key={d.nomeCompleto} className="p-2.5 bg-rose-50/50 border border-rose-100 rounded-lg flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-900 truncate">{idx + 1}. {d.nomeCompleto}</span>
-                  <span className="font-black text-rose-700 tabular-nums shrink-0">{d.media.toFixed(1)} val. ({d.negativas} neg.)</span>
+                <div key={d.nomeCompleto} className="p-2.5 bg-rose-50/50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/60 rounded-lg flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate">{idx + 1}. {d.nomeCompleto}</span>
+                  <span className="font-black text-rose-700 dark:text-rose-400 tabular-nums shrink-0">{d.media.toFixed(1)} val. ({d.negativas} neg.)</span>
                 </div>
               ))}
             </div>
@@ -1751,7 +1751,7 @@ export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Tesouraria Escolar"
-        badgeClass="bg-emerald-50 text-emerald-800 border-emerald-200"
+        badgeClass="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800"
         title={`Controlo de Caixa & Emolumentos · ${escola.nomeOficial}`}
         subtitle="Recebimento de propinas, emissão de recibos oficiais, despesas autorizadas e acompanhamento de dívidas."
         configSistema={configSistema}
@@ -1769,7 +1769,7 @@ export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('relatorios_financeiros')}
-              className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <TrendingUp className="h-4 w-4 shrink-0" />
               <span>Relatórios Financeiros</span>
@@ -1777,9 +1777,9 @@ export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('patrimonio')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Boxes className="h-4 w-4 text-amber-600 shrink-0" />
+              <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>Património</span>
             </button>
           </>
@@ -1787,49 +1787,49 @@ export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Total Arrecadado</span>
-          <div className="text-xl font-black text-emerald-700 mt-1 font-mono tabular-nums">{totalReceitas.toLocaleString('pt-AO')} Kz</div>
-          <div className="text-[11px] text-slate-500 mt-1">{transacoes.length} cobranças</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Total Arrecadado</span>
+          <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 mt-1 font-mono tabular-nums">{totalReceitas.toLocaleString('pt-AO')} Kz</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{transacoes.length} cobranças</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Despesas Registadas</span>
-          <div className="text-xl font-black text-rose-700 mt-1 font-mono tabular-nums">{totalDespesas.toLocaleString('pt-AO')} Kz</div>
-          <div className="text-[11px] text-slate-500 mt-1">{despesas.length} lançamentos</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Despesas Registadas</span>
+          <div className="text-xl font-black text-rose-700 dark:text-rose-400 mt-1 font-mono tabular-nums">{totalDespesas.toLocaleString('pt-AO')} Kz</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{despesas.length} lançamentos</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Saldo em Caixa</span>
-          <div className="text-xl font-black text-slate-950 mt-1 font-mono tabular-nums">{saldo.toLocaleString('pt-AO')} Kz</div>
-          <div className="text-[11px] text-slate-500 mt-1">Balanço corrente</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Saldo em Caixa</span>
+          <div className="text-xl font-black text-slate-950 dark:text-white mt-1 font-mono tabular-nums">{saldo.toLocaleString('pt-AO')} Kz</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Balanço corrente</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Propinas Pendentes</span>
-          <div className="text-2xl font-black text-amber-700 mt-1 tabular-nums">{devedores.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Estudantes por regularizar</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Propinas Pendentes</span>
+          <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1 tabular-nums">{devedores.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Estudantes por regularizar</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900">Últimos Recibos & Cobranças</h3>
-            <button type="button" onClick={() => onNavigate('pagamentos')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Últimos Recibos & Cobranças</h3>
+            <button type="button" onClick={() => onNavigate('pagamentos')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Ver Caixa →
             </button>
           </div>
           {transacoes.length === 0 && recibos.length === 0 ? (
-            <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Sem recibos emitidos neste ano letivo.
             </div>
           ) : (
             <div className="space-y-2 text-xs">
               {(transacoes.length > 0 ? transacoes.slice(0, 6) : recibos.slice(0, 6)).map((item: any) => (
-                <div key={item.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                <div key={item.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between">
                   <div className="min-w-0">
-                    <div className="font-bold text-slate-900 truncate">{item.alunoNome}</div>
-                    <div className="text-[10px] text-slate-500">{item.numeroRecibo} · {item.tipo || item.mesReferencia || 'Propina'}</div>
+                    <div className="font-bold text-slate-900 dark:text-slate-100 truncate">{item.alunoNome}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">{item.numeroRecibo} · {item.tipo || item.mesReferencia || 'Propina'}</div>
                   </div>
-                  <span className="font-mono font-bold text-emerald-700 tabular-nums shrink-0 ml-2">
+                  <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 tabular-nums shrink-0 ml-2">
                     {Number(item.valorTotalKz || item.valorKz || item.valorPagoKz || 0).toLocaleString('pt-AO')} Kz
                   </span>
                 </div>
@@ -1862,7 +1862,7 @@ export const BibliotecarioDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Biblioteca Escolar"
-        badgeClass="bg-amber-50 text-amber-800 border-amber-200"
+        badgeClass="bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800"
         title={`Acervo & Leitura · ${escola.nomeOficial}`}
         subtitle="Gestão de livros e materiais pedagógicos digitais, registo de empréstimos e consultas dos estudantes."
         configSistema={configSistema}
@@ -1880,17 +1880,17 @@ export const BibliotecarioDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('horarios')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+              <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Horários</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('comunicacao')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Bell className="h-4 w-4 text-indigo-600 shrink-0" />
+              <Bell className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Comunicados</span>
             </button>
           </>
@@ -1898,44 +1898,44 @@ export const BibliotecarioDashboard: React.FC<SharedRoleDashboardProps> = ({
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Obras no Acervo</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{livros.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{categoriasCount} área(s) temáticas</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Obras no Acervo</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{livros.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{categoriasCount} área(s) temáticas</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Acessos & Consultas</span>
-          <div className="text-2xl font-black text-amber-700 mt-1 tabular-nums">{acessos.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{emprestimos} empréstimo(s) registado(s)</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Acessos & Consultas</span>
+          <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1 tabular-nums">{acessos.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{emprestimos} empréstimo(s) registado(s)</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Comunicados Recentes</span>
-          <div className="text-2xl font-black text-blue-700 mt-1 tabular-nums">{mensagens.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Avisos escolares recebidos</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Comunicados Recentes</span>
+          <div className="text-2xl font-black text-blue-700 dark:text-blue-400 mt-1 tabular-nums">{mensagens.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Avisos escolares recebidos</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900">Documentos & Livros Recentes</h3>
-            <button type="button" onClick={() => onNavigate('biblioteca')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">Documentos & Livros Recentes</h3>
+            <button type="button" onClick={() => onNavigate('biblioteca')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Gerir Acervo →
             </button>
           </div>
           {livros.length === 0 ? (
-            <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Nenhum livro ou documento carregado na biblioteca escolar.
             </div>
           ) : (
             <div className="space-y-2 text-xs">
               {livros.slice(0, 5).map(l => (
-                <div key={l.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                <div key={l.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between">
                   <div className="min-w-0">
-                    <div className="font-bold text-slate-900 truncate">{l.titulo}</div>
-                    <div className="text-[10px] text-slate-500">{l.autor} · {l.categoria}</div>
+                    <div className="font-bold text-slate-900 dark:text-slate-100 truncate">{l.titulo}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400">{l.autor} · {l.categoria}</div>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">{l.classe || 'Geral'}</span>
+                  <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0 ml-2">{l.classe || 'Geral'}</span>
                 </div>
               ))}
             </div>
@@ -1966,7 +1966,7 @@ export const EstagiarioDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Estágio Pedagógico / Administrativo"
-        badgeClass="bg-sky-50 text-sky-800 border-sky-200"
+        badgeClass="bg-sky-50 dark:bg-sky-950/60 text-sky-800 dark:text-sky-200 border-sky-200 dark:border-sky-800"
         title={`Bem-vindo(a), ${currentUser.nomeCompleto}`}
         subtitle="Acompanhamento de horários escolares, apoio às chamadas diárias, calendário e comunicados."
         configSistema={configSistema}
@@ -1984,7 +1984,7 @@ export const EstagiarioDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('presencas')}
-              className="px-3.5 py-2 text-xs font-bold text-sky-900 bg-sky-50 border border-sky-200 hover:bg-sky-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-sky-900 dark:text-sky-200 bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 dark:hover:bg-sky-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <ClipboardList className="h-4 w-4 shrink-0" />
               <span>Fichas de Presenças</span>
@@ -1992,9 +1992,9 @@ export const EstagiarioDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('calendario_escolar')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Calendar className="h-4 w-4 text-blue-600 shrink-0" />
+              <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Calendário Escolar</span>
             </button>
           </>
@@ -2002,20 +2002,20 @@ export const EstagiarioDashboard: React.FC<SharedRoleDashboardProps> = ({
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Aulas Hoje ({diaHoje})</span>
-          <div className="text-2xl font-black text-sky-700 mt-1 tabular-nums">{aulasHoje.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{horarios.length} tempos semanais na escola</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Aulas Hoje ({diaHoje})</span>
+          <div className="text-2xl font-black text-sky-700 dark:text-sky-400 mt-1 tabular-nums">{aulasHoje.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{horarios.length} tempos semanais na escola</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Chamadas Registadas Hoje</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{resumoAssiduidadeAlunos.turmasComChamadaHoje}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{resumoAssiduidadeAlunos.presentesHoje} presenças registadas</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Chamadas Registadas Hoje</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{resumoAssiduidadeAlunos.turmasComChamadaHoje}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{resumoAssiduidadeAlunos.presentesHoje} presenças registadas</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Avisos Recebidos</span>
-          <div className="text-2xl font-black text-slate-950 mt-1 tabular-nums">{mensagens.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">Comunicação institucional</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Avisos Recebidos</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-1 tabular-nums">{mensagens.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Comunicação institucional</div>
         </div>
       </div>
 
@@ -2056,7 +2056,7 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
     <div className="space-y-6">
       <RoleHeaderCard
         badge="Tecnologias de Informação (DTI)"
-        badgeClass="bg-slate-100 text-slate-800 border-slate-300"
+        badgeClass="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700"
         title={`Infraestrutura, Contas & Segurança · ${escola.nomeOficial}`}
         subtitle="Gestão de credenciais RBAC, cópias de segurança, sincronização offline-first e auditoria criptográfica."
         configSistema={configSistema}
@@ -2066,7 +2066,7 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('usuarios_perfis')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-slate-900 dark:bg-blue-700 hover:bg-slate-800 dark:hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
               <UserCog className="h-4 w-4 shrink-0" />
               <span>Usuários & Perfis</span>
@@ -2074,25 +2074,25 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
             <button
               type="button"
               onClick={() => onNavigate('apoio_tecnico')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-900 bg-slate-100 border border-slate-300 hover:bg-slate-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <LifeBuoy className="h-4 w-4 text-blue-600 shrink-0" />
+              <LifeBuoy className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               <span>Apoio Técnico DTI</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('backup_restauro')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Database className="h-4 w-4 text-emerald-600 shrink-0" />
+              <Database className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>Backup & Restauro</span>
             </button>
             <button
               type="button"
               onClick={() => onNavigate('auditoria_logs')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
             >
-              <ShieldCheck className="h-4 w-4 text-indigo-600 shrink-0" />
+              <ShieldCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Auditoria AES-256</span>
             </button>
           </>
@@ -2100,65 +2100,65 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
             <span>Sessões Online / 24h</span>
-            <Activity className="h-4 w-4 text-emerald-600" />
+            <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-slate-950 tabular-nums">{usuariosOnline.length}</span>
-            <span className="text-xs text-slate-500 tabular-nums">/ {usuarios24Horas.length} em 24h</span>
+            <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">{usuariosOnline.length}</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">/ {usuarios24Horas.length} em 24h</span>
           </div>
-          <button type="button" onClick={onOpenUsuariosModal} className="text-[11px] font-bold text-blue-700 hover:underline mt-1 cursor-pointer">
+          <button type="button" onClick={onOpenUsuariosModal} className="text-[11px] font-bold text-blue-700 dark:text-blue-400 hover:underline mt-1 cursor-pointer">
             Auditar sessões →
           </button>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Contas de Utilizador</span>
-          <div className="text-2xl font-black text-slate-950 mt-2 tabular-nums">{funcionarios.length}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{contasSuspensas} suspensa(s) / inativa(s)</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Contas de Utilizador</span>
+          <div className="text-2xl font-black text-slate-950 dark:text-white mt-2 tabular-nums">{funcionarios.length}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{contasSuspensas} suspensa(s) / inativa(s)</div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Armazenamento Local</span>
-          <div className="text-2xl font-black text-indigo-700 mt-2 font-mono tabular-nums">{statusBanco.tamanhoFormatado}</div>
-          <div className="text-[11px] text-slate-500 mt-1">{statusBanco.totalRegistos} registos em cache offline</div>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Armazenamento Local</span>
+          <div className="text-2xl font-black text-indigo-700 dark:text-indigo-400 mt-2 font-mono tabular-nums">{statusBanco.tamanhoFormatado}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{statusBanco.totalRegistos} registos em cache offline</div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-xs font-bold text-slate-600">Chamados Apoio DTI</span>
-          <div className={`text-2xl font-black mt-2 tabular-nums ${apoioAberto > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Chamados Apoio DTI</span>
+          <div className={`text-2xl font-black mt-2 tabular-nums ${apoioAberto > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
             {apoioAberto}
           </div>
-          <div className="text-[11px] text-slate-500 mt-1">{solicitacoesApoio.length} total registado</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{solicitacoesApoio.length} total registado</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <Server className="h-4 w-4 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <Server className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
               <span>Registos Recentes de Auditoria</span>
             </h3>
-            <button type="button" onClick={() => onNavigate('auditoria_logs')} className="text-xs font-bold text-blue-700 hover:underline cursor-pointer">
+            <button type="button" onClick={() => onNavigate('auditoria_logs')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
               Ver Logs →
             </button>
           </div>
           {logsRecentes.length === 0 ? (
-            <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-500">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
               Sem registos de auditoria nesta escola.
             </div>
           ) : (
             <div className="space-y-2 text-xs">
               {logsRecentes.map(l => (
-                <div key={l.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2">
+                <div key={l.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="font-bold text-slate-900 truncate">{l.acao}</div>
-                    <div className="text-[10px] text-slate-500 truncate">{l.utilizadorNome || l.usuarioNome} · {l.detalhe || l.detalhes}</div>
+                    <div className="font-bold text-slate-900 dark:text-slate-100 truncate">{l.acao}</div>
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{l.utilizadorNome || l.usuarioNome} · {l.detalhe || l.detalhes}</div>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-500 shrink-0">{(l.dataHora || '').slice(0, 16)}</span>
+                  <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0">{(l.dataHora || '').slice(0, 16)}</span>
                 </div>
               ))}
             </div>

@@ -1446,12 +1446,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-6">
       {/* Notificação Temporária de Sucesso */}
       {avisoSucesso && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center justify-between space-x-2">
-          <div className="flex items-center space-x-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center justify-between space-x-2">
+          <div className="flex items-center space-x-2 min-w-0">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>{avisoSucesso}</span>
           </div>
-          <button type="button" onClick={() => setAvisoSucesso(null)} className="text-emerald-700 hover:text-emerald-900 cursor-pointer">
+          <button type="button" onClick={() => setAvisoSucesso(null)} className="text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-emerald-100 cursor-pointer shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1459,12 +1459,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Notificação Temporária de Erro / Alerta */}
       {avisoErro && (
-        <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-xs font-bold text-red-900 flex items-center justify-between space-x-2">
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+        <div className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-800 rounded-xl text-xs font-bold text-red-900 dark:text-red-200 flex items-center justify-between space-x-2">
+          <div className="flex items-center space-x-2 min-w-0">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
             <span>{avisoErro}</span>
           </div>
-          <button type="button" onClick={() => setAvisoErro(null)} className="text-red-700 hover:text-red-900 cursor-pointer">
+          <button type="button" onClick={() => setAvisoErro(null)} className="text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100 cursor-pointer shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1559,32 +1559,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {alertasSeguranca.map((alerta) => (
             <div 
               key={alerta.id}
-              className="bg-red-50 border-2 border-red-500 rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all"
+              className="bg-red-50 dark:bg-red-950/40 border-2 border-red-500 dark:border-red-700 rounded-2xl p-4 sm:p-5 shadow-lg relative overflow-hidden transition-all"
             >
               {/* Faixa Superior de Alerta */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-red-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-red-200 dark:border-red-800/70">
                 <div className="flex items-center space-x-3">
                   <div className="h-10 w-10 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-md">
                     <ShieldAlert className="h-6 w-6" />
                   </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-red-600 text-white rounded-md shadow-xs">
                         Alerta Crítico de Segurança
                       </span>
-                      <span className="text-xs text-red-700 font-mono font-bold flex items-center">
-                        <Radio className="w-3 h-3 text-red-600 inline mr-1" />
+                      <span className="text-xs text-red-700 dark:text-red-300 font-mono font-bold flex items-center">
+                        <Radio className="w-3 h-3 text-red-600 dark:text-red-400 inline mr-1" />
                         Detetado em Tempo Real
                       </span>
                     </div>
-                    <h2 className="text-base sm:text-lg font-black text-red-950 mt-0.5">
+                    <h2 className="text-base sm:text-lg font-black text-red-950 dark:text-red-100 mt-0.5">
                       3 Tentativas Falhadas de Login Detectadas: Acesso Bloqueado
                     </h2>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <span className="px-3 py-1 bg-red-100 text-red-800 text-xs font-bold rounded-lg border border-red-300">
+                <div className="flex items-center space-x-2 shrink-0">
+                  <span className="px-3 py-1 bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200 text-xs font-bold rounded-lg border border-red-300 dark:border-red-700">
                     Penalidade Preventiva: 15 Minutos
                   </span>
                 </div>
@@ -1592,45 +1592,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Detalhes do Incidente */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 py-3 text-xs">
-                <div className="bg-white/90 p-3 rounded-xl border border-red-200">
-                  <span className="text-gray-500 block text-[11px] font-semibold">Utilizador Alvo / Conta</span>
-                  <span className="text-red-950 font-mono font-bold text-sm truncate block mt-0.5" title={alerta.identificador}>
+                <div className="bg-white/90 dark:bg-slate-900/80 p-3 rounded-xl border border-red-200 dark:border-red-800/60 min-w-0">
+                  <span className="text-gray-500 dark:text-slate-400 block text-[11px] font-semibold">Utilizador Alvo / Conta</span>
+                  <span className="text-red-950 dark:text-red-200 font-mono font-bold text-sm truncate block mt-0.5" title={alerta.identificador}>
                     {alerta.identificador}
                   </span>
                 </div>
 
-                <div className="bg-white/90 p-3 rounded-xl border border-red-200">
-                  <span className="text-gray-500 block text-[11px] font-semibold">Tentativas Registadas</span>
-                  <span className="text-red-950 font-bold text-sm block mt-0.5">
+                <div className="bg-white/90 dark:bg-slate-900/80 p-3 rounded-xl border border-red-200 dark:border-red-800/60">
+                  <span className="text-gray-500 dark:text-slate-400 block text-[11px] font-semibold">Tentativas Registadas</span>
+                  <span className="text-red-950 dark:text-red-200 font-bold text-sm block mt-0.5">
                     {alerta.tentativas} de 3 (Limite Excedido)
                   </span>
                 </div>
 
-                <div className="bg-white/90 p-3 rounded-xl border border-red-200">
-                  <span className="text-gray-500 block text-[11px] font-semibold">Endereço IP Registado</span>
-                  <span className="text-red-950 font-mono font-bold text-sm block mt-0.5">
+                <div className="bg-white/90 dark:bg-slate-900/80 p-3 rounded-xl border border-red-200 dark:border-red-800/60">
+                  <span className="text-gray-500 dark:text-slate-400 block text-[11px] font-semibold">Endereço IP Registado</span>
+                  <span className="text-red-950 dark:text-red-200 font-mono font-bold text-sm block mt-0.5">
                     {alerta.origemIP || '197.234.12.89'}
                   </span>
                 </div>
 
-                <div className="bg-white/90 p-3 rounded-xl border border-red-200">
-                  <span className="text-gray-500 block text-[11px] font-semibold">Hora da Ocorrência</span>
-                  <span className="text-red-950 font-bold text-sm block mt-0.5">
+                <div className="bg-white/90 dark:bg-slate-900/80 p-3 rounded-xl border border-red-200 dark:border-red-800/60">
+                  <span className="text-gray-500 dark:text-slate-400 block text-[11px] font-semibold">Hora da Ocorrência</span>
+                  <span className="text-red-950 dark:text-red-200 font-bold text-sm block mt-0.5">
                     {alerta.timestamp}
                   </span>
                 </div>
               </div>
 
-              <p className="text-xs text-red-900 bg-red-100/70 p-2.5 rounded-xl border border-red-200 mb-3">
+              <p className="text-xs text-red-900 dark:text-red-200 bg-red-100/70 dark:bg-red-900/40 p-2.5 rounded-xl border border-red-200 dark:border-red-800/60 mb-3">
                 <strong>Proteção Ministerial NIST SP 800-63B:</strong> O motor de segurança interrompeu tentativas consecutivas de intrusão com credenciais inválidas para proteger a integridade do sistema. Os dados confidenciais continuam blindados sob encriptação AES-256.
               </p>
 
               {/* Botões de Ação Imediata */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-red-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-red-200 dark:border-red-800/70">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => handleDesbloquearConta(alerta.identificador)}
-                    className="px-3.5 py-1.5 bg-red-700 hover:bg-red-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                    className="px-3.5 py-1.5 bg-red-700 hover:bg-red-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
                   >
                     <Unlock className="w-3.5 h-3.5" />
                     <span>Desbloquear Utilizador Imediatamente</span>
@@ -1639,9 +1639,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   {onOpenSecurityModal && (
                     <button
                       onClick={onOpenSecurityModal}
-                      className="px-3.5 py-1.5 bg-white hover:bg-red-50 text-red-800 border border-red-300 text-xs font-bold rounded-xl transition-colors flex items-center space-x-1.5"
+                      className="px-3.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-slate-700 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-700 text-xs font-bold rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
                     >
-                      <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                      <ShieldAlert className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
                       <span>Ver Enclave AES-256 & Telemetria</span>
                     </button>
                   )}
@@ -1649,7 +1649,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 <button
                   onClick={() => handleResolverAlerta(alerta.id)}
-                  className="px-3 py-1.5 text-xs text-red-700 hover:text-red-900 hover:underline font-semibold flex items-center space-x-1"
+                  className="px-3 py-1.5 text-xs text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100 hover:underline font-semibold flex items-center space-x-1 cursor-pointer"
                 >
                   <CheckCircle className="w-3.5 h-3.5" />
                   <span>Marcar Alerta como Analisado</span>
@@ -1732,30 +1732,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* PAINEL RESUMO GERAL DE TODAS AS ESCOLAS (SEM NAVEGAÇÃO INDIVIDUAL)       */}
           {/* ========================================================================= */}
           {resumoGeralRede && (
-            <div className="bg-white rounded-2xl border-2 border-blue-200 shadow-sm overflow-hidden">
-              <div className="bg-gradient-to-r from-slate-50 via-blue-50/70 to-indigo-50/60 p-5 border-b border-blue-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center space-x-2">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-blue-200 dark:border-blue-800/70 shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-slate-50 via-blue-50/70 to-indigo-50/60 dark:from-slate-900 dark:via-slate-800/80 dark:to-indigo-950/50 p-4 sm:p-5 border-b border-blue-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider bg-blue-700 text-white rounded-md">
                       Resumo Geral da Rede
                     </span>
-                    <span className="text-xs font-bold text-blue-900">
+                    <span className="text-xs font-bold text-blue-900 dark:text-blue-300">
                       Visão Agregada de {resumoGeralRede.totais.totalEscolas} Escola(s)
                     </span>
                   </div>
-                  <h2 className="text-base sm:text-lg font-black text-slate-900 mt-1">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
                     Consolidação Executiva: Alunos, Notas, Assiduidade e Pendências
                   </h2>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
                     Indicadores agregados em tempo real de todas as escolas cadastradas, sem necessidade de aceder individualmente a cada instituição.
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={handleExportarResumoGeralRedeExcel}
-                    className="px-3.5 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    className="px-3.5 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
                   >
                     <FileSpreadsheet className="h-3.5 w-3.5" />
                     <span>Exportar Resumo (.xlsx)</span>
@@ -1763,7 +1763,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <button
                     type="button"
                     onClick={() => onNavigate('estatisticas')}
-                    className="px-3.5 py-2 text-xs font-bold text-blue-800 bg-blue-100/80 hover:bg-blue-200/80 border border-blue-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    className="px-3.5 py-2 text-xs font-bold text-blue-800 dark:text-blue-200 bg-blue-100/80 dark:bg-blue-950/60 hover:bg-blue-200/80 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
                   >
                     <TrendingUp className="h-3.5 w-3.5" />
                     <span>Estatísticas Globais</span>
@@ -1771,7 +1771,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <button
                     type="button"
                     onClick={() => onNavigate('relatorios')}
-                    className="px-3.5 py-2 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                    className="px-3.5 py-2 text-xs font-bold text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
                   >
                     <FileText className="h-3.5 w-3.5" />
                     <span>Relatórios de Acontecimentos</span>
@@ -1780,53 +1780,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               {/* 4 Cartões Síntese do Resumo Geral */}
-              <div className="p-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 border-b border-slate-100">
-                <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200/80">
-                  <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+              <div className="p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60">
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-900 dark:text-blue-300">
                     <span>Total de Alunos na Rede</span>
-                    <Users className="h-4 w-4 text-blue-700" />
+                    <Users className="h-4 w-4 text-blue-700 dark:text-blue-400" />
                   </div>
                   <div className="mt-2 flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-slate-950">{resumoGeralRede.totais.totalAlunosRede}</span>
-                    <span className="text-xs font-bold text-emerald-700">{resumoGeralRede.totais.totalAtivosRede} ativos</span>
+                    <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">{resumoGeralRede.totais.totalAlunosRede}</span>
+                    <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{resumoGeralRede.totais.totalAtivosRede} ativos</span>
                   </div>
-                  <div className="mt-1.5 text-[11px] text-slate-600 flex items-center justify-between">
+                  <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between tabular-nums">
                     <span>M: {resumoGeralRede.totais.totalMRede} · F: {resumoGeralRede.totais.totalFRede}</span>
-                    <span className="text-amber-700 font-semibold">{resumoGeralRede.totais.totalDesistentesRede} desist.</span>
+                    <span className="text-amber-700 dark:text-amber-400 font-semibold">{resumoGeralRede.totais.totalDesistentesRede} desist.</span>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80">
-                  <div className="flex items-center justify-between text-xs font-bold text-amber-950">
+                <div className="p-4 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60">
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-950 dark:text-amber-300">
                     <span>Média Global de Notas</span>
-                    <Award className="h-4 w-4 text-amber-700" />
+                    <Award className="h-4 w-4 text-amber-700 dark:text-amber-400" />
                   </div>
                   <div className="mt-2 flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-slate-950">
+                    <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">
                       {resumoGeralRede.totais.mediaGlobal20 !== null ? `${resumoGeralRede.totais.mediaGlobal20}` : '—'}
                     </span>
-                    <span className="text-xs font-semibold text-slate-600">/ 20 val. (normalizada)</span>
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">/ 20 val. (normalizada)</span>
                   </div>
-                  <div className="mt-1.5 text-[11px] text-slate-600 flex items-center justify-between">
+                  <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between tabular-nums">
                     <span>
-                      Aprovação: <strong className="text-emerald-700">{resumoGeralRede.totais.taxaAprovacaoGlobal !== null ? `${resumoGeralRede.totais.taxaAprovacaoGlobal}%` : '—'}</strong>
+                      Aprovação: <strong className="text-emerald-700 dark:text-emerald-400">{resumoGeralRede.totais.taxaAprovacaoGlobal !== null ? `${resumoGeralRede.totais.taxaAprovacaoGlobal}%` : '—'}</strong>
                     </span>
                     <span>{resumoGeralRede.totais.totalNotasRede} pautas</span>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                <div className="p-4 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950 dark:text-emerald-300">
                     <span>Assiduidade Global</span>
-                    <CheckSquare className="h-4 w-4 text-emerald-700" />
+                    <CheckSquare className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
                   </div>
                   <div className="mt-2 flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-slate-950">
+                    <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">
                       {resumoGeralRede.totais.taxaAssiduidadeGlobal !== null ? `${resumoGeralRede.totais.taxaAssiduidadeGlobal}%` : '—'}
                     </span>
-                    <span className="text-xs font-semibold text-emerald-700">frequência média</span>
+                    <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">frequência média</span>
                   </div>
-                  <div className="mt-1.5 text-[11px] text-slate-600">
+                  <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400">
                     {resumoGeralRede.totais.totalPresencasRegistosRede > 0
                       ? `${resumoGeralRede.totais.totalPresencasRegistosRede} registos de chamada (alunos e pessoal)`
                       : 'Aguardando chamadas registadas nas escolas'}
@@ -1835,18 +1835,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 <div className={`p-4 rounded-xl border ${
                   resumoGeralRede.totais.totalPendencias > 0
-                    ? 'bg-red-50/70 border-red-200'
-                    : 'bg-slate-50 border-slate-200'
+                    ? 'bg-red-50/70 dark:bg-red-950/30 border-red-200 dark:border-red-800/60'
+                    : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
                 }`}>
-                  <div className="flex items-center justify-between text-xs font-bold text-red-950">
+                  <div className="flex items-center justify-between text-xs font-bold text-red-950 dark:text-red-200">
                     <span>Pendências Consolidadas</span>
-                    <AlertTriangle className={`h-4 w-4 ${resumoGeralRede.totais.totalPendencias > 0 ? 'text-red-600' : 'text-slate-400'}`} />
+                    <AlertTriangle className={`h-4 w-4 ${resumoGeralRede.totais.totalPendencias > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'}`} />
                   </div>
                   <div className="mt-2 flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-slate-950">{resumoGeralRede.totais.totalPendencias}</span>
-                    <span className="text-xs font-bold text-red-700">ocorrências pendentes</span>
+                    <span className="text-2xl font-black text-slate-950 dark:text-white tabular-nums">{resumoGeralRede.totais.totalPendencias}</span>
+                    <span className="text-xs font-bold text-red-700 dark:text-red-400">ocorrências pendentes</span>
                   </div>
-                  <div className="mt-1.5 text-[11px] text-slate-700 space-y-0.5">
+                  <div className="mt-1.5 text-[11px] text-slate-700 dark:text-slate-300 space-y-0.5">
                     <div>
                       {resumoGeralRede.totais.totalNotasPendentes} notas · {resumoGeralRede.totais.totalApoioPendente} apoio DTI · {resumoGeralRede.totais.escolasSemDiretor} s/ diretor · {resumoGeralRede.totais.escolasSemEstrutura} s/ ano ou turmas
                     </div>
@@ -1855,7 +1855,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               {/* Filtros do Resumo Geral por Escola */}
-              <div className="px-5 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="px-4 sm:px-5 py-3 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2.5 flex-1">
                   <div className="relative flex-1 min-w-[200px] max-w-xs">
                     <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -1864,30 +1864,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       value={resumoBusca}
                       onChange={(e) => setResumoBusca(e.target.value)}
                       placeholder="Filtrar escola, município ou diretor..."
-                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <select
                     value={resumoProvincia}
                     onChange={(e) => setResumoProvincia(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="TODAS">Todas as Províncias ({resumoGeralRede.provincias.length})</option>
                     {resumoGeralRede.provincias.map(p => (
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
-                  <label className="inline-flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer select-none bg-white px-3 py-1.5 rounded-lg border border-slate-300">
+                  <label className="inline-flex items-center space-x-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700">
                     <input
                       type="checkbox"
                       checked={resumoApenasPendencias}
                       onChange={(e) => setResumoApenasPendencias(e.target.checked)}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
                     />
                     <span>Apenas escolas com pendências</span>
                   </label>
                 </div>
-                <span className="text-[11px] font-bold text-slate-500">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
                   A apresentar {escolasResumoFiltradas.length} de {resumoGeralRede.escolasDetalhe.length} instituições
                 </span>
               </div>
@@ -1895,7 +1895,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {/* Tabela Consolidada do Resumo Geral por Escola */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200 uppercase">
+                  <thead className="bg-slate-100 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 uppercase">
                     <tr>
                       <th className="py-2.5 px-4">Instituição / Província</th>
                       <th className="py-2.5 px-4">Diretor Geral</th>
@@ -1905,60 +1905,60 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <th className="py-2.5 px-4">Pendências Identificadas</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {escolasResumoFiltradas.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-6 text-center text-slate-500 italic">
+                        <td colSpan={6} className="p-6 text-center text-slate-500 dark:text-slate-400 italic">
                           Nenhuma escola encontrada para os filtros aplicados no Resumo Geral.
                         </td>
                       </tr>
                     ) : (
                       escolasResumoFiltradas.map(item => (
-                        <tr key={`resumo-${item.escola.id}`} className="hover:bg-blue-50/30 transition-colors">
+                        <tr key={`resumo-${item.escola.id}`} className="hover:bg-blue-50/30 dark:hover:bg-slate-800/60 transition-colors">
                           <td className="py-2.5 px-4">
-                            <div className="font-bold text-slate-900">{item.escola.nomeOficial}</div>
-                            <div className="text-[11px] text-slate-500">
+                            <div className="font-bold text-slate-900 dark:text-slate-100">{item.escola.nomeOficial}</div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
                               {item.escola.codigoEscola || 'MED'} · {item.escola.provincia || '—'}{item.escola.municipio ? `, ${item.escola.municipio}` : ''} · {item.turmasCount} turmas
                             </div>
                           </td>
                           <td className="py-2.5 px-4">
-                            <span className={item.temDiretor ? 'font-semibold text-slate-800' : 'font-bold text-amber-700'}>
+                            <span className={item.temDiretor ? 'font-semibold text-slate-800 dark:text-slate-200' : 'font-bold text-amber-700 dark:text-amber-400'}>
                               {item.diretorNome}
                             </span>
                           </td>
-                          <td className="py-2.5 px-4 text-center">
-                            <div className="font-black text-slate-900">{item.totalAlunos}</div>
-                            <div className="text-[10px] text-slate-500">{item.alunosAtivos} ativos · M:{item.alunosM} F:{item.alunosF}</div>
+                          <td className="py-2.5 px-4 text-center tabular-nums">
+                            <div className="font-black text-slate-900 dark:text-white">{item.totalAlunos}</div>
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400">{item.alunosAtivos} ativos · M:{item.alunosM} F:{item.alunosF}</div>
                           </td>
-                          <td className="py-2.5 px-4 text-center">
+                          <td className="py-2.5 px-4 text-center tabular-nums">
                             {item.mediaEscola20 !== null ? (
                               <div>
-                                <span className={`font-black ${item.mediaEscola20 >= 10 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                <span className={`font-black ${item.mediaEscola20 >= 10 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
                                   {item.mediaEscola20} / 20
                                 </span>
-                                <div className="text-[10px] text-slate-500">{item.taxaAprovacaoEscola}% aprov.</div>
+                                <div className="text-[10px] text-slate-500 dark:text-slate-400">{item.taxaAprovacaoEscola}% aprov.</div>
                               </div>
                             ) : (
-                              <span className="text-[11px] text-slate-400">Sem notas</span>
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500">Sem notas</span>
                             )}
                           </td>
-                          <td className="py-2.5 px-4 text-center">
+                          <td className="py-2.5 px-4 text-center tabular-nums">
                             {item.taxaAssiduidadeEscola !== null ? (
                               <div>
-                                <span className={`font-black ${item.taxaAssiduidadeEscola >= 80 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                <span className={`font-black ${item.taxaAssiduidadeEscola >= 80 ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
                                   {item.taxaAssiduidadeEscola}%
                                 </span>
-                                <div className="text-[10px] text-slate-500">{item.totalPresencasCount} reg.</div>
+                                <div className="text-[10px] text-slate-500 dark:text-slate-400">{item.totalPresencasCount} reg.</div>
                               </div>
                             ) : (
-                              <span className="text-[11px] text-slate-400">Sem reg.</span>
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500">Sem reg.</span>
                             )}
                           </td>
                           <td className="py-2.5 px-4">
                             {item.pendenciasLista.length === 0 ? (
-                              <span className="text-[11px] font-bold text-emerald-700">Sem pendências</span>
+                              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">Sem pendências</span>
                             ) : (
-                              <span className="text-[11px] font-semibold text-red-700">
+                              <span className="text-[11px] font-semibold text-red-700 dark:text-red-400">
                                 {item.pendenciasLista.join(' · ')}
                               </span>
                             )}
@@ -1974,87 +1974,87 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* 4 INDICADORES OPERACIONAIS DA REDE NACIONAL */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Rede de Escolas Cadastradas</span>
-                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Rede de Escolas Cadastradas</span>
+                <div className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 flex items-center justify-center shrink-0">
                   <Building2 className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950 tabular-nums">{todasEscolas.length}</span>
-                <span className="text-xs text-emerald-700 font-bold tabular-nums">
+                <span className="text-2xl font-black text-gray-950 dark:text-white tabular-nums">{todasEscolas.length}</span>
+                <span className="text-xs text-emerald-700 dark:text-emerald-400 font-bold tabular-nums">
                   {todasEscolas.filter(e => e.ativo && e.estadoEscola !== 'Suspensa').length} ativas
                 </span>
               </div>
-              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
+              <div className="mt-1 text-[11px] text-gray-500 dark:text-slate-400 flex items-center justify-between">
                 <span className="tabular-nums">{todasEscolas.filter(e => !e.ativo || e.estadoEscola === 'Suspensa').length} suspensas</span>
                 <button
                   type="button"
                   onClick={() => onNavigate('admin_escolas')}
-                  className="text-blue-700 hover:underline font-semibold cursor-pointer"
+                  className="text-blue-700 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
                 >
                   Gerir instituições →
                 </button>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Corpo Docente & RH Global</span>
-                <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Corpo Docente & RH Global</span>
+                <div className="h-8 w-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 flex items-center justify-center shrink-0">
                   <UserCheck className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950 tabular-nums">{todosFuncionarios.length}</span>
-                <span className="text-xs text-indigo-700 font-bold tabular-nums">
+                <span className="text-2xl font-black text-gray-950 dark:text-white tabular-nums">{todosFuncionarios.length}</span>
+                <span className="text-xs text-indigo-700 dark:text-indigo-400 font-bold tabular-nums">
                   {todosFuncionarios.filter(f => f.ehProfessor).length} professores
                 </span>
               </div>
-              <div className="mt-1 text-[11px] text-gray-500">
+              <div className="mt-1 text-[11px] text-gray-500 dark:text-slate-400">
                 Diretores, subdiretores, docentes e técnicos
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-emerald-300 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-emerald-300 dark:border-emerald-700 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-700">Utilizadores Online</span>
+                <span className="text-xs font-bold text-gray-700 dark:text-slate-200">Utilizadores Online</span>
                 <span className="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950 tabular-nums">{usuariosOnline.length}</span>
-                <span className="text-[11px] text-emerald-700 font-bold uppercase tracking-wider">Em Direto</span>
+                <span className="text-2xl font-black text-gray-950 dark:text-white tabular-nums">{usuariosOnline.length}</span>
+                <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wider">Em Direto</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Toda a rede SGE</span>
+                <span className="text-gray-500 dark:text-slate-400">Toda a rede SGE</span>
                 <button
                   type="button"
                   onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-blue-700 font-bold hover:underline cursor-pointer"
+                  className="text-blue-700 dark:text-blue-400 font-bold hover:underline cursor-pointer"
                 >
                   Ver Lista →
                 </button>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Acessos 24 Horas</span>
-                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Acessos 24 Horas</span>
+                <div className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 flex items-center justify-center shrink-0">
                   <Activity className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950 tabular-nums">{usuarios24Horas.length}</span>
-                <span className="text-xs text-blue-700 font-bold">ativos</span>
+                <span className="text-2xl font-black text-gray-950 dark:text-white tabular-nums">{usuarios24Horas.length}</span>
+                <span className="text-xs text-blue-700 dark:text-blue-400 font-bold">ativos</span>
               </div>
-              <div className="mt-1 text-[11px] text-gray-500 flex items-center justify-between">
+              <div className="mt-1 text-[11px] text-gray-500 dark:text-slate-400 flex items-center justify-between">
                 <span className="tabular-nums">{todasEscolas.length} instituições</span>
                 <button
                   type="button"
                   onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-blue-700 font-bold hover:underline cursor-pointer"
+                  className="text-blue-700 dark:text-blue-400 font-bold hover:underline cursor-pointer"
                 >
                   Auditar →
                 </button>
@@ -2065,18 +2065,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* GRÁFICOS E DETALHES DE ESTADO DO SISTEMA NACIONAL */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Gráfico 1: Distribuição de Alunos por Nível de Ensino */}
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs lg:col-span-3 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+            <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 dark:border-slate-800 shadow-xs lg:col-span-3 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
                 <div>
-                  <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                    <BarChart3 className="h-4 w-4 text-blue-600" />
+                  <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+                    <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <span>Distribuição Nacional por Nível de Ensino (MED Angola)</span>
                   </h3>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
                     Contingente discente matriculado e taxa de ocupação por subsistema de ensino.
                   </p>
                 </div>
-                <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 self-start sm:self-auto">
+                <span className="text-[11px] font-bold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-full border border-blue-200 dark:border-blue-800 self-start sm:self-auto tabular-nums">
                   {todosAlunos.length} Alunos Totais
                 </span>
               </div>
@@ -2084,29 +2084,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {/* Barras de Distribuição Real */}
               <div className="space-y-3.5 pt-1">
                 {todosAlunos.length === 0 ? (
-                  <div className="py-6 px-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center space-y-2">
-                    <BookOpen className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="text-xs font-bold text-slate-700">Sem alunos cadastrados no sistema nacional</p>
-                    <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                  <div className="py-6 px-4 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-center space-y-2">
+                    <BookOpen className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Sem alunos cadastrados no sistema nacional</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
                       A distribuição e percentagens por subsistema de ensino serão calculadas automaticamente e em tempo real assim que as instituições registarem turmas e matrículas.
                     </p>
                   </div>
                 ) : (
                   distribuicaoNacionalPorNivel.map((item, idx) => (
                     <div key={idx} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-gray-800">{item.nivel}</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${item.fundo} ${item.borda} text-gray-700`}>
+                      <div className="flex items-center justify-between text-xs gap-2">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <span className="font-bold text-gray-800 dark:text-slate-200">{item.nivel}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${item.fundo} ${item.borda} text-gray-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300`}>
                             {item.meta}
                           </span>
                         </div>
-                        <div className="text-right font-mono">
-                          <strong className="text-gray-950 font-bold">{item.total}</strong>
-                          <span className="text-gray-500 ml-1">({item.percent}%)</span>
+                        <div className="text-right font-mono shrink-0 tabular-nums">
+                          <strong className="text-gray-950 dark:text-white font-bold">{item.total}</strong>
+                          <span className="text-gray-500 dark:text-slate-400 ml-1">({item.percent}%)</span>
                         </div>
                       </div>
-                      <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden p-0.5 border border-gray-200/60">
+                      <div className="w-full bg-gray-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-gray-200/60 dark:border-slate-700">
                         <div 
                           className={`h-full rounded-full ${item.cor} transition-all duration-700`}
                           style={{ width: `${item.percent}%` }}
@@ -2118,18 +2118,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               {/* Gráfico 2: Fluxo Semanal de Autenticações & Segurança */}
-              <div className="pt-4 border-t border-gray-100">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
-                    <Activity className="w-3.5 h-3.5 text-indigo-600" />
+              <div className="pt-4 border-t border-gray-100 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                  <div className="text-xs font-bold text-gray-800 dark:text-slate-200 flex items-center space-x-1.5">
+                    <Activity className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Fluxo Semanal de Autenticações & Segurança (NIST SP 800-63B)</span>
                   </div>
                   <div className="flex items-center space-x-3 text-[10px]">
-                    <span className="flex items-center space-x-1 text-blue-700 font-semibold">
+                    <span className="flex items-center space-x-1 text-blue-700 dark:text-blue-400 font-semibold">
                       <span className="w-2.5 h-2.5 rounded-xs bg-blue-600 inline-block" />
                       <span>Acessos Válidos</span>
                     </span>
-                    <span className="flex items-center space-x-1 text-red-600 font-semibold">
+                    <span className="flex items-center space-x-1 text-red-600 dark:text-red-400 font-semibold">
                       <span className="w-2.5 h-2.5 rounded-xs bg-red-500 inline-block" />
                       <span>Tentativas Bloqueadas</span>
                     </span>
@@ -2188,7 +2188,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   title={`${bar.val} acessos autorizados`}
                                 />
                               ) : (
-                                <div className="w-full max-w-[20px] bg-gray-100 rounded-t-sm h-1" />
+                                <div className="w-full max-w-[20px] bg-gray-100 dark:bg-slate-800 rounded-t-sm h-1" />
                               )}
                               {bar.err > 0 && (
                                 <div 
@@ -2198,7 +2198,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 />
                               )}
                             </div>
-                            <span className="text-[10px] font-bold text-gray-500 group-hover:text-gray-900">
+                            <span className="text-[10px] font-bold text-gray-500 dark:text-slate-400 group-hover:text-gray-900 dark:group-hover:text-white">
                               {bar.dia}
                             </span>
                           </div>
@@ -2215,25 +2215,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* PAINEL DE GRÁFICOS RECHARTS DO ADMINISTRADOR GERAL (MED ANGOLA) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Gráfico A: Escolas por Província */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                    <Building2 className="h-4 w-4 text-blue-600" />
-                    <span>Rede Escolar por Província</span>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="min-w-0">
+                  <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                    <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span className="truncate">Rede Escolar por Província</span>
                   </h4>
-                  <p className="text-xs text-gray-500">Distribuição de instituições em território nacional</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Distribuição de instituições em território nacional</p>
                 </div>
-                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full tabular-nums">
+                <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-full tabular-nums shrink-0">
                   {todasEscolas.length} Escolas
                 </span>
               </div>
               <div className="h-56 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosEscolasPorProvincia}>
-                    <XAxis dataKey="provincia" stroke="#6b7280" fontSize={10} />
-                    <YAxis stroke="#6b7280" fontSize={10} allowDecimals={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                    <XAxis dataKey="provincia" stroke="#94a3b8" fontSize={10} />
+                    <YAxis stroke="#94a3b8" fontSize={10} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                     <Bar dataKey="total" name="N.º de Escolas" fill="#2563eb" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -2241,13 +2241,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* Gráfico B: Estado da Rede (Ativas vs Suspensas) */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs flex flex-col justify-between">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs flex flex-col justify-between min-w-0">
               <div>
-                <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                  <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <span>Estado Operacional das Escolas</span>
                 </h4>
-                <p className="text-xs text-gray-500">Conformidade e regularidade institucional</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400">Conformidade e regularidade institucional</p>
                 <div className="h-44 w-full mt-2">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -2264,36 +2264,36 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <Cell key={`cell-status-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-center text-xs">
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-slate-800 text-center text-xs">
                 {dadosStatusEscolas.map(item => (
-                  <div key={item.name} className="p-1.5 rounded-lg bg-gray-50">
+                  <div key={item.name} className="p-1.5 rounded-lg bg-gray-50 dark:bg-slate-800/70">
                     <span className="h-2 w-2 rounded-full inline-block mr-1" style={{ backgroundColor: item.color }} />
-                    <span className="font-bold text-gray-800 text-[11px]">{item.name}</span>
-                    <div className="font-black text-gray-950 mt-0.5 tabular-nums">{item.value}</div>
+                    <span className="font-bold text-gray-800 dark:text-slate-200 text-[11px]">{item.name}</span>
+                    <div className="font-black text-gray-950 dark:text-white mt-0.5 tabular-nums">{item.value}</div>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Gráfico C: Chamados de Apoio Técnico Ministerial */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                    <HeartHandshake className="h-4 w-4 text-amber-600" />
-                    <span>Apoio Técnico aos Diretores</span>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="min-w-0">
+                  <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                    <HeartHandshake className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="truncate">Apoio Técnico aos Diretores</span>
                   </h4>
-                  <p className="text-xs text-gray-500">Pedidos formais de intervenção recebidos</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Pedidos formais de intervenção recebidos</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => onNavigate('apoio_tecnico')}
-                  className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
+                  className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer shrink-0"
                 >
                   Central →
                 </button>
@@ -2301,9 +2301,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="h-56 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosApoioTecnicoStatus}>
-                    <XAxis dataKey="name" stroke="#6b7280" fontSize={10} />
-                    <YAxis stroke="#6b7280" fontSize={10} allowDecimals={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} />
+                    <YAxis stroke="#94a3b8" fontSize={10} allowDecimals={false} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                     <Bar dataKey="value" name="Chamados">
                       {dadosApoioTecnicoStatus.map((entry, index) => (
                         <Cell key={`cell-status-${index}`} fill={entry.color} />
@@ -2316,20 +2316,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Tabela de Visão Geral das Escolas e Diretores Nomeados */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <Building2 className="h-4 w-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+                  <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   <span>Quadro Geral das Instituições de Ensino da Rede</span>
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-slate-400">
                   Estado administrativo, Diretores Gerais em exercício e contingente escolar.
                 </p>
               </div>
               <button
                 onClick={() => onNavigate('admin_escolas')}
-                className="inline-flex items-center space-x-1 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                className="inline-flex items-center space-x-1 px-3 py-1.5 text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors cursor-pointer self-start sm:self-auto"
               >
                 <span>Abrir Gestão de Escolas & Diretores</span>
                 <ArrowUpRight className="h-3.5 w-3.5" />
@@ -2338,7 +2338,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-gray-50 text-[11px] font-bold text-gray-600 border-b border-gray-200">
+                <thead className="bg-gray-50 dark:bg-slate-800 text-[11px] font-bold text-gray-600 dark:text-slate-300 border-b border-gray-200 dark:border-slate-700">
                   <tr>
                     <th className="py-2.5 px-4">Código / Província</th>
                     <th className="py-2.5 px-4">Nome da Instituição</th>
@@ -2348,7 +2348,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <th className="py-2.5 px-4 text-right">Ação</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                   {todasEscolas.map((esc) => {
                     const isSusp = esc.estadoEscola === 'Suspensa' || !esc.ativo;
                     const alunosDestaEscola = todosAlunos.filter(a => a.escolaId === esc.id);
@@ -2364,46 +2364,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         : '');
 
                     return (
-                      <tr key={esc.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-gray-700">
+                      <tr key={esc.id} className="hover:bg-gray-50/80 dark:hover:bg-slate-800/60 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-gray-700 dark:text-slate-300">
                           <div>{esc.codigoEscola || 'MED-ESC'}</div>
-                          <div className="text-[10px] text-gray-500 font-sans font-normal">{esc.provincia || 'Luanda'}</div>
+                          <div className="text-[10px] text-gray-500 dark:text-slate-400 font-sans font-normal">{esc.provincia || 'Luanda'}</div>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="font-bold text-gray-900">{esc.nomeOficial}</div>
-                          <div className="text-[11px] text-gray-500">{esc.municipio || ''} · {esc.anoLectivoActivo}</div>
+                          <div className="font-bold text-gray-900 dark:text-white">{esc.nomeOficial}</div>
+                          <div className="text-[11px] text-gray-500 dark:text-slate-400">{esc.municipio || ''} · {esc.anoLectivoActivo}</div>
                         </td>
                         <td className="py-3 px-4">
                           {diretor ? (
                             <div>
-                              <div className="font-bold text-gray-900">{diretor.nomeCompleto}</div>
-                              <div className="text-[10px] text-gray-500 font-mono">
+                              <div className="font-bold text-gray-900 dark:text-slate-100">{diretor.nomeCompleto}</div>
+                              <div className="text-[10px] text-gray-500 dark:text-slate-400 font-mono">
                                 {diretor.numeroBI ? `BI: ${diretor.numeroBI}` : (diretor.email || 'Diretor Registado')}
                               </div>
                             </div>
                           ) : nomeDiretorRegistado ? (
                             <div>
-                              <div className="font-bold text-gray-900">{nomeDiretorRegistado}</div>
-                              <div className="text-[10px] text-emerald-700 font-medium">
+                              <div className="font-bold text-gray-900 dark:text-slate-100">{nomeDiretorRegistado}</div>
+                              <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">
                                 {esc.diretorGeralEmail || 'Diretor Registado na Escola'}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                               Pendente de Nomeação
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-4 font-medium text-gray-700">
+                        <td className="py-3 px-4 font-medium text-gray-700 dark:text-slate-300 tabular-nums">
                           <span>{alunosDestaEscola.length} alunos</span>
-                          <span className="text-gray-400 mx-1">·</span>
+                          <span className="text-gray-400 dark:text-slate-500 mx-1">·</span>
                           <span>{turmasDestaEscola.length} turmas</span>
                         </td>
                         <td className="py-3 px-4">
                           <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                             isSusp 
-                              ? 'bg-red-50 text-red-700 border-red-200' 
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              ? 'bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800' 
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                           }`}>
                             {isSusp ? 'Suspensa' : 'Ativa & Homologada'}
                           </span>
@@ -2413,7 +2413,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             {diretor && (
                               <button
                                 onClick={() => handleAbrirModalSenhaDiretor(esc)}
-                                className="px-2 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shadow-2xs"
+                                className="px-2 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shadow-2xs"
                                 title={`Alterar Palavra-passe do Diretor Geral (${diretor.nomeCompleto})`}
                               >
                                 <Key className="h-3 w-3" />
@@ -2422,7 +2422,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             )}
                             <button
                               onClick={() => onNavigate('admin_escolas')}
-                              className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline px-2 py-1"
+                              className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 hover:underline px-2 py-1 cursor-pointer"
                             >
                               Inspecionar
                             </button>
@@ -2439,79 +2439,79 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* INFRAESTRUTURA TÉCNICA, AUDITORIA & RESET DE BLOQUEIOS */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-white p-5 rounded-xl border border-gray-200 shadow-xs space-y-4">
-              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-                <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center space-x-2">
-                  <Server className="h-4 w-4 text-indigo-600" />
+            <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 dark:border-slate-800 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
+                <h3 className="text-xs font-black uppercase tracking-wider text-gray-700 dark:text-slate-200 flex items-center space-x-2">
+                  <Server className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   <span>Auditoria, Integridade & Infraestrutura Global</span>
                 </h3>
                 <button
                   type="button"
                   onClick={() => onNavigate('auditoria_logs')}
-                  className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                  className="text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto"
                 >
                   Ver registos de auditoria completos →
                 </button>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block font-semibold">Tamanho Local</span>
-                  <strong className="text-slate-900 text-sm font-mono font-bold block mt-0.5 tabular-nums">
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-semibold">Tamanho Local</span>
+                  <strong className="text-slate-900 dark:text-white text-sm font-mono font-bold block mt-0.5 tabular-nums">
                     {statusBanco.tamanhoFormatado}
                   </strong>
-                  <span className="text-[9.5px] text-emerald-700 font-semibold">IndexedDB Ativo</span>
+                  <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-semibold">IndexedDB Ativo</span>
                 </div>
 
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block font-semibold">Registos Ativos</span>
-                  <strong className="text-slate-900 text-sm font-mono font-bold block mt-0.5 tabular-nums">
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-semibold">Registos Ativos</span>
+                  <strong className="text-slate-900 dark:text-white text-sm font-mono font-bold block mt-0.5 tabular-nums">
                     {statusBanco.totalRegistos}
                   </strong>
-                  <span className="text-[9.5px] text-blue-700 font-semibold">Coleções OK</span>
+                  <span className="text-[9.5px] text-blue-700 dark:text-blue-400 font-semibold">Coleções OK</span>
                 </div>
 
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block font-semibold">Cifra Central</span>
-                  <strong className="text-indigo-900 text-xs font-mono font-bold block mt-0.5">
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-semibold">Cifra Central</span>
+                  <strong className="text-indigo-900 dark:text-indigo-300 text-xs font-mono font-bold block mt-0.5">
                     AES-256-GCM
                   </strong>
-                  <span className="text-[9.5px] text-indigo-700 font-semibold">PBKDF2 100k</span>
+                  <span className="text-[9.5px] text-indigo-700 dark:text-indigo-400 font-semibold">PBKDF2 100k</span>
                 </div>
 
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block font-semibold">Mitigação Força Bruta</span>
-                  <strong className="text-emerald-900 text-xs font-mono font-bold block mt-0.5">
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-semibold">Mitigação Força Bruta</span>
+                  <strong className="text-emerald-900 dark:text-emerald-300 text-xs font-mono font-bold block mt-0.5">
                     Regra 3 Tentativas
                   </strong>
-                  <span className="text-[9.5px] text-emerald-700 font-semibold">Zero-Bypass</span>
+                  <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-semibold">Zero-Bypass</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="font-semibold text-slate-700">Modo de Operação Offline</div>
-                  <div className="text-sm font-black text-emerald-700 mt-1 flex items-center space-x-1">
-                    <ShieldCheck className="h-4 w-4" />
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="font-semibold text-slate-700 dark:text-slate-200">Modo de Operação Offline</div>
+                  <div className="text-sm font-black text-emerald-700 dark:text-emerald-400 mt-1 flex items-center space-x-1">
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
                     <span>IndexedDB + Journal Ativo</span>
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">Sem perda de dados mesmo sem conexão</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Sem perda de dados mesmo sem conexão</div>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="font-semibold text-slate-700">Sincronização Central</div>
-                  <div className="text-sm font-black text-blue-700 mt-1 flex items-center space-x-1">
-                    <Activity className="h-4 w-4" />
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="font-semibold text-slate-700 dark:text-slate-200">Sincronização Central</div>
+                  <div className="text-sm font-black text-blue-700 dark:text-blue-400 mt-1 flex items-center space-x-1">
+                    <Activity className="h-4 w-4 shrink-0" />
                     <span>Conectado ao Cloud Hub</span>
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">Replicação periódica com controle de versão</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Replicação periódica com controle de versão</div>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="font-semibold text-slate-700">Controle de Credenciais</div>
-                  <div className="text-sm font-black text-indigo-700 mt-1 flex items-center space-x-1">
-                    <Key className="h-4 w-4" />
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="font-semibold text-slate-700 dark:text-slate-200">Controle de Credenciais</div>
+                  <div className="text-sm font-black text-indigo-700 dark:text-indigo-400 mt-1 flex items-center space-x-1">
+                    <Key className="h-4 w-4 shrink-0" />
                     <span>RBAC Estrito MED</span>
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">Admin Geral, Diretores e Professores segregados</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Admin Geral, Diretores e Professores segregados</div>
                 </div>
               </div>
             </div>
@@ -2568,33 +2568,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {isDiretor && (
         <div className="space-y-6">
           {/* Banner da Direção Escolar */}
-          <div className="bg-white border-2 border-blue-600 rounded-2xl p-6 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex items-start sm:items-center space-x-4">
-              <div className="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 shrink-0 shadow-2xs flex items-center justify-center">
+          <div className="bg-white dark:bg-slate-900 border-2 border-blue-600 dark:border-blue-500/80 rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center space-x-4 min-w-0">
+              <div className="p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0 shadow-2xs flex items-center justify-center">
                 <InsigniaAngola 
                   size={48} 
                   customUrl={configSistema.insigniaNacionalUrl} 
                   className="object-contain" 
                 />
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
                     {currentUser.cargo || 'Diretor Geral'}
                   </span>
-                  <span className="text-xs text-gray-500 font-semibold">{escola.nomeOficial}</span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold truncate">{escola.nomeOficial}</span>
                 </div>
-                <h1 className="text-xl sm:text-2xl font-black text-gray-900 mt-1">
+                <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white mt-1">
                   Gabinete da Direção Geral · {escola.nomeOficial}
                 </h1>
-                <p className="text-xs sm:text-sm text-gray-600 mt-0.5">
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 mt-0.5">
                   Ano Lectivo {escola.anoLectivoActivo} · {escola.trimestreActivo}º Trimestre · Despacho MED: {escola.codigoEscola || '1045'}
                 </p>
               </div>
             </div>
 
             {/* Ações Executivas Prioritárias do Diretor Geral */}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => onNavigate('direcao')}
@@ -2606,33 +2606,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigate('pautas')}
-                className="px-3.5 py-2 text-xs font-bold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-bold text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <FileText className="h-4 w-4 text-blue-700 shrink-0" />
+                <FileText className="h-4 w-4 text-blue-700 dark:text-blue-400 shrink-0" />
                 <span>Pautas Gerais</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate('estatisticas')}
-                className="px-3.5 py-2 text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <BarChart3 className="h-4 w-4 text-indigo-700 shrink-0" />
+                <BarChart3 className="h-4 w-4 text-indigo-700 dark:text-indigo-400 shrink-0" />
                 <span>Estatísticas</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate('relatorios')}
-                className="px-3.5 py-2 text-xs font-bold text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-bold text-gray-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <FileSpreadsheet className="h-4 w-4 text-slate-700 shrink-0" />
+                <FileSpreadsheet className="h-4 w-4 text-slate-700 dark:text-slate-300 shrink-0" />
                 <span>Relatórios</span>
               </button>
               <button
                 type="button"
                 onClick={() => onNavigate('pagamentos')}
-                className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
               >
-                <DollarSign className="h-4 w-4 text-emerald-700 shrink-0" />
+                <DollarSign className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                 <span>Pagamentos</span>
               </button>
             </div>
@@ -2640,14 +2640,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* ALERTA PRIORITÁRIO: Solicitações de Alteração de Notas Pendentes */}
           {solicitacoesPendentesDiretor.length > 0 && (
-            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start space-x-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div>
-                  <h3 className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                  <h3 className="text-xs font-black text-amber-950 dark:text-amber-200 uppercase tracking-wide">
                     {solicitacoesPendentesDiretor.length} Solicitação(ões) de Alteração de Nota Aguardando Decisão
                   </h3>
-                  <p className="text-xs text-amber-900 mt-0.5">
+                  <p className="text-xs text-amber-900 dark:text-amber-300/90 mt-0.5">
                     Existem pedidos submetidos por docentes para retificação ou lançamento extraordinário de notas pendentes de aprovação na Coordenação.
                   </p>
                 </div>
@@ -2675,24 +2675,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               const pctRaparigas = alunosAno.length > 0 ? Math.round((raparigas / alunosAno.length) * 100) : 0;
 
               return (
-                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-gray-600">Matriculados ({anoActivo || 'Ativo'})</span>
-                    <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
+                    <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Matriculados ({anoActivo || 'Ativo'})</span>
+                    <div className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 flex items-center justify-center shrink-0">
                       <Users className="h-4 w-4" />
                     </div>
                   </div>
                   <div className="mt-2 flex items-baseline space-x-2">
-                    <span className="text-2xl font-black text-gray-950 tabular-nums">{alunosAno.length}</span>
-                    <span className="text-xs text-emerald-700 font-semibold tabular-nums">
+                    <span className="text-2xl font-black text-gray-950 dark:text-white tabular-nums">{alunosAno.length}</span>
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold tabular-nums">
                       {alunosAno.filter(a => a.estado === 'Ativo').length} ativos · {turmas.length} turmas
                     </span>
                   </div>
                   <div className="mt-2 flex items-center justify-between text-[11px] font-semibold tabular-nums">
-                    <span className="text-blue-800">M: {rapazes} ({pctRapazes}%)</span>
-                    <span className="text-rose-700">F: {raparigas} ({pctRaparigas}%)</span>
+                    <span className="text-blue-800 dark:text-blue-400">M: {rapazes} ({pctRapazes}%)</span>
+                    <span className="text-rose-700 dark:text-rose-400">F: {raparigas} ({pctRaparigas}%)</span>
                   </div>
-                  <div className="mt-1 w-full bg-rose-200 h-1.5 rounded-full overflow-hidden flex">
+                  <div className="mt-1 w-full bg-rose-200 dark:bg-rose-950/70 h-1.5 rounded-full overflow-hidden flex">
                     <div className="bg-blue-600 h-full transition-all" style={{ width: `${pctRapazes}%` }} />
                     <div className="bg-rose-500 h-full transition-all" style={{ width: `${pctRaparigas}%` }} />
                   </div>
@@ -2700,48 +2700,48 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               );
             })()}
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Taxa de Aproveitamento</span>
-                <div className="h-8 w-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Taxa de Aproveitamento</span>
+                <div className="h-8 w-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0">
                   <Award className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-emerald-700 tabular-nums">
+                <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
                   {alunosComNota.length > 0 ? `${taxaAprovacaoEscola}%` : '—'}
                 </span>
-                <span className="text-xs text-gray-500 font-semibold">Positivos</span>
+                <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold">Positivos</span>
               </div>
-              <div className="mt-1.5 text-[11px] text-gray-500 flex items-center justify-between">
+              <div className="mt-1.5 text-[11px] text-gray-500 dark:text-slate-400 flex items-center justify-between">
                 <span>
                   {alunosComNota.length > 0 && melhoresAlunos.length > 0
                     ? `Melhor média: ${melhoresAlunos[0].media} val.`
                     : 'Aguardando pautas da escola'}
                 </span>
-                <span className="text-red-600 font-bold tabular-nums">{alunosEmRisco.length} em alerta</span>
+                <span className="text-red-600 dark:text-red-400 font-bold tabular-nums">{alunosEmRisco.length} em alerta</span>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-teal-300 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-teal-300 dark:border-teal-700 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-700">Assiduidade Diária</span>
-                <div className="h-8 w-8 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center">
+                <span className="text-xs font-bold text-gray-700 dark:text-slate-200">Assiduidade Diária</span>
+                <div className="h-8 w-8 rounded-lg bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-400 flex items-center justify-center shrink-0">
                   <Calendar className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-teal-700 tabular-nums">
+                <span className="text-2xl font-black text-teal-700 dark:text-teal-400 tabular-nums">
                   {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}%` : '—'}
                 </span>
-                <span className="text-xs text-gray-500 font-semibold tabular-nums">
+                <span className="text-xs text-gray-500 dark:text-slate-400 font-semibold tabular-nums">
                   {resumoAssiduidadeAlunos.registosHoje > 0
                     ? `${resumoAssiduidadeAlunos.presentesHoje} pres. hoje`
                     : `${resumoAssiduidadeAlunos.presentesTotal} presenças`}
                 </span>
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[11px]">
-                <span className="text-gray-500 tabular-nums">
+                <span className="text-gray-500 dark:text-slate-400 tabular-nums">
                   {resumoAssiduidadeAlunos.totalRegistos > 0
                     ? `${resumoAssiduidadeAlunos.injustificadasTotal + resumoAssiduidadeAlunos.justificadasTotal} faltas`
                     : 'Sem chamadas registadas'}
@@ -2749,23 +2749,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('presencas')}
-                  className="text-teal-700 font-bold hover:underline cursor-pointer"
+                  className="text-teal-700 dark:text-teal-400 font-bold hover:underline cursor-pointer"
                 >
                   Ver Mapa →
                 </button>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-2xs">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-600">Docentes & Sessões Ativas</span>
-                <div className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                <span className="text-xs font-bold text-gray-600 dark:text-slate-300">Docentes & Sessões Ativas</span>
+                <div className="h-8 w-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 flex items-center justify-center shrink-0">
                   <UserCheck className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 flex items-baseline space-x-2">
-                <span className="text-2xl font-black text-gray-950 tabular-nums">{professoresEscola.length}</span>
-                <span className="text-xs text-indigo-700 font-semibold tabular-nums">
+                <span className="text-2xl font-black text-gray-950 dark:text-white tabular-nums">{professoresEscola.length}</span>
+                <span className="text-xs text-indigo-700 dark:text-indigo-400 font-semibold tabular-nums">
                   docentes · {usuariosOnline.length} online
                 </span>
               </div>
@@ -2773,14 +2773,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setModalUsuariosOnlineOpen(true)}
-                  className="text-emerald-700 font-bold hover:underline cursor-pointer tabular-nums"
+                  className="text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer tabular-nums"
                 >
                   {usuarios24Horas.length} sessões (24h)
                 </button>
                 <button
                   type="button"
                   onClick={() => onNavigate('professores')}
-                  className="text-blue-700 hover:underline font-semibold cursor-pointer"
+                  className="text-blue-700 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
                 >
                   Gerir RH →
                 </button>
@@ -2789,28 +2789,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* CONTROLO ACADÉMICO IMEDIATO: FECHO DE PAUTAS POR PROFESSOR */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-5">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-xs p-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                  <BarChart3 className="h-4 w-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center space-x-2">
+                  <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   <span>Estado de Cumprimento do Lançamento de Notas (Trimestre {escola.trimestreActivo})</span>
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-slate-400">
                   Acompanhamento pedagógico de cada docente antes do fecho definitivo das pautas.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => onNavigate('avaliacoes')}
-                className="text-xs font-bold text-blue-700 hover:underline cursor-pointer self-start sm:self-auto"
+                className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto"
               >
                 Ir para Lançamento de Notas →
               </button>
             </div>
 
             {professoresEscola.length === 0 ? (
-              <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-gray-200 dark:border-slate-700 rounded-xl text-center text-xs text-gray-500 dark:text-slate-400">
                 Nenhum professor registado nesta escola até ao momento.
               </div>
             ) : (
@@ -2837,29 +2837,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         : 'Pendente';
 
                   return (
-                    <div key={`${prof.id}-${prof.escolaId || ''}-${idx}`} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h4 className="text-xs font-bold text-gray-900">{prof.nomeCompleto}</h4>
-                          <p className="text-[11px] text-gray-500">{prof.cargo || 'Professor'}</p>
+                    <div key={`${prof.id}-${prof.escolaId || ''}-${idx}`} className="p-3.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/70 dark:bg-slate-800/60">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate">{prof.nomeCompleto}</h4>
+                          <p className="text-[11px] text-gray-500 dark:text-slate-400 truncate">{prof.cargo || 'Professor'}</p>
                         </div>
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border shrink-0 ${
                           status === 'Concluído'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
                             : status === 'Em Andamento'
-                              ? 'bg-amber-50 text-amber-700 border-amber-300'
-                              : 'bg-gray-100 text-gray-600 border-gray-300'
+                              ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                              : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 border-gray-300 dark:border-slate-600'
                         }`}>
                           {status}
                         </span>
                       </div>
-                      <div className="mt-3 flex items-center justify-between text-[11px] text-gray-600 tabular-nums">
+                      <div className="mt-3 flex items-center justify-between text-[11px] text-gray-600 dark:text-slate-400 tabular-nums">
                         <span>Atribuições: {turmasDoProf.length}</span>
-                        <span className="font-semibold text-gray-900">{pctLancado}% Lançado</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">{pctLancado}% Lançado</span>
                       </div>
-                      <div className="w-full bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                      <div className="w-full bg-gray-200 dark:bg-slate-700 h-1.5 rounded-full mt-1.5 overflow-hidden">
                         <div
-                          className={`h-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-gray-300'} rounded-full`}
+                          className={`h-full ${status === 'Concluído' ? 'bg-emerald-600' : pctLancado > 0 ? 'bg-amber-500' : 'bg-gray-300 dark:bg-slate-600'} rounded-full`}
                           style={{ width: `${pctLancado}%` }}
                         />
                       </div>
@@ -2872,37 +2872,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* DESTAQUE PEDAGÓGICO: MELHORES VS PIORES DISCIPLINAS */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl border border-emerald-200 p-5 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-2">
-                  <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-emerald-200 dark:border-emerald-800/70 p-5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 shrink-0">
                     <TrendingUp className="h-4 w-4" />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-black text-gray-900">Disciplinas em Destaque (Melhores Notas)</h4>
-                    <p className="text-[11px] text-gray-500">Disciplinas com maior média e taxa de aprovação</p>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-black text-gray-900 dark:text-white truncate">Disciplinas em Destaque (Melhores Notas)</h4>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">Disciplinas com maior média e taxa de aprovação</p>
                   </div>
                 </div>
-                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 tabular-nums">
+                <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800 tabular-nums shrink-0">
                   Top {melhoresDisciplinasDashboard.length}
                 </span>
               </div>
 
               {melhoresDisciplinasDashboard.length === 0 ? (
-                <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-gray-200 dark:border-slate-700 rounded-xl text-center text-xs text-gray-500 dark:text-slate-400">
                   Ainda sem disciplinas com notas positivas consolidadas ou contínuas.
                 </div>
               ) : (
                 <div className="space-y-2">
                   {melhoresDisciplinasDashboard.map((disc, idx) => (
-                    <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100 text-xs">
+                    <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60 text-xs">
                       <div className="flex items-center space-x-2.5 min-w-0">
                         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white font-black text-[11px] shrink-0">
                           {idx + 1}
                         </span>
                         <div className="min-w-0">
-                          <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
-                          <div className="text-[10px] text-gray-500 tabular-nums">
+                          <div className="font-bold text-gray-900 dark:text-white truncate">{disc.nomeCompleto}</div>
+                          <div className="text-[10px] text-gray-500 dark:text-slate-400 tabular-nums">
                             {disc.positivas} positivas em {disc.totalNotas} avaliações ({disc.taxaAprovacao}% aprovação)
                           </div>
                         </div>
@@ -2916,43 +2916,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               )}
             </div>
 
-            <div className="bg-white rounded-2xl border border-rose-200 p-5 shadow-2xs">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center space-x-2">
-                  <div className="p-2 rounded-xl bg-rose-100 text-rose-700">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-rose-200 dark:border-rose-800/70 p-5 shadow-2xs min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center space-x-2 min-w-0">
+                  <div className="p-2 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 shrink-0">
                     <TrendingDown className="h-4 w-4" />
                   </div>
-                  <div>
-                    <h4 className="text-sm font-black text-gray-900">Disciplinas com Menor Rendimento (Piores Notas)</h4>
-                    <p className="text-[11px] text-gray-500">Áreas curriculares que exigem intervenção pedagógica</p>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-black text-gray-900 dark:text-white truncate">Disciplinas com Menor Rendimento (Piores Notas)</h4>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">Áreas curriculares que exigem intervenção pedagógica</p>
                   </div>
                 </div>
-                <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200 tabular-nums">
+                <span className="text-[11px] font-bold text-rose-800 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2.5 py-0.5 rounded-full border border-rose-200 dark:border-rose-800 tabular-nums shrink-0">
                   Atenção ({pioresDisciplinasDashboard.length})
                 </span>
               </div>
 
               {pioresDisciplinasDashboard.length === 0 ? (
-                <div className="p-5 bg-slate-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border border-dashed border-gray-200 dark:border-slate-700 rounded-xl text-center text-xs text-gray-500 dark:text-slate-400">
                   Nenhuma disciplina com rendimento negativo identificada até ao momento.
                 </div>
               ) : (
                 <div className="space-y-2">
                   {pioresDisciplinasDashboard.map((disc, idx) => (
-                    <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 border border-rose-100 text-xs">
+                    <div key={disc.nomeCompleto} className="flex items-center justify-between p-2.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/60 text-xs">
                       <div className="flex items-center space-x-2.5 min-w-0">
                         <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-rose-600 text-white font-black text-[11px] shrink-0">
                           {idx + 1}
                         </span>
                         <div className="min-w-0">
-                          <div className="font-bold text-gray-900 truncate">{disc.nomeCompleto}</div>
-                          <div className="text-[10px] text-rose-800 tabular-nums">
+                          <div className="font-bold text-gray-900 dark:text-white truncate">{disc.nomeCompleto}</div>
+                          <div className="text-[10px] text-rose-800 dark:text-rose-300 tabular-nums">
                             {disc.negativas} negativa(s) · {disc.taxaAprovacao}% aprovação ({disc.totalNotas} notas)
                           </div>
                         </div>
                       </div>
                       <span className={`px-2.5 py-1 rounded-lg font-black text-xs shrink-0 ml-2 tabular-nums ${
-                        disc.media < disc.limiar ? 'bg-rose-600 text-white' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                        disc.media < disc.limiar ? 'bg-rose-600 text-white' : 'bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
                       }`}>
                         {disc.media.toFixed(1)} val.
                       </span>
@@ -3102,16 +3102,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {/* 2. Gráficos Analíticos de Gestão para o Diretor */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Gráfico 1: Receitas vs Despesas Mensais */}
-                  <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                          <BarChart3 className="h-4 w-4 text-blue-600" />
+                  <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs min-w-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                          <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
                           <span>Evolução Financeira Mensal (Receitas vs Despesas)</span>
                         </h4>
-                        <p className="text-xs text-gray-500">Fluxo comparativo em Kwanzas nos últimos 6 meses</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">Fluxo comparativo em Kwanzas nos últimos 6 meses</p>
                       </div>
-                      <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                      <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 px-2.5 py-0.5 rounded-full shrink-0">
                         Em Kwanzas
                       </span>
                     </div>
@@ -3119,11 +3119,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={dadosFinanceiro}>
-                          <XAxis dataKey="mes" stroke="#6b7280" fontSize={11} />
-                          <YAxis stroke="#6b7280" fontSize={10} tickFormatter={(val) => `${val / 1000}k`} />
+                          <XAxis dataKey="mes" stroke="#94a3b8" fontSize={11} />
+                          <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `${val / 1000}k`} />
                           <Tooltip 
                             formatter={(value: any) => [`${Number(value).toLocaleString('pt-AO')} Kz`, '']} 
-                            contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }}
+                            contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }}
                           />
                           <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                           <Bar dataKey="Receitas" fill="#2563eb" radius={[4, 4, 0, 0]} />
@@ -3134,13 +3134,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Gráfico 2: Distribuição de Alunos por Turno */}
-                  <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs flex flex-col justify-between">
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs flex flex-col justify-between min-w-0">
                     <div>
-                      <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                        <Users className="h-4 w-4 text-emerald-600" />
+                      <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                        <Users className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         <span>Distribuição por Turno</span>
                       </h4>
-                      <p className="text-xs text-gray-500">Proporção de matrículas nos períodos letivos</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">Proporção de matrículas nos períodos letivos</p>
 
                       <div className="h-48 w-full mt-2">
                         <ResponsiveContainer width="100%" height="100%">
@@ -3158,18 +3158,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 <Cell key={`cell-${index}`} fill={entry.color} />
                               ))}
                             </Pie>
-                            <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-1 pt-3 border-t border-gray-100 text-center text-xs">
+                    <div className="grid grid-cols-3 gap-1.5 pt-3 border-t border-gray-100 dark:border-slate-800 text-center text-xs">
                       {dadosTurnos.map(item => (
-                        <div key={item.name} className="p-1.5 rounded-lg bg-gray-50">
+                        <div key={item.name} className="p-1.5 rounded-lg bg-gray-50 dark:bg-slate-800/70">
                           <span className="h-2 w-2 rounded-full inline-block mr-1" style={{ backgroundColor: item.color }} />
-                          <span className="font-bold text-gray-800 text-[11px]">{item.name}</span>
-                          <div className="font-black text-gray-950 mt-0.5">{item.value}</div>
+                          <span className="font-bold text-gray-800 dark:text-slate-200 text-[11px]">{item.name}</span>
+                          <div className="font-black text-gray-950 dark:text-white mt-0.5 tabular-nums">{item.value}</div>
                         </div>
                       ))}
                     </div>
@@ -3177,18 +3177,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
 
                 {/* Gráfico 3: Rendimento Académico por Turma */}
-                <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-                  <div className="flex items-center justify-between mb-3">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                     <div>
-                      <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                        <Award className="h-4 w-4 text-amber-600" />
+                      <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                        <Award className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
                         <span>Aproveitamento Académico por Turma (Aprovados vs Recurso vs Reprovados)</span>
                       </h4>
-                      <p className="text-xs text-gray-500">Métricas pedagógicas calculadas pelo motor MAC MED Angola</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">Métricas pedagógicas calculadas pelo motor MAC MED Angola</p>
                     </div>
                     <button
                       onClick={() => onNavigate('pautas')}
-                      className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
+                      className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto"
                     >
                       Ver Pautas Completas →
                     </button>
@@ -3197,9 +3197,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="h-56 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={dadosAproveitamentoTurmas}>
-                        <XAxis dataKey="turma" stroke="#6b7280" fontSize={11} />
-                        <YAxis stroke="#6b7280" fontSize={10} />
-                        <Tooltip contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                        <XAxis dataKey="turma" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#94a3b8" fontSize={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
                         <Bar dataKey="Aprovados" fill="#10b981" stackId="a" />
                         <Bar dataKey="Recurso" fill="#f59e0b" stackId="a" />
@@ -3212,37 +3212,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {/* GRÁFICOS SOLICITADOS: PERFORMANCE ACADÉMICA & ASSIDUIDADE COM RECHARTS */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Gráfico 4: Performance Académica por Disciplina Chave (Recharts) */}
-                  <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                          <BarChart3 className="h-4 w-4 text-indigo-600" />
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs min-w-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                          <BarChart3 className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                           <span>Performance Académica por Disciplina (Médias Oficiais)</span>
                         </h4>
-                        <p className="text-xs text-gray-500">Média das disciplinas lançadas (pautas e avaliações contínuas)</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">Média das disciplinas lançadas (pautas e avaliações contínuas)</p>
                       </div>
-                      <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                      <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-1 rounded-full border border-indigo-200 dark:border-indigo-800 tabular-nums shrink-0">
                         {dadosDesempenhoDisciplinas.length} Disciplina(s)
                       </span>
                     </div>
 
                     {dadosDesempenhoDisciplinas.length === 0 ? (
-                      <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl border border-dashed border-gray-200">
-                        <BarChart3 className="h-8 w-8 text-gray-300 mb-2" />
-                        <p className="text-xs font-bold text-gray-600">Sem notas ou avaliações lançadas</p>
-                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As médias trimestrais e estatísticas de rendimento serão apresentadas aqui assim que os docentes lançarem as primeiras notas.</p>
+                      <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-700">
+                        <BarChart3 className="h-8 w-8 text-gray-300 dark:text-slate-600 mb-2" />
+                        <p className="text-xs font-bold text-gray-600 dark:text-slate-300">Sem notas ou avaliações lançadas</p>
+                        <p className="text-[11px] text-gray-400 dark:text-slate-400 mt-1 max-w-xs">As médias trimestrais e estatísticas de rendimento serão apresentadas aqui assim que os docentes lançarem as primeiras notas.</p>
                       </div>
                     ) : (
                       <>
                         <div className="h-64 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={dadosDesempenhoDisciplinas.slice(0, 8)}>
-                              <XAxis dataKey="disciplina" stroke="#6b7280" fontSize={10} />
-                              <YAxis stroke="#6b7280" fontSize={10} domain={[0, 20]} />
+                              <XAxis dataKey="disciplina" stroke="#94a3b8" fontSize={10} />
+                              <YAxis stroke="#94a3b8" fontSize={10} domain={[0, 20]} />
                               <Tooltip 
                                 formatter={(val: any) => [`${Number(val).toFixed(1)} val`, 'Média Oficial']}
                                 labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
-                                contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
+                                contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} 
                               />
                               <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
                               <Bar dataKey="media" name="Média" fill="#4f46e5" radius={[4, 4, 0, 0]} />
@@ -3250,14 +3250,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           </ResponsiveContainer>
                         </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-100 dark:border-slate-800 text-center text-xs">
                           {dadosDesempenhoDisciplinas.slice(0, 4).map(d => (
-                            <div key={d.nomeCompleto} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
-                              <span className="text-[10px] text-gray-500 truncate block">{d.disciplina}</span>
-                              <span className={`text-xs font-black ${d.media >= d.limiar ? "text-emerald-700" : "text-red-600"}`}>
+                            <div key={d.nomeCompleto} className="p-2 rounded-lg bg-gray-50 dark:bg-slate-800/70 border border-gray-100 dark:border-slate-700">
+                              <span className="text-[10px] text-gray-500 dark:text-slate-400 truncate block">{d.disciplina}</span>
+                              <span className={`text-xs font-black tabular-nums ${d.media >= d.limiar ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                                 {d.media.toFixed(1)} val.
                               </span>
-                              <span className="text-[9px] text-gray-400 block">{d.taxaAprovacao}% Positivas</span>
+                              <span className="text-[9px] text-gray-400 dark:text-slate-400 block tabular-nums">{d.taxaAprovacao}% Positivas</span>
                             </div>
                           ))}
                         </div>
@@ -3266,27 +3266,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Gráfico 5: Assiduidade Escolar dos Alunos (Presenças vs Faltas) (Recharts) */}
-                  <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="text-sm font-black text-gray-900 flex items-center space-x-2">
-                          <Clock className="h-4 w-4 text-emerald-600" />
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs min-w-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                          <Clock className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           <span>Assiduidade dos Alunos (% Presenças vs Faltas)</span>
                         </h4>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
                           {resumoAssiduidadeAlunos.totalRegistos > 0
                             ? `${resumoAssiduidadeAlunos.totalRegistos} chamadas registadas · Hoje: ${resumoAssiduidadeAlunos.presentesHoje} presentes, ${resumoAssiduidadeAlunos.faltasHoje} faltas`
                             : 'Taxa de frequência diária aferida pelos docentes nas turmas'}
                         </p>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 tabular-nums">
                           {resumoAssiduidadeAlunos.totalRegistos > 0 ? `${resumoAssiduidadeAlunos.taxaPresencaGeral}% Média` : 'Sem registos'}
                         </span>
                         <button
                           type="button"
                           onClick={() => onNavigate('presencas')}
-                          className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                          className="text-[11px] font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
                         >
                           Gerir →
                         </button>
@@ -3294,10 +3294,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
 
                     {dadosAssiduidade.length === 0 ? (
-                      <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl border border-dashed border-gray-200">
-                        <Clock className="h-8 w-8 text-gray-300 mb-2" />
-                        <p className="text-xs font-bold text-gray-600">Sem registos de assiduidade de alunos</p>
-                        <p className="text-[11px] text-gray-400 mt-1 max-w-xs">As taxas de presenças e faltas serão calculadas em tempo real após o registo da chamada pelos professores.</p>
+                      <div className="h-64 flex flex-col items-center justify-center text-center p-6 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-700">
+                        <Clock className="h-8 w-8 text-gray-300 dark:text-slate-600 mb-2" />
+                        <p className="text-xs font-bold text-gray-600 dark:text-slate-300">Sem registos de assiduidade de alunos</p>
+                        <p className="text-[11px] text-gray-400 dark:text-slate-400 mt-1 max-w-xs">As taxas de presenças e faltas serão calculadas em tempo real após o registo da chamada pelos professores.</p>
                         <button
                           type="button"
                           onClick={() => onNavigate('presencas')}
@@ -3311,12 +3311,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <div className="h-64 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={dadosAssiduidade}>
-                              <XAxis dataKey="turma" stroke="#6b7280" fontSize={10} />
-                              <YAxis stroke="#6b7280" fontSize={10} unit="%" domain={[0, 100]} />
+                              <XAxis dataKey="turma" stroke="#94a3b8" fontSize={10} />
+                              <YAxis stroke="#94a3b8" fontSize={10} unit="%" domain={[0, 100]} />
                               <Tooltip 
                                 formatter={(val: any) => [`${val}%`, '']}
                                 labelFormatter={(label, payload) => payload?.[0]?.payload?.nomeCompleto || label}
-                                contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
+                                contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} 
                               />
                               <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
                               <Bar dataKey="Presenças" fill="#10b981" stackId="a" />
@@ -3326,27 +3326,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           </ResponsiveContainer>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-100 text-center text-xs">
-                          <div className="p-2 rounded-lg bg-emerald-50 text-emerald-900">
-                            <span className="text-[10px] font-bold block text-emerald-700">Presença Global</span>
-                            <span className="text-sm font-black">
+                        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-gray-100 dark:border-slate-800 text-center text-xs">
+                          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 border border-emerald-100 dark:border-emerald-900/60">
+                            <span className="text-[10px] font-bold block text-emerald-700 dark:text-emerald-400">Presença Global</span>
+                            <span className="text-sm font-black tabular-nums">
                               {`${resumoAssiduidadeAlunos.taxaPresencaGeral}%`}
                             </span>
-                            <span className="text-[10px] block text-emerald-700/80">{resumoAssiduidadeAlunos.presentesTotal} registos</span>
+                            <span className="text-[10px] block text-emerald-700/80 dark:text-emerald-300/80 tabular-nums">{resumoAssiduidadeAlunos.presentesTotal} registos</span>
                           </div>
-                          <div className="p-2 rounded-lg bg-amber-50 text-amber-900">
-                            <span className="text-[10px] font-bold block text-amber-700">Faltas Justificadas</span>
-                            <span className="text-sm font-black">
+                          <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 border border-amber-100 dark:border-amber-900/60">
+                            <span className="text-[10px] font-bold block text-amber-700 dark:text-amber-400">Faltas Justificadas</span>
+                            <span className="text-sm font-black tabular-nums">
                               {`${resumoAssiduidadeAlunos.pctJustificadasGeral}%`}
                             </span>
-                            <span className="text-[10px] block text-amber-700/80">{resumoAssiduidadeAlunos.justificadasTotal} faltas</span>
+                            <span className="text-[10px] block text-amber-700/80 dark:text-amber-300/80 tabular-nums">{resumoAssiduidadeAlunos.justificadasTotal} faltas</span>
                           </div>
-                          <div className="p-2 rounded-lg bg-red-50 text-red-900">
-                            <span className="text-[10px] font-bold block text-red-700">Faltas Injustificadas</span>
-                            <span className="text-sm font-black">
+                          <div className="p-2 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-900 dark:text-red-200 border border-red-100 dark:border-red-900/60">
+                            <span className="text-[10px] font-bold block text-red-700 dark:text-red-400">Faltas Injustificadas</span>
+                            <span className="text-sm font-black tabular-nums">
                               {`${resumoAssiduidadeAlunos.pctInjustificadasGeral}%`}
                             </span>
-                            <span className="text-[10px] block text-red-700/80">{resumoAssiduidadeAlunos.injustificadasTotal} faltas</span>
+                            <span className="text-[10px] block text-red-700/80 dark:text-red-300/80 tabular-nums">{resumoAssiduidadeAlunos.injustificadasTotal} faltas</span>
                           </div>
                         </div>
                       </>
@@ -3373,38 +3373,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* ========================================================================= */}
           {/* ESTATÍSTICAS COMPLETAS: ESCOLA, NÍVEL E CADA CLASSE (MED ANGOLA)          */}
           {/* ========================================================================= */}
-          <div className="bg-white rounded-2xl border-2 border-indigo-100 shadow-sm p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 pb-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-indigo-100 dark:border-indigo-900/70 shadow-sm p-4 sm:p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-slate-800 pb-4">
               <div>
-                <h3 className="text-base font-black text-gray-900 flex items-center space-x-2">
-                  <BarChart3 className="h-5 w-5 text-indigo-600" />
+                <h3 className="text-base font-black text-gray-900 dark:text-white flex items-center space-x-2">
+                  <BarChart3 className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <span>Estatísticas Oficiais de Rendimento Escolar (MED Angola)</span>
                 </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
                   Quadro pedagógico completo: matriculados, avaliados, aprovados, reprovados e desistentes por escola, nível e classe.
                 </p>
               </div>
 
               {/* Botões de Filtro de Visão */}
-              <div className="flex flex-wrap items-center gap-1.5 p-1 bg-gray-100 rounded-xl">
+              <div className="flex flex-wrap items-center gap-1.5 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl self-start sm:self-auto">
                 <button
                   type="button"
                   onClick={() => setVisaoEstatistica('escola')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${visaoEstatistica === 'escola' ? 'bg-white text-indigo-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${visaoEstatistica === 'escola' ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'}`}
                 >
                   Visão Global da Escola
                 </button>
                 <button
                   type="button"
                   onClick={() => setVisaoEstatistica('niveis')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${visaoEstatistica === 'niveis' ? 'bg-white text-indigo-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${visaoEstatistica === 'niveis' ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'}`}
                 >
                   Por Nível de Ensino
                 </button>
                 <button
                   type="button"
                   onClick={() => setVisaoEstatistica('classes')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${visaoEstatistica === 'classes' ? 'bg-white text-indigo-700 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${visaoEstatistica === 'classes' ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-xs' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'}`}
                 >
                   Por Cada Classe
                 </button>
@@ -3417,81 +3417,81 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {/* 5 Cards com Cores Diferentes */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
                   {/* Total Matriculados (Azul) */}
-                  <div className="p-4 rounded-xl bg-blue-50/80 border-2 border-blue-200 space-y-2">
+                  <div className="p-4 rounded-xl bg-blue-50/80 dark:bg-blue-950/30 border-2 border-blue-200 dark:border-blue-800/70 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase text-blue-900">Total Matriculados</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-200 text-blue-800">100%</span>
+                      <span className="text-[11px] font-black uppercase text-blue-900 dark:text-blue-200">Total Matriculados</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-200 dark:bg-blue-900/70 text-blue-800 dark:text-blue-200">100%</span>
                     </div>
-                    <div className="text-2xl font-black text-blue-700 font-mono">
+                    <div className="text-2xl font-black text-blue-700 dark:text-blue-300 font-mono tabular-nums">
                       {estatisticasEscolaGlobal.matriculados}
                     </div>
-                    <p className="text-[10px] text-blue-800/80">Efetivo geral inscrito na instituição</p>
+                    <p className="text-[10px] text-blue-800/80 dark:text-blue-300/80">Efetivo geral inscrito na instituição</p>
                   </div>
 
                   {/* Total Avaliados (Índigo) */}
-                  <div className="p-4 rounded-xl bg-indigo-50/80 border-2 border-indigo-200 space-y-2">
+                  <div className="p-4 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/30 border-2 border-indigo-200 dark:border-indigo-800/70 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase text-indigo-900">Total Avaliados</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-200 text-indigo-800">
+                      <span className="text-[11px] font-black uppercase text-indigo-900 dark:text-indigo-200">Total Avaliados</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-200 dark:bg-indigo-900/70 text-indigo-800 dark:text-indigo-200 tabular-nums">
                         {estatisticasEscolaGlobal.percAvaliados}%
                       </span>
                     </div>
-                    <div className="text-2xl font-black text-indigo-700 font-mono">
+                    <div className="text-2xl font-black text-indigo-700 dark:text-indigo-300 font-mono tabular-nums">
                       {estatisticasEscolaGlobal.avaliados}
                     </div>
-                    <p className="text-[10px] text-indigo-800/80">Alunos com notas e assiduidade ativa</p>
+                    <p className="text-[10px] text-indigo-800/80 dark:text-indigo-300/80">Alunos com notas e assiduidade ativa</p>
                   </div>
 
                   {/* Total Aprovados (Verde) */}
-                  <div className="p-4 rounded-xl bg-emerald-50/80 border-2 border-emerald-200 space-y-2">
+                  <div className="p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border-2 border-emerald-200 dark:border-emerald-800/70 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase text-emerald-900">Total Aprovados</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-800">
+                      <span className="text-[11px] font-black uppercase text-emerald-900 dark:text-emerald-200">Total Aprovados</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 dark:bg-emerald-900/70 text-emerald-800 dark:text-emerald-200 tabular-nums">
                         {estatisticasEscolaGlobal.percAprovados}%
                       </span>
                     </div>
-                    <div className="text-2xl font-black text-emerald-600 font-mono">
+                    <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">
                       {estatisticasEscolaGlobal.aprovados}
                     </div>
-                    <p className="text-[10px] text-emerald-800/80">Média &ge; 9.5 valores (Positivos)</p>
+                    <p className="text-[10px] text-emerald-800/80 dark:text-emerald-300/80">Média &ge; 9.5 valores (Positivos)</p>
                   </div>
 
                   {/* Total Reprovados (Vermelho) */}
-                  <div className="p-4 rounded-xl bg-red-50/80 border-2 border-red-200 space-y-2">
+                  <div className="p-4 rounded-xl bg-red-50/80 dark:bg-red-950/30 border-2 border-red-200 dark:border-red-800/70 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase text-red-900">Total Reprovados</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-200 text-red-800">
+                      <span className="text-[11px] font-black uppercase text-red-900 dark:text-red-200">Total Reprovados</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-200 dark:bg-red-900/70 text-red-800 dark:text-red-200 tabular-nums">
                         {estatisticasEscolaGlobal.percReprovados}%
                       </span>
                     </div>
-                    <div className="text-2xl font-black text-red-600 font-mono">
+                    <div className="text-2xl font-black text-red-600 dark:text-red-400 font-mono tabular-nums">
                       {estatisticasEscolaGlobal.reprovados}
                     </div>
-                    <p className="text-[10px] text-red-800/80">Média &lt; 9.5 valores (Negativos)</p>
+                    <p className="text-[10px] text-red-800/80 dark:text-red-300/80">Média &lt; 9.5 valores (Negativos)</p>
                   </div>
 
                   {/* Total Desistentes (Âmbar/Laranja) */}
-                  <div className="p-4 rounded-xl bg-amber-50/80 border-2 border-amber-200 space-y-2">
+                  <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border-2 border-amber-200 dark:border-amber-800/70 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-black uppercase text-amber-900">Total Desistentes</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-800">
+                      <span className="text-[11px] font-black uppercase text-amber-900 dark:text-amber-200">Total Desistentes</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 dark:bg-amber-900/70 text-amber-800 dark:text-amber-200 tabular-nums">
                         {estatisticasEscolaGlobal.percDesistentes}%
                       </span>
                     </div>
-                    <div className="text-2xl font-black text-amber-600 font-mono">
+                    <div className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono tabular-nums">
                       {estatisticasEscolaGlobal.desistentes}
                     </div>
-                    <p className="text-[10px] text-amber-800/80">Abandono escolar / Não avaliados</p>
+                    <p className="text-[10px] text-amber-800/80 dark:text-amber-300/80">Abandono escolar / Não avaliados</p>
                   </div>
                 </div>
 
                 {/* Barra de Distribuição Proporcional */}
-                <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-gray-800">
+                <div className="p-4 bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-gray-800 dark:text-slate-200">
                     <span>Distribuição Visual Global do Efetivo Escolar</span>
-                    <span>Total: {estatisticasEscolaGlobal.matriculados} estudantes</span>
+                    <span className="tabular-nums">Total: {estatisticasEscolaGlobal.matriculados} estudantes</span>
                   </div>
-                  <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden flex shadow-inner">
+                  <div className="w-full h-4 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden flex shadow-inner">
                     <div 
                       className="bg-emerald-500 h-full transition-all" 
                       style={{ width: `${(estatisticasEscolaGlobal.aprovados / (estatisticasEscolaGlobal.matriculados || 1)) * 100}%` }}
@@ -3508,7 +3508,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       title={`Desistentes: ${estatisticasEscolaGlobal.desistentes} (${Math.round((estatisticasEscolaGlobal.desistentes / (estatisticasEscolaGlobal.matriculados || 1)) * 100)}%)`}
                     />
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-6 pt-1 text-[11px] text-gray-700">
+                  <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-1 text-[11px] text-gray-700 dark:text-slate-300">
                     <span className="flex items-center space-x-1.5">
                       <span className="h-3 w-3 rounded-full bg-emerald-500" />
                       <span>Aprovados ({Math.round((estatisticasEscolaGlobal.aprovados / (estatisticasEscolaGlobal.matriculados || 1)) * 100)}%)</span>
@@ -3525,8 +3525,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
 
                 {/* Gráfico Comparativo em Barras */}
-                <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-200 space-y-2">
-                  <h4 className="font-bold text-gray-900 text-xs">Comparativo Oficial em Barras com Cores Distintas</h4>
+                <div className="bg-gray-50/50 dark:bg-slate-800/40 rounded-xl p-4 border border-gray-200 dark:border-slate-700 space-y-2">
+                  <h4 className="font-bold text-gray-900 dark:text-white text-xs">Comparativo Oficial em Barras com Cores Distintas</h4>
                   <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={[
@@ -3536,11 +3536,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         { categoria: 'Reprovados', total: estatisticasEscolaGlobal.reprovados, fill: '#ef4444' },
                         { categoria: 'Desistentes', total: estatisticasEscolaGlobal.desistentes, fill: '#f59e0b' }
                       ]}>
-                        <XAxis dataKey="categoria" stroke="#4b5563" fontSize={11} />
-                        <YAxis stroke="#4b5563" fontSize={11} />
+                        <XAxis dataKey="categoria" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#94a3b8" fontSize={11} />
                         <Tooltip 
                           formatter={(value: any) => [`${value} estudantes`, 'Total']} 
-                          contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} 
+                          contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} 
                         />
                         <Bar dataKey="total" radius={[6, 6, 0, 0]}>
                           {[
@@ -3563,38 +3563,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* 2. VISÃO POR NÍVEL DE ENSINO */}
             {visaoEstatistica === 'niveis' && (
               <div className="space-y-6">
-                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-700">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-gray-100 text-gray-800 font-bold border-b border-gray-200 text-[11px]">
+                      <tr className="bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-slate-200 font-bold border-b border-gray-200 dark:border-slate-700 text-[11px]">
                         <th className="p-3">Nível de Ensino</th>
                         <th className="p-3 text-center">Turmas</th>
-                        <th className="p-3 text-center bg-blue-50 text-blue-900 border-x border-blue-200">Matriculados</th>
-                        <th className="p-3 text-center bg-indigo-50 text-indigo-900 border-r border-indigo-200">Avaliados (%)</th>
-                        <th className="p-3 text-center bg-emerald-50 text-emerald-900 border-r border-emerald-200">Aprovados (%)</th>
-                        <th className="p-3 text-center bg-red-50 text-red-900 border-r border-red-200">Reprovados (%)</th>
-                        <th className="p-3 text-center bg-amber-50 text-amber-900">Desistentes (%)</th>
+                        <th className="p-3 text-center bg-blue-50 dark:bg-blue-950/50 text-blue-900 dark:text-blue-200 border-x border-blue-200 dark:border-blue-800/70">Matriculados</th>
+                        <th className="p-3 text-center bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200 border-r border-indigo-200 dark:border-indigo-800/70">Avaliados (%)</th>
+                        <th className="p-3 text-center bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 border-r border-emerald-200 dark:border-emerald-800/70">Aprovados (%)</th>
+                        <th className="p-3 text-center bg-red-50 dark:bg-red-950/50 text-red-900 dark:text-red-200 border-r border-red-200 dark:border-red-800/70">Reprovados (%)</th>
+                        <th className="p-3 text-center bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200">Desistentes (%)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 font-semibold">
+                    <tbody className="divide-y divide-gray-200 dark:divide-slate-800 font-semibold">
                       {estatisticasPorNivel.map((nv) => (
-                        <tr key={nv.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="p-3 font-bold text-gray-900">{nv.nivel}</td>
-                          <td className="p-3 text-center font-mono text-gray-600">{nv.numTurmas}</td>
-                          <td className="p-3 text-center font-mono font-bold text-blue-700 bg-blue-50/50 border-x border-blue-200">
+                        <tr key={nv.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/60 transition-colors">
+                          <td className="p-3 font-bold text-gray-900 dark:text-white">{nv.nivel}</td>
+                          <td className="p-3 text-center font-mono text-gray-600 dark:text-slate-300 tabular-nums">{nv.numTurmas}</td>
+                          <td className="p-3 text-center font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/30 border-x border-blue-200 dark:border-blue-800/60 tabular-nums">
                             {nv.matriculados}
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-indigo-700 bg-indigo-50/50 border-r border-indigo-200">
-                            {nv.avaliados} <span className="text-[10px] text-indigo-500">({nv.percAvaliados}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/50 dark:bg-indigo-950/30 border-r border-indigo-200 dark:border-indigo-800/60 tabular-nums">
+                            {nv.avaliados} <span className="text-[10px] text-indigo-500 dark:text-indigo-400">({nv.percAvaliados}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-emerald-700 bg-emerald-50/50 border-r border-emerald-200">
-                            {nv.aprovados} <span className="text-[10px] text-emerald-600">({nv.percAprovados}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 border-r border-emerald-200 dark:border-emerald-800/60 tabular-nums">
+                            {nv.aprovados} <span className="text-[10px] text-emerald-600 dark:text-emerald-400">({nv.percAprovados}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-red-700 bg-red-50/50 border-r border-red-200">
-                            {nv.reprovados} <span className="text-[10px] text-red-600">({nv.percReprovados}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-red-700 dark:text-red-300 bg-red-50/50 dark:bg-red-950/30 border-r border-red-200 dark:border-red-800/60 tabular-nums">
+                            {nv.reprovados} <span className="text-[10px] text-red-600 dark:text-red-400">({nv.percReprovados}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-amber-700 bg-amber-50/50">
-                            {nv.desistentes} <span className="text-[10px] text-amber-600">({nv.percDesistentes}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 tabular-nums">
+                            {nv.desistentes} <span className="text-[10px] text-amber-600 dark:text-amber-400">({nv.percDesistentes}%)</span>
                           </td>
                         </tr>
                       ))}
@@ -3603,8 +3603,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
 
                 {/* Gráfico Comparativo entre Níveis */}
-                <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-200 space-y-2">
-                  <h4 className="font-bold text-gray-900 text-xs">Comparativo de Rendimento por Nível de Ensino</h4>
+                <div className="bg-gray-50/50 dark:bg-slate-800/40 rounded-xl p-4 border border-gray-200 dark:border-slate-700 space-y-2">
+                  <h4 className="font-bold text-gray-900 dark:text-white text-xs">Comparativo de Rendimento por Nível de Ensino</h4>
                   <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={estatisticasPorNivel.map(n => ({
@@ -3615,9 +3615,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         Reprovados: n.reprovados,
                         Desistentes: n.desistentes
                       }))}>
-                        <XAxis dataKey="nivel" stroke="#4b5563" fontSize={11} />
-                        <YAxis stroke="#4b5563" fontSize={11} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                        <XAxis dataKey="nivel" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#94a3b8" fontSize={11} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                         <Bar dataKey="Matriculados" fill="#2563eb" />
                         <Bar dataKey="Avaliados" fill="#6366f1" />
@@ -3634,46 +3634,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* 3. VISÃO POR CADA CLASSE */}
             {visaoEstatistica === 'classes' && (
               <div className="space-y-6">
-                <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-700">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-gray-100 text-gray-800 font-bold border-b border-gray-200 text-[11px]">
+                      <tr className="bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-slate-200 font-bold border-b border-gray-200 dark:border-slate-700 text-[11px]">
                         <th className="p-3">Classe</th>
                         <th className="p-3 text-center">Turmas</th>
-                        <th className="p-3 text-center bg-blue-50 text-blue-900 border-x border-blue-200">Matriculados</th>
-                        <th className="p-3 text-center bg-indigo-50 text-indigo-900 border-r border-indigo-200">Avaliados (%)</th>
-                        <th className="p-3 text-center bg-emerald-50 text-emerald-900 border-r border-emerald-200">Aprovados (%)</th>
-                        <th className="p-3 text-center bg-red-50 text-red-900 border-r border-red-200">Reprovados (%)</th>
-                        <th className="p-3 text-center bg-amber-50 text-amber-900 border-r border-amber-200">Desistentes (%)</th>
+                        <th className="p-3 text-center bg-blue-50 dark:bg-blue-950/50 text-blue-900 dark:text-blue-200 border-x border-blue-200 dark:border-blue-800/70">Matriculados</th>
+                        <th className="p-3 text-center bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200 border-r border-indigo-200 dark:border-indigo-800/70">Avaliados (%)</th>
+                        <th className="p-3 text-center bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 border-r border-emerald-200 dark:border-emerald-800/70">Aprovados (%)</th>
+                        <th className="p-3 text-center bg-red-50 dark:bg-red-950/50 text-red-900 dark:text-red-200 border-r border-red-200 dark:border-red-800/70">Reprovados (%)</th>
+                        <th className="p-3 text-center bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 border-r border-amber-200 dark:border-amber-800/70">Desistentes (%)</th>
                         <th className="p-3 text-center">Média Geral</th>
                         <th className="p-3 text-center">Distribuição Visual</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 font-semibold">
+                    <tbody className="divide-y divide-gray-200 dark:divide-slate-800 font-semibold">
                       {estatisticasPorClasse.map((c) => (
-                        <tr key={c.classe} className="hover:bg-gray-50 transition-colors">
-                          <td className="p-3 font-bold text-gray-900">{c.classe} Classe</td>
-                          <td className="p-3 text-center font-mono text-gray-600">{c.numTurmas}</td>
-                          <td className="p-3 text-center font-mono font-bold text-blue-700 bg-blue-50/50 border-x border-blue-200">
+                        <tr key={c.classe} className="hover:bg-gray-50 dark:hover:bg-slate-800/60 transition-colors">
+                          <td className="p-3 font-bold text-gray-900 dark:text-white">{c.classe} Classe</td>
+                          <td className="p-3 text-center font-mono text-gray-600 dark:text-slate-300 tabular-nums">{c.numTurmas}</td>
+                          <td className="p-3 text-center font-mono font-bold text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/30 border-x border-blue-200 dark:border-blue-800/60 tabular-nums">
                             {c.matriculados}
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-indigo-700 bg-indigo-50/50 border-r border-indigo-200">
-                            {c.avaliados} <span className="text-[10px] text-indigo-500">({c.percAvaliados}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/50 dark:bg-indigo-950/30 border-r border-indigo-200 dark:border-indigo-800/60 tabular-nums">
+                            {c.avaliados} <span className="text-[10px] text-indigo-500 dark:text-indigo-400">({c.percAvaliados}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-emerald-700 bg-emerald-50/50 border-r border-emerald-200">
-                            {c.aprovados} <span className="text-[10px] text-emerald-600">({c.percAprovados}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/30 border-r border-emerald-200 dark:border-emerald-800/60 tabular-nums">
+                            {c.aprovados} <span className="text-[10px] text-emerald-600 dark:text-emerald-400">({c.percAprovados}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-red-700 bg-red-50/50 border-r border-red-200">
-                            {c.reprovados} <span className="text-[10px] text-red-600">({c.percReprovados}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-red-700 dark:text-red-300 bg-red-50/50 dark:bg-red-950/30 border-r border-red-200 dark:border-red-800/60 tabular-nums">
+                            {c.reprovados} <span className="text-[10px] text-red-600 dark:text-red-400">({c.percReprovados}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-amber-700 bg-amber-50/50 border-r border-amber-200">
-                            {c.desistentes} <span className="text-[10px] text-amber-600">({c.percDesistentes}%)</span>
+                          <td className="p-3 text-center font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/30 border-r border-amber-200 dark:border-amber-800/60 tabular-nums">
+                            {c.desistentes} <span className="text-[10px] text-amber-600 dark:text-amber-400">({c.percDesistentes}%)</span>
                           </td>
-                          <td className="p-3 text-center font-mono font-bold text-gray-800">
+                          <td className="p-3 text-center font-mono font-bold text-gray-800 dark:text-slate-100 tabular-nums">
                             {c.mediaGeral}
                           </td>
                           <td className="p-3 w-40">
-                            <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden flex">
+                            <div className="w-full h-2.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden flex">
                               <div className="bg-emerald-500 h-full" style={{ width: `${(c.aprovados / (c.matriculados || 1)) * 100}%` }} title={`Aprovados: ${c.aprovados}`} />
                               <div className="bg-red-500 h-full" style={{ width: `${(c.reprovados / (c.matriculados || 1)) * 100}%` }} title={`Reprovados: ${c.reprovados}`} />
                               <div className="bg-amber-400 h-full" style={{ width: `${(c.desistentes / (c.matriculados || 1)) * 100}%` }} title={`Desistentes: ${c.desistentes}`} />
@@ -3686,8 +3686,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
 
                 {/* Gráfico Comparativo por Classe */}
-                <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-200 space-y-2">
-                  <h4 className="font-bold text-gray-900 text-xs">Comparativo de Aprovados e Reprovados por Classe</h4>
+                <div className="bg-gray-50/50 dark:bg-slate-800/40 rounded-xl p-4 border border-gray-200 dark:border-slate-700 space-y-2">
+                  <h4 className="font-bold text-gray-900 dark:text-white text-xs">Comparativo de Aprovados e Reprovados por Classe</h4>
                   <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={estatisticasPorClasse.map(c => ({
@@ -3696,9 +3696,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         Reprovados: c.reprovados,
                         Desistentes: c.desistentes
                       }))}>
-                        <XAxis dataKey="classe" stroke="#4b5563" fontSize={11} />
-                        <YAxis stroke="#4b5563" fontSize={11} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', fontSize: '11px' }} />
+                        <XAxis dataKey="classe" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#94a3b8" fontSize={11} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', color: '#fff', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px' }} />
                         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                         <Bar dataKey="Aprovados" fill="#10b981" />
                         <Bar dataKey="Reprovados" fill="#ef4444" />
@@ -3756,7 +3756,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             if (listaFinal.length === 0) {
               return (
-                <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-sm text-gray-500">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-8 text-center text-sm text-gray-500 dark:text-slate-400">
                   Nenhum educando associado encontrado no registo desta instituição de ensino.
                 </div>
               );
@@ -3767,20 +3767,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             return (
               <div className="space-y-4">
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="space-y-1">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="space-y-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                      <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
                         Encarregado de Educação
                       </span>
-                      <span className="text-xs text-slate-500 font-semibold">{escola.nomeOficial}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">{escola.nomeOficial}</span>
                     </div>
-                    <h2 className="text-lg sm:text-xl font-black text-slate-900">
+                    <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
                       Portal de Acompanhamento Familiar · {currentUser.nomeCompleto}
                     </h2>
                     {listaFinal.length > 1 && (
                       <div className="flex flex-wrap items-center gap-2 pt-1.5">
-                        <span className="text-xs font-semibold text-slate-500">Educandos vinculados:</span>
+                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Educandos vinculados:</span>
                         {listaFinal.map((ed) => (
                           <button
                             key={ed.id}
@@ -3789,7 +3789,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                               alunoDoEncarregado.id === ed.id
                                 ? 'bg-blue-700 text-white'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
                             }`}
                           >
                             {ed.nomeCompleto}
@@ -3799,7 +3799,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     )}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => onNavigate('boletins')}
@@ -3811,25 +3811,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onNavigate('pagamentos')}
-                      className="px-3.5 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
-                      <DollarSign className="h-4 w-4 text-emerald-700 shrink-0" />
+                      <DollarSign className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                       <span>Consultar Propinas</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => onNavigate('calendario_escolar')}
-                      className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
-                      <Calendar className="h-4 w-4 text-indigo-600 shrink-0" />
+                      <Calendar className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       <span>Calendário Escolar</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => onNavigate('comunicacao')}
-                      className="px-3.5 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
-                      <BookOpen className="h-4 w-4 text-blue-600 shrink-0" />
+                      <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
                       <span>Comunicação</span>
                     </button>
                   </div>
@@ -3837,7 +3837,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 <React.Suspense
                   fallback={
-                    <div className="p-6 text-center text-xs text-slate-500">
+                    <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">
                       A carregar boletim do educando...
                     </div>
                   }
@@ -3858,14 +3858,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* MODAL DE ALTERAÇÃO DE PALAVRA-PASSE DO DIRETOR (ADMIN GERAL) */}
       {modalSenhaDiretorOpen && diretorSelecionado && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full border border-gray-200 shadow-2xl overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-gray-200 dark:border-slate-700 shadow-2xl overflow-hidden">
             {/* Cabeçalho do Modal */}
             <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 p-5 text-white flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2.5 bg-white/10 rounded-xl border border-white/20">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="p-2.5 bg-white/10 rounded-xl border border-white/20 shrink-0">
                   <Key className="h-6 w-6 text-amber-300" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="font-black text-base text-white">Alterar Palavra-passe do Diretor Geral</h3>
                   <p className="text-xs text-blue-200 truncate max-w-xs">
                     {escolaDoDiretor?.nomeOficial || 'Instituição de Ensino'}
@@ -3875,7 +3875,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => setModalSenhaDiretorOpen(false)}
-                className="p-1.5 text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                className="p-1.5 text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer shrink-0"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -3884,39 +3884,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Conteúdo */}
             <div className="p-6 space-y-4">
               {/* Cartão de Identificação do Diretor */}
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-2">
+              <div className="bg-gray-50 dark:bg-slate-800/70 rounded-xl p-4 border border-gray-200 dark:border-slate-700 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Diretor Nomeado</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800">
+                  <span className="text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Diretor Nomeado</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-950/70 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
                     Direção Geral
                   </span>
                 </div>
                 <div className="flex items-center space-x-3">
-                  <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-black text-sm border border-blue-200">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-200 flex items-center justify-center font-black text-sm border border-blue-200 dark:border-blue-800 shrink-0">
                     {diretorSelecionado.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
                   </div>
-                  <div>
-                    <h4 className="font-bold text-gray-900 text-sm">{diretorSelecionado.nomeCompleto}</h4>
-                    <p className="text-xs text-gray-600 font-mono">{diretorSelecionado.email}</p>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-gray-900 dark:text-white text-sm truncate">{diretorSelecionado.nomeCompleto}</h4>
+                    <p className="text-xs text-gray-600 dark:text-slate-400 font-mono truncate">{diretorSelecionado.email}</p>
                   </div>
                 </div>
-                <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-xs text-gray-600">
-                  <span>Nº de BI: <strong className="font-mono text-gray-800">{diretorSelecionado.numeroBI}</strong></span>
-                  <span>Escola: <strong className="text-gray-800">{escolaDoDiretor?.sigla || escolaDoDiretor?.nomeOficial}</strong></span>
+                <div className="pt-2 border-t border-gray-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600 dark:text-slate-400">
+                  <span>Nº de BI: <strong className="font-mono text-gray-800 dark:text-slate-200">{diretorSelecionado.numeroBI}</strong></span>
+                  <span>Escola: <strong className="text-gray-800 dark:text-slate-200">{escolaDoDiretor?.sigla || escolaDoDiretor?.nomeOficial}</strong></span>
                 </div>
               </div>
 
               {/* Campo Nova Senha */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
-                    <Lock className="h-3.5 w-3.5 text-indigo-600" />
+                  <label className="text-xs font-bold text-gray-800 dark:text-slate-200 flex items-center space-x-1.5">
+                    <Lock className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Nova Palavra-passe de Acesso</span>
                   </label>
                   <button
                     type="button"
                     onClick={gerarSenhaForteDiretor}
-                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center space-x-1 hover:underline cursor-pointer"
+                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center space-x-1 hover:underline cursor-pointer"
                   >
                     <RefreshCw className="h-3 w-3" />
                     <span>Gerar Senha Forte</span>
@@ -3928,24 +3928,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     value={novaSenhaDiretor}
                     onChange={(e) => setNovaSenhaDiretor(e.target.value)}
                     placeholder="Mínimo 6 caracteres (Ex: Dir2026!)"
-                    className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-sm font-mono text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 pr-10 shadow-2xs"
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl text-sm font-mono text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 pr-10 shadow-2xs"
                   />
                   <button
                     type="button"
                     onClick={() => setMostrarSenhaDiretor(!mostrarSenhaDiretor)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 cursor-pointer"
                   >
                     {mostrarSenhaDiretor ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-[11px] text-gray-500">
+                <p className="text-[11px] text-gray-500 dark:text-slate-400">
                   Palavra-passe recomendada com letras maiúsculas, minúsculas, números e caractere especial.
                 </p>
               </div>
 
               {/* Informação de Segurança & Desbloqueio */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start space-x-2.5 text-xs text-blue-900">
-                <ShieldCheck className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-start space-x-2.5 text-xs text-blue-900 dark:text-blue-200">
+                <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
                 <p className="leading-relaxed">
                   <strong>Segurança Ativa:</strong> A nova palavra-passe é gravada e protegida com enclave cifrado. Caso a conta esteja temporariamente bloqueada por 3 ou mais tentativas falhadas, o bloqueio será imediatamente cancelado e os contadores de intrusão resetados.
                 </p>
@@ -3953,11 +3953,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* Ações do Rodapé */}
-            <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end space-x-2">
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/70 border-t border-gray-200 dark:border-slate-700 flex items-center justify-end space-x-2">
               <button
                 type="button"
                 onClick={() => setModalSenhaDiretorOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors cursor-pointer"
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-xl transition-colors cursor-pointer"
               >
                 Cancelar
               </button>
@@ -3965,7 +3965,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 type="button"
                 onClick={handleSalvarSenhaDiretor}
                 disabled={salvandoSenha || !novaSenhaDiretor.trim()}
-                className="px-4 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 disabled:bg-indigo-300 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
+                className="px-4 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 disabled:bg-indigo-300 dark:disabled:bg-indigo-900/50 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer disabled:cursor-not-allowed"
               >
                 {salvandoSenha ? (
                   <>
@@ -3987,22 +3987,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* MODAL: MONITORIZAÇÃO DE UTILIZADORES ONLINE E ACESSOS NAS ÚLTIMAS 24 HORAS */}
       {modalUsuariosOnlineOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] shadow-2xl border border-gray-200 flex flex-col overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full max-h-[90vh] shadow-2xl border border-gray-200 dark:border-slate-700 flex flex-col overflow-hidden">
             {/* Cabeçalho */}
-            <div className="p-5 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2.5 bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-400/30">
+            <div className="p-5 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="p-2.5 bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-400/30 shrink-0">
                   <Activity className="h-5 w-5" />
                 </div>
-                <div>
-                  <h3 className="text-base font-black text-white flex items-center space-x-2">
+                <div className="min-w-0">
+                  <h3 className="text-base font-black text-white flex flex-wrap items-center gap-2">
                     <span>Auditório de Utilizadores em Direto & 24 Horas</span>
                     <span className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[11px] font-bold text-emerald-300 tabular-nums">
                       <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
                       <span>{usuariosOnline.length} Online</span>
                     </span>
                   </h3>
-                  <p className="text-xs text-blue-200">
+                  <p className="text-xs text-blue-200 truncate">
                     {isAdminGeral 
                       ? 'Visão macro ministerial de acessos em todas as escolas da República de Angola'
                       : `Sessões autenticadas na ${escola.nomeOficial}`}
@@ -4012,14 +4012,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => setModalUsuariosOnlineOpen(false)}
-                className="p-1.5 text-gray-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                className="p-1.5 text-gray-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer shrink-0"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Filtros de Papel / Estado */}
-            <div className="p-4 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/70 border-b border-gray-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-1.5">
                 {[
                   { id: 'TODOS', label: `Todos (${usuarios24Horas.length})` },
@@ -4036,7 +4036,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       filtroSessoesPapel === f.id
                         ? 'bg-blue-700 text-white shadow-2xs'
-                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'
+                        : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700'
                     }`}
                   >
                     {f.label}
@@ -4044,8 +4044,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 ))}
               </div>
 
-              <div className="text-xs text-gray-500 font-semibold">
-                Total registrado nas últimas 24h: <strong>{usuarios24Horas.length}</strong>
+              <div className="text-xs text-gray-500 dark:text-slate-400 font-semibold tabular-nums">
+                Total registrado nas últimas 24h: <strong className="text-gray-800 dark:text-white">{usuarios24Horas.length}</strong>
               </div>
             </div>
 
@@ -4061,10 +4061,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 if (sessoesExibidas.length === 0) {
                   return (
-                    <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                      <Users className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                      <p className="text-xs font-bold text-gray-700">Nenhum utilizador encontrado para este filtro</p>
-                      <p className="text-[11px] text-gray-500">As sessões expiram automaticamente após inatividade prolongada.</p>
+                    <div className="p-8 text-center bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-700">
+                      <Users className="h-8 w-8 text-gray-400 dark:text-slate-500 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-gray-700 dark:text-slate-200">Nenhum utilizador encontrado para este filtro</p>
+                      <p className="text-[11px] text-gray-500 dark:text-slate-400">As sessões expiram automaticamente após inatividade prolongada.</p>
                     </div>
                   );
                 }
@@ -4073,7 +4073,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
                       <thead>
-                        <tr className="border-b border-gray-200 text-gray-500 font-bold uppercase text-[10px] bg-gray-50/50">
+                        <tr className="border-b border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-300 font-bold uppercase text-[10px] bg-gray-50/50 dark:bg-slate-800/80">
                           <th className="py-2.5 px-3">Utilizador & Cargo</th>
                           <th className="py-2.5 px-3">Escola</th>
                           <th className="py-2.5 px-3">Endereço IP</th>
@@ -4082,44 +4082,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <th className="py-2.5 px-3 text-right">Estado</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                         {sessoesExibidas.map(sess => {
                           const diffMinutos = Math.round((Date.now() - sess.ultimoAcesso) / (1000 * 60));
                           const estaRealmenteOnline = sess.online && diffMinutos <= 25;
 
                           return (
-                            <tr key={sess.id} className="hover:bg-blue-50/40 transition-colors">
+                            <tr key={sess.id} className="hover:bg-blue-50/40 dark:hover:bg-slate-800/60 transition-colors">
                               <td className="py-2.5 px-3">
                                 <div className="flex items-center space-x-2.5">
-                                  <div className="h-7 w-7 rounded-full bg-blue-100 text-blue-800 font-black text-[11px] flex items-center justify-center shrink-0">
+                                  <div className="h-7 w-7 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-200 font-black text-[11px] flex items-center justify-center shrink-0">
                                     {sess.userName.split(' ').map(n => n[0]).slice(0, 2).join('')}
                                   </div>
                                   <div>
-                                    <strong className="text-gray-900 block">{sess.userName}</strong>
-                                    <span className="text-[10px] text-gray-500">{sess.cargo || sess.userRole}</span>
+                                    <strong className="text-gray-900 dark:text-white block">{sess.userName}</strong>
+                                    <span className="text-[10px] text-gray-500 dark:text-slate-400">{sess.cargo || sess.userRole}</span>
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-2.5 px-3 text-gray-700 max-w-[160px] truncate">
+                              <td className="py-2.5 px-3 text-gray-700 dark:text-slate-300 max-w-[160px] truncate">
                                 {sess.escolaNome || 'Escola SGE'}
                               </td>
-                              <td className="py-2.5 px-3 font-mono text-gray-600 text-[11px]">
+                              <td className="py-2.5 px-3 font-mono text-gray-600 dark:text-slate-300 text-[11px]">
                                 {sess.ip}
                               </td>
-                              <td className="py-2.5 px-3 text-gray-600">
+                              <td className="py-2.5 px-3 text-gray-600 dark:text-slate-300 tabular-nums">
                                 {new Date(sess.loginTime).toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}
                               </td>
-                              <td className="py-2.5 px-3 text-gray-600">
+                              <td className="py-2.5 px-3 text-gray-600 dark:text-slate-300 tabular-nums">
                                 {diffMinutos <= 1 ? 'Agora mesmo' : `Há ${diffMinutos} min`}
                               </td>
                               <td className="py-2.5 px-3 text-right">
                                 {estaRealmenteOnline ? (
-                                  <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                                     <span>Online Agora</span>
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-700">
                                     Offline ({diffMinutos < 60 ? `${diffMinutos}m` : `${Math.round(diffMinutos/60)}h`})
                                   </span>
                                 )}
@@ -4135,14 +4135,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* Rodapé do Modal */}
-            <div className="p-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between text-xs">
-              <span className="text-gray-500 text-[11px]">
+            <div className="p-3 bg-gray-50 dark:bg-slate-800/70 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between gap-2 text-xs">
+              <span className="text-gray-500 dark:text-slate-400 text-[11px]">
                 Sessões sincronizadas com motor de batimento cardíaco (Heartbeat Engine)
               </span>
               <button
                 type="button"
                 onClick={() => setModalUsuariosOnlineOpen(false)}
-                className="px-4 py-1.5 text-xs font-bold text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 rounded-xl transition-colors cursor-pointer"
+                className="px-4 py-1.5 text-xs font-bold text-gray-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-xl transition-colors cursor-pointer shrink-0"
               >
                 Fechar
               </button>

@@ -379,18 +379,18 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
   return (
     <>
       {/* Botão do Centro de Notificações no Cabeçalho */}
-      <div className="relative" ref={painelRef}>
+      <div className="relative shrink-0" ref={painelRef}>
         <button
           type="button"
           onClick={() => setPainelAberto((v) => !v)}
           className={`relative p-2 rounded-lg border transition-colors cursor-pointer ${
             painelAberto
-              ? 'bg-blue-50 border-blue-400 text-blue-700'
-              : 'text-gray-600 hover:text-blue-700 hover:bg-blue-50 border-gray-200'
+              ? 'bg-blue-50 dark:bg-blue-950/70 border-blue-400 dark:border-blue-600 text-blue-700 dark:text-blue-300'
+              : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
           }`}
           title="Centro de Notificações Service Worker (Alterações de Notas, Biblioteca Urgente e Tempos Letivos)"
         >
-          <Bell className={`w-4 h-4 ${naoLidasCount > 0 ? 'text-blue-700' : 'text-gray-700'}`} />
+          <Bell className={`w-4 h-4 ${naoLidasCount > 0 ? 'text-blue-700 dark:text-blue-400' : 'text-slate-700 dark:text-slate-300'}`} />
           {naoLidasCount > 0 && (
             <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs">
               {naoLidasCount > 9 ? '9+' : naoLidasCount}
@@ -398,7 +398,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
           )}
           {swAtivo && permissaoNavegador === 'granted' && (
             <span
-              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white"
+              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white dark:ring-slate-900"
               title="Service Worker Push Ativo"
             />
           )}
@@ -406,14 +406,14 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
 
         {/* Popover Centro de Notificações */}
         {painelAberto && (
-          <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-11 w-[calc(100vw-1rem)] sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+          <div className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-11 w-[calc(100vw-1rem)] sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden text-slate-900 dark:text-slate-100">
             {/* Cabeçalho do Painel */}
-            <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+            <div className="bg-slate-900 dark:bg-slate-950 text-white px-4 py-3 flex items-center justify-between border-b border-slate-800">
               <div>
                 <div className="flex items-center space-x-2">
                   <Radio className={`w-3.5 h-3.5 ${swAtivo ? 'text-emerald-400' : 'text-amber-400'}`} />
                   <h3 className="text-xs font-black tracking-wide uppercase">
-                    Alertas Push & Service Worker
+                    Alertas Push &amp; Service Worker
                   </h3>
                 </div>
                 <p className="text-[10px] text-slate-300 mt-0.5">
@@ -446,8 +446,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
 
             {/* Banner de permissão do navegador */}
             {permissaoNavegador !== 'granted' && permissaoNavegador !== 'unsupported' && (
-              <div className="bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold text-amber-900 leading-tight">
+              <div className="bg-amber-50 dark:bg-amber-950/60 border-b border-amber-200 dark:border-amber-800 px-4 py-2.5 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-amber-900 dark:text-amber-200 leading-tight">
                   {permissaoNavegador === 'denied'
                     ? 'Notificações bloqueadas nas definições do navegador.'
                     : 'Ative as notificações push locais para avisos em tempo real.'}
@@ -467,12 +467,12 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
             {abaPainel === 'config' ? (
               <div className="p-4 space-y-4 max-h-96 overflow-y-auto text-xs">
                 <div className="space-y-2">
-                  <h4 className="font-black text-gray-900 uppercase text-[10px] tracking-wider">
+                  <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase text-[10px] tracking-wider">
                     Categorias de Alertas Ativos
                   </h4>
 
-                  <label className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer">
-                    <span className="font-semibold text-gray-800">Solicitações de Alteração de Nota</span>
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Solicitações de Alteração de Nota</span>
                     <input
                       type="checkbox"
                       checked={prefs.notificarSolicitacoesNota}
@@ -481,8 +481,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer">
-                    <span className="font-semibold text-gray-800">Mensagens Urgentes da Biblioteca</span>
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Mensagens Urgentes da Biblioteca</span>
                     <input
                       type="checkbox"
                       checked={prefs.notificarBibliotecaUrgente}
@@ -491,8 +491,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer">
-                    <span className="font-semibold text-gray-800">Mudança / Início de Tempo Letivo</span>
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Mudança / Início de Tempo Letivo</span>
                     <input
                       type="checkbox"
                       checked={prefs.notificarMudancaTempo}
@@ -501,8 +501,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer">
-                    <span className="font-semibold text-gray-800">Término de Tempo Letivo</span>
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Término de Tempo Letivo</span>
                     <input
                       type="checkbox"
                       checked={prefs.notificarTerminoTempo}
@@ -511,8 +511,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-200 cursor-pointer">
-                    <span className="font-semibold text-gray-800">Aviso Prévio (5 minutos antes)</span>
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Aviso Prévio (5 minutos antes)</span>
                     <input
                       type="checkbox"
                       checked={prefs.avisoPrevio5Min}
@@ -522,36 +522,36 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                   </label>
                 </div>
 
-                <div className="pt-2 border-t border-gray-200 space-y-2">
-                  <h4 className="font-black text-gray-900 uppercase text-[10px] tracking-wider">
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                  <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase text-[10px] tracking-wider">
                     Testar Alertas via Service Worker
                   </h4>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => notificationService.simularAlerta('SOLICITACAO_NOTA', escola, currentUser)}
-                      className="px-2.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg font-bold text-[11px] text-left cursor-pointer"
+                      className="px-2.5 py-2 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg font-bold text-[11px] text-left cursor-pointer"
                     >
                       Alteração de Nota
                     </button>
                     <button
                       type="button"
                       onClick={() => notificationService.simularAlerta('MENSAGEM_BIBLIOTECA', escola, currentUser)}
-                      className="px-2.5 py-2 bg-red-50 hover:bg-red-100 text-red-900 border border-red-300 rounded-lg font-bold text-[11px] text-left cursor-pointer"
+                      className="px-2.5 py-2 bg-red-50 dark:bg-red-950/60 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-900 dark:text-red-200 border border-red-300 dark:border-red-800 rounded-lg font-bold text-[11px] text-left cursor-pointer"
                     >
                       Biblioteca Urgente
                     </button>
                     <button
                       type="button"
                       onClick={() => notificationService.simularAlerta('MUDANCA_TEMPO', escola, currentUser)}
-                      className="px-2.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 rounded-lg font-bold text-[11px] text-left cursor-pointer"
+                      className="px-2.5 py-2 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-900 dark:text-blue-200 border border-blue-300 dark:border-blue-800 rounded-lg font-bold text-[11px] text-left cursor-pointer"
                     >
                       Mudança de Tempo
                     </button>
                     <button
                       type="button"
                       onClick={() => notificationService.simularAlerta('TERMINO_TEMPO', escola, currentUser)}
-                      className="px-2.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold text-[11px] text-left cursor-pointer"
+                      className="px-2.5 py-2 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 rounded-lg font-bold text-[11px] text-left cursor-pointer"
                     >
                       Término de Tempo
                     </button>
@@ -561,8 +561,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
             ) : (
               <div>
                 {/* Barra de ações do feed */}
-                <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-gray-700">
+                <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px]">
+                  <span className="font-bold text-slate-700 dark:text-slate-300">
                     {naoLidasCount} não lida(s) • {notificacoes.length} total
                   </span>
                   <div className="flex items-center space-x-3">
@@ -570,7 +570,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                       <button
                         type="button"
                         onClick={() => notificationService.marcarTodasLidas(escola.id, currentUser.id)}
-                        className="text-blue-700 hover:underline font-bold flex items-center space-x-1 cursor-pointer"
+                        className="text-blue-700 dark:text-blue-400 hover:underline font-bold flex items-center space-x-1 cursor-pointer"
                       >
                         <CheckCheck className="w-3 h-3" />
                         <span>Ler todas</span>
@@ -580,7 +580,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                       <button
                         type="button"
                         onClick={() => notificationService.limparNotificacoes(escola.id)}
-                        className="text-gray-500 hover:text-red-600 font-semibold flex items-center space-x-1 cursor-pointer"
+                        className="text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 font-semibold flex items-center space-x-1 cursor-pointer"
                       >
                         <Trash2 className="w-3 h-3" />
                         <span>Limpar</span>
@@ -590,17 +590,17 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                 </div>
 
                 {/* Lista de alertas */}
-                <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                   {notificacoes.length === 0 ? (
                     <div className="p-6 text-center space-y-2">
-                      <Bell className="w-7 h-7 text-gray-300 mx-auto" />
-                      <p className="text-xs font-semibold text-gray-600">
+                      <Bell className="w-7 h-7 text-slate-300 dark:text-slate-600 mx-auto" />
+                      <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                         Nenhuma notificação registada neste dispositivo.
                       </p>
                       <button
                         type="button"
                         onClick={() => setAbaPainel('config')}
-                        className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                        className="text-[11px] font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer"
                       >
                         Configurar ou testar alertas SW
                       </button>
@@ -610,29 +610,29 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                       <div
                         key={item.id}
                         onClick={() => handleAbrirNotificacao(item)}
-                        className={`p-3.5 transition-colors cursor-pointer hover:bg-slate-50 flex items-start space-x-3 ${
+                        className={`p-3.5 transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/70 flex items-start space-x-3 ${
                           !item.lida
                             ? item.urgente
-                              ? 'bg-red-50/60 border-l-4 border-red-600'
-                              : 'bg-blue-50/50 border-l-4 border-blue-600'
-                            : 'bg-white'
+                              ? 'bg-red-50/60 dark:bg-red-950/40'
+                              : 'bg-blue-50/50 dark:bg-blue-950/30'
+                            : 'bg-white dark:bg-slate-900'
                         }`}
                       >
-                        <div className="mt-0.5 p-1.5 rounded-lg bg-white border border-gray-200 shadow-2xs">
+                        <div className="mt-0.5 p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs">
                           {renderIconeCategoria(item.categoria)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <p className={`text-xs font-bold truncate ${!item.lida ? 'text-gray-950' : 'text-gray-700'}`}>
+                            <p className={`text-xs font-bold truncate ${!item.lida ? 'text-slate-950 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>
                               {item.titulo}
                             </p>
-                            <span className="text-[10px] text-gray-400 font-mono shrink-0">
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono shrink-0">
                               {new Date(item.criadaEm).toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           </div>
-                          <p className="text-[11px] text-gray-700 mt-0.5 leading-snug">{item.mensagem}</p>
+                          <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-0.5 leading-snug">{item.mensagem}</p>
                           {item.detalhes && (
-                            <p className="text-[10px] text-gray-500 mt-1 truncate">{item.detalhes}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 truncate">{item.detalhes}</p>
                           )}
                         </div>
                       </div>

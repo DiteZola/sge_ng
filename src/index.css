@@ -1,4 +1,56 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    color-scheme: light;
+    overflow-x: clip;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    overflow-x: clip;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  html.dark select,
+  html.dark textarea {
+    color-scheme: dark;
+  }
+
+  html.dark select option {
+    background-color: #0f172a;
+    color: #f1f5f9;
+  }
+
+  /* Custom subtle scrollbars */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.45);
+    border-radius: 9999px;
+  }
+  html.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.55);
+  }
+}
+
+/* Proteção absoluta de legibilidade para documentos oficiais, pautas A4, recibos e passes em papel branco */
+[data-doc-root="true"],
+.documento-oficial-print,
+[data-print-paper="true"] {
+  color-scheme: light;
+  color: #0f172a;
+}
 
 @layer utilities {
   @media print {
@@ -8,11 +60,12 @@
     .print-only {
       display: block !important;
     }
-    body {
+    html, body {
       background: white !important;
       color: black !important;
       margin: 0 !important;
       padding: 0 !important;
+      color-scheme: light !important;
     }
     .page-break {
       page-break-after: always;

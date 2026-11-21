@@ -95,7 +95,7 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
+      <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
         <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-800 to-indigo-900 text-white">
           <div className="flex items-center space-x-2.5">
             <ShieldCheck className="w-5 h-5 text-blue-300" />
@@ -115,29 +115,29 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
           {/* Dados do Estudante */}
-          <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl flex items-center justify-between">
-            <div>
-              <span className="text-[10px] text-blue-700 uppercase font-black tracking-wider block">Estudante</span>
-              <span className="font-bold text-gray-900 text-sm">{aluno.nomeCompleto}</span>
-              <span className="text-gray-600 block text-[11px]">
+          <div className="p-3 bg-blue-50/60 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <span className="text-[10px] text-blue-700 dark:text-blue-400 uppercase font-black tracking-wider block">Estudante</span>
+              <span className="font-bold text-slate-900 dark:text-white text-sm break-words">{aluno.nomeCompleto}</span>
+              <span className="text-slate-600 dark:text-slate-300 block text-[11px]">
                 Proc: {aluno.numeroProcesso || aluno.codigoMatricula} {turma ? `• Turma: ${turma.nome} (${turma.classe})` : ''}
               </span>
             </div>
-            <span className="px-2 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-lg font-bold text-[10px]">
+            <span className="px-2 py-1 bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 rounded-lg font-bold text-[10px] shrink-0">
               Falta a Justificar
             </span>
           </div>
 
           {erro && (
-            <div className="p-2.5 bg-red-50 border border-red-300 text-red-900 rounded-lg flex items-center space-x-2 font-medium">
-              <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+            <div className="p-2.5 bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-800 text-red-900 dark:text-red-200 rounded-lg flex items-center space-x-2 font-medium">
+              <AlertCircle className="w-4 h-4 text-red-700 dark:text-red-400 shrink-0" />
               <span>{erro}</span>
             </div>
           )}
 
           {sucesso && (
-            <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-lg flex items-center space-x-2 font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 rounded-lg flex items-center space-x-2 font-bold">
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
               <span>Falta do estudante justificada com sucesso no livro de presenças!</span>
             </div>
           )}
@@ -154,13 +154,13 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
             />
 
             <div>
-              <label className="font-semibold text-gray-700 block mb-1">
+              <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                 Motivo da Justificação <span className="text-red-500 font-bold">*</span>
               </label>
               <select
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white font-medium"
+                className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium"
               >
                 {MOTIVOS_JUSTIFICACAO_ALUNO.map((m) => (
                   <option key={m} value={m}>{m}</option>
@@ -170,7 +170,7 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
           </div>
 
           <div>
-            <label className="font-semibold text-gray-700 block mb-1">
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
               Documento Comprovativo / Declaração
             </label>
             <input
@@ -178,12 +178,12 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
               placeholder="Ex: Atestado Médico nº 109 / Declaração assinada pelo encarregado Sr. João..."
               value={documentoRef}
               onChange={(e) => setDocumentoRef(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+              className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="font-semibold text-gray-700 block mb-1">
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
               Descrição Circunstanciada <span className="text-red-500 font-bold">*</span>
             </label>
             <textarea
@@ -192,15 +192,15 @@ export const ModalJustificarFaltaAluno: React.FC<ModalJustificarFaltaAlunoProps>
               placeholder="Detalhes apresentados pelo encarregado de educação ou comprovados por documento oficial..."
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+              className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
             />
           </div>
 
-          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-200">
+          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200 dark:border-slate-700">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-bold transition-colors cursor-pointer"
+              className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 font-bold transition-colors cursor-pointer"
             >
               Cancelar
             </button>

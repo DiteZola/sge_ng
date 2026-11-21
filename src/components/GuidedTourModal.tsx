@@ -107,7 +107,7 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
           texto: `Sua função atual é ${currentUser.cargo || currentUser.role}. Todas as permissões e menus estão ajustados para o seu trabalho.`
         }
       ],
-      dicaPratica: 'Pode rever este tour a qualquer momento clicando no botão "Guia do Sistema" no topo da página ou no menu lateral.'
+      dicaPratica: 'Pode rever este tour a qualquer momento clicando na sua foto de perfil no topo da página ("Guia do Sistema") ou no menu lateral.'
     },
     {
       id: 'dashboard',
@@ -240,12 +240,12 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
       icon: <Users className="w-8 h-8 text-rose-600" />,
       titulo: 'Meu Perfil, Mensagens & Suporte Técnico',
       subtitulo: 'Atualize seus dados, comunique com a equipa escolar e solicite apoio técnico.',
-      descricao: 'Aceda ao seu perfil para alterar senha e foto oficial. Utilize a biblioteca de mensagens internas para circulares escolares entre Direção, Secretaria e Corpo Docente.',
+      descricao: 'Aceda ao seu perfil através da foto no canto superior para alterar senha, foto oficial, tema (Claro/Escuro) ou encerrar sessão. Utilize a biblioteca para partilha de livros PDF e circulares.',
       destaques: [
         {
           icon: <Users className="w-5 h-5 text-blue-600" />,
-          titulo: 'Meu Perfil Seguro',
-          texto: 'Altere seu número de contacto, foto de perfil e palavra-passe com encriptação e histórico auditado.'
+          titulo: 'Meu Perfil & Tema',
+          texto: 'Altere seu contacto, foto, palavra-passe e escolha entre Tema Claro ou Escuro.'
         },
         {
           icon: <RefreshCw className="w-5 h-5 text-emerald-600" />,
@@ -255,7 +255,7 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
         {
           icon: <Compass className="w-5 h-5 text-purple-600" />,
           titulo: 'Menu Permanente do Guia',
-          texto: 'Se tiver dúvidas futuras, clique no botão "Guia Rápido" no topo do ecrã para abrir este tutorial.'
+          texto: 'Se tiver dúvidas futuras, aceda ao Guia do Sistema através da sua foto de perfil ou no fundo do menu lateral.'
         }
       ],
       dicaPratica: 'Mantenha a sua senha segura e realize backups periódicos na secção de Auditoria e Sistema.',
@@ -306,7 +306,7 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-sm animate-in fade-in duration-200 no-print">
       <div 
-        className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full flex flex-col max-h-[92vh] overflow-hidden transition-all duration-300"
+        className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-w-2xl w-full flex flex-col max-h-[92vh] overflow-hidden transition-all duration-300"
         role="dialog"
         aria-modal="true"
         aria-labelledby="tour-modal-title"
@@ -355,42 +355,42 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1">
           {/* Cabeçalho do Passo */}
           <div className="flex items-start space-x-3.5">
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl shrink-0 shadow-2xs">
+            <div className="p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shrink-0 shadow-2xs">
               {currentStep.icon}
             </div>
             <div className="space-y-1">
-              <h2 id="tour-modal-title" className="text-base sm:text-lg font-black text-slate-900 leading-snug">
+              <h2 id="tour-modal-title" className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-snug">
                 {currentStep.titulo}
               </h2>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium">
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
                 {currentStep.subtitulo}
               </p>
             </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-slate-700 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+          <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed bg-slate-50 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
             {currentStep.descricao}
           </p>
 
           {/* Destaques em Grid */}
           <div className="space-y-2.5 pt-1">
-            <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+            <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
               O que você precisa saber:
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {currentStep.destaques.map((item, idx) => (
                 <div 
                   key={idx} 
-                  className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs hover:border-blue-300 transition-colors flex flex-col justify-between"
+                  className="p-3 bg-white dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs hover:border-blue-300 dark:hover:border-blue-500 transition-colors flex flex-col justify-between"
                 >
                   <div className="space-y-1.5">
-                    <div className="p-1.5 bg-slate-50 rounded-lg w-fit">
+                    <div className="p-1.5 bg-slate-50 dark:bg-slate-900 rounded-lg w-fit">
                       {item.icon}
                     </div>
-                    <h5 className="text-xs font-bold text-slate-900">
+                    <h5 className="text-xs font-bold text-slate-900 dark:text-white">
                       {item.titulo}
                     </h5>
-                    <p className="text-[11px] text-slate-600 leading-tight">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-tight">
                       {item.texto}
                     </p>
                   </div>
@@ -400,11 +400,11 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
           </div>
 
           {/* Dica Prática */}
-          <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl flex items-start space-x-2.5 text-xs text-amber-950">
-            <Award className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="p-3 bg-amber-50/80 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/70 rounded-xl flex items-start space-x-2.5 text-xs text-amber-950 dark:text-amber-200">
+            <Award className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold block text-[11px] text-amber-900">Dica Prática:</span>
-              <p className="text-[11px] text-amber-800 leading-relaxed">
+              <span className="font-bold block text-[11px] text-amber-900 dark:text-amber-200">Dica Prática:</span>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
                 {currentStep.dicaPratica}
               </p>
             </div>
@@ -416,7 +416,7 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleExecutarAcaoRapida(currentStep.acaoRapida!.tab)}
-                className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 inline-flex items-center space-x-1.5 transition-colors cursor-pointer"
+                className="text-xs font-bold text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-950/50 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 inline-flex items-center space-x-1.5 transition-colors cursor-pointer"
               >
                 <span>{currentStep.acaoRapida.label}</span>
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -426,14 +426,14 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
         </div>
 
         {/* Rodapé com Navegação, Indicadores de Passos e Opção de Não Mostrar */}
-        <div className="bg-slate-50 border-t border-slate-200 p-4 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 p-4 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
-            <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-600 select-none">
+            <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-600 dark:text-slate-300 select-none">
               <input
                 type="checkbox"
                 checked={naoMostrarNovamente}
                 onChange={(e) => setNaoMostrarNovamente(e.target.checked)}
-                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500 h-4 w-4"
               />
               <span className="text-[11px]">Não abrir automaticamente no próximo login</span>
             </label>
@@ -449,8 +449,8 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
                   onClick={() => setStepIndex(idx)}
                   className={`h-2 rounded-full transition-all cursor-pointer ${
                     idx === stepIndex 
-                      ? 'w-6 bg-blue-600' 
-                      : 'w-2 bg-slate-300 hover:bg-slate-400'
+                      ? 'w-6 bg-blue-600 dark:bg-blue-500' 
+                      : 'w-2 bg-slate-300 dark:bg-slate-600 hover:bg-slate-400 dark:hover:bg-slate-500'
                   }`}
                   title={`Ir para passo ${idx + 1}`}
                 />
@@ -461,7 +461,7 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
               <button
                 type="button"
                 onClick={handlePrev}
-                className="px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 rounded-xl transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
+                className="px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
                 <span>Anterior</span>

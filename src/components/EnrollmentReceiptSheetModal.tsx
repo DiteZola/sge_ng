@@ -281,19 +281,19 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
   const nomeFuncionarioOperador = currentUser?.nomeCompleto || obterNomeDiretorGeral(escola);
 
   return (
-    <div className="fixed inset-0 bg-gray-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl space-y-4 my-4 max-h-[95vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-gray-900/75 dark:bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl space-y-4 my-4 max-h-[95vh] overflow-y-auto">
         {/* Cabeçalho do Modal */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-gray-200 no-print">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-gray-200 dark:border-slate-800 no-print">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl">
+            <div className="p-2 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-xl shrink-0">
               <FileCheck2 className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-gray-900">
+              <h3 className="text-base font-black text-gray-900 dark:text-white">
                 Recibos de Matrícula e Confirmação — 3 por Folha A4
               </h3>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-slate-400">
                 Insira até <strong>3 nomes de alunos</strong> (selecionando alunos cadastrados ou digitando livremente) para baixar todos em uma única folha A4.
               </p>
             </div>
@@ -325,7 +325,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
             <button
               type="button"
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"
+              className="text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-white p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer"
               aria-label="Fechar"
             >
               <X className="h-5 w-5" />
@@ -353,12 +353,14 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
               <div
                 key={`slot-editor-${idx}`}
                 className={`p-3 rounded-xl border-2 space-y-2 transition-colors ${
-                  preenchido ? 'border-emerald-400 bg-emerald-50/40' : 'border-dashed border-gray-300 bg-gray-50/60'
+                  preenchido
+                    ? 'border-emerald-400 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/30'
+                    : 'border-dashed border-gray-300 dark:border-slate-700 bg-gray-50/60 dark:bg-slate-800/60'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-black uppercase text-gray-800 flex items-center space-x-1">
-                    <UserPlus className="h-3.5 w-3.5 text-emerald-700" />
+                  <span className="text-[11px] font-black uppercase text-gray-800 dark:text-slate-100 flex items-center space-x-1">
+                    <UserPlus className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
                     <span>Recibo {idx + 1} de 3</span>
                   </span>
                   <div className="flex items-center space-x-1.5">
@@ -369,7 +371,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                           tipoOperacao: e.target.value as 'Matricula' | 'Confirmacao'
                         })
                       }
-                      className="text-[10px] font-bold px-1.5 py-0.5 border border-gray-300 rounded bg-white text-gray-800"
+                      className="text-[10px] font-bold px-1.5 py-0.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-100"
                     >
                       <option value="Confirmacao">Confirmação</option>
                       <option value="Matricula">Matrícula</option>
@@ -378,7 +380,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                       <button
                         type="button"
                         onClick={() => limparSlot(idx)}
-                        className="text-red-500 hover:text-red-700 p-0.5 cursor-pointer"
+                        className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-0.5 cursor-pointer"
                         title="Limpar este recibo"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -390,7 +392,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                 {/* Campo de Nome com Autocompletar */}
                 <div className="relative">
                   <div className="relative">
-                    <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-2" />
+                    <Search className="h-3.5 w-3.5 text-gray-400 dark:text-slate-400 absolute left-2.5 top-2" />
                     <input
                       type="text"
                       value={slot.nomeCompleto}
@@ -410,12 +412,12 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                         setSlotFocadoSugestao(idx);
                       }}
                       placeholder={`Inserir nome do ${idx + 1}º aluno...`}
-                      className="w-full pl-7 pr-2 py-1.5 text-xs font-bold border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                      className="w-full pl-7 pr-2 py-1.5 text-xs font-bold border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-600 focus:outline-none"
                     />
                   </div>
 
                   {slotFocadoSugestao === idx && sugestoes.length > 0 && (
-                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-gray-100">
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-700">
                       {sugestoes.map(al => {
                         const t = turmas.find(tm => tm.id === al.turmaId);
                         return (
@@ -426,10 +428,10 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                               ev.preventDefault();
                               selecionarAlunoNoSlot(idx, al);
                             }}
-                            className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 text-[11px] flex items-center justify-between cursor-pointer"
+                            className="w-full text-left px-2.5 py-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 text-[11px] flex items-center justify-between cursor-pointer"
                           >
-                            <span className="font-bold text-gray-900 truncate pr-2">{al.nomeCompleto}</span>
-                            <span className="text-[10px] font-mono text-emerald-700 shrink-0">
+                            <span className="font-bold text-gray-900 dark:text-slate-100 truncate pr-2">{al.nomeCompleto}</span>
+                            <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 shrink-0">
                               {al.classeId || t?.classe || ''} • {t?.nome || ''}
                             </span>
                           </button>
@@ -456,7 +458,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                         curso: isSegundoCiclo(novaCls) ? tMatch?.curso || slot.curso : ''
                       });
                     }}
-                    className="p-1.5 border border-gray-300 rounded bg-white font-semibold"
+                    className="p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 font-semibold"
                   >
                     <option value="">Classe...</option>
                     {TODAS_CLASSES_OPT.map(c => (
@@ -469,7 +471,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                   <select
                     value={slot.turno}
                     onChange={e => atualizarSlot(idx, { turno: e.target.value })}
-                    className="p-1.5 border border-gray-300 rounded bg-white"
+                    className="p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
                   >
                     {turnosDisponiveis.map(tr => (
                       <option key={`trn-slot-${idx}-${tr}`} value={tr}>
@@ -483,7 +485,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                     value={slot.turmaNome}
                     onChange={e => atualizarSlot(idx, { turmaNome: e.target.value })}
                     placeholder="Turma (ex: 8ª A)"
-                    className="p-1.5 border border-gray-300 rounded bg-white"
+                    className="p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
                   />
 
                   <input
@@ -491,14 +493,14 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                     value={slot.codigoMatricula}
                     onChange={e => atualizarSlot(idx, { codigoMatricula: e.target.value })}
                     placeholder="Nº Matrícula"
-                    className="p-1.5 border border-gray-300 rounded bg-white font-mono"
+                    className="p-1.5 border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 font-mono"
                   />
 
                   {isSegundoCiclo(slot.classe) && (
                     <select
                       value={slot.curso}
                       onChange={e => atualizarSlot(idx, { curso: e.target.value })}
-                      className="col-span-2 p-1.5 border border-purple-300 rounded bg-purple-50/40 font-semibold text-purple-900"
+                      className="col-span-2 p-1.5 border border-purple-300 dark:border-purple-700 rounded bg-purple-50/40 dark:bg-purple-950/40 font-semibold text-purple-900 dark:text-purple-200"
                     >
                       <option value="">Selecionar Curso (IIº Ciclo)...</option>
                       {cursosDisponiveis.map(cur => (
@@ -515,25 +517,25 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
         </div>
 
         {/* Informação sobre aproveitamento da folha */}
-        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-blue-900 flex items-center justify-between no-print">
+        <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/70 rounded-lg text-[11px] text-blue-900 dark:text-blue-200 flex flex-wrap items-center justify-between gap-2 no-print">
           <div className="flex items-center space-x-2">
-            <Sparkles className="h-4 w-4 text-blue-600 shrink-0" />
+            <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>
               <strong>Folha A4 (3 em 1):</strong> Cada recibo ocupa 1/3 da folha A4 com guias de corte. Preencha 1, 2 ou 3 nomes acima e clique em <strong>Baixar Folha A4</strong>.
             </span>
           </div>
-          <span className="font-bold bg-white px-2 py-0.5 rounded border border-blue-200 shrink-0">
+          <span className="font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 shrink-0">
             {slotsAtivos.length} / 3 preenchidos
           </span>
         </div>
 
         {/* Pré-visualização da Folha A4 (exact width 794px, centrada) */}
-        <div className="border border-gray-300 rounded-xl p-3 bg-gray-100 overflow-x-auto">
+        <div className="border border-gray-300 dark:border-slate-800 rounded-xl p-3 bg-gray-100 dark:bg-slate-950/90 overflow-x-auto">
           {slotsAtivos.length === 0 ? (
-            <div className="bg-white rounded-xl p-10 text-center text-gray-500 border-2 border-dashed border-gray-300">
-              <CheckCircle2 className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm font-bold text-gray-700">Insira pelo menos 1 nome acima para gerar o recibo.</p>
-              <p className="text-xs text-gray-500 mt-1">
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-10 text-center text-gray-500 dark:text-slate-400 border-2 border-dashed border-gray-300 dark:border-slate-700">
+              <CheckCircle2 className="h-10 w-10 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
+              <p className="text-sm font-bold text-gray-700 dark:text-slate-200">Insira pelo menos 1 nome acima para gerar o recibo.</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                 Pode inserir até 3 nomes diferentes para imprimir os 3 recibos na mesma folha A4.
               </p>
             </div>

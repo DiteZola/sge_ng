@@ -448,18 +448,18 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
   const folhaAtiva = sheets[selectedSheetIndex];
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-5xl w-full border-2 border-blue-600 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-6 overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-5xl w-full border-2 border-blue-600 dark:border-blue-500 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
         
         {/* CABEÇALHO */}
-        <div className="p-5 sm:p-6 bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="p-3 bg-white/10 rounded-2xl border border-white/20 backdrop-blur-md">
+        <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="p-3 bg-white/10 rounded-2xl border border-white/20 backdrop-blur-md shrink-0">
               <FileSpreadsheet className="w-7 h-7 text-amber-300" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h2 className="text-lg font-black tracking-tight">Importação & Homologação Escolar via Excel</h2>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-black tracking-tight">Importação & Homologação Escolar via Excel</h2>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-400 text-blue-950">
                   Direção & Administração
                 </span>
@@ -471,18 +471,18 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+            className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* CORPO MODAL COM SCROLL */}
-        <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
 
           {/* ÁREA DE UPLOAD E MODELO */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-2xl p-5 text-center bg-blue-50/50 transition-colors">
+            <div className="md:col-span-2 border-2 border-dashed border-blue-300 dark:border-blue-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-2xl p-5 text-center bg-blue-50/50 dark:bg-blue-950/30 transition-colors">
               <input
                 type="file"
                 id="excelFileInput"
@@ -498,10 +498,10 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                   <Upload className="w-6 h-6" />
                 </div>
                 <div>
-                  <span className="text-xs font-black text-blue-900 block">
+                  <span className="text-xs font-black text-blue-900 dark:text-blue-200 block">
                     {fileName ? `Ficheiro carregado: ${fileName}` : 'Clique para carregar livro Excel (.xlsx / .xls)'}
                   </span>
-                  <span className="text-[11px] text-gray-500">
+                  <span className="text-[11px] text-gray-500 dark:text-slate-400">
                     Suporte a múltiplos livros/folhas: Ano Lectivo, Turmas, Alunos, Disciplinas
                   </span>
                 </div>
@@ -509,13 +509,13 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             </div>
 
             {/* BOTÃO PARA BAIXAR MODELO MED */}
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+            <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex flex-col justify-between space-y-3">
               <div>
-                <span className="text-xs font-black text-slate-800 flex items-center space-x-1.5">
-                  <Download className="w-4 h-4 text-emerald-600" />
+                <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
+                  <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   <span>Modelo de Exemplo MED</span>
                 </span>
-                <p className="text-[11px] text-slate-500 mt-1">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   Descarregue o modelo com as 4 folhas oficiais prontas para preenchimento.
                 </p>
               </div>
@@ -533,7 +533,9 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           {/* FEEDBACK MENSAGEM */}
           {feedback && (
             <div className={`p-4 rounded-xl text-xs font-bold flex items-center space-x-2 ${
-              feedback.tipo === 'sucesso' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-red-100 text-red-900 border border-red-300'
+              feedback.tipo === 'sucesso'
+                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
+                : 'bg-red-100 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-300 dark:border-red-800'
             }`}>
               {feedback.tipo === 'sucesso' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
               <span>{feedback.texto}</span>
@@ -541,60 +543,60 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           )}
 
           {/* PARÂMETROS E ANO LETIVO HOMOLOGADO */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+          <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
               <div className="flex items-center space-x-2">
-                <Calendar className="w-4 h-4 text-blue-600" />
-                <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <h4 className="text-xs font-black uppercase text-slate-800 dark:text-slate-100 tracking-wider">
                   Parâmetros de Reconhecimento do Ano Letivo
                 </h4>
               </div>
-              <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full">
+              <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-950/60 px-2.5 py-0.5 rounded-full">
                 Sincronização Ativa
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1">Rótulo do Ano Letivo</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Rótulo do Ano Letivo</label>
                 <input
                   type="text"
                   value={anoLetivoAlvo}
                   onChange={(e) => setAnoLetivoAlvo(e.target.value)}
                   placeholder="Ex: 2025/2026"
-                  className="w-full p-2 border border-gray-300 rounded-xl font-black bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl font-black bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1">Início das Aulas</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Início das Aulas</label>
                 <input
                   type="date"
                   value={dataInicioAno}
                   onChange={(e) => setDataInicioAno(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-xl bg-white text-gray-900 text-xs"
+                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-xs"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 mb-1">Término do Ano</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Término do Ano</label>
                 <input
                   type="date"
                   value={dataFimAno}
                   onChange={(e) => setDataFimAno(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-xl bg-white text-gray-900 text-xs"
+                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-xs"
                 />
               </div>
 
-              <div className="flex items-center pt-5">
+              <div className="flex items-center sm:pt-5">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={definirComoAtivo}
                     onChange={(e) => setDefinirComoAtivo(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                    className="w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-slate-600"
                   />
-                  <span className="text-xs font-bold text-gray-800">Definir como Ano Activo</span>
+                  <span className="text-xs font-bold text-gray-800 dark:text-slate-200">Definir como Ano Activo</span>
                 </label>
               </div>
             </div>
@@ -605,32 +607,32 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center space-x-1.5">
-                    <Layers className="w-4 h-4 text-blue-600" />
+                  <h4 className="text-xs font-black uppercase text-slate-800 dark:text-slate-100 tracking-wider flex items-center space-x-1.5">
+                    <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span>Livros e Folhas Detectadas no Ficheiro ({sheets.length})</span>
                   </h4>
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400">
                     Selecione as folhas que deseja validar e pré-visualizar antes da homologação
                   </p>
                 </div>
               </div>
 
               {/* TABS DE FOLHAS */}
-              <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
+              <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-slate-800 pb-2">
                 {sheets.map((s, idx) => (
                   <div
                     key={idx}
                     className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
                       selectedSheetIndex === idx
                         ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={s.selecionado}
                       onChange={() => handleToggleSheet(idx)}
-                      className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer"
+                      className="w-3.5 h-3.5 rounded border-gray-300 dark:border-slate-600 cursor-pointer"
                       title="Incluir esta folha na importação"
                     />
                     <button
@@ -640,7 +642,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                     >
                       <span>{s.sheetName}</span>
                       <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                        selectedSheetIndex === idx ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                        selectedSheetIndex === idx ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300'
                       }`}>
                         {s.rowCount} linhas
                       </span>
@@ -651,33 +653,33 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
 
               {/* PRÉ-VISUALIZAÇÃO DA FOLHA ATIVA E VALIDAÇÃO DE TIPOS */}
               {folhaAtiva && (
-                <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-3 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                    <div className="flex items-center space-x-2">
-                      <Eye className="w-4 h-4 text-indigo-600" />
-                      <span className="text-xs font-black text-gray-900">
-                        Pré-visualização dos Dados: <span className="text-blue-700 font-mono font-bold">{folhaAtiva.sheetName}</span>
+                <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Eye className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span className="text-xs font-black text-gray-900 dark:text-white">
+                        Pré-visualização dos Dados: <span className="text-blue-700 dark:text-blue-400 font-mono font-bold">{folhaAtiva.sheetName}</span>
                       </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                         Tipo: {folhaAtiva.tipoDetectado}
                       </span>
                     </div>
-                    <span className="text-[11px] text-gray-500">
+                    <span className="text-[11px] text-gray-500 dark:text-slate-400">
                       Mostrando primeiras 15 linhas de {folhaAtiva.rowCount} registos
                     </span>
                   </div>
 
                   {/* TABELA DE PRÉ-VISUALIZAÇÃO */}
-                  <div className="overflow-x-auto max-h-60 border border-gray-200 rounded-xl">
+                  <div className="overflow-x-auto max-h-60 border border-gray-200 dark:border-slate-700 rounded-xl">
                     <table className="w-full text-[11px] text-left">
-                      <thead className="bg-slate-100 text-slate-800 font-black uppercase text-[10px] tracking-wider border-b border-gray-200 sticky top-0">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-black uppercase text-[10px] tracking-wider border-b border-gray-200 dark:border-slate-700 sticky top-0">
                         <tr>
-                          <th className="p-2 w-8 text-center bg-slate-100">#</th>
+                          <th className="p-2 w-8 text-center bg-slate-100 dark:bg-slate-800">#</th>
                           {folhaAtiva.columns.map((col, cIdx) => (
-                            <th key={cIdx} className="p-2 whitespace-nowrap bg-slate-100">
+                            <th key={cIdx} className="p-2 whitespace-nowrap bg-slate-100 dark:bg-slate-800">
                               <div className="flex flex-col">
                                 <span>{col}</span>
-                                <span className="text-[9px] font-normal text-slate-500 lowercase">
+                                <span className="text-[9px] font-normal text-slate-500 dark:text-slate-400 lowercase">
                                   {col.toLowerCase().includes('data') ? '(data)' : col.toLowerCase().includes('bi') ? '(texto/bi)' : col.toLowerCase().includes('numero') || col.toLowerCase().includes('capacidade') ? '(número)' : '(texto)'}
                                 </span>
                               </div>
@@ -685,12 +687,12 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 bg-white">
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                         {folhaAtiva.sampleRows.map((row, rIdx) => (
-                          <tr key={rIdx} className="hover:bg-blue-50/50">
-                            <td className="p-2 text-center text-gray-400 font-mono font-bold">{rIdx + 1}</td>
+                          <tr key={rIdx} className="hover:bg-blue-50/50 dark:hover:bg-slate-800/70">
+                            <td className="p-2 text-center text-gray-400 dark:text-slate-500 font-mono font-bold">{rIdx + 1}</td>
                             {folhaAtiva.columns.map((col, cIdx) => (
-                              <td key={cIdx} className="p-2 whitespace-nowrap text-gray-700 font-medium">
+                              <td key={cIdx} className="p-2 whitespace-nowrap text-gray-700 dark:text-slate-200 font-medium">
                                 {String(row[col] ?? '')}
                               </td>
                             ))}
@@ -705,9 +707,9 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           )}
 
           {/* CHECKBOXES DE CONFIRMAÇÃO EXIGIDA PELO DIRETOR */}
-          <div className="p-4 bg-amber-50/80 border border-amber-300 rounded-2xl space-y-3">
-            <div className="flex items-center space-x-2 text-amber-900 font-black text-xs uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4 text-amber-600" />
+          <div className="p-4 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl space-y-3">
+            <div className="flex items-center space-x-2 text-amber-900 dark:text-amber-300 font-black text-xs uppercase tracking-wider">
+              <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <span>Validação e Reconhecimento Oficial no Sistema SGE-NG</span>
             </div>
 
@@ -719,7 +721,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                   onChange={(e) => setConfirmouTiposDados(e.target.checked)}
                   className="w-4 h-4 text-blue-600 rounded border-amber-400 mt-0.5 cursor-pointer"
                 />
-                <span className="text-gray-800 font-medium">
+                <span className="text-gray-800 dark:text-slate-200 font-medium">
                   <strong>Confirmo a pré-visualização e os tipos de dados:</strong> Verifiquei as colunas, nomes, números de BI, turmas, classes e disciplinas conforme as normas do Ministério da Educação.
                 </span>
               </label>
@@ -731,7 +733,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                   onChange={(e) => setConfirmouAnoLetivo(e.target.checked)}
                   className="w-4 h-4 text-blue-600 rounded border-amber-400 mt-0.5 cursor-pointer"
                 />
-                <span className="text-gray-800 font-medium">
+                <span className="text-gray-800 dark:text-slate-200 font-medium">
                   <strong>Homologação do Ano Letivo ({anoLetivoAlvo}):</strong> Confirmo que os dados a importar serão vinculados e reconhecidos com integridade no ano letivo estipulado.
                 </span>
               </label>
@@ -741,17 +743,17 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
         </div>
 
         {/* RODAPÉ COM AÇÕES */}
-        <div className="p-5 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-xs text-gray-500 flex items-center space-x-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+        <div className="p-4 sm:p-5 bg-gray-50 dark:bg-slate-800/80 border-t border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-xs text-gray-500 dark:text-slate-400 flex items-center space-x-1.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>Registo auditado e assinado digitalmente na trilha de segurança do SGE.</span>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
             >
               Cancelar
             </button>
@@ -762,7 +764,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
               onClick={handleConfirmarImportacao}
               className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center space-x-2 shadow-md transition-all ${
                 loading || !workbookRaw || !confirmouTiposDados
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  ? 'bg-gray-300 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer hover:shadow-lg'
               }`}
             >

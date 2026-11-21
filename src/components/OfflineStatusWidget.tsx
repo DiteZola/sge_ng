@@ -138,41 +138,42 @@ export const OfflineStatusWidget: React.FC = () => {
 
   return (
     <>
-      {/* Botão Indicador no Cabeçalho */}
+      {/* Botão Indicador no Cabeçalho (compacto em dispositivos menores) */}
       <button
+        type="button"
         onClick={() => {
           carregarDados();
           setShowModal(true);
         }}
-        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+        className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer shrink-0 ${
           emSincronizacao
-            ? 'bg-blue-50 text-blue-900 border-blue-400 hover:bg-blue-100 shadow-xs'
+            ? 'bg-blue-50 dark:bg-blue-950/70 text-blue-900 dark:text-blue-200 border-blue-400 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/70 shadow-xs'
             : totalPendentes > 0
-            ? 'bg-amber-50 text-amber-950 border-amber-400 hover:bg-amber-100 animate-pulse shadow-xs'
+            ? 'bg-amber-50 dark:bg-amber-950/70 text-amber-950 dark:text-amber-200 border-amber-400 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/70 animate-pulse shadow-xs'
             : isOnline
-            ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-            : 'bg-gray-100 text-gray-800 border-gray-400 hover:bg-gray-200'
+            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60'
+            : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-400 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'
         }`}
         title="Clique para ver o Estado de Sincronização, Fila de Pendências e Diagnóstico do Sistema"
       >
         {emSincronizacao ? (
-          <RefreshCw className="h-3.5 w-3.5 text-blue-600 animate-spin" />
+          <RefreshCw className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
         ) : totalPendentes > 0 ? (
-          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
         ) : isOnline ? (
-          <Cloud className="h-3.5 w-3.5 text-emerald-600" />
+          <Cloud className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
         ) : (
-          <CloudOff className="h-3.5 w-3.5 text-gray-600" />
+          <CloudOff className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400 shrink-0" />
         )}
 
-        <span className="hidden sm:inline">
+        <span className="hidden xl:inline whitespace-nowrap">
           {emSincronizacao
             ? `A sincronizar (${syncStatus?.progressoPercentual || 0}%)`
             : totalPendentes > 0
             ? `${totalPendentes} pendente${totalPendentes > 1 ? 's' : ''}`
             : isOnline
             ? 'Sincronizado'
-            : 'Modo Offline'}
+            : 'Offline'}
         </span>
 
         {totalPendentes > 0 ? (
@@ -181,55 +182,56 @@ export const OfflineStatusWidget: React.FC = () => {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
           </span>
         ) : (
-          <span className={`h-2 w-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+          <span className={`h-2 w-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500' : 'bg-slate-400'}`} />
         )}
       </button>
 
       {/* Modal Diagnóstico & Proteção Anti-Perda de Dados & Sincronização */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-slate-900 p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto text-slate-900 dark:text-slate-100">
             {/* Cabeçalho do Modal */}
-            <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-              <div className="flex items-center space-x-3">
-                <div className={`p-2.5 rounded-xl ${
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800 gap-3">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className={`p-2.5 rounded-xl shrink-0 ${
                   emSincronizacao
-                    ? 'bg-blue-50 text-blue-700'
+                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'
                     : totalPendentes > 0
-                    ? 'bg-amber-50 text-amber-700'
+                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
                     : isOnline 
-                    ? 'bg-emerald-50 text-emerald-700' 
-                    : 'bg-gray-100 text-gray-700'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' 
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
                 }`}>
                   {emSincronizacao ? (
-                    <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+                    <RefreshCw className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
                   ) : isOnline ? (
-                    <Cloud className="h-6 w-6 text-emerald-600" />
+                    <Cloud className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
                   ) : (
-                    <CloudOff className="h-6 w-6 text-gray-600" />
+                    <CloudOff className="h-6 w-6 text-slate-600 dark:text-slate-400" />
                   )}
                 </div>
-                <div>
-                  <h3 className="text-base font-black text-gray-900 flex items-center space-x-2">
-                    <span>Sincronização & Proteção de Dados</span>
+                <div className="min-w-0">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white flex flex-wrap items-center gap-2">
+                    <span>Sincronização &amp; Proteção de Dados</span>
                     <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
                       emSincronizacao
-                        ? 'bg-blue-100 text-blue-800'
+                        ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200'
                         : isOnline 
-                        ? 'bg-emerald-100 text-emerald-800' 
-                        : 'bg-amber-100 text-amber-800'
+                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300' 
+                        : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
                     }`}>
                       {emSincronizacao ? 'Sincronização Ativa' : isOnline ? 'Rede Online' : 'Desconectado'}
                     </span>
                   </h3>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Garante funcionamento local ultrarrápido sem travar a inicialização e sincroniza automaticamente com o Firebase.
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -237,8 +239,8 @@ export const OfflineStatusWidget: React.FC = () => {
 
             {/* Notificação Temporária de Sucesso */}
             {msgSucesso && (
-              <div className="mt-4 p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center space-x-2 animate-in fade-in">
-                <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+              <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center space-x-2 animate-in fade-in">
+                <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <span>{msgSucesso}</span>
               </div>
             )}
@@ -246,24 +248,24 @@ export const OfflineStatusWidget: React.FC = () => {
             {/* Painel de Estado da Fila de Sincronização */}
             <div className={`mt-5 p-4 rounded-xl border ${
               totalPendentes > 0 
-                ? 'bg-amber-50/80 border-amber-300' 
-                : 'bg-emerald-50/70 border-emerald-200'
+                ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800' 
+                : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center space-x-2">
                     {totalPendentes > 0 ? (
-                      <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
                     ) : (
-                      <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0" />
+                      <ShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     )}
-                    <h4 className="text-sm font-extrabold text-gray-900">
+                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
                       {totalPendentes > 0 
                         ? `${totalPendentes} alteração(ões) pendente(s) para sincronizar` 
                         : 'Todos os dados locais estão sincronizados com a nuvem'}
                     </h4>
                   </div>
-                  <p className="text-xs text-gray-600 mt-1">
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
                     {totalPendentes > 0
                       ? 'Os registos estão salvos com 100% de segurança no dispositivo e serão enviados à nuvem assim que houver ligação.'
                       : `Última sincronização registada: ${syncStatus?.ultimaSincronizacao || 'Hoje'}.`}
@@ -271,9 +273,10 @@ export const OfflineStatusWidget: React.FC = () => {
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleSincronizarPendenciasAgora}
                   disabled={emSincronizacao || !isOnline}
-                  className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-gray-400 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-xs cursor-pointer shrink-0"
+                  className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 disabled:bg-slate-400 dark:disabled:bg-slate-700 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-xs cursor-pointer shrink-0"
                 >
                   <UploadCloud className={`h-4 w-4 ${emSincronizacao ? 'animate-bounce' : ''}`} />
                   <span>{emSincronizacao ? 'A Enviar Dados...' : 'Sincronizar Agora'}</span>
@@ -282,8 +285,8 @@ export const OfflineStatusWidget: React.FC = () => {
 
               {/* Lista compacta de pendências se existirem */}
               {pendencias.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-amber-200/80">
-                  <span className="text-[11px] font-bold text-amber-900 block mb-1.5 uppercase tracking-wider">
+                <div className="mt-3 pt-3 border-t border-amber-200/80 dark:border-amber-800/70">
+                  <span className="text-[11px] font-bold text-amber-900 dark:text-amber-300 block mb-1.5 uppercase tracking-wider">
                     Fila de Pendências Locais:
                   </span>
                   <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 text-xs">
@@ -291,24 +294,24 @@ export const OfflineStatusWidget: React.FC = () => {
                       const acao = (item.acao || 'ATUALIZAR').toUpperCase();
                       const badgeCls =
                         acao === 'ELIMINAR'
-                          ? 'bg-red-100 text-red-800 border-red-200'
+                          ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800'
                           : acao === 'CRIAR'
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                          : 'bg-blue-100 text-blue-800 border-blue-200';
+                          ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                          : 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800';
                       return (
-                        <div key={item.id} className="flex items-center justify-between gap-2 bg-white/90 px-2.5 py-1.5 rounded-lg border border-amber-200 text-gray-700">
+                        <div key={item.id} className="flex items-center justify-between gap-2 bg-white/90 dark:bg-slate-800/90 px-2.5 py-1.5 rounded-lg border border-amber-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-black border shrink-0 ${badgeCls}`}>
                               {acao}
                             </span>
                             <div className="min-w-0">
-                              <span className="font-semibold text-gray-900 capitalize block truncate">
+                              <span className="font-semibold text-slate-900 dark:text-white capitalize block truncate">
                                 {item.entidade}
                                 {item.descricao ? ` · ${item.descricao}` : ''}
                               </span>
                             </div>
                           </div>
-                          <span className="text-[10px] text-gray-500 whitespace-nowrap shrink-0">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">
                             {new Date(item.timestamp).toLocaleTimeString('pt-AO')}
                           </span>
                         </div>
@@ -321,57 +324,58 @@ export const OfflineStatusWidget: React.FC = () => {
 
             {/* Painel de Saúde do Armazenamento */}
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between text-xs text-gray-500 font-medium">
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
                   <span>Espaço Utilizado</span>
-                  <HardDrive className="h-4 w-4 text-gray-600" />
+                  <HardDrive className="h-4 w-4 text-slate-600 dark:text-slate-400" />
                 </div>
-                <div className="text-lg font-black text-gray-900 mt-1">
+                <div className="text-lg font-black text-slate-900 dark:text-white mt-1 tabular-nums">
                   {health ? `${(health.usedBytes / 1024).toFixed(1)} KB` : '...'}
                 </div>
-                <div className="mt-1 flex items-center space-x-1 text-[11px] text-emerald-700 font-semibold">
+                <div className="mt-1 flex items-center space-x-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
                   <ShieldCheck className="h-3.5 w-3.5" />
                   <span>Amplo espaço disponível</span>
                 </div>
               </div>
 
-              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between text-xs text-gray-500 font-medium">
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
                   <span>Motores de Persistência</span>
-                  <Database className="h-4 w-4 text-blue-600" />
+                  <Database className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                 </div>
-                <div className="text-lg font-black text-gray-900 mt-1">
+                <div className="text-lg font-black text-slate-900 dark:text-white mt-1">
                   IndexedDB + LS
                 </div>
-                <div className="mt-1 text-[11px] text-blue-700 font-semibold">
+                <div className="mt-1 text-[11px] text-blue-700 dark:text-blue-400 font-semibold">
                   Duplo espelhamento ativado
                 </div>
               </div>
 
-              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
-                <div className="flex items-center justify-between text-xs text-gray-500 font-medium">
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
                   <span>Mutações no Diário</span>
-                  <Clock className="h-4 w-4 text-purple-600" />
+                  <Clock className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                 </div>
-                <div className="text-lg font-black text-gray-900 mt-1">
+                <div className="text-lg font-black text-slate-900 dark:text-white mt-1 tabular-nums">
                   {journal.length} registos
                 </div>
-                <div className="mt-1 text-[11px] text-purple-700 font-semibold">
+                <div className="mt-1 text-[11px] text-purple-700 dark:text-purple-400 font-semibold">
                   Histórico de operações locais
                 </div>
               </div>
             </div>
 
             {/* Bloco de Ações Rápidas de Proteção */}
-            <div className="mt-5 p-4 bg-blue-50/70 border border-blue-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="mt-5 p-4 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
               <div>
-                <h4 className="text-xs font-bold text-blue-900">Salvar Ponto de Restauro & Exportar</h4>
-                <p className="text-[11px] text-blue-700 mt-0.5">
+                <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200">Salvar Ponto de Restauro &amp; Exportar</h4>
+                <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
                   Crie um snapshot instantâneo com zero perda de dados ou descarregue um ficheiro JSON para outro computador.
                 </p>
               </div>
               <div className="flex items-center space-x-2 w-full sm:w-auto">
                 <button
+                  type="button"
                   onClick={handleCriarSnapshot}
                   disabled={isRefreshing}
                   className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer"
@@ -380,8 +384,9 @@ export const OfflineStatusWidget: React.FC = () => {
                   <span>Criar Snapshot</span>
                 </button>
                 <button
+                  type="button"
                   onClick={handleDescarregarBackup}
-                  className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-blue-800 bg-white border border-blue-300 hover:bg-blue-50 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer"
+                  className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-blue-800 dark:text-blue-200 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Backup JSON</span>
@@ -392,20 +397,20 @@ export const OfflineStatusWidget: React.FC = () => {
             {/* Tabela do Diário de Mutações Offline (Journal) */}
             <div className="mt-6">
               <div className="flex items-center justify-between mb-2.5">
-                <h4 className="text-xs font-bold text-gray-900 flex items-center space-x-1.5">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
                   <span>Diário de Alterações Salvas Localmente (Journal Offline)</span>
                 </h4>
-                <span className="text-[11px] text-gray-500 font-medium">Últimas 15 operações</span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Últimas 15 operações</span>
               </div>
 
-              <div className="border border-gray-200 rounded-xl overflow-hidden bg-white max-h-52 overflow-y-auto">
+              <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-x-auto bg-white dark:bg-slate-950 max-h-52 overflow-y-auto">
                 {journal.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-gray-500">
+                  <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">
                     Nenhuma mutação recente registada no diário de bordo.
                   </div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-gray-50 text-[11px] font-bold text-gray-600 border-b border-gray-200 sticky top-0">
+                    <thead className="bg-slate-50 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 sticky top-0">
                       <tr>
                         <th className="py-2 px-3">Hora</th>
                         <th className="py-2 px-3">Entidade</th>
@@ -413,21 +418,21 @@ export const OfflineStatusWidget: React.FC = () => {
                         <th className="py-2 px-3">Detalhes</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {journal.map((j) => (
-                        <tr key={j.id} className="hover:bg-gray-50">
-                          <td className="py-2 px-3 text-[11px] text-gray-500 whitespace-nowrap">
+                        <tr key={j.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                          <td className="py-2 px-3 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">
                             {new Date(j.timestamp).toLocaleTimeString('pt-AO')}
                           </td>
-                          <td className="py-2 px-3 font-semibold text-gray-800 whitespace-nowrap">
+                          <td className="py-2 px-3 font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                             {j.entidade}
                           </td>
                           <td className="py-2 px-3">
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
                               {j.operacao}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-gray-600 truncate max-w-[220px]">
+                          <td className="py-2 px-3 text-slate-600 dark:text-slate-300 truncate max-w-[220px]">
                             {j.detalhes}
                           </td>
                         </tr>
@@ -439,14 +444,15 @@ export const OfflineStatusWidget: React.FC = () => {
             </div>
 
             {/* Rodapé Informativo */}
-            <div className="mt-5 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+            <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
               <span className="flex items-center space-x-1">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 <span>Inicialização rápida ativa · Cache PWA instantânea</span>
               </span>
               <button
+                type="button"
                 onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
+                className="px-3 py-1.5 font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
               >
                 Fechar
               </button>

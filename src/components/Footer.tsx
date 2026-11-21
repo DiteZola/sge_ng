@@ -18,17 +18,17 @@ export const Footer: React.FC<FooterProps> = ({
       className={`py-3.5 px-4 sm:px-6 transition-colors no-print shrink-0 ${
         isDark 
           ? 'bg-slate-950/95 border-t border-slate-800 text-slate-400' 
-          : 'bg-white border-t border-slate-200 text-slate-600 shadow-2xs'
+          : 'bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 shadow-2xs'
       } ${className}`}
     >
-      <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-2.5 text-xs">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col lg:flex-row items-center justify-between gap-2.5 text-xs">
         {/* Lado Esquerdo: Copyright e Sistema */}
         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 text-center sm:text-left">
-          <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+          <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-900 dark:text-slate-100'}`}>
             &copy; {anoAtual} Sistema de Gestão Escolar (SGE-NG)
           </span>
-          <span className="hidden sm:inline text-slate-400">&bull;</span>
-          <span className={`font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+          <span className="hidden sm:inline text-slate-400 dark:text-slate-600">&bull;</span>
+          <span className={`font-medium ${isDark ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>
             Todos os direitos reservados
           </span>
         </div>
@@ -38,7 +38,7 @@ export const Footer: React.FC<FooterProps> = ({
           <button
             type="button"
             onClick={() => openLegalPolicyModal('confidencialidade')}
-            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-blue-700'}`}
+            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400'}`}
           >
             Confidencialidade
           </button>
@@ -46,7 +46,7 @@ export const Footer: React.FC<FooterProps> = ({
           <button
             type="button"
             onClick={() => openLegalPolicyModal('privacidade')}
-            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-blue-700'}`}
+            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400'}`}
           >
             Privacidade
           </button>
@@ -54,7 +54,7 @@ export const Footer: React.FC<FooterProps> = ({
           <button
             type="button"
             onClick={() => openLegalPolicyModal('termos')}
-            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-blue-700'}`}
+            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400'}`}
           >
             Termos de Uso
           </button>
@@ -62,7 +62,7 @@ export const Footer: React.FC<FooterProps> = ({
           <button
             type="button"
             onClick={() => resetCookieConsentBanner()}
-            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 hover:text-blue-700'}`}
+            className={`hover:underline font-semibold cursor-pointer ${isDark ? 'text-slate-300 hover:text-white' : 'text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400'}`}
           >
             Cookies
           </button>
@@ -70,16 +70,16 @@ export const Footer: React.FC<FooterProps> = ({
 
         {/* Lado Direito: Desenvolvedor e Ano Atual */}
         <div className="flex items-center space-x-2 text-center sm:text-right">
-          <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+          <span className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600 dark:text-slate-400'}`}>
             Desenvolvido por{' '}
-            <strong className={`font-bold tracking-tight ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>
+            <strong className={`font-bold tracking-tight ${isDark ? 'text-blue-400' : 'text-blue-700 dark:text-blue-400'}`}>
               Dite Zola NG
             </strong>
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold border ${
             isDark
               ? 'bg-blue-950/80 text-blue-300 border-blue-800/80'
-              : 'bg-blue-50 text-blue-700 border-blue-200/80'
+              : 'bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border-blue-200/80 dark:border-blue-800'
           }`}>
             {anoAtual}
           </span>

@@ -15,12 +15,16 @@ import {
   Eye, 
   EyeOff,
   Sparkles,
-  Upload
+  Upload,
+  Sun,
+  Moon,
+  Monitor
 } from 'lucide-react';
 import { Funcionario, Escola } from '../types';
 import { dbService } from '../services/storage';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { firebaseSyncEngine } from '../services/firebaseSyncEngine';
+import { useTheme, ThemeMode } from '../services/themeService';
 
 interface UserProfileViewProps {
   currentUser: Funcionario;
@@ -53,6 +57,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [mensagemErro, setMensagemErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [comprimindoFoto, setComprimindoFoto] = useState(false);
+  const { themeMode, resolvedTheme, setThemeMode } = useTheme();
 
   useEffect(() => {
     setNomeCompleto(currentUser.nomeCompleto);
@@ -161,11 +166,11 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+    <div className="w-full max-w-4xl mx-auto space-y-6 pb-12 min-w-0">
       {/* Cabeçalho */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-4">
-          <div className="relative group">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 min-w-0">
+          <div className="relative group shrink-0 w-fit">
             {fotoUrl && fotoUrl.trim() !== '' ? (
               <img 
                 src={fotoUrl} 
@@ -173,7 +178,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 className="w-20 h-20 rounded-full object-cover border-2 border-blue-600 shadow-sm"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-2xl border-2 border-blue-200 shadow-sm">
+              <div className="w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-200 flex items-center justify-center font-bold text-2xl border-2 border-blue-200 dark:border-blue-700 shadow-sm">
                 {currentUser.nomeCompleto.split(' ').map(n => n[0]).slice(0, 2).join('')}
               </div>
             )}
@@ -193,69 +198,121 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </label>
           </div>
 
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-xl font-black text-gray-900">{currentUser.nomeCompleto}</h1>
-              <span className="px-2.5 py-0.5 text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 rounded-full">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white break-words">{currentUser.nomeCompleto}</h1>
+              <span className="px-2.5 py-0.5 text-xs font-bold bg-blue-50 dark:bg-blue-950/70 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800 rounded-full">
                 {currentUser.cargo || currentUser.role}
               </span>
             </div>
-            <p className="text-xs text-gray-500 mt-0.5 flex items-center space-x-2">
-              <span>BI: <strong>{currentUser.numeroBI}</strong></span>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2">
+              <span>BI: <strong className="text-slate-700 dark:text-slate-200">{currentUser.numeroBI}</strong></span>
               <span>•</span>
-              <span>{escola?.nomeOficial || 'Ministério da Educação / Administração Geral'}</span>
+              <span className="truncate max-w-xs sm:max-w-md">{escola?.nomeOficial || 'Ministério da Educação / Administração Geral'}</span>
             </p>
-            <div className="flex items-center space-x-2 mt-2">
-              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                 <ShieldCheck className="w-3 h-3" />
                 <span>Conta Autenticada</span>
               </span>
-              <span className="text-[10px] text-gray-400">
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
                 Acesso seguro e estrito por perfil
               </span>
             </div>
           </div>
         </div>
 
-        <div className="text-left md:text-right bg-gray-50 p-3 rounded-xl border border-gray-100">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Instituição Ativa</span>
-          <span className="text-xs font-bold text-gray-800 block truncate max-w-xs">{escola?.nomeOficial || 'Administração Geral'}</span>
-          <span className="text-[10px] text-gray-500 block">Ano Lectivo: <strong>{escola?.anoLectivoActivo || '—'}</strong></span>
+        <div className="text-left md:text-right bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
+          <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Instituição Ativa</span>
+          <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block truncate max-w-xs">{escola?.nomeOficial || 'Administração Geral'}</span>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Ano Lectivo: <strong className="text-slate-700 dark:text-slate-200">{escola?.anoLectivoActivo || '—'}</strong></span>
         </div>
       </div>
 
       {/* Alertas */}
       {mensagemSucesso && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-4 py-3 rounded-xl text-xs flex items-center space-x-2 animate-fadeIn">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+        <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 px-4 py-3 rounded-xl text-xs flex items-center space-x-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span>{mensagemSucesso}</span>
         </div>
       )}
 
       {mensagemErro && (
-        <div className="bg-red-50 border border-red-300 text-red-800 px-4 py-3 rounded-xl text-xs flex items-center space-x-2 animate-fadeIn">
-          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+        <div className="bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-3 rounded-xl text-xs flex items-center space-x-2 animate-fadeIn">
+          <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
           <span>{mensagemErro}</span>
         </div>
       )}
 
+      {/* Aparência e Tema da Interface */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
+        <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              {resolvedTheme === 'dark' ? <Moon className="w-4 h-4 text-sky-400" /> : <Sun className="w-4 h-4 text-amber-500" />}
+              <span>Aparência &amp; Tema da Interface</span>
+            </h2>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Escolha entre Tema Claro, Tema Escuro (conforto noturno) ou automático do dispositivo. As pautas e documentos A4 impressos preservam o papel branco oficial.
+            </p>
+          </div>
+          <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 w-fit shrink-0">
+            Ativo: {resolvedTheme === 'dark' ? 'Escuro' : 'Claro'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {([
+            { id: 'light' as ThemeMode, label: 'Tema Claro', desc: 'Fundo luminoso tradicional para ambientes claros', icon: Sun, iconColor: 'text-amber-500' },
+            { id: 'dark' as ThemeMode, label: 'Tema Escuro', desc: 'Alto conforto visual e menor fadiga em ambientes escuros', icon: Moon, iconColor: 'text-sky-400' },
+            { id: 'system' as ThemeMode, label: 'Sistema', desc: 'Acompanha automaticamente o modo do seu sistema operativo', icon: Monitor, iconColor: 'text-indigo-500 dark:text-indigo-400' }
+          ]).map((opt) => {
+            const Icon = opt.icon;
+            const active = themeMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setThemeMode(opt.id)}
+                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start space-x-3 ${
+                  active
+                    ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 dark:border-blue-500 ring-1 ring-blue-500/40'
+                    : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shrink-0">
+                  <Icon className={`w-4 h-4 ${opt.iconColor}`} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">{opt.label}</span>
+                    {active && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">{opt.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Formulário Principal */}
       <form onSubmit={handleSalvarPerfil} className="space-y-6">
         {/* Dados Pessoais */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
-          <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                <User className="w-4 h-4 text-blue-600" />
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Informações Pessoais & Contactos</span>
               </h2>
-              <p className="text-[11px] text-gray-500">Mantenha os seus dados institucionais e contactos sempre atualizados.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Mantenha os seus dados institucionais e contactos sempre atualizados.</p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Nome Completo <span className="text-red-500">*</span>
               </label>
               <input 
@@ -263,12 +320,12 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 value={nomeCompleto}
                 onChange={(e) => setNomeCompleto(e.target.value)}
                 required
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full text-xs font-medium px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Número do Bilhete de Identidade (BI)
               </label>
               <input 
@@ -276,52 +333,52 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 value={currentUser.numeroBI}
                 readOnly
                 disabled
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-200 bg-gray-100 text-gray-600 rounded-lg cursor-not-allowed"
+                className="w-full text-xs font-medium px-3 py-2 border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 rounded-lg cursor-not-allowed"
                 title="O número do BI é a chave de identificação única e apenas pode ser retificado pelo administrador."
               />
-              <span className="text-[10px] text-gray-400 mt-1 block">Identificador fixo registado no MED.</span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">Identificador fixo registado no MED.</span>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Correio Electrónico (E-mail)
               </label>
               <div className="relative">
-                <Mail className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                 <input 
                   type="email" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="utilizador@escola.med.gov.ao"
-                  className="w-full text-xs font-medium pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-xs font-medium pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Contacto Telefónico
               </label>
               <div className="relative">
-                <Phone className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
                 <input 
                   type="text" 
                   value={telefone}
                   onChange={(e) => setTelefone(e.target.value)}
                   placeholder="+244 923 000 000"
-                  className="w-full text-xs font-medium pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-xs font-medium pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Habilitações Literárias
               </label>
               <select
                 value={habilitacoes}
                 onChange={(e) => setHabilitacoes(e.target.value)}
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                className="w-full text-xs font-medium px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
               >
                 <option value="Ensino Médio">Ensino Médio Concluído</option>
                 <option value="Bacharelato">Bacharelato</option>
@@ -333,13 +390,13 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Género
               </label>
               <select
                 value={genero}
                 onChange={(e) => setGenero(e.target.value as 'M' | 'F')}
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                className="w-full text-xs font-medium px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
               >
                 <option value="M">Masculino</option>
                 <option value="F">Feminino</option>
@@ -349,32 +406,32 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         </div>
 
         {/* Fotografia de Perfil */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
-          <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                <Camera className="w-4 h-4 text-blue-600" />
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Camera className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Fotografia de Perfil & Avatar Oficial</span>
               </h2>
-              <p className="text-[11px] text-gray-500">Insira um link direto de imagem ou escolha entre os modelos oficiais sugeridos.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Insira um link direto de imagem ou carregue do seu dispositivo.</p>
             </div>
           </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 URL da Fotografia ou Carregamento Direto
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <input 
                   type="url" 
                   value={fotoUrl}
                   onChange={(e) => setFotoUrl(e.target.value)}
                   placeholder="https://exemplo.com/minha-foto.jpg ou carregue ficheiro"
-                  className="flex-1 text-xs font-mono px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="flex-1 min-w-[200px] text-xs font-mono px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 border border-gray-300 px-3 py-2 rounded-lg text-xs font-semibold text-gray-700 shrink-0 flex items-center gap-1">
+                <label className="cursor-pointer bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 px-3 py-2 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 shrink-0 flex items-center gap-1">
                   <Camera className="w-3.5 h-3.5" />
-                  <span>Carregar</span>
+                  <span>{comprimindoFoto ? 'A otimizar...' : 'Carregar'}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -386,7 +443,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setFotoUrl('')}
-                    className="text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 bg-red-50 px-3 py-2 rounded-lg"
+                    className="text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-700 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/60 px-3 py-2 rounded-lg cursor-pointer"
                   >
                     Remover
                   </button>
@@ -396,19 +453,19 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         </div>
 
         {/* Segurança e Alteração de Palavra-passe */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
-          <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                <Lock className="w-4 h-4 text-amber-600" />
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 <span>Segurança & Alteração de Palavra-passe</span>
               </h2>
-              <p className="text-[11px] text-gray-500">Preencha apenas se desejar alterar as suas credenciais de acesso.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Preencha apenas se desejar alterar as suas credenciais de acesso.</p>
             </div>
             <button
               type="button"
               onClick={() => setMostrarSenha(!mostrarSenha)}
-              className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center space-x-1"
+              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold flex items-center space-x-1 shrink-0 cursor-pointer"
             >
               {mostrarSenha ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               <span>{mostrarSenha ? 'Ocultar' : 'Visualizar'}</span>
@@ -417,7 +474,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Palavra-passe Atual
               </label>
               <input 
@@ -425,12 +482,12 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 value={senhaAtual}
                 onChange={(e) => setSenhaAtual(e.target.value)}
                 placeholder="Insira a atual"
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full text-xs font-medium px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Nova Palavra-passe
               </label>
               <input 
@@ -438,12 +495,12 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 value={novaSenha}
                 onChange={(e) => setNovaSenha(e.target.value)}
                 placeholder="Mínimo de 6 dígitos"
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full text-xs font-medium px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Confirmar Nova Palavra-passe
               </label>
               <input 
@@ -451,25 +508,25 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 value={confirmarSenha}
                 onChange={(e) => setConfirmarSenha(e.target.value)}
                 placeholder="Repita a nova palavra-passe"
-                className="w-full text-xs font-medium px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full text-xs font-medium px-3 py-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
           </div>
         </div>
 
         {/* Registo de Retificações de Notas pela Direção Geral / Subdireção */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-4">
-          <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-bold text-gray-900 flex items-center space-x-2">
-                <ShieldCheck className="w-4 h-4 text-purple-600" />
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <ShieldCheck className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                 <span>Avisos & Retificações de Notas pela Direção Geral</span>
               </h2>
-              <p className="text-[11px] text-gray-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Registo forense oficial de todas as notas alteradas ou adicionadas pela Direção para turmas sob a sua lecionação.
               </p>
             </div>
-            <span className="text-xs px-2.5 py-1 bg-purple-50 text-purple-800 font-bold rounded-lg border border-purple-200">
+            <span className="text-xs px-2.5 py-1 bg-purple-50 dark:bg-purple-950/60 text-purple-800 dark:text-purple-200 font-bold rounded-lg border border-purple-200 dark:border-purple-800">
               {dbService.getRegistosAlteracoesNotas(currentUser.id, escola?.id).length} Registo(s)
             </span>
           </div>
@@ -478,10 +535,10 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             const logsProf = dbService.getRegistosAlteracoesNotas(currentUser.id, escola?.id);
             if (logsProf.length === 0) {
               return (
-                <div className="p-6 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <div className="p-6 text-center bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
                   <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1.5" />
-                  <p className="text-xs font-bold text-gray-800">Nenhuma retificação de nota registada pela Direção</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">Todas as avaliações lançadas permanecem exatamente com os valores atribuídos na pauta.</p>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Nenhuma retificação de nota registada pela Direção</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Todas as avaliações lançadas permanecem exatamente com os valores atribuídos na pauta.</p>
                 </div>
               );
             }
@@ -489,35 +546,35 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             return (
               <div className="space-y-3">
                 {logsProf.map((reg) => (
-                  <div key={reg.id} className="p-3.5 bg-purple-50/40 border border-purple-200 rounded-xl text-xs space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-purple-100 pb-1.5">
-                      <div className="flex items-center space-x-2">
+                  <div key={reg.id} className="p-3.5 bg-purple-50/40 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/70 rounded-xl text-xs space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-purple-100 dark:border-purple-800/60 pb-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="px-2 py-0.5 bg-purple-700 text-white rounded text-[10px] font-black">
                           {reg.tipoNota}
                         </span>
-                        <strong className="text-gray-900">{reg.alunoNome}</strong>
-                        <span className="text-gray-500 text-[11px]">({reg.turmaNome} • {reg.classe} {reg.curso ? `- ${reg.curso}` : ''})</span>
+                        <strong className="text-slate-900 dark:text-white">{reg.alunoNome}</strong>
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px]">({reg.turmaNome} • {reg.classe} {reg.curso ? `- ${reg.curso}` : ''})</span>
                       </div>
-                      <span className="text-[10px] text-gray-500 font-mono">{reg.dataHora}</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{reg.dataHora}</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 py-1 text-[11px]">
                       <div>
-                        <span className="text-gray-500 block">Disciplina:</span>
-                        <strong className="text-gray-800">{reg.disciplinaNome} ({reg.trimestre}º Trimestre)</strong>
+                        <span className="text-slate-500 dark:text-slate-400 block">Disciplina:</span>
+                        <strong className="text-slate-800 dark:text-slate-200">{reg.disciplinaNome} ({reg.trimestre}º Trimestre)</strong>
                       </div>
                       <div>
-                        <span className="text-gray-500 block">Ajuste de Classificação:</span>
-                        <span className="font-mono font-bold text-red-600 line-through mr-1.5">{reg.notaAnterior}</span>
-                        <span className="font-mono font-black text-emerald-700 text-xs">→ {reg.novaNota}</span>
+                        <span className="text-slate-500 dark:text-slate-400 block">Ajuste de Classificação:</span>
+                        <span className="font-mono font-bold text-red-600 dark:text-red-400 line-through mr-1.5">{reg.notaAnterior}</span>
+                        <span className="font-mono font-black text-emerald-700 dark:text-emerald-400 text-xs">→ {reg.novaNota}</span>
                       </div>
                       <div>
-                        <span className="text-gray-500 block">Autoridade que Homologou:</span>
-                        <strong className="text-purple-900">{reg.alteradoPorNome} ({reg.alteradoPorRole})</strong>
+                        <span className="text-slate-500 dark:text-slate-400 block">Autoridade que Homologou:</span>
+                        <strong className="text-purple-900 dark:text-purple-200">{reg.alteradoPorNome} ({reg.alteradoPorRole})</strong>
                       </div>
                     </div>
 
-                    <div className="p-2 bg-white rounded-lg border border-purple-100 text-[11px] text-gray-700">
+                    <div className="p-2 bg-white dark:bg-slate-900 rounded-lg border border-purple-100 dark:border-purple-800/60 text-[11px] text-slate-700 dark:text-slate-300">
                       <strong>Fundamentação Oficial:</strong> {reg.motivoJustificativa}
                     </div>
                   </div>

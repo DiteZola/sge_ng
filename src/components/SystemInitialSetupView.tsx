@@ -163,8 +163,8 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100">
-      <div className="w-full max-w-4xl bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 text-slate-800 overflow-hidden my-6">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-100">
+      <div className="w-full max-w-4xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 dark:border-slate-700 text-slate-800 dark:text-slate-100 overflow-hidden my-6">
         
         {/* Top Header Institucional da República de Angola */}
         <div className="bg-gradient-to-r from-red-700 via-yellow-600 to-amber-700 px-6 py-5 text-white flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-white/20 shadow-md">
@@ -202,17 +202,17 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
         </div>
 
         {/* Stepper Visual de 2 Etapas */}
-        <div className="bg-slate-50 border-b border-slate-200 px-6 py-3">
+        <div className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-700 px-6 py-3">
           <div className="flex items-center justify-between max-w-xl mx-auto">
-            <div className={`flex items-center space-x-2 text-xs font-bold ${etapa >= 1 ? 'text-indigo-600' : 'text-slate-400'}`}>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${etapa >= 1 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-200 text-slate-600'}`}>
+            <div className={`flex items-center space-x-2 text-xs font-bold ${etapa >= 1 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${etapa >= 1 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                 1
               </div>
               <span>Registo do Administrador Geral</span>
             </div>
-            <div className={`h-0.5 flex-1 mx-4 ${etapa >= 2 ? 'bg-indigo-600' : 'bg-slate-200'}`} />
-            <div className={`flex items-center space-x-2 text-xs font-bold ${etapa >= 2 ? 'text-indigo-600' : 'text-slate-400'}`}>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${etapa >= 2 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-200 text-slate-600'}`}>
+            <div className={`h-0.5 flex-1 mx-4 ${etapa >= 2 ? 'bg-indigo-600 dark:bg-indigo-400' : 'bg-slate-200 dark:bg-slate-700'}`} />
+            <div className={`flex items-center space-x-2 text-xs font-bold ${etapa >= 2 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs ${etapa >= 2 ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                 2
               </div>
               <span>Blindagem AES-256 & Ativação</span>
@@ -222,18 +222,18 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
 
         {/* Mensagens de Alerta / Erro */}
         {erro && (
-          <div className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-800 text-xs flex items-center space-x-2 animate-fadeIn">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <div className="mx-6 mt-4 p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-xl text-rose-800 dark:text-rose-200 text-xs flex items-center space-x-2 animate-fadeIn">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
             <span className="font-medium">{erro}</span>
           </div>
         )}
 
         {sucesso && (
-          <div className="mx-6 mt-4 p-4 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-800 text-sm flex items-center space-x-3 animate-fadeIn">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="mx-6 mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-xl text-emerald-800 dark:text-emerald-200 text-sm flex items-center space-x-3 animate-fadeIn">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <div>
               <span className="font-bold block">Sistema Ativado & Administrador Geral Registado!</span>
-              <span className="text-xs text-emerald-700">A redirecionar com segurança para a consola ministerial central...</span>
+              <span className="text-xs text-emerald-700 dark:text-emerald-300">A redirecionar com segurança para a consola ministerial central...</span>
             </div>
           </div>
         )}
@@ -246,12 +246,12 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
           {/* ========================================================= */}
           {etapa === 1 && (
             <form onSubmit={handleAvancarParaEtapa2} className="space-y-5 animate-fadeIn">
-              <div className="border-b border-slate-100 pb-3">
-                <div className="flex items-center space-x-2 text-indigo-700">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center space-x-2 text-indigo-700 dark:text-indigo-400">
                   <User className="w-5 h-5" />
                   <h2 className="text-lg font-bold">1. Credenciais do Administrador Geral</h2>
                 </div>
-                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl mt-2 text-xs text-blue-900">
+                <div className="p-3 bg-blue-50/70 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/80 rounded-xl mt-2 text-xs text-blue-900 dark:text-blue-200">
                   <strong>Aviso Institucional do MED:</strong> O Administrador Geral opera no nível macro executivo nacional. 
                   <strong> Não necessita nem depende do cadastro prévio de uma escola.</strong> O cadastro das escolas da rede e a nomeação de Diretores Gerais é realizado posteriormente a partir do Painel Central Ministerial.
                 </div>
@@ -259,7 +259,7 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Nome Completo do Administrador Geral *
                   </label>
                   <div className="relative">
@@ -269,14 +269,14 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       required
                       value={adminNome}
                       onChange={e => setAdminNome(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                       placeholder="Ex: Dr. Eng. Alberto Domingos Kwanza"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Bilhete de Identidade (BI de Angola) *
                   </label>
                   <div className="relative">
@@ -286,14 +286,14 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       required
                       value={adminBI}
                       onChange={e => setAdminBI(e.target.value.toUpperCase())}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 uppercase font-mono"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 uppercase font-mono"
                       placeholder="Ex: 001928374LA049"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Correio Electrónico Institucional (E-mail) *
                   </label>
                   <div className="relative">
@@ -303,14 +303,14 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       required
                       value={adminEmail}
                       onChange={e => setAdminEmail(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 font-mono text-indigo-700"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 font-mono text-indigo-700 dark:text-indigo-300"
                       placeholder="admin.geral@sge.med.gov.ao"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Contacto Telefónico Oficial
                   </label>
                   <div className="relative">
@@ -319,27 +319,27 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       type="text"
                       value={adminTelefone}
                       onChange={e => setAdminTelefone(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                       placeholder="+244 923 000 111"
                     />
                   </div>
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Habilitações Acadêmicas & Perfil Ministerial
                   </label>
                   <input
                     type="text"
                     value={adminHabilitacoes}
                     onChange={e => setAdminHabilitacoes(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                     placeholder="Mestrado em Engenharia Informática & Gestão Escolar MED"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Palavra-passe de Acesso Inicial *
                   </label>
                   <div className="relative">
@@ -349,13 +349,13 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       required
                       value={adminSenha}
                       onChange={e => setAdminSenha(e.target.value)}
-                      className="w-full pl-9 pr-9 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 font-mono"
+                      className="w-full pl-9 pr-9 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono"
                       placeholder="Mínimo de 6 caracteres"
                     />
                     <button
                       type="button"
                       onClick={() => setMostrarSenha(!mostrarSenha)}
-                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                     >
                       {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -363,7 +363,7 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Confirmar Palavra-passe *
                   </label>
                   <div className="relative">
@@ -373,7 +373,7 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       required
                       value={adminConfirmarSenha}
                       onChange={e => setAdminConfirmarSenha(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 font-mono"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-slate-50/50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono"
                       placeholder="Digite a mesma senha"
                     />
                   </div>
@@ -381,11 +381,11 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
               </div>
 
               {/* Opção para cadastrar a primeira escola imediatamente */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center space-x-2">
-                    <Database className="w-4 h-4 text-indigo-600" />
-                    <span className="text-xs font-bold text-slate-800">
+                    <Database className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                       Cadastrar Primeira Escola da Rede (Opcional)
                     </span>
                   </div>
@@ -394,18 +394,18 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                       type="checkbox"
                       checked={cadastrarEscolaAgora}
                       onChange={e => setCadastrarEscolaAgora(e.target.checked)}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                      className="rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
                     />
-                    <span className="ml-2 text-xs text-slate-600 font-medium">
+                    <span className="ml-2 text-xs text-slate-600 dark:text-slate-300 font-medium">
                       {cadastrarEscolaAgora ? 'Ativado' : 'Adicionar depois pelo Painel'}
                     </span>
                   </label>
                 </div>
 
                 {cadastrarEscolaAgora && (
-                  <div className="space-y-3 pt-2 border-t border-slate-200">
+                  <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                         Nome Oficial da Instituição Escolar *
                       </label>
                       <input
@@ -413,7 +413,7 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                         value={escolaNome}
                         onChange={e => setEscolaNome(e.target.value)}
                         placeholder="Ex: Complexo Escolar n.º 5055"
-                        className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                        className="w-full px-3 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
                       />
                     </div>
                     <LocationPicker
@@ -428,23 +428,23 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
 
               {/* Pré-visualização da Blindagem Criptográfica AES-256 */}
               {senhaCifradaPreview && (
-                <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl text-[11px] font-mono space-y-1">
-                  <div className="flex items-center space-x-1.5 text-indigo-700 font-bold">
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-800/80 rounded-xl text-[11px] font-mono space-y-1">
+                  <div className="flex items-center space-x-1.5 text-indigo-700 dark:text-indigo-300 font-bold">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Enclave Criptográfico AES-256 Ativo (Visualização Prévia):</span>
                   </div>
-                  <div className="truncate text-slate-600">
+                  <div className="truncate text-slate-600 dark:text-slate-300">
                     <span className="text-slate-400">Ciphertext: </span>
                     {senhaCifradaPreview}
                   </div>
-                  <div className="truncate text-slate-500">
+                  <div className="truncate text-slate-500 dark:text-slate-400">
                     <span className="text-slate-400">SHA-256 Digest: </span>
                     {hashPreview}
                   </div>
                 </div>
               )}
 
-              <div className="flex justify-end pt-4 border-t border-slate-100">
+              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="submit"
                   className="flex items-center space-x-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30 cursor-pointer"
@@ -461,38 +461,38 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
           {/* ========================================================= */}
           {etapa === 2 && (
             <div className="space-y-6 animate-fadeIn">
-              <div className="border-b border-slate-100 pb-3">
-                <div className="flex items-center space-x-2 text-indigo-700">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center space-x-2 text-indigo-700 dark:text-indigo-400">
                   <Cpu className="w-5 h-5" />
                   <h2 className="text-lg font-bold">2. Blindagem Criptográfica & Ativação do Sistema</h2>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Validação dos parâmetros ministeriais e ativação do Master Lock inviolável antifraude.
                 </p>
               </div>
 
               {/* Cartão de Resumo do Administrador Geral */}
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <div className="flex items-center space-x-2 text-xs font-bold text-slate-700 mb-2">
-                  <User className="w-4 h-4 text-indigo-600" />
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center space-x-2 text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  <User className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                   <span>Resumo do Administrador Geral</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                   <div>
-                    <span className="text-slate-500 block">Nome Oficial:</span>
-                    <span className="font-bold text-slate-900">{adminNome}</span>
+                    <span className="text-slate-500 dark:text-slate-400 block">Nome Oficial:</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{adminNome}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">E-mail de Login:</span>
-                    <span className="font-mono text-indigo-700 font-bold">{adminEmail}</span>
+                    <span className="text-slate-500 dark:text-slate-400 block">E-mail de Login:</span>
+                    <span className="font-mono text-indigo-700 dark:text-indigo-300 font-bold">{adminEmail}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Bilhete de Identidade:</span>
-                    <span className="font-mono text-slate-800">{adminBI}</span>
+                    <span className="text-slate-500 dark:text-slate-400 block">Bilhete de Identidade:</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">{adminBI}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Âmbito de Atuação:</span>
-                    <span className="font-bold text-emerald-700">Nacional (Todas as Escolas)</span>
+                    <span className="text-slate-500 dark:text-slate-400 block">Âmbito de Atuação:</span>
+                    <span className="font-bold text-emerald-700 dark:text-emerald-400">Nacional (Todas as Escolas)</span>
                   </div>
                 </div>
               </div>
@@ -533,12 +533,12 @@ export const SystemInitialSetupView: React.FC<SystemInitialSetupViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+              <div className="flex flex-wrap justify-between items-center gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setEtapa(1)}
                   disabled={isProcessando}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
                   Voltar
                 </button>
