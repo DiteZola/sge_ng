@@ -210,6 +210,129 @@
         "tipoRecurso": { "type": "string", "enum": ["PDF", "Link"] }
       },
       "required": ["id", "escolaId", "titulo"]
+    },
+    "CustomCoordinationType": {
+      "title": "CustomCoordinationType",
+      "description": "Tipos de coordenação personalizados adicionados pela Direção da escola",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nivelEnsino": { "type": "string", "enum": ["Primario", "ICiclo", "IICiclo"] },
+        "tipo": { "type": "string", "maxLength": 160 },
+        "descricao": { "type": "string", "maxLength": 600 },
+        "requerClasse": { "type": "boolean" },
+        "requerTurma": { "type": "boolean" },
+        "requerDisciplina": { "type": "boolean" },
+        "requerCurso": { "type": "boolean" },
+        "requerTurno": { "type": "boolean" },
+        "requerAreaDisciplinar": { "type": "boolean" },
+        "ativo": { "type": "boolean" },
+        "criadoEm": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "escolaId", "nivelEnsino", "tipo"]
+    },
+    "PedagogicalReport": {
+      "title": "PedagogicalReport",
+      "description": "Relatórios formais de final de ano de coordenação e relatórios docentes trimestrais ou anuais",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "anoLectivo": { "type": "string", "maxLength": 32 },
+        "tipoRelatorio": { "type": "string", "enum": ["COORDENACAO_FINAL_ANO", "DOCENTE_TRIMESTRAL_ANUAL"] },
+        "periodoReferencia": { "type": "string", "enum": ["1", "2", "3", "Anual"] },
+        "tituloDocumento": { "type": "string", "maxLength": 300 },
+        "estado": { "type": "string", "enum": ["Rascunho", "Finalizado", "Homologado"] },
+        "criadoPorId": { "type": "string", "maxLength": 128 },
+        "criadoPorNome": { "type": "string", "maxLength": 200 },
+        "criadoEm": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "escolaId", "anoLectivo", "tipoRelatorio", "periodoReferencia", "tituloDocumento"]
+    },
+    "ActivityPlanItem": {
+      "title": "ActivityPlanItem",
+      "description": "Atividades e eventos dos planos por área e perfil (Coordenadores, Secretaria, Subdiretores e Diretor Geral)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "anoLectivo": { "type": "string", "maxLength": 32 },
+        "trimestre": { "type": "string", "enum": ["1", "2", "3", "Anual"] },
+        "titulo": { "type": "string", "maxLength": 300 },
+        "descricao": { "type": "string" },
+        "categoria": { "type": "string", "maxLength": 80 },
+        "dataInicio": { "type": "string", "maxLength": 32 },
+        "areaOrigem": { "type": "string", "enum": ["Direcao_Geral", "Subdirecao_Pedagogica", "Subdirecao_Administrativa", "Coordenacao_Pedagogica", "Secretaria_Geral"] },
+        "perfilOrigemRole": { "type": "string", "maxLength": 80 },
+        "criadoPorId": { "type": "string", "maxLength": 128 },
+        "criadoPorNome": { "type": "string", "maxLength": 200 },
+        "estadoExecucao": { "type": "string", "enum": ["Planeada", "Em_Curso", "Realizada", "Adiada", "Cancelada"] },
+        "percentualCumprimento": { "type": "number" },
+        "excluidaDoPlanoGeralPorDiretor": { "type": "boolean" }
+      },
+      "required": ["id", "escolaId", "anoLectivo", "trimestre", "titulo", "dataInicio", "areaOrigem", "estadoExecucao"]
+    },
+    "PersonalFinanceData": {
+      "title": "PersonalFinanceData",
+      "description": "Dados de finanças pessoais estritamente isolados por utilizador (receitas, despesas, orçamentos, metas de poupança e dívidas)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "transacoes": { "type": "array" },
+        "orcamentosPorMes": { "type": "object" },
+        "metasPoupanca": { "type": "array" },
+        "dividas": { "type": "array" },
+        "atualizadoEm": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId"]
+    },
+    "ExamScheduleItem": {
+      "title": "ExamScheduleItem",
+      "description": "Horários de provas, exames e provas de recurso por escola e ano letivo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "anoLectivo": { "type": "string", "maxLength": 32 },
+        "tipoProva": { "type": "string", "maxLength": 80 },
+        "classe": { "type": "string", "maxLength": 40 },
+        "turmaId": { "type": "string", "maxLength": 128 },
+        "disciplinaId": { "type": "string", "maxLength": 128 },
+        "data": { "type": "string", "maxLength": 32 },
+        "horaInicio": { "type": "string", "maxLength": 16 },
+        "horaFim": { "type": "string", "maxLength": 16 }
+      },
+      "required": ["id", "escolaId", "anoLectivo", "turmaId", "disciplinaId", "data"]
+    },
+    "ExamSupervisionMap": {
+      "title": "ExamSupervisionMap",
+      "description": "Mapas de fiscalização de provas com 1 a 4 professores fiscalizadores por turma",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "anoLectivo": { "type": "string", "maxLength": 32 },
+        "horarioProvaId": { "type": "string", "maxLength": 128 },
+        "turmaId": { "type": "string", "maxLength": 128 },
+        "fiscais": { "type": "array" }
+      },
+      "required": ["id", "escolaId", "anoLectivo", "horarioProvaId", "fiscais"]
+    },
+    "ExamMinute": {
+      "title": "ExamMinute",
+      "description": "Atas de provas redigidas pelos professores fiscalizadores com registo de ocorrências",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "anoLectivo": { "type": "string", "maxLength": 32 },
+        "mapaFiscalizacaoId": { "type": "string", "maxLength": 128 },
+        "horarioProvaId": { "type": "string", "maxLength": 128 },
+        "estado": { "type": "string", "enum": ["Rascunho", "Finalizada"] }
+      },
+      "required": ["id", "escolaId", "anoLectivo", "mapaFiscalizacaoId", "estado"]
     }
   },
   "firestore": {
@@ -268,6 +391,34 @@
     "/biblioteca_arquivos/{chunkId}": {
       "schema": "LibraryBook",
       "description": "Fragmentos binários em Base64 de PDFs da biblioteca para sincronização offline-first"
+    },
+    "/tipos_coordenacao/{tipoId}": {
+      "schema": "CustomCoordinationType",
+      "description": "Tipos de coordenação personalizados configurados pela Direção da escola"
+    },
+    "/relatorios_pedagogicos/{reportId}": {
+      "schema": "PedagogicalReport",
+      "description": "Relatórios formais editáveis de coordenação (final de ano) e docentes (trimestrais/anuais)"
+    },
+    "/planos_atividades/{atividadeId}": {
+      "schema": "ActivityPlanItem",
+      "description": "Atividades e eventos dos planos por área (Coordenadores, Secretaria, Subdiretores e Diretor Geral)"
+    },
+    "/financas_pessoais/{userId}": {
+      "schema": "PersonalFinanceData",
+      "description": "Finanças pessoais isoladas por utilizador"
+    },
+    "/horarios_provas/{horarioId}": {
+      "schema": "ExamScheduleItem",
+      "description": "Horários de provas, exames e recursos"
+    },
+    "/mapas_fiscalizacao/{mapaId}": {
+      "schema": "ExamSupervisionMap",
+      "description": "Mapas de fiscalização de provas (1 a 4 professores por turma)"
+    },
+    "/atas_provas/{ataId}": {
+      "schema": "ExamMinute",
+      "description": "Atas de provas com ocorrências e presenças"
     }
   }
 }

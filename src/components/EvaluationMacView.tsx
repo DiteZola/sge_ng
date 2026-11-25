@@ -40,7 +40,8 @@ import {
   getSalaDaTurma,
   getCursoDaTurma,
   getDisciplinasDaTurma,
-  filtrarDisciplinasDaClasse
+  filtrarDisciplinasDaClasse,
+  getDisciplinasPermitidasProfessor
 } from '../services/academicHierarchyService';
 import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
@@ -69,7 +70,8 @@ import {
   obterInformacaoEscala,
   formatarTextoPorGenero,
   avaliarExpressaoNota,
-  isClasseFinal
+  isClasseFinal,
+  obterObservacaoDisciplina
 } from '../services/macEngine';
 import {
   aplicarNotasAdministrativas,
@@ -177,7 +179,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Seleções para lançamento de notas com coerência acadêmica oficial
   const todasClasses = useMemo(() => {
-    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome);
+    const fromCfg = dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo).filter(c => c.ativa !== false).map(c => c.nome);
     const fromTurmas = turmasPermitidas.map(t => normalizarClasse(t.classe)).filter(Boolean);
     const listaGeral = ordenarClassesMED([
       ...TODAS_CLASSES_OFICIAIS_MED,
@@ -190,13 +192,30 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       return filtradas.length > 0 ? filtradas : Array.from(classesSet);
     }
     return listaGeral;
-  }, [escola.id, isProfessor, turmasPermitidas]);
+  }, [escola.id, escola.anoLectivoActivo, isProfessor, turmasPermitidas]);
 
   const [selectedClasse, setSelectedClasse] = useState<string>(() => {
     return turmasPermitidas[0]?.classe ? normalizarClasse(turmasPermitidas[0].classe) : '10ª';
   });
   const [selectedCursoFilter, setSelectedCursoFilter] = useState<string>('TODOS');
   const [selectedTurnoFilter, setSelectedTurnoFilter] = useState<string>('TODOS');
+
+  // Sincronizar classe e turma automaticamente quando as atribuições/turmas do professor carregam
+  useEffect(() => {
+    if (turmasPermitidas.length === 0) return;
+    const temNaClasseAtual = getTurmasPorClasse(turmasPermitidas, selectedClasse).length > 0;
+    if (!temNaClasseAtual) {
+      const novaCl = normalizarClasse(turmasPermitidas[0].classe);
+      if (novaCl) setSelectedClasse(novaCl);
+      setSelectedCursoFilter('TODOS');
+    }
+  }, [turmasPermitidas, selectedClasse]);
+
+  useEffect(() => {
+    if (!isSegundoCiclo(selectedClasse) && selectedCursoFilter !== 'TODOS') {
+      setSelectedCursoFilter('TODOS');
+    }
+  }, [selectedClasse, selectedCursoFilter]);
 
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmasPermitidas[0]?.id || '');
   const [selectedDisciplinaId, setSelectedDisciplinaId] = useState<string>(disciplinas[0]?.id || '');
@@ -209,12 +228,13 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   const [buscaAlunoTabela, setBuscaAlunoTabela] = useState<string>('');
 
   const cursosDisponiveisClasse = useMemo(() => {
+    if (!isSegundoCiclo(selectedClasse)) return [];
     const set = new Set<string>();
     dbService.getCursos(escola.id).filter(c => c.ativo !== false).forEach(c => {
       if (c.nome) set.add(c.nome);
     });
     turmasPermitidas.forEach(t => {
-      if (normalizarClasse(t.classe) === normalizarClasse(selectedClasse) && t.curso) {
+      if (isSegundoCiclo(t.classe) && normalizarClasse(t.classe) === normalizarClasse(selectedClasse) && t.curso) {
         set.add(t.curso);
       }
     });
@@ -223,21 +243,22 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   const turnosDisponiveis = useMemo(() => {
     const set = new Set<string>(['Manhã', 'Tarde', 'Noite']);
-    dbService.getTurnosConfigs(escola.id).filter(t => t.ativo !== false).forEach(t => {
+    dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo).filter(t => t.ativo !== false).forEach(t => {
       if (t.nome) set.add(t.nome);
     });
     turmasPermitidas.forEach(t => {
       if (t.turno) set.add(t.turno);
     });
     return Array.from(set);
-  }, [escola.id, turmasPermitidas]);
+  }, [escola.id, escola.anoLectivoActivo, turmasPermitidas]);
 
-  // Turmas estritamente filtradas pela classe, curso e turno selecionados
+  // Turmas estritamente filtradas pela classe, curso (apenas IIº Ciclo) e turno selecionados
   const turmasDaClasse = useMemo(() => {
     const porClasse = getTurmasPorClasse(turmasPermitidas, selectedClasse);
     const base = porClasse.length > 0 ? porClasse : turmasPermitidas;
+    const aplicarCurso = isSegundoCiclo(selectedClasse) && selectedCursoFilter !== 'TODOS';
     const filtradas = base.filter(t => {
-      if (selectedCursoFilter !== 'TODOS' && (t.curso || '').trim().toLowerCase() !== selectedCursoFilter.trim().toLowerCase()) {
+      if (aplicarCurso && (t.curso || '').trim().toLowerCase() !== selectedCursoFilter.trim().toLowerCase()) {
         return false;
       }
       if (selectedTurnoFilter !== 'TODOS' && (t.turno || '').trim().toLowerCase() !== selectedTurnoFilter.trim().toLowerCase()) {
@@ -361,8 +382,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       MT2: simMt2,
       MT3: simMt3
     });
-    if (res !== null) return Math.min(simEscalaMaxima, Math.max(0, Math.round(res * 10) / 10));
-    return Math.min(simEscalaMaxima, Math.max(0, Math.round(((simMt1 + simMt2 + simMt3) / 3) * 10) / 10));
+    if (res !== null) return Math.min(simEscalaMaxima, Math.max(0, Math.round(res)));
+    return Math.min(simEscalaMaxima, Math.max(0, Math.round((simMt1 + simMt2 + simMt3) / 3)));
   }, [regraFormulaMediaGeral, simMt1, simMt2, simMt3, simEscalaMaxima]);
 
   const simResultadoExameFinal = useMemo(() => {
@@ -375,27 +396,30 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       NE: simNE,
       EXAME: simNE
     });
-    if (res !== null) return Math.min(simEscalaMaxima, Math.max(0, Math.round(res * 10) / 10));
+    if (res !== null) return Math.min(simEscalaMaxima, Math.max(0, Math.round(res)));
     const tot = (regraPesoMDF || 40) + (regraPesoNE || 60);
     const val = ((mtGeral * regraPesoMDF) + (simNE * regraPesoNE)) / tot;
-    return Math.min(simEscalaMaxima, Math.max(0, Math.round(val * 10) / 10));
+    return Math.min(simEscalaMaxima, Math.max(0, Math.round(val)));
   }, [regraFormulaClassesFinais, simMt1, simMt2, simMt3, simNE, regraPesoMDF, regraPesoNE, simEscalaMaxima]);
 
   const turmaAtiva = turmasPermitidas.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmasPermitidas[0];
 
+  const horariosEscola = useMemo(() => dbService.obterHorarios(escola.id, escola.anoLectivoActivo), [escola.id, escola.anoLectivoActivo]);
+
   // Filtrar disciplinas estritamente pela classe e curso da turma selecionada e por atribuições docentes
   const disciplinasDaClasseECurso = useMemo(() => {
     if (!turmaAtiva) return isProfessor ? [] : disciplinas;
-    const base = filtrarDisciplinasDaClasse(disciplinas, turmaAtiva.classe, turmaAtiva.curso);
     if (isProfessor) {
-      const atribsNaTurma = atribuicoesDoProfessor.filter((a: any) => a.turmaId === turmaAtiva.id);
-      if (atribsNaTurma.length === 0) return [];
-      const discsProf = new Set(atribsNaTurma.map((a: any) => a.disciplinaId).filter(Boolean));
-      const nomesProf = new Set(atribsNaTurma.map((a: any) => String(a.disciplinaNome || '').trim().toLowerCase()).filter(Boolean));
-      return base.filter(d => discsProf.has(d.id) || nomesProf.has((d.nome || '').trim().toLowerCase()));
+      return getDisciplinasPermitidasProfessor(
+        disciplinas,
+        turmaAtiva,
+        atribuicoesTodas,
+        currentUser.id,
+        horariosEscola
+      );
     }
-    return base;
-  }, [disciplinas, turmaAtiva, isProfessor, atribuicoesDoProfessor]);
+    return filtrarDisciplinasDaClasse(disciplinas, turmaAtiva.classe, turmaAtiva.curso);
+  }, [disciplinas, turmaAtiva, isProfessor, currentUser.id, atribuicoesTodas, horariosEscola]);
 
   // Modal de Retificação Executiva de Nota pela Direção (com averbamento no perfil do Professor)
   const [modalRetificacaoDirecaoOpen, setModalRetificacaoDirecaoOpen] = useState(false);
@@ -420,11 +444,37 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   const escalaInfo = obterInformacaoEscala(turmaAtiva?.classe, turmaAtiva?.nivelEnsino);
   const escalaMaxima = escalaInfo.escalaMaxima;
 
+  const normTriEval = (tri?: string | number | null): string => {
+    const s = String(tri ?? '').toUpperCase().trim();
+    if (s.includes('3') || s.includes('III')) return '3';
+    if (s.includes('2') || s.includes('II')) return '2';
+    if (s.includes('1') || s.includes('I')) return '1';
+    return s;
+  };
+  const normNomeEval = (nome?: string): string =>
+    (nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[.\-_()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const correspondeDiscEval = (item?: { disciplinaId?: string; disciplinaNome?: string } | null): boolean => {
+    if (!item) return false;
+    if (selectedDisciplinaId && item.disciplinaId === selectedDisciplinaId) return true;
+    const alvoNorm = normNomeEval(disciplinaAtiva?.nome);
+    if (!alvoNorm) return false;
+    const itemNome = item.disciplinaNome || disciplinas.find(d => d.id === item.disciplinaId)?.nome || '';
+    const itemNorm = normNomeEval(itemNome);
+    return Boolean(itemNorm && (itemNorm === alvoNorm || (itemNorm.length >= 6 && alvoNorm.length >= 6 && (itemNorm.includes(alvoNorm) || alvoNorm.includes(itemNorm)))));
+  };
+  const extrairNptConsolidada = (rec?: NotaTrimestralConsolidada | null): number | undefined => {
+    if (!rec) return undefined;
+    if (typeof rec.npt === 'number' && !isNaN(rec.npt)) return rec.npt;
+    if ('npt' in rec && rec.npt === undefined && rec.provaTrimestral === 0) return undefined;
+    if (typeof rec.provaTrimestral === 'number' && !isNaN(rec.provaTrimestral)) return rec.provaTrimestral;
+    return undefined;
+  };
+
   // Filtrar avaliações cadastradas pelo professor para esta turma/disciplina/trimestre
   const avaliacoesDaTurma = avaliacoes.filter(a => 
     a.turmaId === selectedTurmaId && 
-    a.disciplinaId === selectedDisciplinaId && 
-    a.trimestre === selectedTrimestre
+    correspondeDiscEval(a) && 
+    normTriEval(a.trimestre) === normTriEval(selectedTrimestre)
   );
 
   // Regra vigente para esta turma e trimestre com coerência com as parametrizações da Direção Geral
@@ -662,6 +712,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       escolaId: escola.id,
       turmaId: selectedTurmaId,
       disciplinaId: selectedDisciplinaId,
+      disciplinaNome: disciplinaAtiva?.nome || '',
       professorId: currentUser.id,
       trimestre: selectedTrimestre,
       anoLectivo: escola.anoLectivoActivo,
@@ -717,13 +768,29 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       return copy;
     });
 
-    onSalvarNota({
+    const novaNota: NotaEstudante = {
       id: `nota-${avaliacaoId}-${alunoId}`,
       avaliacaoId,
       alunoId,
       valorNota: Math.round(valorNum * 10) / 10,
       dataLancamento: new Date().toISOString().split('T')[0]
-    });
+    };
+    onSalvarNota(novaNota);
+
+    // Sincronizar imediatamente a MAC, Média Trimestral e Média Final na pauta consolidada
+    const notasAtualizadas = [
+      ...notas.filter(n => !(n.avaliacaoId === avaliacaoId && n.alunoId === alunoId)),
+      novaNota
+    ];
+    const resMacAtual = calcularMACEstudante(
+      alunoId,
+      avaliacoesDaTurma,
+      notasAtualizadas,
+      regraVigente,
+      turmaAtiva?.nivelEnsino || 'ICiclo',
+      turmaAtiva?.classe || selectedClasse
+    );
+    salvarNotaConsolidadaCompleta(alunoId, { mac: resMacAtual.macCalculada });
   };
 
   // Solicitação de alteração de nota
@@ -770,13 +837,35 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     });
 
     if (estado === 'Aprovado') {
-      onSalvarNota({
+      const novaNota: NotaEstudante = {
         id: `nota-${sol.avaliacaoId}-${sol.alunoId}`,
         avaliacaoId: sol.avaliacaoId,
         alunoId: sol.alunoId,
         valorNota: sol.notaProposta,
         dataLancamento: new Date().toISOString().split('T')[0]
-      });
+      };
+      onSalvarNota(novaNota);
+      const notasAtualizadas = [
+        ...notas.filter(n => !(n.avaliacaoId === sol.avaliacaoId && n.alunoId === sol.alunoId)),
+        novaNota
+      ];
+      const avsAlvo = avaliacoes.filter(a =>
+        a.turmaId === sol.turmaId &&
+        a.disciplinaId === sol.disciplinaId &&
+        normTriEval(a.trimestre) === normTriEval(sol.trimestre)
+      );
+      const turmaAlvo = turmas.find(t => t.id === sol.turmaId);
+      if (avsAlvo.length > 0 && sol.turmaId === selectedTurmaId && sol.disciplinaId === selectedDisciplinaId && normTriEval(sol.trimestre) === normTriEval(selectedTrimestre)) {
+        const resMacAtual = calcularMACEstudante(
+          sol.alunoId,
+          avsAlvo,
+          notasAtualizadas,
+          regraVigente,
+          turmaAlvo?.nivelEnsino || turmaAtiva?.nivelEnsino || 'ICiclo',
+          turmaAlvo?.classe || selectedClasse
+        );
+        salvarNotaConsolidadaCompleta(sol.alunoId, { mac: resMacAtual.macCalculada });
+      }
     }
   };
 
@@ -803,20 +892,24 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       c.trimestre === selectedTrimestre
     );
 
+    let registroRetificado: NotaTrimestralConsolidada;
     if (idx >= 0) {
       if (retificacaoTipoNota === 'MAC') notasConsolid[idx].mac = notaFinalValida;
       else if (retificacaoTipoNota === 'NPP') notasConsolid[idx].npp = notaFinalValida;
-      else if (retificacaoTipoNota === 'NPT') notasConsolid[idx].npt = notaFinalValida;
-      else {
+      else if (retificacaoTipoNota === 'NPT') {
+        notasConsolid[idx].npt = notaFinalValida;
+        notasConsolid[idx].provaTrimestral = notaFinalValida;
+      } else {
         notasConsolid[idx].mediaTrimestral = notaFinalValida;
         notasConsolid[idx].notaFinal = notaFinalValida;
       }
       if (!notasConsolid[idx].disciplinaNome && disciplinaAtiva?.nome) {
         notasConsolid[idx].disciplinaNome = disciplinaAtiva.nome;
       }
+      registroRetificado = notasConsolid[idx];
       dbService.salvarNotasConsolidadas(notasConsolid);
     } else {
-      notasConsolid.push({
+      registroRetificado = {
         id: `nc-${retificacaoAluno.id}-${selectedDisciplinaId}-${selectedTrimestre}`,
         escolaId: escola.id,
         alunoId: retificacaoAluno.id,
@@ -826,18 +919,20 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         trimestre: selectedTrimestre as any,
         anoLectivo: escola.anoLectivoActivo || '',
         mac: retificacaoTipoNota === 'MAC' ? notaFinalValida : 10,
-        npp: retificacaoTipoNota === 'NPP' ? notaFinalValida : 10,
-        provaTrimestral: retificacaoTipoNota === 'NPP' ? notaFinalValida : 10,
-        npt: retificacaoTipoNota === 'NPT' ? notaFinalValida : 10,
+        npp: retificacaoTipoNota === 'NPP' ? notaFinalValida : undefined,
+        provaTrimestral: retificacaoTipoNota === 'NPT' ? notaFinalValida : undefined,
+        npt: retificacaoTipoNota === 'NPT' ? notaFinalValida : undefined,
         mediaTrimestral: notaFinalValida,
         notaFinal: notaFinalValida,
         comportamentoNota: undefined,
         comportamentoConceito: undefined,
         faltas: 0,
         validadaPelaDirecao: true
-      });
+      };
+      notasConsolid.push(registroRetificado);
       dbService.salvarNotasConsolidadas(notasConsolid);
     }
+    onSalvarNotaConsolidada(registroRetificado);
 
     // 2. Registar averbamento no perfil do professor titular e trilha de auditoria
     dbService.salvarRegistoAlteracaoNotaDirecao({
@@ -848,7 +943,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       turmaId: selectedTurmaId,
       turmaNome: turmaAtiva?.nome || selectedTurmaId,
       classe: turmaAtiva?.classe || selectedClasse,
-      curso: turmaAtiva?.curso,
+      curso: isSegundoCiclo(turmaAtiva?.classe || selectedClasse) ? turmaAtiva?.curso : undefined,
       disciplinaId: selectedDisciplinaId,
       disciplinaNome: disciplinaAtiva?.nome || selectedDisciplinaId,
       professorId: profTitular.id,
@@ -882,48 +977,60 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     const notasConsolid = [...notasConsolidadas];
     const idx = notasConsolid.findIndex(c => 
       c.alunoId === alunoId && 
-      c.disciplinaId === selectedDisciplinaId && 
-      c.trimestre === selectedTrimestre
+      correspondeDiscEval(c) && 
+      normTriEval(c.trimestre) === normTriEval(selectedTrimestre)
     );
 
     const existente = idx >= 0 ? notasConsolid[idx] : null;
     const macVal = dados.mac !== undefined ? dados.mac : (existente?.mac || 0);
-    const nppVal = dados.npp !== undefined ? dados.npp : existente?.npp;
-    const ptVal = dados.provaTrimestral !== undefined ? dados.provaTrimestral : (existente?.provaTrimestral ?? existente?.npt);
+    const nppVal = 'npp' in dados ? dados.npp : existente?.npp;
+    const existentePt = extrairNptConsolidada(existente);
+    const ptVal = 'provaTrimestral' in dados ? dados.provaTrimestral : existentePt;
     // A nota de exame é ESTRITAMENTE reservada para classes finais (6ª, 9ª, 12ª, 13ª)
-    const exameVal = ehClasseFinal ? (dados.notaExame !== undefined ? dados.notaExame : existente?.notaExame) : undefined;
-    const compNota = dados.comportamentoNota !== undefined ? dados.comportamentoNota : existente?.comportamentoNota;
-    const compConceito = dados.comportamentoConceito !== undefined 
+    const exameVal = ehClasseFinal ? ('notaExame' in dados ? dados.notaExame : existente?.notaExame) : undefined;
+    const compNota = 'comportamentoNota' in dados ? dados.comportamentoNota : existente?.comportamentoNota;
+    const compConceito = 'comportamentoConceito' in dados
       ? dados.comportamentoConceito 
       : (compNota !== undefined && compNota !== null ? converterComportamentoParaConceito(compNota, escalaMaxima) : existente?.comportamentoConceito);
 
-    // Média Trimestral (MT) oficial MED:
-    // Se a Prova do Professor (NPP) estiver ativa nas configurações: MT = (MAC + NPP + PT) / 3
-    // Se a Prova do Professor (NPP) estiver desativada: MT = (MAC + PT) / 2
-    let mediaTri = macVal;
-    const temNpp = nppVal !== undefined && nppVal !== null && !isNaN(nppVal);
-    const temPt = ptVal !== undefined && ptVal !== null && !isNaN(ptVal);
+    // Média Trimestral (MT) rigorosamente conforme regra/fórmula configurada para o nível e trimestre
+    const calcTriDinamico = calcularNotaTrimestralDinamica(
+      macVal,
+      nppVal,
+      ptVal,
+      regraVigente,
+      Number(selectedTrimestre),
+      turmaAtiva?.classe || selectedClasse,
+      provaProfessorAtiva
+    );
+    const mediaTri = calcTriDinamico.mediaTrimestral;
 
-    if (provaProfessorAtiva) {
-      if (temNpp && temPt) {
-        mediaTri = Math.round(((macVal + nppVal + ptVal) / 3) * 10) / 10;
-      } else if (temPt) {
-        mediaTri = Math.round(((macVal + ptVal) / 2) * 10) / 10;
-      } else if (temNpp) {
-        mediaTri = Math.round(((macVal + nppVal) / 2) * 10) / 10;
-      }
-    } else {
-      if (temPt) {
-        mediaTri = Math.round(((macVal + ptVal) / 2) * 10) / 10;
-      }
-    }
-
-    // Média Final (MF):
-    // Apenas para classes finais com exame: MF = (MT * 0.4) + (Exame * 0.6)
-    // Para classes normais não finais: MF é a média anual sem exame
+    // Média Final (MF): para 3º Trimestre usa MT1, MT2, MT3 reais da disciplina e regra configurada
     let notaFinal = mediaTri;
-    if (ehClasseFinal && exameVal !== undefined && exameVal !== null && !isNaN(exameVal)) {
-      notaFinal = Math.round(((mediaTri * 0.4) + (exameVal * 0.6)) * 10) / 10;
+    if (String(selectedTrimestre) === '3') {
+      const n1Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1');
+      const n2Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2');
+      const mt1 = n1Al?.mediaTrimestral ?? mediaTri;
+      const mt2 = n2Al?.mediaTrimestral ?? mediaTri;
+      const calcMf = calcularMediaFinal3Trimestre(
+        mt1,
+        mt2,
+        mediaTri,
+        ehClasseFinal ? exameVal : undefined,
+        regraVigente,
+        turmaAtiva?.classe || selectedClasse
+      );
+      notaFinal = calcMf.mediaFinal;
+    } else if (ehClasseFinal && exameVal !== undefined && exameVal !== null && !isNaN(exameVal)) {
+      const calcMf = calcularMediaFinal3Trimestre(
+        mediaTri,
+        mediaTri,
+        mediaTri,
+        exameVal,
+        regraVigente,
+        turmaAtiva?.classe || selectedClasse
+      );
+      notaFinal = calcMf.mediaFinal;
     }
 
     let atualizada: NotaTrimestralConsolidada;
@@ -931,10 +1038,11 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       atualizada = {
         ...existente,
         escolaId: existente.escolaId || escola.id,
+        disciplinaId: existente.disciplinaId || selectedDisciplinaId,
         disciplinaNome: existente.disciplinaNome || disciplinaAtiva?.nome || '',
         mac: macVal,
         npp: nppVal,
-        provaTrimestral: ptVal ?? 0,
+        provaTrimestral: ptVal,
         npt: ptVal,
         mediaTrimestral: mediaTri,
         notaExame: exameVal,
@@ -956,7 +1064,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         anoLectivo: escola.anoLectivoActivo,
         mac: macVal,
         npp: nppVal,
-        provaTrimestral: ptVal ?? 0,
+        provaTrimestral: ptVal,
         npt: ptVal,
         mediaTrimestral: mediaTri,
         notaExame: exameVal,
@@ -1134,7 +1242,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       atualizadoPor: currentUser.nomeCompleto
     };
     onSalvarRegraMAC(novaRegra);
-    alert(`Regra e Fórmulas v${novaRegra.versao} salvas com sucesso! As médias de cada trimestre, média geral e classes finais foram recalculadas.`);
+    setRetificacaoSucessoMsg(`Regra e Fórmulas v${novaRegra.versao} salvas com sucesso! As médias de cada trimestre, média geral e classes finais foram recalculadas.`);
+    setTimeout(() => setRetificacaoSucessoMsg(null), 5000);
   };
 
   return (
@@ -1226,7 +1335,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
             </div>
             <h3 className="text-base font-bold text-amber-900">Sem Turmas Atribuídas</h3>
             <p className="text-xs text-amber-800 leading-relaxed">
-              Prezado(a) Professor(a) <strong>{currentUser.nomeCompleto}</strong>, ainda não possui turmas ou disciplinas atribuídas ao seu perfil docente para o ano letivo ativo ({escola.anoLectivoActivo || 'Sem Ano Ativo'}). Contacte a Coordenação Pedagógica ou a Direção da Escola para cadastrar as suas atribuições curriculares.
+              {currentUser.genero === 'F' ? 'Prezada Professora' : 'Prezado Professor'} <strong>{currentUser.nomeCompleto}</strong>, ainda não possui turmas ou disciplinas atribuídas ao seu perfil docente para o ano letivo ativo ({escola.anoLectivoActivo || 'Sem Ano Ativo'}). Contacte a Coordenação Pedagógica ou a Direção da Escola para cadastrar as suas atribuições curriculares.
             </p>
           </div>
         ) : (
@@ -1248,7 +1357,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-200">
                   Sala: {getSalaDaTurma(turmaAtiva)}
                 </span>
-                {(isSegundoCiclo(selectedClasse) || Boolean(turmaAtiva?.curso)) && (
+                {isSegundoCiclo(selectedClasse) && (
                   <span className="px-2 py-0.5 rounded-full font-bold bg-purple-100 text-purple-900 border border-purple-200">
                     Curso: {getCursoDaTurma(turmaAtiva)}
                   </span>
@@ -1273,22 +1382,24 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">2. Curso / Área</label>
-                <select
-                  value={selectedCursoFilter}
-                  onChange={(e) => setSelectedCursoFilter(e.target.value)}
-                  className="w-full text-xs font-bold text-purple-900 bg-gray-50 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                >
-                  <option value="TODOS">Todos os Cursos</option>
-                  {cursosDisponiveisClasse.map(c => (
-                    <option key={`ev-cur-${c}`} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
+              {isSegundoCiclo(selectedClasse) && (
+                <div>
+                  <label className="text-xs font-bold text-gray-700 block mb-1">2. Curso (IIº Ciclo)</label>
+                  <select
+                    value={selectedCursoFilter}
+                    onChange={(e) => setSelectedCursoFilter(e.target.value)}
+                    className="w-full text-xs font-bold text-purple-900 bg-gray-50 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                  >
+                    <option value="TODOS">Todos os Cursos</option>
+                    {cursosDisponiveisClasse.map(c => (
+                      <option key={`ev-cur-${c}`} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">3. Turno</label>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Turno</label>
                 <select
                   value={selectedTurnoFilter}
                   onChange={(e) => setSelectedTurnoFilter(e.target.value)}
@@ -1303,7 +1414,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  4. Turma ({turmasDaClasse.length})
+                  Turma ({turmasDaClasse.length})
                 </label>
                 <select
                   value={selectedTurmaId}
@@ -1312,7 +1423,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 >
                   {turmasDaClasse.map(t => (
                     <option key={t.id} value={t.id}>
-                      {t.nome} • {t.sala || 'Sala'} ({t.turno}) {t.curso ? `• ${t.curso}` : ''}
+                      {t.nome} • {t.sala || 'Sala'} ({t.turno}) {isSegundoCiclo(t.classe) && t.curso ? `• ${t.curso}` : ''}
                     </option>
                   ))}
                 </select>
@@ -1331,7 +1442,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
                   {disciplinasDaClasseECurso.map((d: Disciplina) => (
-                    <option key={d.id} value={d.id}>{d.nome} ({d.sigla})</option>
+                    <option key={d.id} value={d.id}>{d.nome}</option>
                   ))}
                 </select>
               </div>
@@ -1533,8 +1644,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
                       const notaConsol = notasConsolidadas.find(c => 
                         c.alunoId === aluno.id && 
-                        c.disciplinaId === selectedDisciplinaId && 
-                        c.trimestre === selectedTrimestre
+                        correspondeDiscEval(c) && 
+                        normTriEval(c.trimestre) === normTriEval(selectedTrimestre)
                       );
 
                       const compNota = notaConsol?.comportamentoNota;
@@ -1554,35 +1665,33 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
                       // Prova Trimestral (PT / NPT) pelo Professor
                       const chavePt = `pt-${aluno.id}`;
+                      const ptSalvo = extrairNptConsolidada(notaConsol);
                       const ptVal = ptDigitadas[aluno.id] !== undefined 
                         ? ptDigitadas[aluno.id] 
-                        : (notaConsol?.provaTrimestral !== undefined && notaConsol?.provaTrimestral !== null ? String(notaConsol.provaTrimestral) : (notaConsol?.npt !== undefined ? String(notaConsol.npt) : ''));
+                        : (ptSalvo !== undefined ? String(ptSalvo) : '');
                       const isPtInvalid = !!notasInvalidas[chavePt];
                       const ptErroMsg = notasInvalidas[chavePt];
                       const ptNum = ptVal !== '' ? parseFloat(ptVal.replace(/,/g, '.')) : undefined;
                       const temPt = ptNum !== undefined && !isNaN(ptNum);
 
-                      // Média Trimestral (MT) oficial MED
-                      const macNum = resMAC.macCalculada || 0;
-                      let mediaTrimestralCalculada = macNum;
-                      if (provaProfessorAtiva) {
-                        if (temNpp && temPt) {
-                          mediaTrimestralCalculada = Math.round(((macNum + nppNum + ptNum) / 3) * 10) / 10;
-                        } else if (temPt) {
-                          mediaTrimestralCalculada = Math.round(((macNum + ptNum) / 2) * 10) / 10;
-                        } else if (temNpp) {
-                          mediaTrimestralCalculada = Math.round(((macNum + nppNum) / 2) * 10) / 10;
-                        } else {
-                          mediaTrimestralCalculada = notaConsol?.mediaTrimestral || macNum;
-                        }
-                      } else {
-                        if (temPt) {
-                          mediaTrimestralCalculada = Math.round(((macNum + ptNum) / 2) * 10) / 10;
-                        } else {
-                          mediaTrimestralCalculada = notaConsol?.mediaTrimestral || macNum;
-                        }
-                      }
-                      const aprovadoTrimestre = mediaTrimestralCalculada >= (escalaMaxima === 10 ? 5 : 10);
+                      // Média Trimestral (MT) rigorosa segundo a fórmula configurada
+                      const macNum = resMAC.totalAvaliacoesUtilizadas > 0
+                        ? resMAC.macCalculada
+                        : (typeof notaConsol?.mac === 'number' ? notaConsol.mac : 0);
+                      const calcTrimLinha = calcularNotaTrimestralDinamica(
+                        macNum,
+                        temNpp ? nppNum : undefined,
+                        temPt ? ptNum : undefined,
+                        regraVigente,
+                        Number(selectedTrimestre),
+                        turmaAtiva.classe,
+                        provaProfessorAtiva
+                      );
+                      const temAlgumInput = resMAC.totalAvaliacoesUtilizadas > 0 || temNpp || temPt || typeof notaConsol?.mac === 'number';
+                      const mediaTrimestralCalculada = temAlgumInput
+                        ? calcTrimLinha.mediaTrimestral
+                        : (notaConsol?.mediaTrimestral ?? macNum);
+                      const aprovadoTrimestre = mediaTrimestralCalculada >= escalaInfo.notaAprovacao;
 
                       // Exame de Júri (NEE) — Apenas para classes finais!
                       const chaveExame = `exame-${aluno.id}`;
@@ -1594,11 +1703,26 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                       const exameNum = (ehClasseFinal && exameVal !== '') ? parseFloat(exameVal.replace(/,/g, '.')) : undefined;
                       const temExame = ehClasseFinal && exameNum !== undefined && !isNaN(exameNum);
 
-                      // Média Final (MF) com Exame
-                      const mediaFinalCalculada = temExame 
-                        ? Math.round(((mediaTrimestralCalculada * 0.4) + (exameNum * 0.6)) * 10) / 10 
-                        : (notaConsol?.notaFinal || mediaTrimestralCalculada);
-                      const aprovadoFinal = mediaFinalCalculada >= (escalaMaxima === 10 ? 5 : 10);
+                      // Média Final (MF) rigorosa usando MT1, MT2, MT3 reais + regra configurada
+                      const n1Al = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1');
+                      const n2Al = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2');
+                      const n3Al = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '3');
+                      const mt1Real = Number(selectedTrimestre) === 1 ? mediaTrimestralCalculada : (n1Al?.mediaTrimestral ?? mediaTrimestralCalculada);
+                      const mt2Real = Number(selectedTrimestre) === 2 ? mediaTrimestralCalculada : (n2Al?.mediaTrimestral ?? mediaTrimestralCalculada);
+                      const mt3Real = Number(selectedTrimestre) === 3 ? mediaTrimestralCalculada : (n3Al?.mediaTrimestral ?? mediaTrimestralCalculada);
+
+                      const calcMFLinha = calcularMediaFinal3Trimestre(
+                        mt1Real,
+                        mt2Real,
+                        mt3Real,
+                        temExame ? exameNum : undefined,
+                        regraVigente,
+                        turmaAtiva.classe
+                      );
+                      const mediaFinalCalculada = (String(selectedTrimestre) === '3' || temExame)
+                        ? calcMFLinha.mediaFinal
+                        : (notaConsol?.notaFinal ?? mediaTrimestralCalculada);
+                      const aprovadoFinal = mediaFinalCalculada >= escalaInfo.notaAprovacao;
 
                       return (
                         <tr key={aluno.id} className="hover:bg-gray-50/70">
@@ -2599,14 +2723,25 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                         turmaAtiva.classe
                       );
 
-                      const notaCons = notasConsolidadas.find(
-                        c => c.alunoId === aluno.id && c.disciplinaId === selectedDisciplinaId && String(c.trimestre) === String(selectedTrimestre)
+                      const n1Cons = notasConsolidadas.find(
+                        c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1'
+                      );
+                      const n2Cons = notasConsolidadas.find(
+                        c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2'
+                      );
+                      const n3Cons = notasConsolidadas.find(
+                        c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '3'
                       );
 
-                      const macVal = resMAC.macCalculada;
+                      const triAtivoStr = normTriEval(selectedTrimestre);
+                      const notaCons = triAtivoStr === '1' ? n1Cons : triAtivoStr === '2' ? n2Cons : n3Cons;
+
+                      const macVal = resMAC.totalAvaliacoesUtilizadas > 0
+                        ? resMAC.macCalculada
+                        : (typeof notaCons?.mac === 'number' ? notaCons.mac : 0);
                       const nppVal = notaCons?.npp;
-                      const ptVal = notaCons?.provaTrimestral ?? notaCons?.npt;
-                      const exameVal = ehClasseFinal ? notaCons?.notaExame : undefined;
+                      const ptVal = extrairNptConsolidada(notaCons);
+                      const exameVal = ehClasseFinal ? (notaCons?.notaExame ?? n3Cons?.notaExame) : undefined;
 
                       const calcTrim = calcularNotaTrimestralDinamica(
                         macVal,
@@ -2617,21 +2752,38 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                         turmaAtiva.classe,
                         provaProfessorAtiva
                       );
-                      const mediaTrim = notaCons?.mediaTrimestral ?? calcTrim.mediaTrimestral;
+                      const temInputsLive = resMAC.totalAvaliacoesUtilizadas > 0 || typeof nppVal === 'number' || typeof ptVal === 'number' || typeof notaCons?.mac === 'number';
+                      const mediaTrim = temInputsLive ? calcTrim.mediaTrimestral : (notaCons?.mediaTrimestral ?? calcTrim.mediaTrimestral);
 
-                      // Média Final (especialmente no 3º Trimestre conforme regra configurada pelo Diretor)
+                      // Média Final usando MT1, MT2, MT3 reais da disciplina
+                      const mt1Real = triAtivoStr === '1' ? mediaTrim : (n1Cons?.mediaTrimestral ?? mediaTrim);
+                      const mt2Real = triAtivoStr === '2' ? mediaTrim : (n2Cons?.mediaTrimestral ?? mediaTrim);
+                      const mt3Real = triAtivoStr === '3' ? mediaTrim : (n3Cons?.mediaTrimestral ?? mediaTrim);
                       const calcMF = calcularMediaFinal3Trimestre(
-                        mediaTrim,
-                        mediaTrim,
-                        mediaTrim,
-                        ehClasseFinal ? (exameVal ?? (regraVigente.tipoCalculo3Trimestre === 'PONDERADO_EXAME' ? mediaTrim : undefined)) : undefined,
+                        mt1Real,
+                        mt2Real,
+                        mt3Real,
+                        ehClasseFinal ? exameVal : undefined,
                         regraVigente,
                         turmaAtiva.classe
                       );
 
                       const valorNotaFinal = Number(selectedTrimestre) === 3 ? calcMF.mediaFinal : mediaTrim;
-                      const aprov = turmaAtiva.classe === 'Iniciação' ? true : (escalaMaxima === 10 ? valorNotaFinal >= 5 : valorNotaFinal >= 10);
-                      const generoText = formatarTextoPorGenero(aluno.genero);
+                      const temNotasAl = resMAC.totalAvaliacoesUtilizadas > 0 || notaCons !== undefined || (n1Cons !== undefined) || (n2Cons !== undefined);
+                      const obsRes = obterObservacaoDisciplina(
+                        temNotasAl ? valorNotaFinal : undefined,
+                        turmaAtiva.classe,
+                        aluno.estado,
+                        regraVigente
+                      );
+                      const obsCorClasse =
+                        obsRes.categoria === 'Aprovado'
+                          ? 'text-emerald-700'
+                          : obsRes.categoria === 'Recurso'
+                          ? 'text-amber-700'
+                          : obsRes.categoria === 'Reprovado' || obsRes.categoria === 'Desistente'
+                          ? 'text-red-700'
+                          : 'text-slate-500';
 
                       return (
                         <tr key={aluno.id} className="text-center font-medium hover:bg-gray-50">
@@ -2666,18 +2818,11 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                             </td>
                           )}
                           <td className="p-2 border-r border-gray-300 text-[11px] font-bold text-gray-700">
-                            {(() => {
-                              const notaCons = notasConsolidadas.find(
-                                c => c.alunoId === aluno.id && c.disciplinaId === selectedDisciplinaId && String(c.trimestre) === String(selectedTrimestre)
-                              );
-                              return notaCons?.comportamentoConceito || (notaCons?.comportamentoNota ? `${notaCons.comportamentoNota}v` : '—');
-                            })()}
+                            {notaCons?.comportamentoConceito || (notaCons?.comportamentoNota ? `${notaCons.comportamentoNota}v` : '—')}
                           </td>
                           <td className="p-2">
-                            <span className={`font-bold ${aprov ? 'text-green-700' : 'text-red-700'}`}>
-                              {turmaAtiva.classe === 'Iniciação' 
-                                ? resMAC.conceitoIniciacao 
-                                : (aprov ? generoText.aprovadoOuAprovada : generoText.reprovadoOuReprovada)}
+                            <span className={`font-bold ${obsCorClasse}`}>
+                              {obsRes.texto}
                             </span>
                           </td>
                         </tr>
@@ -2695,8 +2840,34 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               const femMat = alunosDaTurma.filter(a => a.genero === 'F').length;
               const aprovados = alunosDaTurma.filter(aluno => {
                 const resMAC = calcularMACEstudante(aluno.id, avaliacoesDaTurma, notas, regraVigente, turmaAtiva.nivelEnsino, turmaAtiva.classe);
-                const calcTrim = calcularNotaTrimestralDinamica(resMAC.macCalculada, resMAC.macCalculada, undefined, regraVigente, Number(selectedTrimestre), turmaAtiva.classe);
-                return turmaAtiva.classe === 'Iniciação' ? true : (escalaMaxima === 10 ? calcTrim.mediaTrimestral >= 5 : calcTrim.mediaTrimestral >= 10);
+                const n1 = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1');
+                const n2 = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2');
+                const n3 = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '3');
+                const triStrR = normTriEval(selectedTrimestre);
+                const nAt = triStrR === '1' ? n1 : triStrR === '2' ? n2 : n3;
+                const macResumo = resMAC.totalAvaliacoesUtilizadas > 0 ? resMAC.macCalculada : (nAt?.mac ?? 0);
+                const ptResumo = extrairNptConsolidada(nAt);
+                const calcT = calcularNotaTrimestralDinamica(macResumo, nAt?.npp, ptResumo, regraVigente, Number(selectedTrimestre), turmaAtiva.classe, provaProfessorAtiva);
+                const mTrim = (resMAC.totalAvaliacoesUtilizadas > 0 || typeof nAt?.npp === 'number' || typeof ptResumo === 'number' || typeof nAt?.mac === 'number')
+                  ? calcT.mediaTrimestral
+                  : (nAt?.mediaTrimestral ?? calcT.mediaTrimestral);
+                const mfC = calcularMediaFinal3Trimestre(
+                  triStrR === '1' ? mTrim : (n1?.mediaTrimestral ?? mTrim),
+                  triStrR === '2' ? mTrim : (n2?.mediaTrimestral ?? mTrim),
+                  triStrR === '3' ? mTrim : (n3?.mediaTrimestral ?? mTrim),
+                  ehClasseFinal ? (nAt?.notaExame ?? n3?.notaExame) : undefined,
+                  regraVigente,
+                  turmaAtiva.classe
+                );
+                const vFinal = Number(selectedTrimestre) === 3 ? mfC.mediaFinal : mTrim;
+                const temNotasResumo = resMAC.totalAvaliacoesUtilizadas > 0 || nAt !== undefined || n1 !== undefined || n2 !== undefined;
+                const obs = obterObservacaoDisciplina(
+                  temNotasResumo ? vFinal : undefined,
+                  turmaAtiva.classe,
+                  aluno.estado,
+                  regraVigente
+                );
+                return obs.categoria === 'Aprovado';
               });
               const percAprov = totalMat > 0 ? Math.round((aprovados.length / totalMat) * 100) : 0;
               const percReprov = 100 - percAprov;

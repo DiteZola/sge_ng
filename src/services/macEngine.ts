@@ -323,7 +323,7 @@ export function calcularNotaTrimestralDinamica(
   }
 
   const nppVal = npp !== undefined ? npp : mac;
-  const nptVal = npt !== undefined && npt > 0 ? npt : nppVal;
+  const nptVal = npt !== undefined && npt >= 0 ? npt : nppVal;
 
   // 1. Verificar se há fórmula personalizada expressa para o trimestre em questão
   const formulaTrimestreEspecifica = 
@@ -351,19 +351,19 @@ export function calcularNotaTrimestralDinamica(
     }
   }
 
-  // 2. Verificar pesos diferenciados do 3º Trimestre vs 1º/2º Trimestres ou padrão
+  // 2. Verificar pesos diferenciados do 3º Trimestre vs 1º/2º Trimestres ou padrão (quando não for estritamente ARITMETICA_SIMPLES)
   const pesosAplicaveis = 
     trimestre === 3 
       ? (regra?.pesosTerceiroTrimestre || regra?.pesosTrimestre)
       : (regra?.pesosPrimeirosTrimestres || regra?.pesosTrimestre);
 
-  if (pesosAplicaveis) {
+  if (pesosAplicaveis && regra?.formulaTipo !== 'ARITMETICA_SIMPLES') {
     const wMac = Number(pesosAplicaveis.mac) || 1;
     const wNpp = Number(pesosAplicaveis.npp) || 1;
-    const wNpt = npt !== undefined ? (Number(pesosAplicaveis.npt) || 1) : 0;
+    const wNpt = npt !== undefined && npt >= 0 ? (Number(pesosAplicaveis.npt) || 1) : 0;
     const totalPesos = wMac + wNpp + wNpt;
     if (totalPesos > 0) {
-      const mtPond = ((mac * wMac) + (nppVal * wNpp) + ((npt || 0) * wNpt)) / totalPesos;
+      const mtPond = ((mac * wMac) + (nppVal * wNpp) + ((npt ?? 0) * wNpt)) / totalPesos;
       const finalVal = Math.min(escala, Math.max(0, Math.round(mtPond * 10) / 10));
       return {
         mediaTrimestral: finalVal,
@@ -373,7 +373,7 @@ export function calcularNotaTrimestralDinamica(
   }
 
   // 3. Se possui Prova Trimestral (NPT) lançada - Padrão Oficial do Ministério da Educação (MED)
-  if (npt !== undefined && npt > 0) {
+  if (npt !== undefined && npt >= 0) {
     const mt = (mac + nppVal + npt) / 3;
     return {
       mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
@@ -409,7 +409,7 @@ export function calcularMediaFinal3Trimestre(
 
   // Média de Frequência Anual (MDF)
   let mtGeral = (mt1 + mt2 + mt3) / 3;
-  if (regra?.pesosTrimestresMF) {
+  if (regra?.pesosTrimestresMF && regra?.formulaTipo !== 'ARITMETICA_SIMPLES') {
     const w1 = Number(regra.pesosTrimestresMF.t1) || 1;
     const w2 = Number(regra.pesosTrimestresMF.t2) || 1;
     const w3 = Number(regra.pesosTrimestresMF.t3) || 1;
@@ -469,7 +469,7 @@ export function calcularMediaFinal3Trimestre(
     detalhe = `Classes Não Finais: Ponderação T1(${w1}) + T2(${w2}) + T3(${w3})`;
   }
 
-  mf = Math.min(escala, Math.max(0, Math.round(mf * 10) / 10));
+  mf = Math.min(escala, Math.max(0, Math.round(mf)));
 
   let status: 'Aprovado' | 'Recurso' | 'Reprovado' = 'Aprovado';
   if (classe === 'Iniciação') {
@@ -537,5 +537,90 @@ export function validarElegibilidadeCertificado(aluno: Aluno, classe?: string): 
 } {
   return verificarElegibilidadeCertificado(aluno, classe || aluno.classeId);
 }
+
+/**
+ * Observação oficial MED para uma disciplina isolada (Mini-Pauta / Lançamento de Notas),
+ * respeitando estado do estudante (Desistente, Transferido), escala da classe e regras da escola.
+ */
+export function obterObservacaoDisciplina(
+  notaFinal: number | undefined | null,
+  classe: string = '7ª',
+  estadoAluno?: string,
+  regra?: RegraCalculoMAC
+): {
+  texto: string;
+  categoria: 'Aprovado' | 'Recurso' | 'Reprovado' | 'Desistente' | 'Transferido' | 'Pendente';
+} {
+  if (estadoAluno === 'Desistente') {
+    return { texto: 'Desistente', categoria: 'Desistente' };
+  }
+  if (estadoAluno === 'Transferido') {
+    return { texto: 'Transferido', categoria: 'Transferido' };
+  }
+  if (notaFinal === undefined || notaFinal === null || isNaN(notaFinal)) {
+    return { texto: 'Pendente', categoria: 'Pendente' };
+  }
+  const clLower = (classe || '').toLowerCase();
+  if (clLower.includes('inicia')) {
+    return { texto: 'Aprovado', categoria: 'Aprovado' };
+  }
+
+  const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
+  const notaAprov = regra?.notaMinimaAprovacao ?? (escala === 10 ? 5 : 9.5);
+  const notaRec = regra?.notaMinimaExameRecurso ?? (escala === 10 ? 4 : 7);
+
+  if (notaFinal >= notaAprov) {
+    return { texto: 'Aprovado', categoria: 'Aprovado' };
+  }
+  if (notaFinal >= notaRec) {
+    return { texto: 'Recurso', categoria: 'Recurso' };
+  }
+  return { texto: 'Reprovado', categoria: 'Reprovado' };
+}
+
+/**
+ * Observação oficial MED para a Pauta Geral (conjunto de disciplinas),
+ * mantendo 100% de coerência entre cada linha da pauta e o resumo estatístico final.
+ */
+export function obterObservacaoPautaGeral(
+  mediasDisciplinas: Array<number | null | undefined>,
+  classe: string = '7ª',
+  estadoAluno?: string,
+  regra?: RegraCalculoMAC
+): {
+  texto: string;
+  totalNegativas: number;
+  categoria: 'Aprovado' | 'Recurso' | 'Reprovado' | 'Desistente' | 'Transferido' | 'Pendente';
+} {
+  if (estadoAluno === 'Desistente') {
+    return { texto: 'Desistente', totalNegativas: 0, categoria: 'Desistente' };
+  }
+  if (estadoAluno === 'Transferido') {
+    return { texto: 'Transferido', totalNegativas: 0, categoria: 'Transferido' };
+  }
+
+  const validas = mediasDisciplinas.filter((n): n is number => typeof n === 'number' && !isNaN(n));
+  if (validas.length === 0) {
+    return { texto: 'Pendente', totalNegativas: 0, categoria: 'Pendente' };
+  }
+
+  const clLower = (classe || '').toLowerCase();
+  if (clLower.includes('inicia')) {
+    return { texto: 'Aprovado', totalNegativas: 0, categoria: 'Aprovado' };
+  }
+
+  const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
+  const notaAprov = regra?.notaMinimaAprovacao ?? (escala === 10 ? 5 : 9.5);
+  const totalNegativas = validas.filter(n => n < notaAprov).length;
+
+  if (totalNegativas === 0) {
+    return { texto: 'Aprovado', totalNegativas, categoria: 'Aprovado' };
+  }
+  if (totalNegativas <= 2) {
+    return { texto: 'Apto Recurso', totalNegativas, categoria: 'Recurso' };
+  }
+  return { texto: 'Reprovado', totalNegativas, categoria: 'Reprovado' };
+}
+
 
 

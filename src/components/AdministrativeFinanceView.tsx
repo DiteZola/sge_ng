@@ -71,6 +71,9 @@ import { AngolaDateInput } from './AngolaDateInput';
 import { FeeReceiptsA4Modal, ReciboEmolumentoA4Item } from './FeeReceiptsA4Sheet';
 import {
   normalizarClasse,
+  isEnsinoPrimario,
+  isPrimeiroCiclo,
+  isSegundoCiclo,
   CLASSES_ENSINO_PRIMARIO,
   CLASSES_PRIMEIRO_CICLO,
   CLASSES_SEGUNDO_CICLO
@@ -167,11 +170,17 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [emolNome, setEmolNome] = useState('');
   const [emolValorKz, setEmolValorKz] = useState<number>(5000);
   const [emolPeriodicidade, setEmolPeriodicidade] = useState<'Unico' | 'Mensal' | 'Anual' | 'Por_Solicitacao'>('Por_Solicitacao');
+  const [emolNiveis, setEmolNiveis] = useState<Array<'Todos' | 'Primario' | 'ICiclo' | 'IICiclo'>>(['Todos']);
   const [emolClasses, setEmolClasses] = useState<string[]>(['Todas']);
   const [emolObrigatorio, setEmolObrigatorio] = useState(false);
+  const [emolPermitirParcial, setEmolPermitirParcial] = useState(true);
   const [emolDiaVencimento, setEmolDiaVencimento] = useState<number>(10);
   const [emolMultaPct, setEmolMultaPct] = useState<number>(10);
   const [emolDescricao, setEmolDescricao] = useState('');
+  const [erroModalEmolumento, setErroModalEmolumento] = useState<string | null>(null);
+  const [erroModalDespesa, setErroModalDespesa] = useState<string | null>(null);
+  const [emolumentoParaExcluirId, setEmolumentoParaExcluirId] = useState<string | null>(null);
+  const [patrimonioParaEliminar, setPatrimonioParaEliminar] = useState<{ id: string; nome: string } | null>(null);
 
   // Modais
   const [showNovoPagamentoModal, setShowNovoPagamentoModal] = useState(false);
@@ -181,37 +190,242 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [selectedRecibosA4Ids, setSelectedRecibosA4Ids] = useState<string[]>([]);
   const [showRecibosA4Modal, setShowRecibosA4Modal] = useState(false);
 
+  const MESES_ANO_LETIVO_PADRAO = [
+    'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto'
+  ];
+
+  const mesesPropinasConfigurados = useMemo(() => {
+    const ativos = configFinanceira.mesesPropinasAtivos;
+    if (ativos && ativos.length > 0) return ativos;
+    return ['Setembro', 'Outubro', 'Novembro', 'Dezembro', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho'];
+  }, [configFinanceira.mesesPropinasAtivos]);
+
+  const handleToggleMesPropina = (mes: string) => {
+    setConfigFinanceira(prev => {
+      const atuais = (prev.mesesPropinasAtivos && prev.mesesPropinasAtivos.length > 0)
+        ? prev.mesesPropinasAtivos
+        : ['Setembro', 'Outubro', 'Novembro', 'Dezembro', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho'];
+      const existe = atuais.includes(mes);
+      if (existe && atuais.length <= 1) return prev;
+      const atualizados = existe
+        ? atuais.filter(m => m !== mes)
+        : MESES_ANO_LETIVO_PADRAO.filter(m => atuais.includes(m) || m === mes);
+      const novaConfig = { ...prev, mesesPropinasAtivos: atualizados, atualizadoEm: new Date().toISOString() };
+      dbService.salvarConfiguracaoFinanceira(novaConfig);
+      return novaConfig;
+    });
+  };
+
+  const getNivelAcademicoClasse = (classe?: string): 'Primario' | 'ICiclo' | 'IICiclo' => {
+    if (isEnsinoPrimario(classe)) return 'Primario';
+    if (isPrimeiroCiclo(classe)) return 'ICiclo';
+    if (isSegundoCiclo(classe)) return 'IICiclo';
+    return 'ICiclo';
+  };
+
+  const formatarLabelNivel = (nivel: string): string => {
+    if (nivel === 'Primario') return 'Ensino Primário';
+    if (nivel === 'ICiclo') return 'Iº Ciclo';
+    if (nivel === 'IICiclo') return 'IIº Ciclo';
+    return 'Todos os Níveis';
+  };
+
+  const emolumentoAplicaAoAluno = (emol: ItemEmolumentoConfig, classeAluno?: string): boolean => {
+    if (emol.ativo === false) return false;
+    const cls = (classeAluno || '').trim();
+    if (!cls) return true;
+
+    const niveis = emol.niveisAcademicos || [];
+    if (niveis.length > 0 && !niveis.includes('Todos')) {
+      const nivelAluno = getNivelAcademicoClasse(cls);
+      if (!niveis.includes(nivelAluno)) return false;
+    }
+
+    const classesAbr = emol.classesAbrangidas || [];
+    if (classesAbr.length > 0 && !classesAbr.includes('Todas')) {
+      const matchCls = classesAbr.some(c => normalizarClasse(c) === normalizarClasse(cls));
+      if (!matchCls) return false;
+    }
+    return true;
+  };
+
+  const valorBaseEmolumentoParaClasse = (emol: ItemEmolumentoConfig, classeAluno?: string): number => {
+    const cls = (classeAluno || '').trim();
+    if (cls && emol.valoresPorClasse) {
+      if (Number(emol.valoresPorClasse[cls]) > 0) return Number(emol.valoresPorClasse[cls]);
+      const matchKey = Object.keys(emol.valoresPorClasse).find(k => normalizarClasse(k) === normalizarClasse(cls));
+      if (matchKey && Number(emol.valoresPorClasse[matchKey]) > 0) return Number(emol.valoresPorClasse[matchKey]);
+    }
+    return Number(emol.valorPadraoKz || 0);
+  };
+
+  // Catálogo estrito: reconhece APENAS emolumentos efetivamente cadastrados pela Direção da escola
+  const emolumentosAtivosRegistrados = useMemo(
+    () => emolumentosCustomizados.filter(e => e.ativo !== false && e.nome?.trim()),
+    [emolumentosCustomizados]
+  );
+
+  const emolumentosCatalogoCompleto = useMemo(() => {
+    return emolumentosAtivosRegistrados.map(e => ({
+      id: e.id,
+      nome: e.nome.trim() as TipoEmolumento,
+      valorPadraoKz: e.valorPadraoKz || 0,
+      isMensal: e.periodicidade === 'Mensal' || e.nome.toLowerCase().includes('propina'),
+      config: e
+    }));
+  }, [emolumentosAtivosRegistrados]);
+
+  const todosEmolumentosDisponiveis: TipoEmolumento[] = useMemo(() => {
+    return emolumentosCatalogoCompleto.map(e => e.nome);
+  }, [emolumentosCatalogoCompleto]);
+
   // Estados de Delegação de Cobrança
   const [showNovaDelegacaoModal, setShowNovaDelegacaoModal] = useState(false);
   const [delFuncionarioId, setDelFuncionarioId] = useState('');
-  const [delEmolumentos, setDelEmolumentos] = useState<TipoEmolumento[]>(() => {
-    return emolumentosCustomizados.slice(0, 2).map(e => e.nome as TipoEmolumento);
-  });
+  const [delEmolumentos, setDelEmolumentos] = useState<TipoEmolumento[]>([]);
   const [delLimiteKz, setDelLimiteKz] = useState<number | undefined>(undefined);
   const [delPermitirAnulacao, setDelPermitirAnulacao] = useState(false);
   const [delObservacoes, setDelObservacoes] = useState('');
 
-  const todosEmolumentosDisponiveis: TipoEmolumento[] = useMemo(() => {
-    // REGRA DO MED: Não existem emolumentos por padrão no sistema.
-    // Todos os emolumentos devem ser configurados pelo Diretor da Escola e podem ser editados ou eliminados.
-    const customs = emolumentosCustomizados.filter(e => e.ativo !== false).map(e => e.nome as TipoEmolumento);
-    return Array.from(new Set(customs));
-  }, [emolumentosCustomizados]);
-
-  const emolumentosPermitidosFormulario = isUsuarioDelegado && minhaDelegacao
-    ? minhaDelegacao.emolumentosPermitidos
-    : todosEmolumentosDisponiveis;
+  const emolumentosPermitidosFormulario = useMemo(() => {
+    if (isUsuarioDelegado && minhaDelegacao) {
+      return todosEmolumentosDisponiveis.filter(nome =>
+        minhaDelegacao.emolumentosPermitidos.some(p => p.toLowerCase() === nome.toLowerCase())
+      );
+    }
+    return todosEmolumentosDisponiveis;
+  }, [isUsuarioDelegado, minhaDelegacao, todosEmolumentosDisponiveis]);
 
   // Estados Formulário Pagamento
   const [pagAlunoId, setPagAlunoId] = useState('');
+  const [pagEmolumentoId, setPagEmolumentoId] = useState('');
   const [pagTipo, setPagTipo] = useState<TipoPagamentoEscolar>(() => {
-    return (emolumentosCustomizados.find(e => e.ativo !== false)?.nome as TipoPagamentoEscolar) || ('' as any);
+    return (todosEmolumentosDisponiveis[0] as TipoPagamentoEscolar) || ('' as any);
   });
-  const [pagMes, setPagMes] = useState('Fevereiro 2025');
-  const [pagValor, setPagValor] = useState<number>(12000);
+  const [pagMes, setPagMes] = useState<string>(() => {
+    const iniciais = configFinanceira.mesesPropinasAtivos && configFinanceira.mesesPropinasAtivos.length > 0
+      ? configFinanceira.mesesPropinasAtivos
+      : ['Setembro', 'Outubro', 'Novembro', 'Dezembro', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho'];
+    return iniciais[0] || 'Setembro';
+  });
+  const [pagModalidade, setPagModalidade] = useState<'Total' | 'Parcial'>('Total');
+  const [pagValor, setPagValor] = useState<number>(0);
   const [pagMetodo, setPagMetodo] = useState<MetodoPagamentoEscolar>('Multicaixa / TPA');
   const [pagComprovativo, setPagComprovativo] = useState('');
   const [pagObservacao, setPagObservacao] = useState('');
+
+  const alunoSelecionadoPagamento = useMemo(
+    () => alunos.find(a => a.id === pagAlunoId),
+    [alunos, pagAlunoId]
+  );
+
+  const classeAlunoPagamento = useMemo(() => {
+    if (!alunoSelecionadoPagamento) return '';
+    const t = turmas.find(tm => tm.id === alunoSelecionadoPagamento.turmaId);
+    return alunoSelecionadoPagamento.classeId || t?.classe || '';
+  }, [alunoSelecionadoPagamento, turmas]);
+
+  const emolumentosAplicaveisAoAluno = useMemo(() => {
+    return emolumentosAtivosRegistrados.filter(em => {
+      if (isUsuarioDelegado && minhaDelegacao) {
+        const permitido = minhaDelegacao.emolumentosPermitidos.some(
+          p => p.toLowerCase() === em.nome.trim().toLowerCase()
+        );
+        if (!permitido) return false;
+      }
+      if (classeAlunoPagamento) {
+        return emolumentoAplicaAoAluno(em, classeAlunoPagamento);
+      }
+      return true;
+    });
+  }, [emolumentosAtivosRegistrados, isUsuarioDelegado, minhaDelegacao, classeAlunoPagamento]);
+
+  useEffect(() => {
+    if (emolumentosAplicaveisAoAluno.length === 0) {
+      if (pagEmolumentoId) setPagEmolumentoId('');
+      if (pagTipo) setPagTipo('' as any);
+      return;
+    }
+    const atual = emolumentosAplicaveisAoAluno.find(
+      e => (pagEmolumentoId && e.id === pagEmolumentoId) || e.nome.trim().toLowerCase() === String(pagTipo || '').trim().toLowerCase()
+    );
+    if (!atual) {
+      const primeiro = emolumentosAplicaveisAoAluno[0];
+      setPagEmolumentoId(primeiro.id);
+      setPagTipo(primeiro.nome.trim() as TipoPagamentoEscolar);
+    } else if (atual.id !== pagEmolumentoId) {
+      setPagEmolumentoId(atual.id);
+    }
+  }, [emolumentosAplicaveisAoAluno]);
+
+  useEffect(() => {
+    if (mesesPropinasConfigurados.length > 0 && !mesesPropinasConfigurados.includes(pagMes)) {
+      setPagMes(mesesPropinasConfigurados[0]);
+    }
+  }, [mesesPropinasConfigurados]);
+
+  const emolumentoSelecionadoModal = useMemo(
+    () =>
+      emolumentosAplicaveisAoAluno.find(e => e.id === pagEmolumentoId) ||
+      emolumentosAplicaveisAoAluno.find(e => e.nome.trim().toLowerCase() === String(pagTipo || '').trim().toLowerCase()) ||
+      null,
+    [emolumentosAplicaveisAoAluno, pagEmolumentoId, pagTipo]
+  );
+
+  const pagTipoEhMensal = useMemo(() => {
+    if (emolumentoSelecionadoModal) {
+      return (
+        emolumentoSelecionadoModal.periodicidade === 'Mensal' ||
+        emolumentoSelecionadoModal.nome.toLowerCase().includes('propina')
+      );
+    }
+    return String(pagTipo || '').toLowerCase().includes('propina');
+  }, [emolumentoSelecionadoModal, pagTipo]);
+
+  const resolverValorPadraoEmolumento = (tipoPag: string, alunoIdSel: string, emolIdSel?: string): number | null => {
+    const alunoSel = alunos.find(a => a.id === alunoIdSel);
+    const turmaSel = alunoSel ? turmas.find(t => t.id === alunoSel.turmaId) : undefined;
+    const clsKey = alunoSel?.classeId || turmaSel?.classe || '';
+    const emol =
+      (emolIdSel ? emolumentosAtivosRegistrados.find(e => e.id === emolIdSel) : undefined) ||
+      emolumentosAtivosRegistrados.find(e => e.nome.trim().toLowerCase() === (tipoPag || '').trim().toLowerCase());
+    if (!emol) return null;
+    return valorBaseEmolumentoParaClasse(emol, clsKey);
+  };
+
+  const calcularSaldoEmolumentoAluno = (
+    alunoIdSel: string,
+    emol: ItemEmolumentoConfig | null,
+    mesRef?: string
+  ): { valorPrevisto: number; jaPago: number; saldoRestante: number } => {
+    if (!emol) return { valorPrevisto: 0, jaPago: 0, saldoRestante: 0 };
+    const alunoSel = alunos.find(a => a.id === alunoIdSel);
+    const turmaSel = alunoSel ? turmas.find(t => t.id === alunoSel.turmaId) : undefined;
+    const clsKey = alunoSel?.classeId || turmaSel?.classe || '';
+    const valorPrevisto = valorBaseEmolumentoParaClasse(emol, clsKey);
+    if (!alunoIdSel) return { valorPrevisto, jaPago: 0, saldoRestante: valorPrevisto };
+
+    const ehMensal = emol.periodicidade === 'Mensal' || emol.nome.toLowerCase().includes('propina');
+    const mesAlvoLower = (mesRef || '').trim().toLowerCase();
+
+    const pagos = transacoes.filter(t => {
+      if (t.status !== 'Confirmado' || t.alunoId !== alunoIdSel) return false;
+      const mesmoEmol =
+        (t.emolumentoId && t.emolumentoId === emol.id) ||
+        t.tipo.trim().toLowerCase() === emol.nome.trim().toLowerCase();
+      if (!mesmoEmol) return false;
+      if (ehMensal && mesAlvoLower) {
+        const tMes = (t.mesReferencia || '').trim().toLowerCase();
+        return tMes === mesAlvoLower || tMes.startsWith(mesAlvoLower);
+      }
+      return true;
+    });
+
+    const jaPago = pagos.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
+    const saldoRestante = Math.max(0, valorPrevisto - jaPago);
+    return { valorPrevisto, jaPago, saldoRestante };
+  };
 
   // Estados Formulário Despesa
   const [despDescricao, setDespDescricao] = useState('');
@@ -415,62 +629,105 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     return list;
   }, [alunos, escola.id, escola.anoLectivoActivo, mostrarTodosAnosPagamento, modalPagFiltroClasse, modalPagBuscaAluno, turmas]);
 
-  // Função para calcular a dívida real e pagamentos de cada aluno com cálculo exato de parcelas restantes
+  // Cálculo real e transparente de dívidas com base EXCLUSIVA nos emolumentos cadastrados aplicáveis à Classe & Nível Académico
   const obterDetalhesDividaAluno = (aluno: Aluno) => {
     const turma = turmas.find(t => t.id === aluno.turmaId);
-    const classeKey = aluno.classeId || turma?.classe || '10ª';
-    const valorMensalidade = configFinanceira.propinasPorClasse[classeKey] || 12000;
+    const classeKey = aluno.classeId || turma?.classe || '';
+    const emolumentosAluno = emolumentosAtivosRegistrados.filter(e => emolumentoAplicaAoAluno(e, classeKey));
+    const totalMesesLetivos = Math.max(1, mesesPropinasConfigurados.length || 10);
 
-    const pagamentosPropina = transacoes.filter(
-      t => t.status === 'Confirmado' && t.alunoId === aluno.id && (
-        t.tipo === 'Propina Mensal' || t.tipo === 'Propina' || (t.tipo as string) === 'Mensalidade'
-      )
-    );
-    const totalPagoPropinas = pagamentosPropina.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
-    const totalMesesLetivos = 10;
-    const valorAnualTotal = valorMensalidade * totalMesesLetivos;
-    const saldoAnualRestante = Math.max(0, valorAnualTotal - totalPagoPropinas);
-
-    // Cálculo exato de parcelas e pagamento parcial
-    const valorPagoNaParcelaAtual = valorMensalidade > 0 ? (totalPagoPropinas % valorMensalidade) : 0;
-    const temPagamentoParcial = valorPagoNaParcelaAtual > 0;
-    const mesesCompletosPagos = valorMensalidade > 0 ? Math.floor(totalPagoPropinas / valorMensalidade) : 0;
-
-    // Saldo restante exato da parcela atual em curso
+    let valorAnualTotal = 0;
+    let totalPagoAplicavel = 0;
+    let temPagamentoParcial = false;
     let faltaPagarParcelaAtual = 0;
-    if (temPagamentoParcial) {
-      faltaPagarParcelaAtual = valorMensalidade - valorPagoNaParcelaAtual;
-    } else if (totalPagoPropinas === 0) {
-      faltaPagarParcelaAtual = valorMensalidade;
-    } else if (saldoAnualRestante > 0) {
-      faltaPagarParcelaAtual = Math.min(valorMensalidade, saldoAnualRestante);
-    } else {
-      faltaPagarParcelaAtual = 0;
+    let valorMensalidadeRef = 0;
+
+    const itensPendentes: Array<{
+      emolumento: ItemEmolumentoConfig;
+      previstoTotal: number;
+      pago: number;
+      restante: number;
+      proximaParcela: number;
+      parcial: boolean;
+    }> = [];
+
+    emolumentosAluno.forEach(emol => {
+      const unitario = valorBaseEmolumentoParaClasse(emol, classeKey);
+      const ehMensal = emol.periodicidade === 'Mensal' || emol.nome.toLowerCase().includes('propina');
+      if (ehMensal && valorMensalidadeRef === 0) valorMensalidadeRef = unitario;
+
+      const pagamentosItem = transacoes.filter(
+        t =>
+          t.status === 'Confirmado' &&
+          t.alunoId === aluno.id &&
+          ((t.emolumentoId && t.emolumentoId === emol.id) ||
+            t.tipo.trim().toLowerCase() === emol.nome.trim().toLowerCase())
+      );
+      const pagoItem = pagamentosItem.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
+
+      let previstoItem = 0;
+      if (ehMensal && (emol.obrigatorio || emol.nome.toLowerCase().includes('propina'))) {
+        previstoItem = unitario * totalMesesLetivos;
+      } else if (emol.obrigatorio) {
+        previstoItem = unitario;
+      } else if (pagoItem > 0 && pagoItem < unitario) {
+        // Emolumento facultativo com pagamento parcial iniciado mantém dívida até liquidação total
+        previstoItem = unitario;
+      }
+
+      if (previstoItem <= 0) return;
+
+      valorAnualTotal += previstoItem;
+      totalPagoAplicavel += Math.min(pagoItem, previstoItem);
+      const restanteItem = Math.max(0, previstoItem - pagoItem);
+
+      if (restanteItem > 0) {
+        const pagoNaParcela = unitario > 0 ? pagoItem % unitario : 0;
+        const ehParcial = pagoNaParcela > 0 || (pagoItem > 0 && pagoItem < previstoItem && !ehMensal);
+        if (ehParcial) temPagamentoParcial = true;
+        const proximaParcela =
+          pagoNaParcela > 0
+            ? unitario - pagoNaParcela
+            : Math.min(unitario, restanteItem);
+
+        itensPendentes.push({
+          emolumento: emol,
+          previstoTotal: previstoItem,
+          pago: pagoItem,
+          restante: restanteItem,
+          proximaParcela,
+          parcial: ehParcial
+        });
+      }
+    });
+
+    const saldoAnualRestante = Math.max(0, valorAnualTotal - totalPagoAplicavel);
+    if (itensPendentes.length > 0) {
+      faltaPagarParcelaAtual = itensPendentes[0].proximaParcela;
     }
 
-    const quitouTotalidade = totalPagoPropinas >= valorAnualTotal && valorAnualTotal > 0;
-    
-    // Regra oficial MED Angola:
-    // O aluno só NÃO aparece na lista de devedores quando pagar todas as dívidas ou for isento.
-    // Se pagar apenas uma parte, CONTINUA visível como devedor com o saldo remanescente exato.
-    const ehDevedor = aluno.propinaStatus !== 'Isento' && !quitouTotalidade && (
-      temPagamentoParcial ||
-      totalPagoPropinas === 0 ||
-      aluno.propinaStatus === 'Pendente' ||
-      (aluno.propinaStatus as string) === 'Em Atraso' ||
-      totalPagoPropinas < valorAnualTotal
-    );
+    const mesesCompletosPagos = valorMensalidadeRef > 0 ? Math.floor(totalPagoAplicavel / valorMensalidadeRef) : 0;
+    const quitouTotalidade = emolumentosAluno.length > 0 && valorAnualTotal > 0 && saldoAnualRestante === 0;
+    const temRegraObrigatoria = valorAnualTotal > 0;
+
+    const ehDevedor =
+      aluno.propinaStatus !== 'Isento' &&
+      !quitouTotalidade &&
+      (itensPendentes.length > 0 ||
+        (temRegraObrigatoria && saldoAnualRestante > 0) ||
+        (!temRegraObrigatoria && (aluno.propinaStatus === 'Pendente' || (aluno.propinaStatus as string) === 'Em Atraso')));
 
     return {
-      valorMensalidade,
-      totalPagoPropinas,
+      valorMensalidade: valorMensalidadeRef,
+      totalPagoPropinas: totalPagoAplicavel,
       valorAnualTotal,
       saldoAnualRestante,
-      valorPagoNaParcelaAtual,
+      valorPagoNaParcelaAtual: itensPendentes[0]?.pago || 0,
       faltaPagarParcelaAtual,
-      saldoDevedor: faltaPagarParcelaAtual > 0 ? faltaPagarParcelaAtual : saldoAnualRestante,
+      saldoDevedor: saldoAnualRestante > 0 ? saldoAnualRestante : faltaPagarParcelaAtual,
       mesesCompletosPagos,
       temPagamentoParcial,
+      itensPendentes,
       ehDevedor
     };
   };
@@ -503,13 +760,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     );
 
     return alunosDaEscola.filter(aluno => {
-      // Se for isento oficial
       if (aluno.propinaStatus === 'Isento') return false;
-
-      // Filtro de turma
       if (filtroTurmaDevedor !== 'TODAS' && aluno.turmaId !== filtroTurmaDevedor) return false;
 
-      // Regra de anos letivos: considera anoLectivo, anoMatricula ou ano da turma
       const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
       const anoDoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaDoAluno?.anoLectivo || anoActivo;
       if (!mostrarAnosPassadosDevedores && anoActivo && anoDoAluno !== anoActivo) {
@@ -522,11 +775,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
       const det = obterDetalhesDividaAluno(aluno);
 
-      // Filtro por tipo de pendência
       if (filtroEstadoDivida === 'PARCIAIS' && !det.temPagamentoParcial) return false;
       if (filtroEstadoDivida === 'SEM_PAGAMENTO' && det.totalPagoPropinas > 0) return false;
 
-      // Filtro de pesquisa de texto (Nome, Matrícula, BI)
       if (pesquisaDevedor.trim()) {
         const termo = pesquisaDevedor.toLowerCase().trim();
         const nomeMatch = aluno.nomeCompleto.toLowerCase().includes(termo);
@@ -537,42 +788,69 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
       return det.ehDevedor;
     });
-  }, [alunos, escola.id, escola.anoLectivoActivo, mostrarAnosPassadosDevedores, transacoes, filtroTurmaDevedor, configFinanceira, turmas, pesquisaDevedor, filtroEstadoDivida]);
+  }, [alunos, escola.id, escola.anoLectivoActivo, mostrarAnosPassadosDevedores, transacoes, filtroTurmaDevedor, emolumentosAtivosRegistrados, mesesPropinasConfigurados, turmas, pesquisaDevedor, filtroEstadoDivida]);
 
   const totalEmDividaEstimado = useMemo(() => {
     return devedores.reduce((acc, aluno) => {
       const det = obterDetalhesDividaAluno(aluno);
-      return acc + (det.saldoDevedor > 0 ? det.saldoDevedor : (configFinanceira.propinasPorClasse[aluno.classeId] || 12000));
+      return acc + (det.saldoAnualRestante > 0 ? det.saldoAnualRestante : det.saldoDevedor);
     }, 0);
-  }, [devedores, transacoes, configFinanceira]);
+  }, [devedores, transacoes, emolumentosAtivosRegistrados, mesesPropinasConfigurados]);
 
-  // Submissão de Novo Pagamento
+  // Submissão de Novo Pagamento (Apenas Emolumentos Cadastrados + Suporte Total / Parcial)
   const handleRegistrarPagamento = (e: React.FormEvent) => {
     e.preventDefault();
     const aluno = alunos.find(a => a.id === pagAlunoId);
     if (!aluno) {
-      alert('Por favor, selecione o aluno.');
+      notificar('Por favor, selecione o aluno.');
       return;
     }
 
-    if (minhaDelegacao?.valorMaximoPorCobrancaKz && pagValor > minhaDelegacao.valorMaximoPorCobrancaKz) {
-      alert(`Valor de ${pagValor.toLocaleString('pt-AO')} Kz excede o limite máximo autorizado pelo Diretor Geral (${minhaDelegacao.valorMaximoPorCobrancaKz.toLocaleString('pt-AO')} Kz).`);
+    if (emolumentosAtivosRegistrados.length === 0) {
+      notificar('Não existem emolumentos cadastrados nesta escola. Cadastre primeiro na aba Emolumentos.');
+      return;
+    }
+
+    const emolConfig =
+      (pagEmolumentoId ? emolumentosAtivosRegistrados.find(em => em.id === pagEmolumentoId) : undefined) ||
+      emolumentosAtivosRegistrados.find(em => em.nome.trim().toLowerCase() === String(pagTipo || '').trim().toLowerCase());
+
+    if (!emolConfig) {
+      notificar('Selecione um emolumento oficialmente cadastrado no sistema.');
       return;
     }
 
     const turma = turmas.find(t => t.id === aluno.turmaId);
     const classeAluno = aluno.classeId || turma?.classe || '';
-    
-    // Validação estrita das classes abrangidas pelo emolumento
-    const emolConfig = emolumentosCustomizados.find(e => e.nome === pagTipo);
-    if (emolConfig && emolConfig.classesAbrangidas && emolConfig.classesAbrangidas.length > 0) {
-      const abrangeTodas = emolConfig.classesAbrangidas.includes('Todas');
-      const abrangeEsta = emolConfig.classesAbrangidas.some(c => c.toLowerCase() === classeAluno.toLowerCase());
-      if (!abrangeTodas && !abrangeEsta) {
-        alert(`Cobrança Inválida! O emolumento "${pagTipo}" não é aplicável à classe do aluno (${classeAluno}).\nClasses autorizadas pela Direção: ${emolConfig.classesAbrangidas.join(', ')}.`);
-        return;
-      }
+    if (!emolumentoAplicaAoAluno(emolConfig, classeAluno)) {
+      const niveisTxt = (emolConfig.niveisAcademicos || ['Todos']).map(formatarLabelNivel).join(', ');
+      const classesTxt = (emolConfig.classesAbrangidas || ['Todas']).join(', ');
+      notificar(
+        `Cobrança Inválida! "${emolConfig.nome}" destina-se apenas a: Nível (${niveisTxt}) • Classes (${classesTxt}). O aluno pertence à ${classeAluno || 'classe não definida'}.`
+      );
+      return;
     }
+
+    if (pagValor <= 0) {
+      notificar('O valor a cobrar deve ser superior a 0 Kz.');
+      return;
+    }
+
+    if (pagModalidade === 'Parcial' && emolConfig.permitirPagamentoParcial === false) {
+      notificar(`O emolumento "${emolConfig.nome}" está configurado para aceitar apenas pagamento total.`);
+      return;
+    }
+
+    if (minhaDelegacao?.valorMaximoPorCobrancaKz && pagValor > minhaDelegacao.valorMaximoPorCobrancaKz) {
+      notificar(`Valor de ${pagValor.toLocaleString('pt-AO')} Kz excede o limite máximo autorizado pelo Diretor Geral (${minhaDelegacao.valorMaximoPorCobrancaKz.toLocaleString('pt-AO')} Kz).`);
+      return;
+    }
+
+    const saldoCtx = calcularSaldoEmolumentoAluno(aluno.id, emolConfig, pagTipoEhMensal ? pagMes : undefined);
+    const acumulado = saldoCtx.jaPago + pagValor;
+    const restantePos = Math.max(0, saldoCtx.valorPrevisto - acumulado);
+    const modalidadeFinal: 'Total' | 'Parcial' =
+      pagModalidade === 'Parcial' || restantePos > 0 ? 'Parcial' : 'Total';
 
     const numeroRecibo = `REC-${new Date().getFullYear()}-${String(transacoes.length + 1).padStart(4, '0')}`;
     const obsFinal = minhaDelegacao
@@ -586,13 +864,19 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       alunoNome: aluno.nomeCompleto,
       codigoMatricula: aluno.codigoMatricula,
       turmaNome: turma?.nome || aluno.classeId,
-      classe: aluno.classeId,
-      tipo: pagTipo,
-      mesReferencia: pagTipo === 'Propina Mensal' ? pagMes : undefined,
+      classe: classeAluno,
+      nivelAcademico: getNivelAcademicoClasse(classeAluno),
+      emolumentoId: emolConfig.id,
+      tipo: emolConfig.nome.trim() as TipoPagamentoEscolar,
+      mesReferencia: pagTipoEhMensal ? `${pagMes}${escola.anoLectivoActivo ? ` (${escola.anoLectivoActivo})` : ''}` : undefined,
       anoLectivo: escola.anoLectivoActivo,
       valorKz: pagValor,
       multaKz: 0,
       valorTotalKz: pagValor,
+      valorPrevistoKz: saldoCtx.valorPrevisto,
+      valorPagoAcumuladoKz: acumulado,
+      saldoDevedorRestanteKz: restantePos,
+      modalidadePagamento: modalidadeFinal,
       metodoPagamento: pagMetodo,
       numeroComprovativo: pagComprovativo || undefined,
       numeroRecibo,
@@ -605,34 +889,26 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     };
 
     dbService.salvarTransacaoFinanceira(novaTransacao);
-    setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
+    const novasTransacoes = dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo);
+    setTransacoes(novasTransacoes);
 
-    // REGRA DE OURO: Atualização do status da propina do discente
-    // O aluno SÓ é considerado "Regularizada" se pagar a totalidade de todas as dívidas!
-    // Se pagar apenas uma parte, continua obrigatoriamente "Pendente" para constar nos devedores.
-    if (aluno) {
-      const det = obterDetalhesDividaAluno(aluno);
-      const quitouTodasDividas = pagQuitacaoTotal || (
-        pagTipo === 'Propina Mensal' && 
-        det.saldoDevedor > 0 && 
-        pagValor >= det.saldoDevedor &&
-        (det.totalPagoPropinas + pagValor >= det.valorMensalidade * 10)
-      );
+    // Atualiza propinaStatus considerando saldo restante real após este pagamento
+    const prevDet = obterDetalhesDividaAluno(aluno);
+    const novoSaldoAnualEstimado = Math.max(0, prevDet.saldoAnualRestante - pagValor);
+    const quitouTodasDividas =
+      modalidadeFinal === 'Total' &&
+      (pagQuitacaoTotal || (prevDet.valorAnualTotal > 0 && novoSaldoAnualEstimado === 0));
 
-      const novoStatus: 'Regularizada' | 'Pendente' | 'Isento' = quitouTodasDividas ? 'Regularizada' : 'Pendente';
-
-      const alunoAtualizado: Aluno = {
-        ...aluno,
-        propinaStatus: novoStatus,
-        escolaId: aluno.escolaId || escola.id
-      };
-      dbService.salvarAluno(alunoAtualizado);
-      if (onSalvarAluno) {
-        onSalvarAluno(alunoAtualizado);
-      }
+    const alunoAtualizado: Aluno = {
+      ...aluno,
+      propinaStatus: quitouTodasDividas ? 'Regularizada' : 'Pendente',
+      escolaId: aluno.escolaId || escola.id
+    };
+    dbService.salvarAluno(alunoAtualizado);
+    if (onSalvarAluno) {
+      onSalvarAluno(alunoAtualizado);
     }
 
-    // Auditoria de Cobrança por Operador Delegado
     try {
       const poderes = dbService.verificarPoderesDelegados(currentUser.id, escola.id);
       if (poderes.podeCobrarEmolumentos) {
@@ -647,29 +923,36 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
           valorCobrado: pagValor,
           numeroRecibo: numeroRecibo,
           formaPagamento: pagMetodo,
-          detalhes: `Recebimento de emolumento (${pagTipo}) de ${pagValor.toLocaleString('pt-AO')} Kz (Recibo nº ${numeroRecibo}) averbado por operador delegado.`
+          detalhes: `Recebimento ${modalidadeFinal.toLowerCase()} de emolumento (${emolConfig.nome}) de ${pagValor.toLocaleString('pt-AO')} Kz (Recibo nº ${numeroRecibo}).`
         });
       }
     } catch {}
 
     setShowNovoPagamentoModal(false);
     setReciboParaImprimir(novaTransacao);
-    notificar(`Pagamento registado com sucesso! Recibo nº ${numeroRecibo} emitido.`);
+    notificar(
+      `Pagamento ${modalidadeFinal} registado! Recibo nº ${numeroRecibo} emitido${restantePos > 0 ? ` • Saldo em dívida neste item: ${restantePos.toLocaleString('pt-AO')} Kz` : ''}.`
+    );
   };
 
   // Gestão de Novos Tipos de Emolumentos Criados pelo Diretor
   const handleSalvarNovoEmolumento = (e: React.FormEvent) => {
     e.preventDefault();
+    setErroModalEmolumento(null);
     if (!emolNome.trim()) {
-      alert('Por favor, informe o nome do emolumento.');
+      setErroModalEmolumento('Por favor, informe o nome do emolumento.');
       return;
     }
     if (emolValorKz <= 0) {
-      alert('O valor padrão do emolumento deve ser maior que zero.');
+      setErroModalEmolumento('O valor padrão do emolumento deve ser maior que zero.');
+      return;
+    }
+    if (emolNiveis.length === 0) {
+      setErroModalEmolumento('Selecione pelo menos um nível académico ou marque "Todos".');
       return;
     }
     if (emolClasses.length === 0) {
-      alert('Selecione ao menos uma classe abrangida ou marque "Todas".');
+      setErroModalEmolumento('Selecione ao menos uma classe abrangida ou marque "Todas".');
       return;
     }
 
@@ -679,8 +962,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       nome: emolNome.trim(),
       valorPadraoKz: emolValorKz,
       periodicidade: emolPeriodicidade,
+      niveisAcademicos: emolNiveis,
       classesAbrangidas: emolClasses,
       obrigatorio: emolObrigatorio,
+      permitirPagamentoParcial: emolPermitirParcial,
       diaVencimento: emolDiaVencimento,
       multaAtrasoPercentual: emolMultaPct,
       descricao: emolDescricao.trim(),
@@ -695,15 +980,22 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     setEmolIdEdit(null);
     setEmolNome('');
     setEmolValorKz(5000);
+    setEmolNiveis(['Todos']);
     setEmolClasses(['Todas']);
+    setEmolPermitirParcial(true);
     setEmolDescricao('');
     notificar(`Emolumento "${item.nome}" configurado e validado com sucesso!`);
   };
 
   const handleExcluirEmolumento = (id: string) => {
-    if (!window.confirm('Tem a certeza que deseja remover este emolumento do sistema?')) return;
-    dbService.removerEmolumentoPersonalizado(escola.id, id);
+    setEmolumentoParaExcluirId(id);
+  };
+
+  const confirmarExcluirEmolumento = () => {
+    if (!emolumentoParaExcluirId) return;
+    dbService.removerEmolumentoPersonalizado(escola.id, emolumentoParaExcluirId);
     setEmolumentosCustomizados(dbService.getEmolumentosPersonalizados(escola.id));
+    setEmolumentoParaExcluirId(null);
     notificar('Emolumento removido com sucesso.');
   };
 
@@ -751,8 +1043,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   // Submissão de Nova Despesa
   const handleRegistrarDespesa = (e: React.FormEvent) => {
     e.preventDefault();
+    setErroModalDespesa(null);
     if (!despDescricao || despValor <= 0) {
-      alert('Preencha a descrição e valor da despesa.');
+      setErroModalDespesa('Preencha a descrição e um valor maior que zero para a despesa.');
       return;
     }
 
@@ -807,11 +1100,15 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   };
 
   const handleEliminarPatrimonio = (id: string, nome: string) => {
-    if (confirm(`Confirmar abate / remoção de património: "${nome}"?`)) {
-      dbService.eliminarItemPatrimonio(id);
-      setPatrimonio(dbService.getPatrimonio(escola.id));
-      notificar(`Item removido do inventário patrimonial.`);
-    }
+    setPatrimonioParaEliminar({ id, nome });
+  };
+
+  const confirmarEliminarPatrimonio = () => {
+    if (!patrimonioParaEliminar) return;
+    dbService.eliminarItemPatrimonio(patrimonioParaEliminar.id);
+    setPatrimonio(dbService.getPatrimonio(escola.id));
+    setPatrimonioParaEliminar(null);
+    notificar(`Item removido do inventário patrimonial.`);
   };
 
   // Salvar Configurações Financeiras
@@ -1217,7 +1514,20 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </button>
               <button
                 type="button"
-                onClick={() => setShowNovoPagamentoModal(true)}
+                onClick={() => {
+                  const defaultEmol = emolumentosAplicaveisAoAluno[0] || emolumentosAtivosRegistrados[0];
+                  setPagEmolumentoId(defaultEmol?.id || '');
+                  setPagTipo((defaultEmol?.nome as TipoPagamentoEscolar) || ('' as any));
+                  setPagModalidade('Total');
+                  setPagQuitacaoTotal(false);
+                  if (defaultEmol) {
+                    const ctx = calcularSaldoEmolumentoAluno(pagAlunoId, defaultEmol, pagMes);
+                    setPagValor(ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto);
+                  } else {
+                    setPagValor(0);
+                  }
+                  setShowNovoPagamentoModal(true);
+                }}
                 className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shrink-0"
               >
                 <Plus className="h-4 w-4" />
@@ -1225,6 +1535,42 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </button>
             </div>
           </div>
+
+          {/* Seletor Rápido da Direção: Meses do Ano Letivo para Pagamento de Propinas */}
+          {isDirecao && (
+            <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <Calendar className="h-4 w-4 text-blue-700" />
+                  <span className="text-xs font-black text-blue-950">
+                    Meses do Ano Letivo Ativos para Propinas ({mesesPropinasConfigurados.length}/12 meses)
+                  </span>
+                </div>
+                <span className="text-[11px] text-blue-700 font-semibold">
+                  Selecione quais meses entram na cobrança de propinas da escola
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {MESES_ANO_LETIVO_PADRAO.map(mes => {
+                  const ativo = mesesPropinasConfigurados.includes(mes);
+                  return (
+                    <button
+                      key={`pag-mes-toggle-${mes}`}
+                      type="button"
+                      onClick={() => handleToggleMesPropina(mes)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                        ativo
+                          ? 'bg-blue-600 text-white border-blue-700 shadow-2xs'
+                          : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {mes}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Tabela de Transações */}
           <div className="overflow-x-auto border border-gray-200 rounded-xl">
@@ -1281,6 +1627,11 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         <span className="font-bold text-slate-800">{t.tipo}</span>
                         {t.mesReferencia && (
                           <span className="block text-[10px] text-gray-500">{t.mesReferencia}</span>
+                        )}
+                        {t.modalidadePagamento === 'Parcial' && (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 text-[9px] font-bold">
+                            Parcial{t.saldoDevedorRestanteKz && t.saldoDevedorRestanteKz > 0 ? ` • Resta ${t.saldoDevedorRestanteKz.toLocaleString('pt-AO')} Kz` : ''}
+                          </span>
                         )}
                       </td>
                       <td className="py-2.5 px-3 font-bold text-emerald-700">
@@ -1551,7 +1902,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   devedores.map((aluno) => {
                     const turma = turmas.find(t => t.id === aluno.turmaId);
                     const det = obterDetalhesDividaAluno(aluno);
-                    const valorACobrar = det.saldoDevedor > 0 ? det.saldoDevedor : det.valorMensalidade;
+                    const itemPrincipal = det.itensPendentes[0];
+                    const valorParcela = itemPrincipal?.proximaParcela || det.faltaPagarParcelaAtual || 0;
+                    const valorACobrarTotal = det.saldoAnualRestante > 0 ? det.saldoAnualRestante : valorParcela;
                     return (
                       <tr key={aluno.id} className="hover:bg-amber-50/30 transition-colors">
                         <td className="py-2.5 px-3">
@@ -1564,25 +1917,28 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         <td className="py-2.5 px-3 font-medium text-gray-800">
                           {turma?.nome || aluno.classeId}
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3 space-y-1">
                           {det.temPagamentoParcial ? (
-                            <div className="space-y-0.5">
-                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                ⚠️ Dívida Parcial Ativa
-                              </span>
-                              <div className="text-[10px] text-emerald-700 font-semibold">
-                                Já pagou: {det.totalPagoPropinas.toLocaleString()} Kz
-                              </div>
-                            </div>
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              ⚠️ Dívida Parcial Ativa
+                            </span>
                           ) : det.totalPagoPropinas === 0 ? (
                             <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
                               Sem Nenhum Pagamento
                             </span>
                           ) : (
                             <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
-                              Propina Pendente
+                              Emolumentos Pendentes
                             </span>
                           )}
+                          <div className="text-[10px] text-emerald-700 font-semibold">
+                            Já pagou: {det.totalPagoPropinas.toLocaleString('pt-AO')} Kz
+                          </div>
+                          {det.itensPendentes.slice(0, 2).map(it => (
+                            <div key={it.emolumento.id} className="text-[10px] text-gray-600">
+                              • {it.emolumento.nome}: falta <strong>{it.restante.toLocaleString('pt-AO')} Kz</strong>
+                            </div>
+                          ))}
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="font-bold text-gray-800">{aluno.nomeEncarregado || 'Encarregado de Educação'}</div>
@@ -1590,30 +1946,55 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="font-black text-rose-700 text-xs">
-                            {valorACobrar.toLocaleString()} Kz
+                            {valorACobrarTotal.toLocaleString('pt-AO')} Kz
                           </div>
-                          {det.temPagamentoParcial && det.faltaPagarParcelaAtual > 0 && (
+                          {valorParcela > 0 && valorParcela < valorACobrarTotal && (
                             <div className="text-[10px] text-amber-800 font-bold">
-                              Resta na parcela: {det.faltaPagarParcelaAtual.toLocaleString()} Kz
+                              Parcela / Item atual: {valorParcela.toLocaleString('pt-AO')} Kz
                             </div>
                           )}
                           <div className="text-[10px] text-gray-500">
-                            Total ano por liquidar: {det.saldoAnualRestante.toLocaleString()} Kz
+                            Previsto total: {det.valorAnualTotal.toLocaleString('pt-AO')} Kz
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <button
-                            onClick={() => {
-                              setPagAlunoId(aluno.id);
-                              setPagTipo('Propina Mensal');
-                              setPagValor(valorACobrar);
-                              setPagQuitacaoTotal(false);
-                              setShowNovoPagamentoModal(true);
-                            }}
-                            className="px-3 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                          >
-                            Cobrar
-                          </button>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const alvoEmol = itemPrincipal?.emolumento || emolumentosAtivosRegistrados.find(e => emolumentoAplicaAoAluno(e, aluno.classeId || turma?.classe)) || null;
+                                setPagAlunoId(aluno.id);
+                                setPagEmolumentoId(alvoEmol?.id || '');
+                                setPagTipo((alvoEmol?.nome as TipoPagamentoEscolar) || ('' as any));
+                                setPagModalidade('Total');
+                                setPagValor(valorParcela > 0 ? valorParcela : valorACobrarTotal);
+                                setPagQuitacaoTotal(valorParcela >= valorACobrarTotal);
+                                setShowNovoPagamentoModal(true);
+                              }}
+                              className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                              title="Cobrar valor total da parcela ou dívida"
+                            >
+                              Cobrar Total
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const alvoEmol = itemPrincipal?.emolumento || emolumentosAtivosRegistrados.find(e => emolumentoAplicaAoAluno(e, aluno.classeId || turma?.classe)) || null;
+                                const sugerido = Math.max(1000, Math.round((valorParcela > 0 ? valorParcela : valorACobrarTotal) / 2));
+                                setPagAlunoId(aluno.id);
+                                setPagEmolumentoId(alvoEmol?.id || '');
+                                setPagTipo((alvoEmol?.nome as TipoPagamentoEscolar) || ('' as any));
+                                setPagModalidade('Parcial');
+                                setPagValor(sugerido);
+                                setPagQuitacaoTotal(false);
+                                setShowNovoPagamentoModal(true);
+                              }}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                              title="Cobrar prestação parcial e manter saldo restante em dívida"
+                            >
+                              Cobrar Parcial
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1885,6 +2266,56 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             </div>
           </div>
 
+          {/* Seleção dos Meses do Ano Letivo para Pagamento de Propinas */}
+          <div className="space-y-3 pt-3 border-t border-gray-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                  Meses do Ano Letivo Aplicáveis às Propinas ({mesesPropinasConfigurados.length} meses selecionados)
+                </h4>
+                <p className="text-[11px] text-gray-500">
+                  Marque os meses do calendário escolar em que os alunos pagam propinas (ex.: Setembro a Julho). Estes meses refletem-se nos pagamentos, devedores e portal do encarregado.
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setConfigFinanceira(prev => ({ ...prev, mesesPropinasAtivos: ['Setembro', 'Outubro', 'Novembro', 'Dezembro', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho'] }))}
+                  className="text-[11px] font-bold px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg cursor-pointer"
+                >
+                  Padrão MED (Set–Jul)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfigFinanceira(prev => ({ ...prev, mesesPropinasAtivos: [...MESES_ANO_LETIVO_PADRAO] }))}
+                  className="text-[11px] font-bold px-2.5 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg cursor-pointer"
+                >
+                  Todos (12 Meses)
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+              {MESES_ANO_LETIVO_PADRAO.map(mes => {
+                const selecionado = mesesPropinasConfigurados.includes(mes);
+                return (
+                  <button
+                    key={`cfg-mes-${mes}`}
+                    type="button"
+                    onClick={() => handleToggleMesPropina(mes)}
+                    className={`flex items-center justify-center space-x-1.5 p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      selecionado
+                        ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                        : 'bg-slate-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                    }`}
+                  >
+                    {selecionado ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                    <span>{mes}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Taxas Administrativas & Serviços */}
           <div className="space-y-3 pt-3 border-t border-gray-100">
             <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
@@ -2030,8 +2461,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   setEmolNome('');
                   setEmolValorKz(5000);
                   setEmolPeriodicidade('Por_Solicitacao');
+                  setEmolNiveis(['Todos']);
                   setEmolClasses(['Todas']);
                   setEmolObrigatorio(false);
+                  setEmolPermitirParcial(true);
                   setEmolDiaVencimento(10);
                   setEmolMultaPct(10);
                   setEmolDescricao('');
@@ -2054,9 +2487,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                     <th className="p-3">Emolumento / Serviço</th>
                     <th className="p-3">Valor Padrão (Kz)</th>
                     <th className="p-3">Periodicidade</th>
-                    <th className="p-3">Classes Abrangidas</th>
+                    <th className="p-3">Nível Académico & Classes</th>
                     <th className="p-3">Vencimento & Multa</th>
-                    <th className="p-3">Regras & Sanções</th>
+                    <th className="p-3">Regras & Modalidade</th>
                     <th className="p-3">Estado</th>
                     <th className="p-3 text-right">Ações</th>
                   </tr>
@@ -2071,9 +2504,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                             <Coins className="w-6 h-6" />
                           </div>
                           <div>
-                            <h4 className="text-sm font-bold text-gray-900">Nenhum Emolumento Configurado por Padrão</h4>
+                            <h4 className="text-sm font-bold text-gray-900">Nenhum Emolumento Cadastrado no Sistema</h4>
                             <p className="text-xs text-gray-500 mt-1">
-                              Conforme as diretrizes oficiais, o sistema inicia sem emolumentos pré-definidos. O Diretor da Escola deve cadastrar as propinas, taxas e serviços específicos da instituição e pode editá-los ou eliminá-los livremente.
+                              O sistema reconhece exclusivamente os emolumentos oficialmente cadastrados pela Direção, por Classe ou Nível Académico. Cadastre aqui as propinas e taxas autorizadas para liberar cobranças e recibos.
                             </p>
                           </div>
                           {isDirecao && (
@@ -2084,8 +2517,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                                 setEmolNome('');
                                 setEmolValorKz(5000);
                                 setEmolPeriodicidade('Por_Solicitacao');
+                                setEmolNiveis(['Todos']);
                                 setEmolClasses(['Todas']);
                                 setEmolObrigatorio(false);
+                                setEmolPermitirParcial(true);
                                 setEmolDiaVencimento(10);
                                 setEmolMultaPct(10);
                                 setEmolDescricao('');
@@ -2127,6 +2562,11 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                       </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1 max-w-xs">
+                          {(emol.niveisAcademicos || ['Todos']).map(nv => (
+                            <span key={`nv-${emol.id}-${nv}`} className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 border border-blue-200 text-blue-800">
+                              {formatarLabelNivel(nv)}
+                            </span>
+                          ))}
                           {emol.classesAbrangidas?.includes('Todas') ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                               Todas as Classes
@@ -2148,11 +2588,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                           {emol.obrigatorio && (
                             <span className="block text-amber-800 font-bold">⚠️ Obrigatório</span>
                           )}
-                          {emol.bloqueiaDocumentosSePendente && (
-                            <span className="block text-rose-700 font-semibold">🔒 Bloqueia documentos</span>
-                          )}
-                          {!emol.obrigatorio && !emol.bloqueiaDocumentosSePendente && (
-                            <span className="text-gray-500">Cobrança facultativa</span>
+                          {emol.permitirPagamentoParcial !== false ? (
+                            <span className="block text-indigo-700 font-semibold">Aceita Parcial e Total</span>
+                          ) : (
+                            <span className="block text-gray-700 font-semibold">Apenas Pagamento Total</span>
                           )}
                         </div>
                       </td>
@@ -2173,8 +2612,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                             setEmolNome(emol.nome);
                             setEmolValorKz(emol.valorPadraoKz);
                             setEmolPeriodicidade(emol.periodicidade);
+                            setEmolNiveis(emol.niveisAcademicos && emol.niveisAcademicos.length > 0 ? emol.niveisAcademicos : ['Todos']);
                             setEmolClasses(emol.classesAbrangidas || ['Todas']);
                             setEmolObrigatorio(!!emol.obrigatorio);
+                            setEmolPermitirParcial(emol.permitirPagamentoParcial !== false);
                             setEmolDiaVencimento(emol.diaVencimento || 10);
                             setEmolMultaPct(emol.multaAtrasoPercentual || 10);
                             setEmolDescricao(emol.descricao || '');
@@ -2473,7 +2914,22 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 <select
                   required
                   value={pagAlunoId}
-                  onChange={(e) => setPagAlunoId(e.target.value)}
+                  onChange={(e) => {
+                    const idAluno = e.target.value;
+                    setPagAlunoId(idAluno);
+                    const al = alunos.find(a => a.id === idAluno);
+                    const tr = al ? turmas.find(tm => tm.id === al.turmaId) : undefined;
+                    const cls = al?.classeId || tr?.classe || '';
+                    const validos = emolumentosAtivosRegistrados.filter(em => emolumentoAplicaAoAluno(em, cls));
+                    const alvo = validos.find(em => em.id === pagEmolumentoId) || validos[0] || null;
+                    if (alvo) {
+                      setPagEmolumentoId(alvo.id);
+                      setPagTipo(alvo.nome.trim() as TipoPagamentoEscolar);
+                      const ctx = calcularSaldoEmolumentoAluno(idAluno, alvo, pagMes);
+                      const totalAlvo = ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto;
+                      setPagValor(pagModalidade === 'Parcial' ? Math.max(500, Math.round(totalAlvo / 2)) : totalAlvo);
+                    }
+                  }}
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-bold text-gray-800 focus:ring-2 focus:ring-blue-600"
                 >
                   <option value="">-- Selecione o Aluno ({alunosParaPagamento.length} disponíveis) --</option>
@@ -2488,30 +2944,49 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </select>
               </div>
 
-              {/* Tipo de Pagamento e Mês */}
+              {/* Tipo de Pagamento (Apenas Emolumentos Cadastrados para a Classe / Nível do Aluno) e Mês */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">
-                    Tipo de Pagamento *
+                    Emolumento Cadastrado *
                     {isUsuarioDelegado && (
                       <span className="text-[10px] text-amber-700 font-normal ml-1">
-                        (Restrito à sua delegação)
+                        (Restrito à delegação)
                       </span>
                     )}
                   </label>
                   <select
-                    value={pagTipo}
-                    onChange={(e) => setPagTipo(e.target.value as TipoPagamentoEscolar)}
+                    value={pagEmolumentoId}
+                    onChange={(e) => {
+                      const idEm = e.target.value;
+                      const emObj = emolumentosAplicaveisAoAluno.find(x => x.id === idEm) || null;
+                      setPagEmolumentoId(idEm);
+                      setPagTipo((emObj?.nome.trim() as TipoPagamentoEscolar) || ('' as any));
+                      if (emObj) {
+                        const ehM = emObj.periodicidade === 'Mensal' || emObj.nome.toLowerCase().includes('propina');
+                        const ctx = calcularSaldoEmolumentoAluno(pagAlunoId, emObj, ehM ? pagMes : undefined);
+                        const totalAlvo = ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto;
+                        if (emObj.permitirPagamentoParcial === false) setPagModalidade('Total');
+                        setPagValor(pagModalidade === 'Parcial' && emObj.permitirPagamentoParcial !== false ? Math.max(500, Math.round(totalAlvo / 2)) : totalAlvo);
+                      }
+                    }}
                     className="w-full p-2 border border-gray-300 rounded-lg font-bold"
                   >
-                    {emolumentosPermitidosFormulario.length === 0 ? (
-                      <option value="">Nenhum emolumento configurado (Diretor deve cadastrar na aba Emolumentos)</option>
+                    {emolumentosAplicaveisAoAluno.length === 0 ? (
+                      <option value="">Nenhum emolumento cadastrado para {classeAlunoPagamento || 'esta escola'}</option>
                     ) : (
-                      emolumentosPermitidosFormulario.map(em => (
-                        <option key={em} value={em}>{em}</option>
+                      emolumentosAplicaveisAoAluno.map(em => (
+                        <option key={em.id} value={em.id}>
+                          {em.nome} ({valorBaseEmolumentoParaClasse(em, classeAlunoPagamento).toLocaleString('pt-AO')} Kz)
+                        </option>
                       ))
                     )}
                   </select>
+                  {emolumentosAplicaveisAoAluno.length === 0 && (
+                    <span className="text-[10px] text-rose-700 font-bold block mt-1">
+                      Cadastre um emolumento para {classeAlunoPagamento ? `${classeAlunoPagamento} (${formatarLabelNivel(getNivelAcademicoClasse(classeAlunoPagamento))})` : 'a escola'} na aba Emolumentos.
+                    </span>
+                  )}
                   {isUsuarioDelegado && minhaDelegacao?.valorMaximoPorCobrancaKz && (
                     <span className="text-[10px] text-amber-700 font-semibold block mt-1">
                       Limite máx. autorizado: {minhaDelegacao.valorMaximoPorCobrancaKz.toLocaleString('pt-AO')} Kz
@@ -2522,20 +2997,95 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   <label className="block font-bold text-gray-700 mb-1">Mês de Referência</label>
                   <select
                     value={pagMes}
-                    onChange={(e) => setPagMes(e.target.value)}
-                    disabled={pagTipo !== 'Propina Mensal'}
+                    onChange={(e) => {
+                      const novoMes = e.target.value;
+                      setPagMes(novoMes);
+                      if (emolumentoSelecionadoModal) {
+                        const ctx = calcularSaldoEmolumentoAluno(pagAlunoId, emolumentoSelecionadoModal, novoMes);
+                        const totalAlvo = ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto;
+                        setPagValor(pagModalidade === 'Parcial' ? Math.max(500, Math.round(totalAlvo / 2)) : totalAlvo);
+                      }
+                    }}
+                    disabled={!pagTipoEhMensal}
                     className="w-full p-2 border border-gray-300 rounded-lg font-bold disabled:bg-gray-100"
                   >
-                    <option value="Janeiro 2025">Janeiro 2025</option>
-                    <option value="Fevereiro 2025">Fevereiro 2025</option>
-                    <option value="Março 2025">Março 2025</option>
-                    <option value="Abril 2025">Abril 2025</option>
-                    <option value="Maio 2025">Maio 2025</option>
-                    <option value="Junho 2025">Junho 2025</option>
-                    <option value="Julho 2025">Julho 2025</option>
+                    {mesesPropinasConfigurados.map(mes => (
+                      <option key={`sel-pag-mes-${mes}`} value={mes}>
+                        {mes}{escola.anoLectivoActivo ? ` (${escola.anoLectivoActivo})` : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
+
+              {/* Modalidade: Pagamento Total vs Pagamento Parcial + Resumo Saldo */}
+              {emolumentoSelecionadoModal && (() => {
+                const ctxSaldo = calcularSaldoEmolumentoAluno(
+                  pagAlunoId,
+                  emolumentoSelecionadoModal,
+                  pagTipoEhMensal ? pagMes : undefined
+                );
+                const permiteParcial = emolumentoSelecionadoModal.permitirPagamentoParcial !== false;
+                const restanteAposEste = Math.max(0, ctxSaldo.valorPrevisto - (ctxSaldo.jaPago + (Number(pagValor) || 0)));
+
+                return (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span>Valor do Item: <strong className="text-slate-900">{ctxSaldo.valorPrevisto.toLocaleString('pt-AO')} Kz</strong></span>
+                      <span>Já Pago: <strong className="text-emerald-700">{ctxSaldo.jaPago.toLocaleString('pt-AO')} Kz</strong></span>
+                      <span>Em Dívida: <strong className="text-rose-700">{ctxSaldo.saldoRestante.toLocaleString('pt-AO')} Kz</strong></span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPagModalidade('Total');
+                          setPagValor(ctxSaldo.saldoRestante > 0 ? ctxSaldo.saldoRestante : ctxSaldo.valorPrevisto);
+                        }}
+                        className={`py-1.5 px-3 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${
+                          pagModalidade === 'Total'
+                            ? 'bg-emerald-600 text-white border-emerald-700'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-emerald-50'
+                        }`}
+                      >
+                        Pagamento Total
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!permiteParcial}
+                        onClick={() => {
+                          setPagModalidade('Parcial');
+                          setPagQuitacaoTotal(false);
+                          const ref = ctxSaldo.saldoRestante > 0 ? ctxSaldo.saldoRestante : ctxSaldo.valorPrevisto;
+                          setPagValor(Math.max(500, Math.round(ref / 2)));
+                        }}
+                        className={`py-1.5 px-3 rounded-lg border text-xs font-bold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                          pagModalidade === 'Parcial'
+                            ? 'bg-amber-600 text-white border-amber-700'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-amber-50'
+                        }`}
+                      >
+                        {permiteParcial ? 'Pagamento Parcial' : 'Parcial Desativado'}
+                      </button>
+                    </div>
+
+                    {pagAlunoId && (
+                      <div className="text-[11px] font-semibold text-slate-700">
+                        {restanteAposEste > 0 ? (
+                          <span className="text-amber-800">
+                            Após esta cobrança ficará em dívida neste item: <strong>{restanteAposEste.toLocaleString('pt-AO')} Kz</strong>
+                          </span>
+                        ) : (
+                          <span className="text-emerald-700">
+                            ✓ Este item ficará 100% liquidado com esta cobrança.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Valor e Método */}
               <div className="grid grid-cols-2 gap-3">
@@ -2544,6 +3094,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   <input
                     type="number"
                     required
+                    min={1}
                     value={pagValor}
                     onChange={(e) => setPagValor(Number(e.target.value))}
                     className="w-full p-2 border border-gray-300 rounded-lg font-black text-emerald-700 text-sm"
@@ -2615,7 +3166,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-bold flex items-center space-x-1.5 shadow-md"
+                  disabled={!pagAlunoId || emolumentosAplicaveisAoAluno.length === 0 || pagValor <= 0}
+                  className="px-5 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-gray-300 text-white rounded-lg font-bold flex items-center space-x-1.5 shadow-md cursor-pointer"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   <span>Emitir Recibo Oficial</span>
@@ -2643,6 +3195,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             </div>
 
             <form onSubmit={handleRegistrarDespesa} className="space-y-4 text-xs">
+              {erroModalDespesa && (
+                <div className="p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-lg text-xs font-bold flex items-center justify-between">
+                  <span>{erroModalDespesa}</span>
+                  <button type="button" onClick={() => setErroModalDespesa(null)} className="text-red-600 hover:text-red-800"><X className="h-4 w-4" /></button>
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Descrição Detalhada da Despesa *</label>
                 <input
@@ -2922,11 +3480,19 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </div>
 
               <div className="flex justify-between items-center py-1">
-                <span className="font-bold text-slate-700">VALOR TOTAL PAGO:</span>
+                <span className="font-bold text-slate-700">
+                  VALOR PAGO ({reciboParaImprimir.modalidadePagamento === 'Parcial' ? 'PARCIAL' : 'TOTAL'}):
+                </span>
                 <span className="text-base font-black text-emerald-700">
                   {reciboParaImprimir.valorTotalKz.toLocaleString()} Kz
                 </span>
               </div>
+              {reciboParaImprimir.saldoDevedorRestanteKz !== undefined && reciboParaImprimir.saldoDevedorRestanteKz > 0 && (
+                <div className="flex justify-between items-center text-[11px] text-amber-800 font-bold bg-amber-50 px-2 py-1 rounded border border-amber-200">
+                  <span>SALDO RESTANTE EM DÍVIDA:</span>
+                  <span>{reciboParaImprimir.saldoDevedorRestanteKz.toLocaleString('pt-AO')} Kz</span>
+                </div>
+              )}
 
               <div className="pt-2 text-[9px] text-slate-700 border-t border-slate-200 flex items-end justify-between gap-3">
                 <div className="flex-1 flex flex-col items-center justify-end text-center min-w-0">
@@ -3065,36 +3631,64 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </div>
 
               <div>
-                <label className="block font-bold text-gray-700 mb-1.5">
-                  Emolumentos Autorizados para Cobrança * (Selecione ao menos um)
-                </label>
-                <div className="grid grid-cols-2 gap-2 bg-gray-50 p-3 rounded-xl border border-gray-200">
-                  {todosEmolumentosDisponiveis.map(em => {
-                    const checked = delEmolumentos.includes(em);
-                    return (
-                      <label 
-                        key={em} 
-                        className={`flex items-center space-x-2 p-2 rounded-lg cursor-pointer transition-colors ${
-                          checked ? 'bg-indigo-100/70 font-bold text-indigo-950 border border-indigo-300' : 'hover:bg-white text-gray-700 border border-transparent'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setDelEmolumentos([...delEmolumentos, em]);
-                            } else {
-                              setDelEmolumentos(delEmolumentos.filter(item => item !== em));
-                            }
-                          }}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-[11px] leading-tight">{em}</span>
-                      </label>
-                    );
-                  })}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block font-bold text-gray-700">
+                    Emolumentos Autorizados para Cobrança ({todosEmolumentosDisponiveis.length} registados) *
+                  </label>
+                  {todosEmolumentosDisponiveis.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (delEmolumentos.length === todosEmolumentosDisponiveis.length) setDelEmolumentos([]);
+                        else setDelEmolumentos([...todosEmolumentosDisponiveis]);
+                      }}
+                      className="text-[10px] font-bold text-indigo-700 hover:underline cursor-pointer"
+                    >
+                      {delEmolumentos.length === todosEmolumentosDisponiveis.length ? 'Desmarcar todos' : 'Selecionar todos'}
+                    </button>
+                  )}
                 </div>
+                {todosEmolumentosDisponiveis.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900">
+                    Nenhum emolumento ou taxa registado ainda. Configure em <strong>Emolumentos & Serviços</strong> ou <strong>Tabela de Propinas & Taxas</strong>.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-xl border border-gray-200 max-h-48 overflow-y-auto">
+                    {emolumentosCatalogoCompleto.map(emItem => {
+                      const em = emItem.nome;
+                      const checked = delEmolumentos.includes(em);
+                      return (
+                        <label 
+                          key={em} 
+                          className={`flex items-center justify-between space-x-2 p-2 rounded-lg cursor-pointer transition-colors ${
+                            checked ? 'bg-indigo-100/70 font-bold text-indigo-950 border border-indigo-300' : 'hover:bg-white text-gray-700 border border-gray-200/70'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setDelEmolumentos([...delEmolumentos, em]);
+                                } else {
+                                  setDelEmolumentos(delEmolumentos.filter(item => item !== em));
+                                }
+                              }}
+                              className="rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span className="text-[11px] leading-tight truncate">{em}</span>
+                          </div>
+                          {emItem.valorPadraoKz > 0 && (
+                            <span className="text-[10px] font-mono text-emerald-700 shrink-0">
+                              {emItem.valorPadraoKz.toLocaleString('pt-AO')} Kz
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -3183,6 +3777,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             </div>
 
             <form onSubmit={handleSalvarNovoEmolumento} className="space-y-4 text-xs">
+              {erroModalEmolumento && (
+                <div className="p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-lg text-xs font-bold flex items-center justify-between">
+                  <span>{erroModalEmolumento}</span>
+                  <button type="button" onClick={() => setErroModalEmolumento(null)} className="text-red-600 hover:text-red-800"><X className="h-4 w-4" /></button>
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-gray-700 mb-1">
                   Designação do Emolumento / Serviço *
@@ -3230,6 +3830,43 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </div>
               </div>
 
+              {/* Níveis Académicos Abrangidos */}
+              <div className="space-y-1.5 p-3 bg-blue-50/50 border border-blue-200 rounded-xl">
+                <label className="block font-bold text-blue-950">
+                  Nível Académico Abrangido *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {([
+                    { id: 'Todos', label: 'Todos Níveis' },
+                    { id: 'Primario', label: 'Ens. Primário' },
+                    { id: 'ICiclo', label: 'Iº Ciclo' },
+                    { id: 'IICiclo', label: 'IIº Ciclo' }
+                  ] as const).map(nv => {
+                    const checked = emolNiveis.includes(nv.id);
+                    return (
+                      <button
+                        key={`emol-nv-${nv.id}`}
+                        type="button"
+                        onClick={() => {
+                          if (nv.id === 'Todos') {
+                            setEmolNiveis(['Todos']);
+                          } else {
+                            const semTodos = emolNiveis.filter(x => x !== 'Todos');
+                            const prox = checked ? semTodos.filter(x => x !== nv.id) : [...semTodos, nv.id];
+                            setEmolNiveis(prox.length > 0 ? prox : ['Todos']);
+                          }
+                        }}
+                        className={`p-1.5 rounded-lg border text-[11px] font-bold cursor-pointer transition-all ${
+                          checked ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50'
+                        }`}
+                      >
+                        {nv.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Classes Abrangidas com Seleção Fácil */}
               <div className="space-y-1.5 p-3 bg-gray-50 border border-gray-200 rounded-xl">
                 <div className="flex items-center justify-between">
@@ -3248,12 +3885,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   </button>
                 </div>
                 <p className="text-[10px] text-gray-500">
-                  O sistema validará estritamente se o estudante pertence às classes marcadas antes de aceitar o pagamento.
+                  O sistema validará estritamente se o estudante pertence às classes e níveis marcados antes de aceitar o pagamento.
                 </p>
 
                 {emolClasses.includes('Todas') ? (
                   <div className="p-2 bg-emerald-100/70 border border-emerald-300 rounded-lg text-emerald-900 font-bold text-center">
-                    ✓ Abrange todas as classes da instituição (Iniciação à 13ª Classe)
+                    ✓ Abrange todas as classes do(s) nível(is) selecionado(s)
                   </div>
                 ) : (
                   <div className="grid grid-cols-4 gap-1.5 pt-1">
@@ -3322,11 +3959,11 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 <label className="flex items-center space-x-2 cursor-pointer font-semibold text-gray-800">
                   <input
                     type="checkbox"
-                    checked={emolClasses.length > 0}
-                    onChange={(e) => {}}
+                    checked={emolPermitirParcial}
+                    onChange={(e) => setEmolPermitirParcial(e.target.checked)}
                     className="rounded text-emerald-600 h-4 w-4"
                   />
-                  <span>Validar rigorosamente a classe do aluno no ato do pagamento</span>
+                  <span>Permitir Pagamento Parcial (em prestações, mantendo saldo restante em dívida)</span>
                 </label>
               </div>
 
@@ -3626,6 +4263,66 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {emolumentoParaExcluirId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-center space-x-2 text-rose-600">
+              <AlertTriangle className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">Confirmar Remoção de Emolumento</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+              Tem a certeza que deseja remover este emolumento do sistema? Esta acção não altera recibos já emitidos, mas impede novas cobranças com este item.
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setEmolumentoParaExcluirId(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarExcluirEmolumento}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Remover Emolumento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {patrimonioParaEliminar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-center space-x-2 text-rose-600">
+              <AlertTriangle className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">Confirmar Abate / Remoção de Património</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+              Tem a certeza que deseja abater e remover <strong>"{patrimonioParaEliminar.nome}"</strong> do inventário patrimonial da escola?
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setPatrimonioParaEliminar(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminarPatrimonio}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Confirmar Remoção
+              </button>
+            </div>
           </div>
         </div>
       )}

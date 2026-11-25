@@ -37,7 +37,10 @@ import {
   Search,
   Compass,
   Sparkles,
-  History
+  History,
+  CalendarCheck,
+  Wallet,
+  ClipboardCheck
 } from 'lucide-react';
 import { UserRole, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -55,6 +58,8 @@ export type NavTab =
   | 'turnos'
   | 'horarios'
   | 'presencas'
+  | 'plano_atividades'
+  | 'provas_fiscalizacao'
   // GESTÃO
   | 'alunos'
   | 'historico_escolar'
@@ -72,6 +77,7 @@ export type NavTab =
   // FINANCEIRO
   | 'pagamentos'
   | 'relatorios_financeiros'
+  | 'minhas_financas'
   // RELATÓRIOS & ESTATÍSTICAS
   | 'relatorios'
   | 'estatisticas'
@@ -132,6 +138,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onOpenTour
 }) => {
+  if (userRole === 'Encarregado') return null;
+
   // Menu oficial categorizado conforme especificação estrita do MED
   const menuGrupos: MenuGroup[] = [
     {
@@ -174,6 +182,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: CalendarDays,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
           badge: 'MED'
+        },
+        {
+          id: 'plano_atividades',
+          label: 'Plano de Atividades e Eventos',
+          icon: CalendarCheck,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Professor'],
+          badge: 'Planos'
         },
         {
           id: 'classes',
@@ -226,6 +241,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: BarChart3,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor'],
           badge: 'Notas MED'
+        },
+        {
+          id: 'provas_fiscalizacao',
+          label: 'Provas, Fiscalização & Atas',
+          icon: ClipboardCheck,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor'],
+          badge: 'Exames & Atas'
         }
       ]
     },
@@ -234,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         {
           id: 'alunos',
-          label: userRole === 'Encarregado' ? 'Acompanhar Educando' : 'Alunos',
+          label: 'Alunos',
           icon: Users,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina'],
           badge: 'Matrículas'
@@ -243,7 +265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'historico_escolar',
           label: 'Histórico Escolar & Dossiê',
           icon: History,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'CoordenadorDisciplina'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'CoordenadorDisciplina'],
           badge: 'Notas & Dossiê'
         },
         {
@@ -269,9 +291,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
         {
           id: 'direcao',
-          label: 'Presidência / Direção',
+          label: ['Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor'].includes(userRole)
+            ? 'Delegação & Interinidade'
+            : 'Presidência / Direção',
           icon: ShieldAlert,
-          roles: ['DiretorGeral', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'SubdiretorPedagogico', 'CoordenadorPedagogico'],
+          roles: ['DiretorGeral', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'ChefeSecretaria', 'Secretaria', 'Secretario', 'SecretarioEscolar', 'Professor'],
           badge: 'Executivo'
         }
       ]
@@ -344,7 +368,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         {
           id: 'pagamentos',
-          label: userRole === 'Encarregado' ? 'Pagamentos de Propinas' : 'Pagamentos & Caixa',
+          label: 'Pagamentos & Caixa',
           icon: DollarSign,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'Tesoureiro', 'SecretarioEscolar'],
           badge: 'Caixa'
@@ -433,6 +457,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       categoria: 'CONTA & ACESSO',
       items: [
         {
+          id: 'minhas_financas',
+          label: 'Minhas Finanças',
+          icon: Wallet,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
+          badge: 'Pessoal'
+        },
+        {
           id: 'meu_perfil',
           label: 'Meu Perfil & Senha',
           icon: User,
@@ -494,6 +525,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-3 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
           {menuGrupos.map((grupo) => {
             const escolaAtiva = dbService.getEscolaAtiva();
+            const visibilidade = dbService.getVisibilidadeEfetivaUsuario(currentUser, escolaAtiva);
             const temSessaoApoioAtiva = Boolean(escolaAtiva?.sessaoApoioTecnicoAtiva);
             const delegacoesEscola = currentUser ? dbService.getDelegacoesCobranca(escolaAtiva?.id || '') : [];
             const poderesDelegados = currentUser ? dbService.verificarPoderesDelegados(currentUser.id, escolaAtiva?.id || '') : { podeMatricular: false, podeCobrarEmolumentos: false, delegacoesAtivas: [] };
@@ -504,7 +536,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             const menusAdminGeralPadrao: NavTab[] = [
               'dashboard', 
-              'admin_escolas', 
+              'admin_escolas',
+              'calendario_escolar',
+              'plano_atividades',
               'relatorios',
               'estatisticas',
               'apoio_tecnico', 
@@ -512,6 +546,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               'configuracoes', 
               'auditoria_logs', 
               'backup_restauro', 
+              'minhas_financas',
               'meu_perfil'
             ];
 
@@ -536,7 +571,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 return true;
               }
 
-              // 2. Delegações de Poderes pelo Diretor Geral / Subdiretor Administrativo
+              if (item.id === 'meu_perfil' || item.id === 'minhas_financas') return true;
+
+              // 2. Controlo de Visibilidade configurado pela Direcção Geral
+              if (!visibilidade.irrestrito) {
+                if ((item.id === 'auditoria_logs' || item.id === 'auditoria') && !visibilidade.dadosSensiveis.verLogsAuditoriaSistema) {
+                  return false;
+                }
+                if (item.id === 'estatisticas' && !visibilidade.dadosSensiveis.verEstatisticasGlobaisEscola) {
+                  return false;
+                }
+                if (visibilidade.modulosBloqueados.has(item.id)) {
+                  return false;
+                }
+                if (visibilidade.modulosExtrasPermitidos.has(item.id)) {
+                  return true;
+                }
+              }
+
+              // 3. Delegações de Poderes pelo Diretor Geral / Subdiretor Administrativo
               if (item.id === 'alunos' && temDelegacaoMatriculas) {
                 return true;
               }
@@ -561,6 +614,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   return estaEmComissao;
                 }
                 return false;
+              }
+
+              if (item.id === 'direcao' && userRole === 'Professor' && currentUser) {
+                const escAtv = dbService.getEscolaAtiva();
+                const escId = escAtv?.id;
+                const turmasAtivas = dbService.obterTurmas().filter(t => (!escId || t.escolaId === escId) && (!escAtv?.anoLectivoActivo || !t.anoLectivo || t.anoLectivo === escAtv.anoLectivoActivo));
+                return turmasAtivas.some(t => t.coordenadorId === currentUser.id);
+              }
+
+              if (item.id === 'plano_atividades' && userRole === 'Professor' && currentUser) {
+                const escAtv = dbService.getEscolaAtiva();
+                const escId = escAtv?.id;
+                const turmasAtivas = dbService.obterTurmas().filter(t => (!escId || t.escolaId === escId) && (!escAtv?.anoLectivoActivo || !t.anoLectivo || t.anoLectivo === escAtv.anoLectivoActivo));
+                const coords = dbService.getCoordenacoes(escId, escAtv?.anoLectivoActivo);
+                const atribsProf = dbService.getAtribuicoes(escId).filter(a => a.professorId === currentUser.id && (!escAtv?.anoLectivoActivo || !a.anoLectivo || a.anoLectivo === escAtv.anoLectivoActivo));
+                return (
+                  turmasAtivas.some(t => t.coordenadorId === currentUser.id) ||
+                  coords.some(c => (c.funcionarioId === currentUser.id || c.professorId === currentUser.id) && c.ativo !== false) ||
+                  atribsProf.some(a => Boolean(a.ehCoordenadorTurma))
+                );
               }
 
               return true;

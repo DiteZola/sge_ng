@@ -157,19 +157,110 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   const totalNaoLidas = mensagensVisiveis.filter(m => !m.lida).length;
   const totalLidas = mensagensVisiveis.filter(m => !!m.lida).length;
 
-  // Separação oficial: Comunicados vs Mensagens Diretas
-  const comunicadosLista = mensagensVisiveis.filter(m => 
-    m.tipo === 'GERAL' || 
-    m.tipo === 'GRUPO' || 
-    m.destinatarioTipo === 'Todos' || 
-    m.destinatarioTipo === 'Docentes' || 
-    m.destinatarioTipo === 'Secretaria'
-  );
+  const roleNorm = (currentUser.role || '').toLowerCase();
+  const ehDirecaoOuAdmin = isAdminGeral || [
+    'diretorgeral',
+    'subdiretorpedagogico',
+    'subdiretoradministrativo',
+    'subdirectoradministrativo'
+  ].includes(roleNorm);
+  const ehSecretariaOuFin = [
+    'secretaria',
+    'chefesecretaria',
+    'secretario',
+    'secretarioescolar',
+    'tesoureiro'
+  ].includes(roleNorm);
+  const ehCoordenador = [
+    'coordenadorpedagogico',
+    'coordenadorturno',
+    'coordenadordisciplina'
+  ].includes(roleNorm);
+  const ehDocente = currentUser.role === 'Professor' || Boolean(currentUser.ehProfessor) || ehCoordenador;
 
-  const mensagensDiretasLista = mensagensVisiveis.filter(m => 
-    m.tipo === 'DIRECTA' || 
-    m.destinatarioTipo === 'Individual' || 
-    m.destinatarioId === currentUser.id || 
+  const areasExistentesEscola = useMemo(() => {
+    const padrao = [
+      'Direção Geral',
+      'Subdireção Pedagógica',
+      'Subdireção Administrativa & Financeira',
+      'Secretaria Geral',
+      'Corpo Docente',
+      'Coordenação Pedagógica',
+      'Biblioteca',
+      'Tesouraria',
+      'TIC & Informática'
+    ];
+    const extra = funcionarios
+      .filter(f => !f.escolaId || f.escolaId === escola.id)
+      .flatMap(f => [f.departamento, f.cargo, f.especialidade])
+      .filter((v): v is string => Boolean(v && v.trim()));
+    return Array.from(new Set([...padrao, ...extra])).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [funcionarios, escola.id]);
+
+  const classesDisponiveisMsg = useMemo(() => {
+    const set = new Set<string>(turmas.map(t => t.classe).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { numeric: true }));
+  }, [turmas]);
+
+  // Separação oficial: Comunicados vs Mensagens Diretas (com filtragem por público-alvo)
+  const comunicadosLista = useMemo(() => {
+    return mensagensVisiveis.filter(m => {
+      const ehComunicado =
+        m.tipo === 'GERAL' ||
+        m.tipo === 'GRUPO' ||
+        m.destinatarioTipo === 'Todos' ||
+        m.destinatarioTipo === 'Encarregados' ||
+        m.destinatarioTipo === 'Docentes' ||
+        m.destinatarioTipo === 'Funcionarios' ||
+        m.destinatarioTipo === 'Area' ||
+        m.destinatarioTipo === 'Secretaria';
+      if (!ehComunicado) return false;
+      if (ehDirecaoOuAdmin || m.remetenteId === currentUser.id) return true;
+
+      const dest = m.destinatarioTipo || (m.tipo === 'GERAL' ? 'Todos' : 'Todos');
+      if (dest === 'Todos') return true;
+      if (dest === 'Encarregados') {
+        return currentUser.role === 'Encarregado' || ehDocente || ehSecretariaOuFin;
+      }
+      if (dest === 'Docentes') {
+        return ehDocente;
+      }
+      if (dest === 'Funcionarios') {
+        return currentUser.role !== 'Encarregado';
+      }
+      if (dest === 'Secretaria') {
+        return ehSecretariaOuFin;
+      }
+      if (dest === 'Area') {
+        const alvo = (m.areaDestino || '').trim().toLowerCase();
+        if (!alvo) return currentUser.role !== 'Encarregado';
+        const meuContexto = [
+          currentUser.departamento,
+          currentUser.especialidade,
+          currentUser.cargo,
+          currentUser.role
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return (
+          meuContexto.includes(alvo) ||
+          (alvo.includes('docente') && ehDocente) ||
+          (alvo.includes('pedag') && (ehCoordenador || roleNorm.includes('pedag'))) ||
+          (alvo.includes('secretaria') && ehSecretariaOuFin) ||
+          (alvo.includes('tesouraria') && roleNorm === 'tesoureiro') ||
+          (alvo.includes('biblioteca') && roleNorm === 'bibliotecario') ||
+          (alvo.includes('tic') && roleNorm === 'tecnicoti')
+        );
+      }
+      return true;
+    });
+  }, [mensagensVisiveis, ehDirecaoOuAdmin, currentUser, ehDocente, ehSecretariaOuFin, ehCoordenador, roleNorm]);
+
+  const mensagensDiretasLista = mensagensVisiveis.filter(m =>
+    m.tipo === 'DIRECTA' ||
+    m.destinatarioTipo === 'Individual' ||
+    m.destinatarioId === currentUser.id ||
     m.remetenteId === currentUser.id ||
     (isAdminGeral && m.destinatarioId === 'admin-geral')
   );
@@ -181,13 +272,21 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   });
 
   // Estado envio de mensagem / comunicado
-  const [tipoDestino, setTipoDestino] = useState<'Todos' | 'Docentes' | 'Secretaria' | 'Individual'>('Todos');
+  const [tipoDestino, setTipoDestino] = useState<'Todos' | 'Encarregados' | 'Docentes' | 'Funcionarios' | 'Area' | 'Secretaria' | 'Individual'>('Todos');
+  const [areaDestino, setAreaDestino] = useState('Secretaria Geral');
+  const [classeDestino, setClasseDestino] = useState('');
+  const [turmaIdDestino, setTurmaIdDestino] = useState('');
   const [destinatarioId, setDestinatarioId] = useState('');
   const [assunto, setAssunto] = useState('');
   const [conteudo, setConteudo] = useState('');
   const [prioridadeMsg, setPrioridadeMsg] = useState<'Normal' | 'Urgente'>('Normal');
   const [hpMsgTrap, setHpMsgTrap] = useState('');
   const [erroAntiSpam, setErroAntiSpam] = useState<string | null>(null);
+
+  const turmasParaDestinoEncarregado = useMemo(() => {
+    if (!classeDestino) return turmas;
+    return turmas.filter(t => t.classe === classeDestino);
+  }, [turmas, classeDestino]);
 
   // Estado upload de livro PDF (Direção & Professores) e leitor/descarga offline
   const [showNovoLivroModal, setShowNovoLivroModal] = useState(false);
@@ -209,6 +308,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
   const [carregandoPdfId, setCarregandoPdfId] = useState<string | null>(null);
   const [leitorLivro, setLeitorLivro] = useState<DocumentoBiblioteca | null>(null);
   const [leitorBlobUrl, setLeitorBlobUrl] = useState<string | null>(null);
+  const [leitorDataUrl, setLeitorDataUrl] = useState<string | null>(null);
   const [feedbackBiblioteca, setFeedbackBiblioteca] = useState<string | null>(null);
 
   const podeGerirLivros = useMemo(() => {
@@ -324,7 +424,27 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     const isDirecta = activeTab === 'mensagens_diretas' || tipoDestino === 'Individual';
     const destTipoFinal = isDirecta ? 'Individual' : tipoDestino;
     const destIdFinal = isDirecta ? destinatarioId : undefined;
+    const destUser = isDirecta ? funcionarios.find(f => f.id === destinatarioId) : undefined;
+    const turmaDestinoObj = !isDirecta && tipoDestino === 'Encarregados' && turmaIdDestino
+      ? turmas.find(t => t.id === turmaIdDestino)
+      : undefined;
     const ehUrgente = prioridadeMsg === 'Urgente';
+
+    let escopoEnvioLabel = 'Geral para Todos';
+    if (isDirecta) {
+      escopoEnvioLabel = destUser ? `Para: ${destUser.nomeCompleto}` : 'Mensagem Direta';
+    } else if (tipoDestino === 'Encarregados') {
+      const partes = [classeDestino, turmaDestinoObj?.nome].filter(Boolean);
+      escopoEnvioLabel = partes.length > 0 ? `Encarregados (${partes.join(' • ')})` : 'Todos os Encarregados';
+    } else if (tipoDestino === 'Docentes') {
+      escopoEnvioLabel = 'Corpo Docente (Professores)';
+    } else if (tipoDestino === 'Funcionarios') {
+      escopoEnvioLabel = 'Funcionários em Geral';
+    } else if (tipoDestino === 'Area') {
+      escopoEnvioLabel = `Área: ${areaDestino}`;
+    } else if (tipoDestino === 'Secretaria') {
+      escopoEnvioLabel = 'Secretaria & Administração';
+    }
 
     const novaMsg: Mensagem = {
       id: `msg-${Date.now()}`,
@@ -336,6 +456,12 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
       tipo: isDirecta ? 'DIRECTA' : (tipoDestino === 'Todos' ? 'GERAL' : 'GRUPO'),
       destinatarioTipo: destTipoFinal,
       destinatarioId: destIdFinal,
+      destinatarioNome: destUser?.nomeCompleto,
+      areaDestino: !isDirecta && tipoDestino === 'Area' ? areaDestino : undefined,
+      classeDestino: !isDirecta && tipoDestino === 'Encarregados' && classeDestino ? classeDestino : undefined,
+      turmaIdDestino: !isDirecta && tipoDestino === 'Encarregados' && turmaIdDestino ? turmaIdDestino : undefined,
+      turmaNomeDestino: turmaDestinoObj?.nome,
+      escopoEnvioLabel,
       titulo: assunto,
       assunto,
       conteudo,
@@ -351,6 +477,10 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     setAssunto('');
     setConteudo('');
     setPrioridadeMsg('Normal');
+    if (tipoDestino === 'Encarregados') {
+      setClasseDestino('');
+      setTurmaIdDestino('');
+    }
   };
 
   const handleEnviarAlertaUrgenteBiblioteca = (e: React.FormEvent) => {
@@ -498,20 +628,30 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     try {
       const blob = await firebaseSyncEngine.baixarPdfBiblioteca(livro);
       if (blob) {
-        if (leitorBlobUrl) URL.revokeObjectURL(leitorBlobUrl);
-        const objUrl = URL.createObjectURL(blob);
+        const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+        if (leitorBlobUrl && leitorBlobUrl.startsWith('blob:')) URL.revokeObjectURL(leitorBlobUrl);
+        const objUrl = URL.createObjectURL(pdfBlob);
         setLeitorBlobUrl(objUrl);
+        try {
+          const b64 = await offlineStorage.obterPdfBibliotecaBase64(livro.id);
+          setLeitorDataUrl(b64 || null);
+        } catch {
+          setLeitorDataUrl(null);
+        }
         setLeitorLivro(livro);
         await atualizarStatusPdfsLocais();
       } else if (livro.tipoRecurso === 'Link' && livro.arquivoUrl && livro.arquivoUrl.startsWith('http')) {
-        if (leitorBlobUrl) URL.revokeObjectURL(leitorBlobUrl);
+        if (leitorBlobUrl && leitorBlobUrl.startsWith('blob:')) URL.revokeObjectURL(leitorBlobUrl);
         setLeitorBlobUrl(livro.arquivoUrl);
+        setLeitorDataUrl(null);
         setLeitorLivro(livro);
       } else {
         setFeedbackBiblioteca(
-          'Este livro ainda não foi descarregado para o dispositivo e está sem internet neste momento. Conecte-se uma vez para sincronizar o ficheiro PDF.'
+          'Este livro ainda não foi descarregado para o dispositivo ou encontra-se sem ligação neste momento. Conecte-se uma vez para sincronizar o ficheiro PDF.'
         );
       }
+    } catch {
+      setFeedbackBiblioteca('Não foi possível abrir o ficheiro PDF para leitura. Tente usar o botão Baixar.');
     } finally {
       setCarregandoPdfId(null);
     }
@@ -522,24 +662,26 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
     setFeedbackBiblioteca(null);
     try {
       const blob = await firebaseSyncEngine.baixarPdfBiblioteca(livro);
-      const nomeDownload =
-        livro.arquivoNome ||
-        `${(livro.titulo || 'livro_sge').replace(/[^a-zA-Z0-9À-ÿ_-]+/g, '_')}.pdf`;
+      const baseNome = (livro.arquivoNome || `${(livro.titulo || 'livro_sge').replace(/[^a-zA-Z0-9À-ÿ_-]+/g, '_')}`).trim();
+      const nomeDownload = baseNome.toLowerCase().endsWith('.pdf') ? baseNome : `${baseNome}.pdf`;
       if (blob) {
-        const objUrl = URL.createObjectURL(blob);
+        const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+        const objUrl = URL.createObjectURL(pdfBlob);
         const a = document.createElement('a');
         a.href = objUrl;
         a.download = nomeDownload;
+        a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(objUrl), 2500);
+        setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
         await atualizarStatusPdfsLocais();
-        setFeedbackBiblioteca(`Download de "${nomeDownload}" concluído.`);
+        setFeedbackBiblioteca(`Download de "${nomeDownload}" iniciado com sucesso.`);
       } else if (livro.tipoRecurso === 'Link' && livro.arquivoUrl && livro.arquivoUrl.startsWith('http')) {
         const a = document.createElement('a');
         a.href = livro.arquivoUrl;
         a.download = nomeDownload;
+        a.target = '_blank';
         a.rel = 'noopener noreferrer';
         document.body.appendChild(a);
         a.click();
@@ -549,6 +691,8 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
           'Ficheiro PDF indisponível offline no momento. Conecte-se à internet para descarregar da nuvem.'
         );
       }
+    } catch {
+      setFeedbackBiblioteca('Erro ao iniciar o download do PDF. Tente novamente.');
     } finally {
       setCarregandoPdfId(null);
     }
@@ -713,11 +857,23 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                                 msg.destinatarioId === 'admin-geral' || msg.remetentePapel === 'AdminGeral'
                                   ? 'bg-purple-100 text-purple-900 border-purple-300 font-black'
-                                  : 'bg-blue-100 text-blue-800 border-blue-200'
+                                  : msg.destinatarioTipo === 'Encarregados'
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
+                                    : 'bg-blue-100 text-blue-800 border-blue-200'
                               }`}>
-                                {msg.destinatarioId === 'admin-geral' 
-                                  ? 'Para: Administrador Geral' 
-                                  : (msg.destinatarioTipo === 'Todos' ? 'Geral para Todos' : msg.destinatarioTipo)}
+                                {msg.destinatarioId === 'admin-geral'
+                                  ? 'Para: Administrador Geral'
+                                  : (msg.escopoEnvioLabel || (
+                                      msg.destinatarioTipo === 'Todos'
+                                        ? 'Geral para Todos'
+                                        : msg.destinatarioTipo === 'Area'
+                                          ? `Área: ${msg.areaDestino || 'Departamento'}`
+                                          : msg.destinatarioTipo === 'Funcionarios'
+                                            ? 'Funcionários em Geral'
+                                            : msg.destinatarioTipo === 'Encarregados'
+                                              ? 'Encarregados de Educação'
+                                              : msg.destinatarioTipo
+                                    ))}
                               </span>
 
                               {(msg.urgente || msg.prioridade === 'Urgente' || msg.prioridade === 'Critica') && (
@@ -802,17 +958,78 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                 />
               </div>
               {activeTab === 'comunicados' ? (
-                <div>
-                  <label className="font-semibold text-gray-700 block mb-1">Destinatários do Comunicado</label>
-                  <select
-                    value={tipoDestino}
-                    onChange={(e) => setTipoDestino(e.target.value as any)}
-                    className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                  >
-                    <option value="Todos">Toda a Comunidade Escolar</option>
-                    <option value="Docentes">Apenas Corpo Docente</option>
-                    <option value="Secretaria">Secretaria & Administração</option>
-                  </select>
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="font-semibold text-gray-700 block mb-1">Destinatários do Comunicado</label>
+                    <select
+                      value={tipoDestino}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setTipoDestino(val);
+                        if (val !== 'Encarregados') {
+                          setClasseDestino('');
+                          setTurmaIdDestino('');
+                        }
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
+                    >
+                      <option value="Todos">Toda a Comunidade Escolar</option>
+                      <option value="Encarregados">Encarregados de Educação (Pais)</option>
+                      <option value="Docentes">Professores (Corpo Docente)</option>
+                      <option value="Funcionarios">Funcionários em Geral (Todo o Pessoal)</option>
+                      <option value="Area">Membros de uma Determinada Área / Setor</option>
+                      <option value="Secretaria">Secretaria &amp; Administração</option>
+                    </select>
+                  </div>
+
+                  {tipoDestino === 'Area' && (
+                    <div>
+                      <label className="font-semibold text-gray-700 block mb-1">Área / Setor Destinatário</label>
+                      <select
+                        value={areaDestino}
+                        onChange={(e) => setAreaDestino(e.target.value)}
+                        className="w-full p-2 border border-blue-300 bg-blue-50/40 rounded font-semibold focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      >
+                        {areasExistentesEscola.map(ar => (
+                          <option key={ar} value={ar}>{ar}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {tipoDestino === 'Encarregados' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2.5 rounded-lg bg-emerald-50/60 border border-emerald-200">
+                      <div>
+                        <label className="font-semibold text-emerald-950 block mb-1 text-[11px]">Classe (Opcional)</label>
+                        <select
+                          value={classeDestino}
+                          onChange={(e) => {
+                            setClasseDestino(e.target.value);
+                            setTurmaIdDestino('');
+                          }}
+                          className="w-full p-1.5 border border-emerald-300 rounded bg-white text-[11px] font-semibold"
+                        >
+                          <option value="">Todas as Classes</option>
+                          {classesDisponiveisMsg.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="font-semibold text-emerald-950 block mb-1 text-[11px]">Turma (Opcional)</label>
+                        <select
+                          value={turmaIdDestino}
+                          onChange={(e) => setTurmaIdDestino(e.target.value)}
+                          className="w-full p-1.5 border border-emerald-300 rounded bg-white text-[11px] font-semibold"
+                        >
+                          <option value="">Todas as Turmas</option>
+                          {turmasParaDestinoEncarregado.map(t => (
+                            <option key={t.id} value={t.id}>{t.classe} • {t.nome}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div>
@@ -1418,6 +1635,15 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={leitorBlobUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Abrir em Nova Guia</span>
+                </a>
                 <button
                   type="button"
                   onClick={() => handleBaixarLivroPdf(leitorLivro)}
@@ -1432,6 +1658,7 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                     setLeitorLivro(null);
                     if (leitorBlobUrl.startsWith('blob:')) URL.revokeObjectURL(leitorBlobUrl);
                     setLeitorBlobUrl(null);
+                    setLeitorDataUrl(null);
                   }}
                   className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer"
                 >
@@ -1440,12 +1667,45 @@ export const CommunicationLibraryView: React.FC<CommunicationLibraryViewProps> =
                 </button>
               </div>
             </div>
-            <div className="flex-1 bg-slate-100 p-2 min-h-0">
-              <iframe
-                src={leitorBlobUrl}
-                title={`Leitor PDF - ${leitorLivro.titulo}`}
-                className="w-full h-full rounded-lg border border-gray-300 bg-white"
-              />
+            <div className="flex-1 bg-slate-100 p-2 min-h-0 flex flex-col">
+              <object
+                data={leitorBlobUrl}
+                type="application/pdf"
+                className="w-full flex-1 rounded-lg border border-gray-300 bg-white min-h-0"
+              >
+                <embed
+                  src={leitorDataUrl || leitorBlobUrl}
+                  type="application/pdf"
+                  className="w-full h-full min-h-[65vh] rounded-lg"
+                />
+                <div className="p-6 text-center space-y-3 bg-white rounded-lg border border-gray-200 m-4">
+                  <p className="text-sm font-bold text-gray-800">
+                    O visualizador embutido deste dispositivo não renderizou o PDF diretamente neste quadro.
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    Utilize os botões abaixo para abrir o documento no leitor nativo do dispositivo ou fazer o download imediato.
+                  </p>
+                  <div className="flex items-center justify-center gap-3 pt-2">
+                    <a
+                      href={leitorBlobUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold inline-flex items-center space-x-1.5"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      <span>Abrir PDF no Leitor</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleBaixarLivroPdf(leitorLivro)}
+                      className="px-4 py-2 bg-emerald-700 text-white rounded-lg text-xs font-bold inline-flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      <Download className="h-4 w-4" />
+                      <span>Baixar para o Dispositivo</span>
+                    </button>
+                  </div>
+                </div>
+              </object>
             </div>
           </div>
         </div>

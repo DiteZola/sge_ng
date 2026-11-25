@@ -11,7 +11,10 @@ import {
   Trash2,
   Settings2,
   Radio,
-  ArrowRight
+  ArrowRight,
+  MessageSquare,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import {
   DiaSemana,
@@ -21,7 +24,7 @@ import {
   PreferenciasNotificacaoSW
 } from '../types';
 import { dbService } from '../services/storage';
-import { notificationService } from '../services/notificationService';
+import { notificationService, BackgroundCapabilityInfo } from '../services/notificationService';
 
 interface PeriodNotificationBellProps {
   escola: Escola;
@@ -49,9 +52,17 @@ function parseMinutos(hhmm: string): number | null {
 }
 
 function formatMinutos(totalMin: number): string {
-  const h = Math.floor(totalMin / 60) % 24;
-  const m = totalMin % 60;
+  const norm = ((totalMin % 1440) + 1440) % 1440;
+  const h = Math.floor(norm / 60);
+  const m = norm % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function getLocalDateIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
@@ -72,6 +83,9 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
     notificationService.obterEstadoPermissao()
   );
   const [swAtivo, setSwAtivo] = useState<boolean>(() => notificationService.isServiceWorkerAtivo());
+  const [bgCap, setBgCap] = useState<BackgroundCapabilityInfo>(() =>
+    notificationService.obterCapacidadesSegundoPlano()
+  );
 
   const painelRef = useRef<HTMLDivElement>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,7 +96,18 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
     setPrefs(notificationService.getPreferencias());
     setPermissaoNavegador(notificationService.obterEstadoPermissao());
     setSwAtivo(notificationService.isServiceWorkerAtivo());
+    setBgCap(notificationService.obterCapacidadesSegundoPlano());
   }, [escola.id, currentUser.id]);
+
+  // Sincronizar agenda de horários + preferências com IndexedDB & Service Worker para funcionar offline / navegador fechado
+  const sincronizarAgendaSW = useCallback(() => {
+    notificationService
+      .sincronizarAgendaComServiceWorker(escola, currentUser)
+      .then(() => {
+        setBgCap(notificationService.obterCapacidadesSegundoPlano());
+      })
+      .catch(() => {});
+  }, [escola, currentUser]);
 
   // Fechar popover ao clicar fora
   useEffect(() => {
@@ -100,6 +125,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
   // Subscrever eventos de notificação e toast do notificationService
   useEffect(() => {
     atualizarEstado();
+    sincronizarAgendaSW();
 
     const handleToast = (e: Event) => {
       const item = (e as CustomEvent<NotificacaoSistemaItem>).detail;
@@ -114,17 +140,36 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
       }, item.urgente ? 9000 : 6000);
     };
 
+    const handleScheduleChanged = (e: Event) => {
+      const key = (e as CustomEvent<{ key?: string }>).detail?.key;
+      if (!key || key === 'sge_horarios' || key === 'sge_escolas' || key === 'sge_turnos_configs') {
+        sincronizarAgendaSW();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        sincronizarAgendaSW();
+      }
+    };
+
     window.addEventListener('sge_notificacoes_atualizadas', atualizarEstado);
     window.addEventListener('sge_toast_notificacao', handleToast);
+    window.addEventListener('sge_local_write', handleScheduleChanged);
+    window.addEventListener('sge_dados_atualizados_remoto', sincronizarAgendaSW);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('sge_notificacoes_atualizadas', atualizarEstado);
       window.removeEventListener('sge_toast_notificacao', handleToast);
+      window.removeEventListener('sge_local_write', handleScheduleChanged);
+      window.removeEventListener('sge_dados_atualizados_remoto', sincronizarAgendaSW);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
-  }, [escola.id, currentUser.id, atualizarEstado]);
+  }, [escola.id, currentUser.id, atualizarEstado, sincronizarAgendaSW]);
 
-  // Monitor contínuo de Mudança de Tempo Letivo e Término de Tempo (Horários + Turnos)
+  // Monitor contínuo de Mudança de Tempo Letivo e Término de Tempo (Horários + TemposHorarios + Turnos)
   useEffect(() => {
     const mapaDias: Record<number, DiaSemana> = {
       1: 'Segunda-feira',
@@ -145,7 +190,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
 
       const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
       const horaAtualStr = formatMinutos(minutosAgora);
-      const dataHoje = agora.toISOString().slice(0, 10);
+      const dataHoje = getLocalDateIso(agora);
       const iconEscola = escola.logotipoUrl || escola.logotipo || './pwa-192x192.png';
 
       // 1. Verificar grelha horária detalhada da escola
@@ -255,42 +300,90 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
         }
       });
 
-      // 2. Toques Gerais da Escola baseados nos Turnos configurados (caso não haja grelha individual no horário exato)
-      const turnosAtivos = dbService.getTurnosConfigs(escola.id).filter((t) => t.ativo !== false);
+      // 2. Tempos Letivos Oficiais da Escola (temposHorarios) + fallback para Turnos configurados
       const slotsGerais: SlotTempoCalculado[] = [];
+      const temposConfigurados = dbService.getTemposHorarios(escola.id);
 
-      turnosAtivos.forEach((turno) => {
-        const minIniTurno = parseMinutos(turno.horaInicio);
-        const minFimTurno = parseMinutos(turno.horaFim);
-        if (minIniTurno === null || minFimTurno === null || minFimTurno <= minIniTurno) return;
-
-        const numTempos = Math.max(1, turno.temposLectivos || 5);
-        const intervalo = Math.max(0, turno.intervaloMinutos ?? 15);
-        const duracaoAula = 45;
-        const metadeTempos = Math.ceil(numTempos / 2);
-
-        let cursor = minIniTurno;
-        for (let n = 1; n <= numTempos; n++) {
-          const ini = cursor;
-          const fim = Math.min(minFimTurno, ini + duracaoAula);
-          if (ini >= minFimTurno) break;
-
+      if (temposConfigurados.length > 0) {
+        temposConfigurados.forEach((t) => {
+          const ini = parseMinutos(t.inicio);
+          const fim = parseMinutos(t.fim);
+          if (ini === null || fim === null) return;
           slotsGerais.push({
-            id: `${turno.id}_T${n}`,
-            turnoNome: turno.nome,
-            numeroTempo: n,
+            id: `TEMPO_${t.numero}`,
+            turnoNome: 'Horário Oficial',
+            numeroTempo: t.numero,
             inicioMin: ini,
             fimMin: fim,
-            inicioStr: formatMinutos(ini),
-            fimStr: formatMinutos(fim)
+            inicioStr: t.inicio,
+            fimStr: t.fim
           });
+        });
+      } else {
+        const turnosAtivos = dbService.getTurnosConfigs(escola.id).filter((t) => t.ativo !== false);
+        turnosAtivos.forEach((turno) => {
+          const minIniTurno = parseMinutos(turno.horaInicio);
+          const minFimTurno = parseMinutos(turno.horaFim);
+          if (minIniTurno === null || minFimTurno === null || minFimTurno <= minIniTurno) return;
 
-          cursor = fim + (n === metadeTempos ? intervalo : 5);
-        }
-      });
+          const numTempos = Math.max(1, turno.temposLectivos || 5);
+          const intervalo = Math.max(0, turno.intervaloMinutos ?? 15);
+          const duracaoAula = 45;
+          const metadeTempos = Math.ceil(numTempos / 2);
+
+          let cursor = minIniTurno;
+          for (let n = 1; n <= numTempos; n++) {
+            const ini = cursor;
+            const fim = Math.min(minFimTurno, ini + duracaoAula);
+            if (ini >= minFimTurno) break;
+
+            slotsGerais.push({
+              id: `${turno.id}_T${n}`,
+              turnoNome: turno.nome,
+              numeroTempo: n,
+              inicioMin: ini,
+              fimMin: fim,
+              inicioStr: formatMinutos(ini),
+              fimStr: formatMinutos(fim)
+            });
+
+            cursor = fim + (n === metadeTempos ? intervalo : 5);
+          }
+        });
+      }
 
       slotsGerais.forEach((slot) => {
-        if (prefsAtuais.notificarMudancaTempo && minutosAgora === slot.inicioMin && !minutosComHorarioEspecifico.has(`START_${slot.numeroTempo}`)) {
+        // Aviso 5 minutos antes da mudança de tempo (geral)
+        if (
+          prefsAtuais.notificarMudancaTempo &&
+          prefsAtuais.avisoPrevio5Min &&
+          slot.inicioMin - minutosAgora === 5 &&
+          !minutosComHorarioEspecifico.has(`START5_${slot.numeroTempo}`)
+        ) {
+          const chave = `${dataHoje}_GERAL_${slot.id}_AVISO5_${horaAtualStr}`;
+          if (!ultimosAlertasTempos.current.has(chave)) {
+            ultimosAlertasTempos.current.add(chave);
+            notificationService.dispararNotificacaoSW({
+              escolaId: escola.id,
+              destinatarioUserId: currentUser.id,
+              categoria: 'MUDANCA_TEMPO',
+              titulo: `⏰ Faltam 5 min — ${slot.numeroTempo}º Tempo (${slot.turnoNome})`,
+              mensagem: `Mudança de tempo letivo às ${slot.inicioStr} (${slot.inicioStr} - ${slot.fimStr}).`,
+              detalhes: `${escola.nomeOficial} • Preparação para troca de tempo`,
+              tagSW: `sge-geral-pre-${slot.id}-${dataHoje}`,
+              icon: iconEscola,
+              navegacao: { tab: 'horarios' },
+              dedupeKey: chave
+            });
+          }
+        }
+
+        // Início exato da mudança de tempo (geral)
+        if (
+          prefsAtuais.notificarMudancaTempo &&
+          minutosAgora === slot.inicioMin &&
+          !minutosComHorarioEspecifico.has(`START_${slot.numeroTempo}`)
+        ) {
           const chave = `${dataHoje}_GERAL_${slot.id}_INICIO_${horaAtualStr}`;
           if (!ultimosAlertasTempos.current.has(chave)) {
             ultimosAlertasTempos.current.add(chave);
@@ -298,7 +391,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
               escolaId: escola.id,
               destinatarioUserId: currentUser.id,
               categoria: 'MUDANCA_TEMPO',
-              titulo: `🔔 Mudança de Tempo — Turno ${slot.turnoNome} (${slot.numeroTempo}º Tempo)`,
+              titulo: `🔔 Mudança de Tempo — ${slot.turnoNome} (${slot.numeroTempo}º Tempo)`,
               mensagem: `Início oficial do ${slot.numeroTempo}º tempo letivo (${slot.inicioStr} - ${slot.fimStr}).`,
               detalhes: `${escola.nomeOficial} • Sino Escolar Geral`,
               tagSW: `sge-geral-ini-${slot.id}-${dataHoje}`,
@@ -309,7 +402,37 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
           }
         }
 
-        if (prefsAtuais.notificarTerminoTempo && minutosAgora === slot.fimMin && !minutosComHorarioEspecifico.has(`END_${slot.numeroTempo}`)) {
+        // Aviso 5 minutos antes do término do tempo (geral)
+        if (
+          prefsAtuais.notificarTerminoTempo &&
+          prefsAtuais.avisoPrevio5Min &&
+          slot.fimMin - minutosAgora === 5 &&
+          !minutosComHorarioEspecifico.has(`END5_${slot.numeroTempo}`)
+        ) {
+          const chave = `${dataHoje}_GERAL_${slot.id}_FIM5_${horaAtualStr}`;
+          if (!ultimosAlertasTempos.current.has(chave)) {
+            ultimosAlertasTempos.current.add(chave);
+            notificationService.dispararNotificacaoSW({
+              escolaId: escola.id,
+              destinatarioUserId: currentUser.id,
+              categoria: 'TERMINO_TEMPO',
+              titulo: `⏱️ Faltam 5 min para Término — ${slot.numeroTempo}º Tempo`,
+              mensagem: `O ${slot.numeroTempo}º tempo (${slot.turnoNome}) termina às ${slot.fimStr}.`,
+              detalhes: `${escola.nomeOficial} • Prepare o encerramento da aula`,
+              tagSW: `sge-geral-prefim-${slot.id}-${dataHoje}`,
+              icon: iconEscola,
+              navegacao: { tab: 'horarios' },
+              dedupeKey: chave
+            });
+          }
+        }
+
+        // Término exato do tempo (geral)
+        if (
+          prefsAtuais.notificarTerminoTempo &&
+          minutosAgora === slot.fimMin &&
+          !minutosComHorarioEspecifico.has(`END_${slot.numeroTempo}`)
+        ) {
           const chave = `${dataHoje}_GERAL_${slot.id}_FIM_${horaAtualStr}`;
           if (!ultimosAlertasTempos.current.has(chave)) {
             ultimosAlertasTempos.current.add(chave);
@@ -317,7 +440,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
               escolaId: escola.id,
               destinatarioUserId: currentUser.id,
               categoria: 'TERMINO_TEMPO',
-              titulo: `⏹️ Término de Tempo — Turno ${slot.turnoNome} (${slot.numeroTempo}º Tempo)`,
+              titulo: `⏹️ Término de Tempo — ${slot.turnoNome} (${slot.numeroTempo}º Tempo)`,
               mensagem: `Encerramento do ${slot.numeroTempo}º tempo letivo às ${slot.fimStr}.`,
               detalhes: `${escola.nomeOficial} • Momento de transição / intervalo`,
               tagSW: `sge-geral-fim-${slot.id}-${dataHoje}`,
@@ -341,11 +464,13 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
   const handleTogglePref = (campo: keyof PreferenciasNotificacaoSW) => {
     const atualizado = notificationService.salvarPreferencias({ [campo]: !prefs[campo] });
     setPrefs(atualizado);
+    sincronizarAgendaSW();
   };
 
   const handleSolicitarPermissao = async () => {
-    const res = await notificationService.solicitarPermissao();
+    const res = await notificationService.solicitarPermissao(escola, currentUser);
     setPermissaoNavegador(res);
+    setBgCap(notificationService.obterCapacidadesSegundoPlano());
   };
 
   const handleAbrirNotificacao = (item: NotificacaoSistemaItem) => {
@@ -365,8 +490,12 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
     switch (cat) {
       case 'SOLICITACAO_NOTA':
         return <FileEdit className="w-4 h-4 text-amber-600 shrink-0" />;
+      case 'OCORRENCIA_ESCOLAR':
+        return <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />;
       case 'MENSAGEM_BIBLIOTECA':
         return <BookOpen className="w-4 h-4 text-red-600 shrink-0" />;
+      case 'COMUNICACAO':
+        return <MessageSquare className="w-4 h-4 text-indigo-600 shrink-0" />;
       case 'TERMINO_TEMPO':
         return <Clock className="w-4 h-4 text-emerald-700 shrink-0" />;
       case 'MUDANCA_TEMPO':
@@ -388,7 +517,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
               ? 'bg-blue-50 dark:bg-blue-950/70 border-blue-400 dark:border-blue-600 text-blue-700 dark:text-blue-300'
               : 'bg-white dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700'
           }`}
-          title="Centro de Notificações Service Worker (Alterações de Notas, Biblioteca Urgente e Tempos Letivos)"
+          title="Centro de Notificações Service Worker (Tempos Letivos, Comunicações e Alertas Offline)"
         >
           <Bell className={`w-4 h-4 ${naoLidasCount > 0 ? 'text-blue-700 dark:text-blue-400' : 'text-slate-700 dark:text-slate-300'}`} />
           {naoLidasCount > 0 && (
@@ -399,7 +528,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
           {swAtivo && permissaoNavegador === 'granted' && (
             <span
               className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white dark:ring-slate-900"
-              title="Service Worker Push Ativo"
+              title="Service Worker & Notificações em Segundo Plano Ativos"
             />
           )}
         </button>
@@ -413,13 +542,13 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                 <div className="flex items-center space-x-2">
                   <Radio className={`w-3.5 h-3.5 ${swAtivo ? 'text-emerald-400' : 'text-amber-400'}`} />
                   <h3 className="text-xs font-black tracking-wide uppercase">
-                    Alertas Push &amp; Service Worker
+                    Alertas Push &amp; Segundo Plano
                   </h3>
                 </div>
                 <p className="text-[10px] text-slate-300 mt-0.5">
                   {permissaoNavegador === 'granted'
-                    ? 'Notificações nativas ativas mesmo em segundo plano'
-                    : 'Ative a permissão para receber alertas nativos no dispositivo'}
+                    ? 'Ativo online, offline e com o navegador minimizado/fechado'
+                    : 'Autorize para receber lembretes mesmo com navegador fechado'}
                 </p>
               </div>
               <div className="flex items-center space-x-1">
@@ -450,7 +579,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                 <span className="text-[11px] font-semibold text-amber-900 dark:text-amber-200 leading-tight">
                   {permissaoNavegador === 'denied'
                     ? 'Notificações bloqueadas nas definições do navegador.'
-                    : 'Ative as notificações push locais para avisos em tempo real.'}
+                    : 'Permita alertas para receber toques de 5 min e hora exata mesmo offline.'}
                 </span>
                 {permissaoNavegador === 'default' && (
                   <button
@@ -458,18 +587,65 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                     onClick={handleSolicitarPermissao}
                     className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-black rounded-lg shrink-0 cursor-pointer"
                   >
-                    Ativar Push
+                    Permitir Agora
                   </button>
                 )}
               </div>
             )}
 
             {abaPainel === 'config' ? (
-              <div className="p-4 space-y-4 max-h-96 overflow-y-auto text-xs">
+              <div className="p-4 space-y-4 max-h-[26rem] overflow-y-auto text-xs">
+                {/* Estado do Motor em Segundo Plano / Navegador Fechado */}
+                <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-emerald-950 dark:text-emerald-200 flex items-center space-x-1.5 text-[11px]">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Modo Navegador Fechado &amp; Offline</span>
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
+                      swAtivo && permissaoNavegador === 'granted'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-200 text-amber-950'
+                    }`}>
+                      {swAtivo && permissaoNavegador === 'granted' ? 'OPERACIONAL' : 'PENDENTE'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-emerald-900/90 dark:text-emerald-300 leading-relaxed">
+                    Agenda sincronizada em IndexedDB ({bgCap.agendamentosAtivosHoje} lembrete(s) de hoje).
+                    {bgCap.suportaTriggersNativos ? ' Triggers nativos do SO ativos.' : ''}
+                    {bgCap.suportaPeriodicSync ? ' Sincronização periódica em segundo plano disponível.' : ''}
+                  </p>
+                  {bgCap.isIosSafariSemPwaInstalada && (
+                    <p className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-900/40 p-1.5 rounded-lg">
+                      No iPhone/iPad (Safari), adicione a app ao Ecrã Principal (&quot;Partilhar → Adicionar ao Ecrã Principal&quot;) para alertas em segundo plano.
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <h4 className="font-black text-slate-900 dark:text-slate-100 uppercase text-[10px] tracking-wider">
                     Categorias de Alertas Ativos
                   </h4>
+
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Lembretes com Navegador Fechado (SW)</span>
+                    <input
+                      type="checkbox"
+                      checked={prefs.executarEmSegundoPlanoSW}
+                      onChange={() => handleTogglePref('executarEmSegundoPlanoSW')}
+                      className="rounded text-blue-600"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Comunicados, Mensagens &amp; Avisos</span>
+                    <input
+                      type="checkbox"
+                      checked={prefs.notificarComunicacoes}
+                      onChange={() => handleTogglePref('notificarComunicacoes')}
+                      className="rounded text-blue-600"
+                    />
+                  </label>
 
                   <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
                     <span className="font-semibold text-slate-800 dark:text-slate-200">Solicitações de Alteração de Nota</span>
@@ -477,6 +653,16 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                       type="checkbox"
                       checked={prefs.notificarSolicitacoesNota}
                       onChange={() => handleTogglePref('notificarSolicitacoesNota')}
+                      className="rounded text-blue-600"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Ocorrências de Alunos (Coord. / Pedagógico)</span>
+                    <input
+                      type="checkbox"
+                      checked={prefs.notificarOcorrencias !== false}
+                      onChange={() => handleTogglePref('notificarOcorrencias')}
                       className="rounded text-blue-600"
                     />
                   </label>
@@ -492,7 +678,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                   </label>
 
                   <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">Mudança / Início de Tempo Letivo</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Mudança / Início de Tempo Letivo (Hora Exata)</span>
                     <input
                       type="checkbox"
                       checked={prefs.notificarMudancaTempo}
@@ -502,7 +688,7 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                   </label>
 
                   <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">Término de Tempo Letivo</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Término de Tempo Letivo (Hora Exata)</span>
                     <input
                       type="checkbox"
                       checked={prefs.notificarTerminoTempo}
@@ -527,6 +713,13 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                     Testar Alertas via Service Worker
                   </h4>
                   <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => notificationService.simularAlerta('COMUNICACAO', escola, currentUser)}
+                      className="px-2.5 py-2 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-800 rounded-lg font-bold text-[11px] text-left cursor-pointer col-span-2"
+                    >
+                      Comunicado / Mensagem
+                    </button>
                     <button
                       type="button"
                       onClick={() => notificationService.simularAlerta('SOLICITACAO_NOTA', escola, currentUser)}
@@ -554,6 +747,13 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                       className="px-2.5 py-2 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 rounded-lg font-bold text-[11px] text-left cursor-pointer"
                     >
                       Término de Tempo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => notificationService.simularAlerta('OCORRENCIA_ESCOLAR', escola, currentUser)}
+                      className="px-2.5 py-2 bg-orange-50 dark:bg-orange-950/60 hover:bg-orange-100 dark:hover:bg-orange-900/60 text-orange-900 dark:text-orange-200 border border-orange-300 dark:border-orange-800 rounded-lg font-bold text-[11px] text-left cursor-pointer col-span-2"
+                    >
+                      Ocorrência Disciplinar / Pedagógica
                     </button>
                   </div>
                 </div>

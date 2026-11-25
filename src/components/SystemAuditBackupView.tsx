@@ -62,6 +62,13 @@ import {
   openLegalPolicyModal,
   resetCookieConsentBanner
 } from '../services/legalPoliciesService';
+import {
+  periodicBackupService,
+  PeriodicBackupConfig,
+  PeriodicSnapshotMetadata
+} from '../services/periodicBackupService';
+import { appUpdateService, AppUpdateState } from '../services/appUpdateService';
+import { offlineStorage } from '../services/offlineStorage';
 
 interface SystemAuditBackupViewProps {
   escola: Escola;
@@ -106,14 +113,50 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     }
   }, [initialTab]);
   const [filtroAcao, setFiltroAcao] = useState('TODAS');
+  const [filtroEscolaAudit, setFiltroEscolaAudit] = useState<string>(() => (isAdminGeral ? 'TODAS' : escola.id));
+  const [buscaAudit, setBuscaAudit] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [resumoIncremental, setResumoIncremental] = useState<IncrementalBackupSummary>(() =>
     dbService.obterResumoBackupIncremental(escola.id)
   );
+  const [periodicConfig, setPeriodicConfig] = useState<PeriodicBackupConfig>(() =>
+    periodicBackupService.obterConfig()
+  );
+  const [snapshotsIDB, setSnapshotsIDB] = useState<PeriodicSnapshotMetadata[]>([]);
+  const [isStoragePersisted, setIsStoragePersisted] = useState<boolean | null>(null);
+  const [updateState, setUpdateState] = useState<AppUpdateState>(() => appUpdateService.getState());
+  const [checkingAppUpdate, setCheckingAppUpdate] = useState(false);
+  const [creatingSnapshotIDB, setCreatingSnapshotIDB] = useState(false);
+  const [snapshotParaRestaurar, setSnapshotParaRestaurar] = useState<PeriodicSnapshotMetadata | null>(null);
+  const [snapshotParaEliminar, setSnapshotParaEliminar] = useState<PeriodicSnapshotMetadata | null>(null);
+  const [restaurandoSnapshotIDB, setRestaurandoSnapshotIDB] = useState(false);
+
+  const carregarDadosSnapshotsIDB = async () => {
+    const [snaps, persisted] = await Promise.all([
+      periodicBackupService.listarSnapshots(isAdminGeral ? 'todas' : escola.id).catch(() => []),
+      offlineStorage.verificarPersistenciaNativa().catch(() => false)
+    ]);
+    setSnapshotsIDB(snaps);
+    setPeriodicConfig(periodicBackupService.obterConfig());
+    setIsStoragePersisted(persisted);
+  };
+
+  useEffect(() => {
+    const unsubUpdate = appUpdateService.subscrever((st) => setUpdateState(st));
+    const onPeriodicUpdated = () => {
+      carregarDadosSnapshotsIDB();
+    };
+    window.addEventListener('sge_periodic_backup_updated', onPeriodicUpdated);
+    return () => {
+      unsubUpdate();
+      window.removeEventListener('sge_periodic_backup_updated', onPeriodicUpdated);
+    };
+  }, [escola.id, isAdminGeral]);
 
   useEffect(() => {
     if (activeTab === 'backup_restauracao') {
       setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+      carregarDadosSnapshotsIDB();
     }
     if (activeTab === 'configuracoes_gerais') {
       setPerfMetrics(measureLoadingPerformance());
@@ -133,9 +176,15 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
   const [escolaData, setEscolaData] = useState<Escola>(escola);
   const [logotipoPreview, setLogotipoPreview] = useState<string>(escola.logotipoUrl || escola.logotipo || '');
 
+  const [erroFeedback, setErroFeedback] = useState<string | null>(null);
+
   const notificar = (msg: string) => {
     setFeedback(msg);
     setTimeout(() => setFeedback(null), 4000);
+  };
+  const notificarErro = (msg: string) => {
+    setErroFeedback(msg);
+    setTimeout(() => setErroFeedback(null), 5000);
   };
 
   // ==========================================
@@ -585,7 +634,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Por favor, selecione um ficheiro de imagem válido (PNG, JPG, SVG).');
+      notificarErro('Por favor, selecione um ficheiro de imagem válido (PNG, JPG, SVG).');
       return;
     }
 
@@ -620,7 +669,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Por favor, selecione um ficheiro de imagem válido (PNG, JPG, SVG).');
+      notificarErro('Por favor, selecione um ficheiro de imagem válido (PNG, JPG, SVG).');
       return;
     }
 
@@ -750,6 +799,114 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
   };
 
+  // ==========================================
+  // SNAPSHOTS PERIÓDICOS INDEXEDDB & DOWNLOADS AGENDADOS
+  // ==========================================
+  const handleAtualizarPeriodicConfig = (partial: Partial<PeriodicBackupConfig>) => {
+    const atualizado = periodicBackupService.salvarConfig(partial);
+    setPeriodicConfig(atualizado);
+    notificar('Configuração de backup periódico em IndexedDB atualizada com sucesso.');
+  };
+
+  const handleCriarSnapshotIDBAgora = async () => {
+    setCreatingSnapshotIDB(true);
+    try {
+      const escopo = isAdminGeral ? 'todas' : escola.id;
+      const motivo = isAdminGeral
+        ? 'Snapshot manual completo do Sistema em IndexedDB'
+        : `Snapshot manual de ${escola.sigla || escola.nomeOficial} em IndexedDB`;
+      const rec = await periodicBackupService.criarSnapshotAgora('manual', motivo, escopo);
+      await carregarDadosSnapshotsIDB();
+      if (rec) {
+        notificar(`Snapshot IndexedDB gravado (${(rec.tamanhoBytes / 1024).toFixed(1)} KB, ${rec.resumo.alunos} alunos).`);
+      } else {
+        notificarErro('Não foi possível gravar o snapshot no IndexedDB neste navegador.');
+      }
+    } finally {
+      setCreatingSnapshotIDB(false);
+    }
+  };
+
+  const handleDispararAutoDownloadAgora = async () => {
+    setCreatingSnapshotIDB(true);
+    try {
+      const ok = await periodicBackupService.dispararDownloadAutomaticoAgendado(
+        'Transferência agendada executada manualmente'
+      );
+      await carregarDadosSnapshotsIDB();
+      if (ok) {
+        notificar('Backup automático transferido (.json) e registado no IndexedDB!');
+      } else {
+        notificarErro('Não foi possível iniciar o download automático.');
+      }
+    } finally {
+      setCreatingSnapshotIDB(false);
+    }
+  };
+
+  const handleExportarSnapshotIDB = async (snap: PeriodicSnapshotMetadata) => {
+    const ok = await periodicBackupService.exportarSnapshotJson(snap.id);
+    if (ok) {
+      notificar(`Snapshot (${new Date(snap.criadoEm).toLocaleString('pt-AO')}) exportado para .json com sucesso.`);
+    } else {
+      notificarErro('Não foi possível exportar este snapshot.');
+    }
+  };
+
+  const handleConfirmarRestaurarSnapshotIDB = async () => {
+    if (!snapshotParaRestaurar) return;
+    setRestaurandoSnapshotIDB(true);
+    try {
+      const ok = await periodicBackupService.restaurarSnapshot(snapshotParaRestaurar.id);
+      if (ok) {
+        if (onRestaurarBackup) onRestaurarBackup('__REFRESH_ONLY__');
+        setResumoIncremental(dbService.obterResumoBackupIncremental(escola.id));
+        await carregarDadosSnapshotsIDB();
+        notificar('Snapshot do IndexedDB restaurado com sucesso (cópia de segurança pré-restauro guardada).');
+      } else {
+        notificarErro('Erro ao restaurar o snapshot selecionado.');
+      }
+    } finally {
+      setRestaurandoSnapshotIDB(false);
+      setSnapshotParaRestaurar(null);
+    }
+  };
+
+  const handleConfirmarEliminarSnapshotIDB = async () => {
+    if (!snapshotParaEliminar) return;
+    const ok = await periodicBackupService.eliminarSnapshot(snapshotParaEliminar.id);
+    setSnapshotParaEliminar(null);
+    await carregarDadosSnapshotsIDB();
+    if (ok) {
+      notificar('Snapshot eliminado do IndexedDB.');
+    }
+  };
+
+  const handleSolicitarPersistenciaIDB = async () => {
+    const ok = await offlineStorage.solicitarPersistenciaNativa();
+    setIsStoragePersisted(ok);
+    notificar(
+      ok
+        ? 'Persistência nativa do navegador ativada! Os dados offline e snapshots estão protegidos contra limpeza automática.'
+        : 'O navegador manteve o modo de armazenamento padrão; exporte snapshots regularmente para segurança máxima.'
+    );
+  };
+
+  const handleVerificarAtualizacaoSistema = async () => {
+    setCheckingAppUpdate(true);
+    try {
+      const { hasUpdate, state } = await appUpdateService.verificarAtualizacaoAgora();
+      setUpdateState(state);
+      if (hasUpdate) {
+        notificar(`Nova atualização disponível (${state.latestVersion || 'PWA'}). Clique em "Sincronizar e Atualizar Agora".`);
+      } else {
+        notificar('O aplicativo já se encontra atualizado na versão mais recente.');
+      }
+    } finally {
+      setCheckingAppUpdate(false);
+    }
+  };
+
   // Alternar interruptores de configuração do Administrador Geral
   const handleToggleAdminConfig = (key: keyof ConfiguracaoSistema) => {
     const atual = !!configSistema[key];
@@ -795,10 +952,28 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     notificar('Configurações globais do sistema gravadas com sucesso.');
   };
 
+  const todasEscolasSistema = useMemo(() => dbService.getEscolasBrutas(), [logs]);
+  const mapaNomesEscolasAudit = useMemo(() => {
+    const map = new Map<string, string>();
+    todasEscolasSistema.forEach(e => {
+      if (e?.id) map.set(e.id, e.nomeOficial || e.nome || e.id);
+    });
+    if (escola?.id && !map.has(escola.id)) {
+      map.set(escola.id, escola.nomeOficial || escola.nome || escola.id);
+    }
+    return map;
+  }, [todasEscolasSistema, escola]);
+
   const logsVisiveis = useMemo(() => {
-    if (isAdminGeral) return logs;
-    return logs.filter(l => {
+    const baseLogs = isAdminGeral ? dbService.getAuditoriaBruta() : logs;
+    if (isAdminGeral) {
+      return baseLogs;
+    }
+    return baseLogs.filter(l => {
       if (
+        l.escolaId !== escola.id ||
+        l.escolaId === 'ADMIN_GLOBAL' ||
+        l.escolaId === 'SISTEMA' ||
         l.origemAdminGeral ||
         l.usuarioRole === 'AdminGeral' ||
         l.papel === 'AdminGeral' ||
@@ -811,24 +986,45 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
       }
       return true;
     });
-  }, [logs, isAdminGeral]);
+  }, [logs, isAdminGeral, escola.id]);
 
-  const logsFiltrados = logsVisiveis.filter(l => {
-    if (filtroAcao === 'TODAS') return true;
-    if (filtroAcao === 'APOIO_TECNICO') {
-      if (!isAdminGeral) return false;
-      return (
-        l.detalhe?.includes('[APOIO TÉCNICO AUTORIZADO') || 
-        l.papel?.includes('Apoio Técnico') ||
-        l.acao?.toLowerCase().includes('apoio') ||
-        l.acao?.toLowerCase().includes('suporte')
-      );
-    }
-    return (
-      l.acao.toLowerCase().includes(filtroAcao.toLowerCase()) || 
-      (l.detalhe && l.detalhe.toLowerCase().includes(filtroAcao.toLowerCase()))
-    );
-  });
+  const logsFiltrados = useMemo(() => {
+    const termo = buscaAudit.trim().toLowerCase();
+    return logsVisiveis.filter(l => {
+      if (isAdminGeral && filtroEscolaAudit !== 'TODAS') {
+        if (filtroEscolaAudit === 'ADMIN_GLOBAL') {
+          if (l.escolaId !== 'ADMIN_GLOBAL' && l.escolaId !== 'SISTEMA' && Boolean(l.escolaId)) return false;
+        } else if (l.escolaId !== filtroEscolaAudit) {
+          return false;
+        }
+      }
+
+      if (filtroAcao !== 'TODAS') {
+        if (filtroAcao === 'APOIO_TECNICO') {
+          if (!isAdminGeral) return false;
+          const ehApoio =
+            l.detalhe?.includes('[APOIO TÉCNICO AUTORIZADO') ||
+            l.papel?.includes('Apoio Técnico') ||
+            l.acao?.toLowerCase().includes('apoio') ||
+            l.acao?.toLowerCase().includes('suporte');
+          if (!ehApoio) return false;
+        } else {
+          const matchAcao =
+            l.acao.toLowerCase().includes(filtroAcao.toLowerCase()) ||
+            (l.detalhe && l.detalhe.toLowerCase().includes(filtroAcao.toLowerCase()));
+          if (!matchAcao) return false;
+        }
+      }
+
+      if (termo) {
+        const escolaNome = mapaNomesEscolasAudit.get(l.escolaId || '') || '';
+        const txt = `${l.utilizadorNome || ''} ${l.papel || ''} ${l.acao || ''} ${l.detalhe || ''} ${escolaNome}`.toLowerCase();
+        if (!txt.includes(termo)) return false;
+      }
+
+      return true;
+    });
+  }, [logsVisiveis, isAdminGeral, filtroEscolaAudit, filtroAcao, buscaAudit, mapaNomesEscolasAudit]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -840,6 +1036,17 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
             <span className="text-xs font-bold">{feedback}</span>
           </div>
           <button onClick={() => setFeedback(null)} className="text-emerald-700 hover:text-emerald-900">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {erroFeedback && (
+        <div className="bg-red-50 border border-red-300 text-red-900 px-4 py-3 rounded-xl shadow-md flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <span className="text-xs font-bold">{erroFeedback}</span>
+          </div>
+          <button onClick={() => setErroFeedback(null)} className="text-red-700 hover:text-red-900">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1332,15 +1539,28 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
         <div className="space-y-6">
           {/* Status do Armazenamento */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center space-x-3">
-              <div className="p-3 rounded-xl bg-blue-50 text-blue-700">
-                <HardDrive className="h-6 w-6" />
+            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-3 rounded-xl bg-blue-50 text-blue-700">
+                  <HardDrive className="h-6 w-6" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-gray-500 uppercase">Armazenamento Offline</span>
+                  <p className="text-base font-black text-gray-900">IndexedDB + LocalStorage</p>
+                  <span className="text-[11px] text-emerald-700 font-bold">
+                    {isStoragePersisted ? 'Persistência Nativa Blindada' : '100% Operacional (Modo Offline-First)'}
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="text-xs font-bold text-gray-500 uppercase">Armazenamento Offline</span>
-                <p className="text-base font-black text-gray-900">IndexedDB + LocalStorage</p>
-                <span className="text-[11px] text-emerald-700 font-bold">100% Operacional</span>
-              </div>
+              {isStoragePersisted === false && (
+                <button
+                  type="button"
+                  onClick={handleSolicitarPersistenciaIDB}
+                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shrink-0 cursor-pointer"
+                >
+                  Blindar
+                </button>
+              )}
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center space-x-3">
@@ -1370,6 +1590,54 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
             </div>
           </div>
 
+          {/* Barra de Sincronização de Atualizações da Aplicação (Todos os Navegadores) */}
+          <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            updateState.updateAvailable
+              ? 'bg-indigo-50 border-indigo-300'
+              : 'bg-white border-gray-200 shadow-xs'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <div className={`p-2.5 rounded-xl shrink-0 ${
+                updateState.updateAvailable ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'
+              }`}>
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-gray-900">
+                  {updateState.updateAvailable
+                    ? `Nova Atualização Pronta para Sincronizar (${updateState.latestVersion || 'PWA'})`
+                    : `Atualizações da Aplicação & Cache Multi-Navegador (${updateState.currentVersion})`}
+                </h4>
+                <p className="text-[11px] text-gray-600 mt-0.5">
+                  Sincroniza atualizações em Chrome, Edge, Firefox e Safari preservando 100% dos dados locais em IndexedDB.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0">
+              {updateState.updateAvailable ? (
+                <button
+                  type="button"
+                  onClick={() => appUpdateService.aplicarAtualizacaoESincronizar()}
+                  disabled={updateState.updatingNow}
+                  className="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${updateState.updatingNow ? 'animate-spin' : ''}`} />
+                  <span>{updateState.updatingNow ? 'A sincronizar...' : 'Sincronizar e Atualizar Agora'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleVerificarAtualizacaoSistema}
+                  disabled={checkingAppUpdate}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${checkingAppUpdate ? 'animate-spin' : ''}`} />
+                  <span>{checkingAppUpdate ? 'A verificar...' : 'Verificar Atualizações da Aplicação'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Cartões de Ação de Backup Completo, Incremental & Restauração */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* 1. Criar Backup Completo */}
@@ -1378,28 +1646,34 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 <div className="flex items-center space-x-3 text-blue-700">
                   <Download className="h-6 w-6 shrink-0" />
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">Backup Completo (Snapshot)</h3>
-                    <span className="text-[10px] font-bold uppercase text-blue-700">Cópia Integral + Define Linha de Base</span>
+                    <h3 className="text-base font-bold text-gray-900">
+                      {isAdminGeral ? 'Backup Completo do Sistema' : 'Backup Completo da Escola'}
+                    </h3>
+                    <span className="text-[10px] font-bold uppercase text-blue-700">
+                      {isAdminGeral ? 'Rede Nacional 100% Integral + Linha de Base' : 'Instituição 100% Integral + Linha de Base'}
+                    </span>
                   </div>
                 </div>
                 <p className="text-xs text-gray-600 leading-relaxed">
-                  Exporta a totalidade dos dados da instituição em <strong>.JSON</strong> (escolas, estudantes, turmas, notas, finanças e configurações) e grava o ponto inicial para os backups incrementais.
+                  {isAdminGeral
+                    ? 'Exporta a totalidade do sistema em .JSON (todas as escolas, estudantes, pautas, RH, coordenações, calendários, finanças, documentos, passes e auditoria).'
+                    : `Exporta 100% dos dados de ${escola.sigla || escola.nomeOficial} em .JSON (alunos, turmas, coordenações, pautas, finanças, documentos, passes, biblioteca, calendário e ocorrências).`}
                 </p>
                 <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
-                  <p className="font-bold">Conteúdo do Arquivo:</p>
+                  <p className="font-bold">Cobertura Integral (100%):</p>
                   <ul className="list-disc pl-4 space-y-0.5 text-[11px]">
-                    <li>{alunos.length} Estudantes com biografia e notas</li>
-                    <li>{funcionarios.length} Funcionários e credenciais</li>
-                    <li>Registos financeiros, biblioteca e património</li>
+                    <li>{alunos.length} Estudantes, biografia, dossiês, faltas e notas</li>
+                    <li>{funcionarios.length} Funcionários, atribuições, horários e coordenações</li>
+                    <li>Finanças, emolumentos, biblioteca, calendário, passes e dizeres</li>
                   </ul>
                 </div>
               </div>
               <button
-                onClick={handleExportBackup}
+                onClick={isAdminGeral ? handleExportSistemaJSON : handleExportBackup}
                 className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md transition-all cursor-pointer"
               >
                 <Download className="h-4 w-4" />
-                <span>Descarregar Snapshot Completo (.json)</span>
+                <span>{isAdminGeral ? 'Descarregar Backup Completo do Sistema (.json)' : 'Descarregar Backup Completo da Escola (.json)'}</span>
               </button>
             </div>
 
@@ -1552,6 +1826,331 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 />
               </label>
             </div>
+          </div>
+
+          {/* ================================================================= */}
+          {/* BACKUP PERIÓDICO AUTOMÁTICO NO INDEXEDDB & DOWNLOADS AGENDADOS     */}
+          {/* ================================================================= */}
+          <div className="bg-white rounded-2xl border-2 border-blue-200 p-6 shadow-xs space-y-5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+              <div>
+                <div className="inline-flex items-center space-x-2 px-2.5 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-800 text-[10px] font-black uppercase mb-1">
+                  <HardDrive className="h-3 w-3" />
+                  <span>IndexedDB Blindado • Agendamento Automático</span>
+                </div>
+                <h3 className="text-base font-black text-gray-900">
+                  Backup Periódico em IndexedDB &amp; Downloads Automáticos Agendados
+                </h3>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Cria automaticamente snapshots completos dos dados educacionais no navegador e permite agendar downloads de segurança em ficheiro .json.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCriarSnapshotIDBAgora}
+                  disabled={creatingSnapshotIDB}
+                  className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer disabled:opacity-60"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${creatingSnapshotIDB ? 'animate-spin' : ''}`} />
+                  <span>{creatingSnapshotIDB ? 'A gravar...' : 'Criar Snapshot IndexedDB Agora'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDispararAutoDownloadAgora}
+                  disabled={creatingSnapshotIDB}
+                  className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer disabled:opacity-60"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Executar Download Agora</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Painel de Configuração: Snapshots IDB + Auto-Download */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+              {/* Esquerda: Snapshots Periódicos IndexedDB */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-black text-slate-900">Snapshots Periódicos no IndexedDB</h4>
+                    <p className="text-[11px] text-slate-500">Salva cópias locais automáticas quando há alterações nos dados.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAtualizarPeriodicConfig({ ativado: !periodicConfig.ativado })}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-colors ${
+                      periodicConfig.ativado
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-300 text-slate-700'
+                    }`}
+                  >
+                    {periodicConfig.ativado ? 'Ativado' : 'Desativado'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Frequência do Snapshot</label>
+                    <select
+                      value={periodicConfig.intervaloSnapshotMinutos}
+                      onChange={(e) => handleAtualizarPeriodicConfig({ intervaloSnapshotMinutos: Number(e.target.value) })}
+                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white text-xs font-semibold"
+                    >
+                      <option value={5}>A cada 5 minutos</option>
+                      <option value={15}>A cada 15 minutos</option>
+                      <option value={30}>A cada 30 minutos</option>
+                      <option value={60}>A cada 1 hora</option>
+                      <option value={240}>A cada 4 horas</option>
+                      <option value={720}>A cada 12 horas</option>
+                      <option value={1440}>A cada 24 horas</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Snapshots Retidos</label>
+                    <select
+                      value={periodicConfig.maxSnapshotsRetidos}
+                      onChange={(e) => handleAtualizarPeriodicConfig({ maxSnapshotsRetidos: Number(e.target.value) })}
+                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white text-xs font-semibold"
+                    >
+                      <option value={10}>Últimos 10 snapshots</option>
+                      <option value={20}>Últimos 20 snapshots</option>
+                      <option value={30}>Últimos 30 snapshots</option>
+                      <option value={50}>Últimos 50 snapshots</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-slate-600 flex items-center justify-between pt-1 border-t border-slate-200/70">
+                  <span>Último snapshot gravado:</span>
+                  <strong className="text-slate-900">
+                    {periodicConfig.ultimoSnapshotEm
+                      ? new Date(periodicConfig.ultimoSnapshotEm).toLocaleString('pt-AO')
+                      : 'Nenhum ainda'}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Direita: Downloads Automáticos Agendados */}
+              <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-black text-emerald-950">Downloads Automáticos Agendados (.JSON)</h4>
+                    <p className="text-[11px] text-emerald-800">Descarrega periodicamente um ficheiro JSON para a pasta de Downloads.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAtualizarPeriodicConfig({ autoDownloadAtivado: !periodicConfig.autoDownloadAtivado })}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold cursor-pointer transition-colors ${
+                      periodicConfig.autoDownloadAtivado
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-300 text-slate-700'
+                    }`}
+                  >
+                    {periodicConfig.autoDownloadAtivado ? 'Agendado' : 'Inativo'}
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-emerald-950 mb-1">Intervalo de Download Automático</label>
+                  <select
+                    value={periodicConfig.intervaloAutoDownloadHoras}
+                    onChange={(e) => handleAtualizarPeriodicConfig({ intervaloAutoDownloadHoras: Number(e.target.value) })}
+                    className="w-full px-2.5 py-2 border border-emerald-300 rounded-lg bg-white text-xs font-semibold"
+                  >
+                    <option value={1}>A cada 1 hora</option>
+                    <option value={6}>A cada 6 horas</option>
+                    <option value={12}>A cada 12 horas</option>
+                    <option value={24}>Diariamente (24 horas)</option>
+                    <option value={168}>Semanalmente (7 dias)</option>
+                  </select>
+                </div>
+
+                <div className="text-[11px] text-emerald-900 flex flex-col gap-0.5 pt-1 border-t border-emerald-200/70">
+                  <div className="flex items-center justify-between">
+                    <span>Último download automático:</span>
+                    <strong>
+                      {periodicConfig.ultimoAutoDownloadEm
+                        ? new Date(periodicConfig.ultimoAutoDownloadEm).toLocaleString('pt-AO')
+                        : 'Ainda não executado'}
+                    </strong>
+                  </div>
+                  {periodicConfig.ultimoAutoDownloadNome && (
+                    <span className="text-[10px] text-emerald-700 truncate">
+                      Ficheiro: {periodicConfig.ultimoAutoDownloadNome}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Histórico de Snapshots Guardados no IndexedDB */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black text-gray-900 uppercase tracking-wider">
+                  Snapshots Guardados no IndexedDB ({snapshotsIDB.length})
+                </h4>
+                <button
+                  type="button"
+                  onClick={carregarDadosSnapshotsIDB}
+                  className="text-[11px] font-bold text-blue-700 hover:underline flex items-center space-x-1 cursor-pointer"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Atualizar Lista</span>
+                </button>
+              </div>
+
+              {snapshotsIDB.length === 0 ? (
+                <div className="p-6 text-center text-xs text-gray-500 border border-dashed border-gray-300 rounded-xl bg-gray-50/60">
+                  Nenhum snapshot registado ainda no IndexedDB. Clique em &quot;Criar Snapshot IndexedDB Agora&quot; ou aguarde o ciclo automático.
+                </div>
+              ) : (
+                <div className="border border-gray-200 rounded-xl overflow-x-auto max-h-80 overflow-y-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-gray-50 text-[11px] font-bold text-gray-600 uppercase border-b border-gray-200 sticky top-0">
+                      <tr>
+                        <th className="py-2.5 px-3">Data / Hora</th>
+                        <th className="py-2.5 px-3">Origem</th>
+                        <th className="py-2.5 px-3">Escopo / Descrição</th>
+                        <th className="py-2.5 px-3">Conteúdo</th>
+                        <th className="py-2.5 px-3 text-right">Tamanho</th>
+                        <th className="py-2.5 px-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {snapshotsIDB.map((snap) => (
+                        <tr key={snap.id} className="hover:bg-blue-50/30">
+                          <td className="py-2.5 px-3 whitespace-nowrap font-semibold text-gray-900">
+                            {new Date(snap.criadoEm).toLocaleString('pt-AO')}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              snap.origem === 'manual'
+                                ? 'bg-blue-100 text-blue-800'
+                                : snap.origem === 'pre_atualizacao'
+                                ? 'bg-amber-100 text-amber-800'
+                                : snap.origem === 'auto_download'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {snap.origem === 'manual'
+                                ? 'Manual'
+                                : snap.origem === 'pre_atualizacao'
+                                ? 'Pré-Atualização'
+                                : snap.origem === 'auto_download'
+                                ? 'Auto-Download'
+                                : 'Automático'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 min-w-[200px]">
+                            <p className="font-bold text-gray-800 truncate max-w-[260px]">{snap.escolaNome}</p>
+                            <p className="text-[11px] text-gray-500 truncate max-w-[260px]">{snap.motivo}</p>
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-[11px] text-gray-600">
+                            {snap.resumo.alunos} al. • {snap.resumo.funcionarios} func. • {snap.resumo.notas} notas
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right font-bold text-gray-800 tabular-nums">
+                            {(snap.tamanhoBytes / 1024).toFixed(1)} KB
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right">
+                            <div className="inline-flex items-center space-x-1">
+                              <button
+                                type="button"
+                                onClick={() => handleExportarSnapshotIDB(snap)}
+                                className="px-2 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg cursor-pointer"
+                                title="Exportar este snapshot para ficheiro .json"
+                              >
+                                Baixar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSnapshotParaRestaurar(snap)}
+                                className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg cursor-pointer"
+                                title="Restaurar dados a partir deste snapshot"
+                              >
+                                Restaurar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSnapshotParaEliminar(snap)}
+                                className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                                title="Eliminar snapshot do IndexedDB"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal inline: Confirmar Restauro de Snapshot IndexedDB */}
+            {snapshotParaRestaurar && (
+              <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+                  <div className="flex items-center space-x-2 text-emerald-700">
+                    <RotateCcw className="h-6 w-6 shrink-0" />
+                    <h3 className="text-base font-black text-gray-900">Restaurar Snapshot do IndexedDB</h3>
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    Pretende restaurar o snapshot de <strong>{new Date(snapshotParaRestaurar.criadoEm).toLocaleString('pt-AO')}</strong> ({snapshotParaRestaurar.escolaNome})? O sistema gravará automaticamente um snapshot de salvaguarda antes de aplicar o restauro.
+                  </p>
+                  <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => setSnapshotParaRestaurar(null)}
+                      disabled={restaurandoSnapshotIDB}
+                      className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmarRestaurarSnapshotIDB}
+                      disabled={restaurandoSnapshotIDB}
+                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl cursor-pointer disabled:opacity-60"
+                    >
+                      {restaurandoSnapshotIDB ? 'A restaurar...' : 'Confirmar Restauro'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal inline: Confirmar Eliminação de Snapshot IndexedDB */}
+            {snapshotParaEliminar && (
+              <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+                  <div className="flex items-center space-x-2 text-rose-600">
+                    <AlertTriangle className="h-6 w-6 shrink-0" />
+                    <h3 className="text-base font-black text-gray-900">Eliminar Snapshot do IndexedDB</h3>
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    Tem a certeza de que pretende eliminar o snapshot de <strong>{new Date(snapshotParaEliminar.criadoEm).toLocaleString('pt-AO')}</strong>? Esta ação apenas remove esta cópia guardada no navegador.
+                  </p>
+                  <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => setSnapshotParaEliminar(null)}
+                      className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmarEliminarSnapshotIDB}
+                      className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+                    >
+                      Confirmar Eliminação
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Módulos de Backup Específico JSON */}
@@ -2366,13 +2965,48 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
       {/* ========================================== */}
       {activeTab === 'auditoria' && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold text-gray-900">Registo Imutável de Auditoria (Logs do Sistema)</h3>
-              <p className="text-xs text-gray-500">Rastreabilidade forense de todas as operações administrativas e letivas</p>
+              <h3 className="text-base font-bold text-gray-900">
+                {isAdminGeral
+                  ? 'Auditoria Geral do Sistema & Todas as Escolas'
+                  : `Registo Imutável de Auditoria — ${escola.nomeOficial}`}
+              </h3>
+              <p className="text-xs text-gray-500">
+                {isAdminGeral
+                  ? 'Monitorização forense global de todas as instituições da rede nacional e das operações centrais do sistema'
+                  : 'Rastreabilidade forense isolada e exclusiva das operações administrativas e letivas desta instituição'}
+              </p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={buscaAudit}
+                  onChange={(e) => setBuscaAudit(e.target.value)}
+                  placeholder="Pesquisar utilizador, ação ou detalhe..."
+                  className="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs font-medium text-gray-800 focus:ring-2 focus:ring-blue-600 focus:outline-none w-52"
+                />
+              </div>
+
+              {isAdminGeral && (
+                <select
+                  value={filtroEscolaAudit}
+                  onChange={(e) => setFiltroEscolaAudit(e.target.value)}
+                  className="p-2 border border-indigo-300 bg-indigo-50/50 rounded-lg text-xs font-bold text-indigo-950 focus:ring-2 focus:ring-indigo-600"
+                >
+                  <option value="TODAS">Todas as Escolas & Sistema Global ({logsVisiveis.length})</option>
+                  <option value="ADMIN_GLOBAL">Sistema Global (Admin Geral)</option>
+                  {todasEscolasSistema.map(esc => (
+                    <option key={esc.id} value={esc.id}>
+                      {esc.nomeOficial || esc.nome}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               <select
                 value={filtroAcao}
                 onChange={(e) => setFiltroAcao(e.target.value)}
@@ -2383,6 +3017,8 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 <option value="Autenticação">Autenticação</option>
                 <option value="Aluno">Gestão de Alunos</option>
                 <option value="Nota">Lançamento de Notas</option>
+                <option value="Relatório">Relatórios</option>
+                <option value="Coordenação">Coordenações</option>
                 <option value="Backup">Backups</option>
                 <option value="Financeiro">Financeiro</option>
               </select>
@@ -2399,11 +3035,31 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
             </div>
           </div>
 
+          {isAdminGeral && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[10px] font-bold uppercase text-slate-500 block">Total Global Auditado</span>
+                <span className="text-lg font-black text-slate-900">{logsVisiveis.length} registos</span>
+              </div>
+              <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl">
+                <span className="text-[10px] font-bold uppercase text-indigo-700 block">Escolas com Registos</span>
+                <span className="text-lg font-black text-indigo-950">
+                  {new Set(logsVisiveis.map(l => l.escolaId).filter(id => id && id !== 'ADMIN_GLOBAL' && id !== 'SISTEMA')).size} escolas
+                </span>
+              </div>
+              <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl">
+                <span className="text-[10px] font-bold uppercase text-amber-800 block">Registos Filtrados Atuais</span>
+                <span className="text-lg font-black text-amber-950">{logsFiltrados.length} exibidos</span>
+              </div>
+            </div>
+          )}
+
           <div className="overflow-x-auto border border-gray-200 rounded-xl">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-700 font-bold border-b border-gray-200 uppercase text-[10px]">
                 <tr>
                   <th className="py-3 px-3">Data / Hora</th>
+                  {isAdminGeral && <th className="py-3 px-3">Escola / Âmbito</th>}
                   <th className="py-3 px-3">Utilizador / Papel</th>
                   <th className="py-3 px-3">Ação</th>
                   <th className="py-3 px-3">Detalhes</th>
@@ -2411,31 +3067,56 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {logsFiltrados.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-2.5 px-3 font-mono text-gray-600 whitespace-nowrap">
-                      {log.dataHora}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-bold text-gray-900">{log.utilizadorNome}</div>
-                      <span className="text-[10px] text-blue-700 font-semibold">{log.papel}</span>
-                    </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-800">
-                      {log.acao}
-                    </td>
-                    <td className="py-2.5 px-3 text-gray-600 max-w-md">
-                      {log.detalhe?.includes('[APOIO TÉCNICO AUTORIZADO') && (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200 mr-1.5 mb-1">
-                          Apoio Técnico DTI
-                        </span>
-                      )}
-                      <span>{log.detalhe}</span>
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-gray-500 text-[11px]">
-                      {log.ip}
+                {logsFiltrados.length === 0 ? (
+                  <tr>
+                    <td colSpan={isAdminGeral ? 6 : 5} className="py-8 text-center text-gray-500 font-medium">
+                      Nenhum registo de auditoria encontrado para os filtros selecionados.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  logsFiltrados.map((log) => {
+                    const ehGlobal = !log.escolaId || log.escolaId === 'ADMIN_GLOBAL' || log.escolaId === 'SISTEMA';
+                    const escolaLabel = ehGlobal
+                      ? 'Sistema Global'
+                      : (mapaNomesEscolasAudit.get(log.escolaId) || log.escolaId);
+                    return (
+                      <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-2.5 px-3 font-mono text-gray-600 whitespace-nowrap">
+                          {log.dataHora}
+                        </td>
+                        {isAdminGeral && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              ehGlobal
+                                ? 'bg-purple-100 text-purple-800 border-purple-200'
+                                : 'bg-blue-50 text-blue-800 border-blue-200'
+                            }`}>
+                              {escolaLabel}
+                            </span>
+                          </td>
+                        )}
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-gray-900">{log.utilizadorNome}</div>
+                          <span className="text-[10px] text-blue-700 font-semibold">{log.papel}</span>
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-slate-800">
+                          {log.acao}
+                        </td>
+                        <td className="py-2.5 px-3 text-gray-600 max-w-md">
+                          {log.detalhe?.includes('[APOIO TÉCNICO AUTORIZADO') && (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200 mr-1.5 mb-1">
+                              Apoio Técnico DTI
+                            </span>
+                          )}
+                          <span>{log.detalhe}</span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-gray-500 text-[11px]">
+                          {log.ip}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

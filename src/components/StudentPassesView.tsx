@@ -117,6 +117,13 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
 
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerDocAluno = visibilidadeUsuario.dadosSensiveis.verDocumentosIdentificacaoAlunos;
+  const podeVerContactoAluno = visibilidadeUsuario.dadosSensiveis.verContactosAlunosEncarregados;
+
   useEffect(() => {
     const syncListener = () => {
       setConfigSistema(dbService.getConfiguracaoSistema());
@@ -127,7 +134,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   }, [escola.id, escola.configuracaoPasses]);
 
   const todasClasses = useMemo(() => {
-    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome);
+    const fromCfg = dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo).filter(c => c.ativa !== false).map(c => c.nome);
     const fromTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
     const fromAlunos = alunos.map(a => normalizarClasse(a.classeId)).filter(Boolean);
     return ordenarClassesMED([
@@ -136,12 +143,21 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       ...fromTurmas,
       ...fromAlunos
     ]);
-  }, [escola.id, turmas, alunos]);
+  }, [escola.id, escola.anoLectivoActivo, turmas, alunos]);
 
   const todosCursos = useMemo(() => {
     const fromCfg = dbService.getCursos(escola.id).filter(c => c.ativo !== false).map(c => c.nome).filter(Boolean);
-    const fromTurmas = turmas.map(t => t.curso).filter((c): c is string => Boolean(c && c.trim()));
-    const fromAlunos = alunos.map(a => a.curso).filter((c): c is string => Boolean(c && c.trim()));
+    const fromTurmas = turmas
+      .filter(t => isSegundoCiclo(t.classe))
+      .map(t => t.curso)
+      .filter((c): c is string => Boolean(c && c.trim()));
+    const fromAlunos = alunos
+      .filter(a => {
+        const t = turmas.find(tr => tr.id === a.turmaId);
+        return isSegundoCiclo(t?.classe || a.classeId);
+      })
+      .map(a => a.curso)
+      .filter((c): c is string => Boolean(c && c.trim()));
     return Array.from(new Set([...fromCfg, ...fromTurmas, ...fromAlunos, ...CURSOS_SEGUNDO_CICLO])).sort((a, b) =>
       a.localeCompare(b, 'pt', { sensitivity: 'base' })
     );
@@ -156,10 +172,10 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
   }, [escola.id, turmas]);
 
   const todosTurnos = useMemo(() => {
-    const fromCfg = dbService.getTurnosConfigs(escola.id).filter(t => t.ativo !== false).map(t => t.nome).filter(Boolean);
+    const fromCfg = dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo).filter(t => t.ativo !== false).map(t => t.nome).filter(Boolean);
     const fromTurmas = turmas.map(t => t.turno).filter(Boolean);
     return Array.from(new Set(['Manhã', 'Tarde', 'Noite', ...fromCfg, ...fromTurmas]));
-  }, [escola.id, turmas]);
+  }, [escola.id, escola.anoLectivoActivo, turmas]);
 
   const turmasDoFiltro = useMemo(() => {
     const porClasse = selectedClasseFilter === 'TODAS'
@@ -210,7 +226,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       if (searchTerm.trim()) {
         const matchNome = safeSearchMatch(aluno.nomeCompleto, searchTerm);
         const matchProc = safeSearchMatch(aluno.numeroProcesso || aluno.codigoMatricula, searchTerm);
-        const matchBi = safeSearchMatch(aluno.numeroBI, searchTerm);
+        const matchBi = podeVerDocAluno && safeSearchMatch(aluno.numeroBI, searchTerm);
         const matchTurma = safeSearchMatch(turma?.nome, searchTerm);
         const matchSala = safeSearchMatch(turma?.sala, searchTerm);
         const matchCurso = safeSearchMatch(turma?.curso || aluno.curso, searchTerm);
@@ -228,7 +244,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
       if (cmpTurma !== 0) return cmpTurma;
       return compararNomesPt(a, b);
     });
-  }, [alunos, selectedTurmaId, selectedTurnoFilter, selectedClasseFilter, selectedCursoFilter, selectedSalaFilter, searchTerm, turmasMap]);
+  }, [alunos, selectedTurmaId, selectedTurnoFilter, selectedClasseFilter, selectedCursoFilter, selectedSalaFilter, searchTerm, turmasMap, podeVerDocAluno]);
 
   // Funcionários, Título e Nome Completo do Director Geral (como em todos os documentos oficiais)
   const funcionariosEscola = useMemo(() => dbService.getFuncionarios(escola.id), [escola.id]);
@@ -384,10 +400,10 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
         'Classe': aluno.classeId || turma?.classe || '',
         'Turma': turma?.nome || '',
         'Turno': turma?.turno || aluno.periodo || 'Manhã',
-        'Nº do BI': aluno.numeroBI,
-        'Validade do BI': aluno.dataValidadeBI || '—',
+        'Nº do BI': podeVerDocAluno ? aluno.numeroBI : 'Restrito pela Direção',
+        'Validade do BI': podeVerDocAluno ? (aluno.dataValidadeBI || '—') : 'Restrito',
         'Encarregado': aluno.encarregadoNome || aluno.nomeEncarregado || '',
-        'Contacto Encarregado': aluno.encarregadoTelefone || aluno.telefoneEncarregado || '',
+        'Contacto Encarregado': podeVerContactoAluno ? (aluno.encarregadoTelefone || aluno.telefoneEncarregado || '') : 'Restrito pela Direção',
         'Emissão': dataEmissao,
         'Validade Passe': dataValidade
       };
@@ -538,6 +554,9 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                 const novaC = e.target.value;
                 setSelectedClasseFilter(novaC);
                 setSelectedTurmaId('TODAS');
+                if (novaC !== 'TODAS' && !isSegundoCiclo(novaC)) {
+                  setSelectedCursoFilter('TODOS');
+                }
               }}
               className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
             >
@@ -548,22 +567,24 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
             </select>
           </div>
 
-          <div>
-            <label className="block font-bold text-gray-700 mb-1">2. Curso / Área de Formação</label>
-            <select
-              value={selectedCursoFilter}
-              onChange={(e) => {
-                setSelectedCursoFilter(e.target.value);
-                setSelectedTurmaId('TODAS');
-              }}
-              className="w-full p-2 border border-gray-300 rounded-lg font-bold text-purple-900 bg-white"
-            >
-              <option value="TODOS">Todos os Cursos</option>
-              {todosCursos.map(cur => (
-                <option key={`pass-cur-${cur}`} value={cur}>{cur}</option>
-              ))}
-            </select>
-          </div>
+          {(selectedClasseFilter === 'TODAS' || isSegundoCiclo(selectedClasseFilter)) && (
+            <div>
+              <label className="block font-bold text-gray-700 mb-1">2. Curso (IIº Ciclo)</label>
+              <select
+                value={selectedCursoFilter}
+                onChange={(e) => {
+                  setSelectedCursoFilter(e.target.value);
+                  setSelectedTurmaId('TODAS');
+                }}
+                className="w-full p-2 border border-gray-300 rounded-lg font-bold text-purple-900 bg-white"
+              >
+                <option value="TODOS">Todos os Cursos</option>
+                {todosCursos.map(cur => (
+                  <option key={`pass-cur-${cur}`} value={cur}>{cur}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block font-bold text-gray-700 mb-1">3. Sala de Aula</label>
@@ -596,7 +617,7 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
               </option>
               {turmasDoFiltro.map(t => (
                 <option key={t.id} value={t.id}>
-                  {t.nome} • {t.sala || 'Sala'} {t.curso ? `• ${t.curso}` : ''}
+                  {t.nome} • {t.sala || 'Sala'} {isSegundoCiclo(t.classe) && t.curso ? `• ${t.curso}` : ''}
                 </option>
               ))}
             </select>
@@ -737,10 +758,23 @@ export const StudentPassesView: React.FC<StudentPassesViewProps> = ({
                   {grupoPagina.map((aluno, idxInPage) => {
                     const turma = turmas.find(t => t.id === aluno.turmaId) || turmaExemplo;
                     const numeroSequencial = mapaNumeroSequencial.get(aluno.id) ?? (pageIndex * passesPorPagina + idxInPage + 1);
+                    const alunoPasseSeguro: Aluno = {
+                      ...aluno,
+                      ...(podeVerDocAluno
+                        ? {}
+                        : { numeroDocumento: 'Restrito', numeroBI: 'Restrito' }),
+                      ...(podeVerContactoAluno
+                        ? {}
+                        : {
+                            encarregadoTelefone: '',
+                            telefoneEncarregado: '',
+                            telefone: ''
+                          })
+                    };
                     return (
                       <SchoolPassCard
                         key={aluno.id}
-                        aluno={aluno}
+                        aluno={alunoPasseSeguro}
                         turma={turma}
                         escola={escola}
                         passConfig={passConfig}

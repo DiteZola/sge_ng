@@ -43,7 +43,19 @@ import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import { formatarDataAngolana, formatarDataHoraAngolana } from '../utils/dateFormat';
-import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
+import {
+  filtrarDisciplinasDaClasse,
+  isSegundoCiclo,
+  isProfessorCoordenadorTurma
+} from '../services/academicHierarchyService';
+import { PedagogicalReportsBuilder } from './PedagogicalReportsBuilder';
+import {
+  flexionarGenero,
+  obterTituloSubdiretorPedagogico,
+  obterNomeSubdiretorPedagogico,
+  obterTituloDiretorSimples,
+  obterNomeDiretorGeral
+} from '../utils/directorHelper';
 
 interface ReportsViewProps {
   escola: Escola;
@@ -200,6 +212,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   turmas: propTurmas,
   alunos: propAlunos,
   disciplinas: propDisciplinas,
+  notasConsolidadas = [],
   funcionarios: propFuncionarios,
   anoLectivoConfigs = [],
   atribuicoes: propAtribuicoes,
@@ -254,6 +267,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     !isDirecaoOuAdmin && (isProfessor || isCoordenadorDisciplina || isCoordenadorTurno);
 
   const podeHomologar = isAdminGeral || isDiretorGeral || isSubdiretor || isCoordenadorPedagogico;
+  const [activeReportTab, setActiveReportTab] = useState<
+    'acontecimentos' | 'coordenacao_anual' | 'docente_periodo'
+  >('acontecimentos');
 
   // Filtro de escola para Admin Geral ('TODAS' por padrão para visão global)
   const [escolaFiltroAdmin, setEscolaFiltroAdmin] = useState<string>(() =>
@@ -282,46 +298,46 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return map;
   }, [escolas, escola]);
 
-  // Dados base consolidados
+  // Dados base consolidados (escopo do ano letivo ativo da escola selecionada)
+  const anoFiltroEfetivo = escolaExibida?.anoLectivoActivo || escola.anoLectivoActivo || '';
+
   const todasTurmas = useMemo(() => {
     if (isAdminGeral) {
       const todas = dbService.getTurmas();
       return escolaFiltroAdmin === 'TODAS'
         ? todas
-        : todas.filter(t => t.escolaId === escolaFiltroAdmin);
+        : todas.filter(t => t.escolaId === escolaFiltroAdmin && (!anoFiltroEfetivo || !t.anoLectivo || t.anoLectivo === anoFiltroEfetivo));
     }
     return propTurmas;
-  }, [isAdminGeral, escolaFiltroAdmin, propTurmas, refreshTick]);
+  }, [isAdminGeral, escolaFiltroAdmin, anoFiltroEfetivo, propTurmas, refreshTick]);
 
   const todosAlunos = useMemo(() => {
     if (isAdminGeral) {
       const todos = dbService.getAlunos();
       return escolaFiltroAdmin === 'TODAS'
         ? todos
-        : todos.filter(a => a.escolaId === escolaFiltroAdmin);
+        : todos.filter(a => a.escolaId === escolaFiltroAdmin && (!anoFiltroEfetivo || !(a.anoLectivo || a.anoMatricula) || (a.anoLectivo || a.anoMatricula) === anoFiltroEfetivo));
     }
     return propAlunos;
-  }, [isAdminGeral, escolaFiltroAdmin, propAlunos, refreshTick]);
+  }, [isAdminGeral, escolaFiltroAdmin, anoFiltroEfetivo, propAlunos, refreshTick]);
 
   const todasDisciplinas = useMemo(() => {
     if (isAdminGeral) {
-      const todas = dbService.getDisciplinas();
-      return escolaFiltroAdmin === 'TODAS'
-        ? todas
-        : todas.filter(d => d.escolaId === escolaFiltroAdmin);
+      const todas = dbService.getDisciplinas(escolaFiltroAdmin === 'TODAS' ? undefined : escolaFiltroAdmin, escolaFiltroAdmin === 'TODAS' ? undefined : anoFiltroEfetivo);
+      return todas;
     }
     return propDisciplinas;
-  }, [isAdminGeral, escolaFiltroAdmin, propDisciplinas, refreshTick]);
+  }, [isAdminGeral, escolaFiltroAdmin, anoFiltroEfetivo, propDisciplinas, refreshTick]);
 
   const todasAtribuicoes = useMemo(() => {
     if (isAdminGeral) {
       const todas = dbService.getAtribuicoes();
       return escolaFiltroAdmin === 'TODAS'
         ? todas
-        : todas.filter(a => a.escolaId === escolaFiltroAdmin);
+        : todas.filter(a => a.escolaId === escolaFiltroAdmin && (!anoFiltroEfetivo || !a.anoLectivo || a.anoLectivo === anoFiltroEfetivo));
     }
-    return propAtribuicoes || dbService.getAtribuicoes(escola.id);
-  }, [isAdminGeral, escolaFiltroAdmin, propAtribuicoes, escola.id, refreshTick]);
+    return propAtribuicoes || dbService.getAtribuicoes(escola.id, escola.anoLectivoActivo);
+  }, [isAdminGeral, escolaFiltroAdmin, anoFiltroEfetivo, propAtribuicoes, escola.id, escola.anoLectivoActivo, refreshTick]);
 
   const todosFuncionarios = useMemo(() => {
     if (isAdminGeral) {
@@ -333,6 +349,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return propFuncionarios || dbService.getFuncionarios(escola.id);
   }, [isAdminGeral, escolaFiltroAdmin, propFuncionarios, escola.id, refreshTick]);
 
+  const todosHorarios = useMemo(() => {
+    return dbService.obterHorarios(isAdminGeral ? (escolaFiltroAdmin === 'TODAS' ? undefined : escolaFiltroAdmin) : escola.id, isAdminGeral && escolaFiltroAdmin === 'TODAS' ? undefined : anoFiltroEfetivo);
+  }, [isAdminGeral, escolaFiltroAdmin, escola.id, anoFiltroEfetivo, refreshTick]);
+
   // Escopo do Docente / Coordenador de Turno / Disciplina
   const minhasAtribuicoes = useMemo(() => {
     if (!currentUser || !isDocenteEscopoRestrito) return [];
@@ -342,18 +362,27 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     });
   }, [currentUser, isDocenteEscopoRestrito, todasAtribuicoes, escola.id]);
 
+  const meusHorarios = useMemo(() => {
+    if (!currentUser || !isDocenteEscopoRestrito) return [];
+    return todosHorarios.filter(h => {
+      if (h.escolaId && h.escolaId !== escola.id) return false;
+      return h.professorId === currentUser.id;
+    });
+  }, [currentUser, isDocenteEscopoRestrito, todosHorarios, escola.id]);
+
   const minhasTurmasIds = useMemo(() => {
     const ids = new Set<string>();
     if (!currentUser) return ids;
     minhasAtribuicoes.forEach(a => {
       if (a.turmaId) ids.add(a.turmaId);
     });
+    meusHorarios.forEach(h => {
+      if (h.turmaId) ids.add(h.turmaId);
+    });
     todasTurmas.forEach(t => {
       if (t.escolaId !== escola.id) return;
       if (
-        t.coordenadorId === currentUser.id ||
-        (t.coordenadorNome &&
-          normalizarTexto(t.coordenadorNome) === normalizarTexto(currentUser.nomeCompleto)) ||
+        isProfessorCoordenadorTurma(t, currentUser.id) ||
         (t.directorTurmaNome &&
           normalizarTexto(t.directorTurmaNome) === normalizarTexto(currentUser.nomeCompleto))
       ) {
@@ -368,12 +397,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       }
     });
     return ids;
-  }, [currentUser, minhasAtribuicoes, todasTurmas, escola.id, isCoordenadorTurno]);
+  }, [currentUser, minhasAtribuicoes, meusHorarios, todasTurmas, escola.id, isCoordenadorTurno]);
+
+  const minhasClassesSet = useMemo(() => {
+    const set = new Set<string>();
+    todasTurmas.forEach(t => {
+      if (minhasTurmasIds.has(t.id) && t.classe) {
+        set.add(normalizarTexto(t.classe));
+      }
+    });
+    return set;
+  }, [todasTurmas, minhasTurmasIds]);
 
   const minhasDisciplinasIds = useMemo(() => {
     const ids = new Set<string>();
     minhasAtribuicoes.forEach(a => {
       if (a.disciplinaId) ids.add(a.disciplinaId);
+    });
+    meusHorarios.forEach(h => {
+      if (h.disciplinaId) ids.add(h.disciplinaId);
     });
     if (isCoordenadorDisciplina && currentUser?.especialidade) {
       const espNorm = normalizarTexto(currentUser.especialidade);
@@ -384,7 +426,34 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       });
     }
     return ids;
-  }, [minhasAtribuicoes, isCoordenadorDisciplina, currentUser, todasDisciplinas, escola.id]);
+  }, [minhasAtribuicoes, meusHorarios, isCoordenadorDisciplina, currentUser, todasDisciplinas, escola.id]);
+
+  const podeVerAbaCoordenacao = useMemo(() => {
+    if (isDirecaoOuAdmin || isCoordenadorDisciplina || isCoordenadorTurno) return true;
+    if (!currentUser) return false;
+    if (todasTurmas.some(t => isProfessorCoordenadorTurma(t, currentUser.id))) return true;
+    const coords = dbService.getCoordenacoes(escolaExibida.id, escolaExibida.anoLectivoActivo);
+    return coords.some(c => (c.funcionarioId || c.professorId) === currentUser.id);
+  }, [
+    isDirecaoOuAdmin,
+    isCoordenadorDisciplina,
+    isCoordenadorTurno,
+    currentUser,
+    todasTurmas,
+    escolaExibida.id,
+    escolaExibida.anoLectivoActivo,
+    refreshTick
+  ]);
+
+  const podeVerAbaDocente = useMemo(() => {
+    return (
+      isDirecaoOuAdmin ||
+      isProfessor ||
+      Boolean(currentUser?.ehProfessor) ||
+      Boolean(currentUser?.ehAdministrativoQueLeciona) ||
+      minhasAtribuicoes.length > 0
+    );
+  }, [isDirecaoOuAdmin, isProfessor, currentUser, minhasAtribuicoes.length]);
 
   // Anos letivos disponíveis
   const anosConfigs = useMemo(() => {
@@ -654,7 +723,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           if (!ehDaEscola && !ehCircularNacional) return false;
         }
 
-        // Escopo por Perfil
+        // Escopo rigoroso por Perfil: Professor vê apenas relatórios das suas disciplinas, turmas, coordenações e classes (nunca toda a escola)
         if (isDocenteEscopoRestrito && currentUser) {
           const ehMeu =
             item.criadoPorId === currentUser.id ||
@@ -664,23 +733,30 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
           if (ehMeu) return true;
 
-          // Documentos exclusivos da Direção ou Rede Nacional restrita não aparecem ao docente
-          if (item.nivelVisibilidade === 'Direcao' || item.origem === 'Conselho_Direcao') {
+          // Documentos exclusivos da Direção, Conselho de Direção ou Rede Nacional nunca aparecem ao docente
+          if (
+            item.nivelVisibilidade === 'Direcao' ||
+            item.nivelVisibilidade === 'Rede_Nacional' ||
+            item.origem === 'Conselho_Direcao'
+          ) {
             return false;
           }
 
-          // Eventos/Relatórios públicos para toda a escola ou corpo docente
-          if (
-            item.nivelVisibilidade === 'Publico_Escola' ||
-            item.publicoAlvo === 'Toda a Comunidade' ||
-            item.publicoAlvo === 'Professores'
-          ) {
+          // Relatórios ou ocorrências vinculados a uma turma: exige que o docente lecione ou coordene essa turma
+          if (item.turmaId) {
+            return minhasTurmasIds.has(item.turmaId);
+          }
+
+          // Relatórios vinculados a disciplina específica
+          if (item.disciplinaId && minhasDisciplinasIds.has(item.disciplinaId)) {
             return true;
           }
 
-          // Relatórios ou ocorrências da mesma turma/disciplina/turno sob responsabilidade do docente
-          if (item.turmaId && minhasTurmasIds.has(item.turmaId)) return true;
-          if (item.disciplinaId && minhasDisciplinasIds.has(item.disciplinaId)) return true;
+          // Relatórios vinculados a uma classe específica sob coordenação/docência
+          if (item.classe && minhasClassesSet.has(normalizarTexto(item.classe))) {
+            return true;
+          }
+
           if (
             isCoordenadorTurno &&
             item.turno &&
@@ -710,6 +786,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     currentUser,
     minhasTurmasIds,
     minhasDisciplinasIds,
+    minhasClassesSet,
     isCoordenadorTurno
   ]);
 
@@ -827,33 +904,39 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   );
   const [formEstado, setFormEstado] = useState<EstadoRelatorioAcontecimento>('Registado');
 
-  // Turmas disponíveis para associação no formulário conforme perfil
+  // Turmas disponíveis para associação no formulário e filtro conforme perfil
   const turmasDisponiveisForm = useMemo(() => {
+    const anoForm = formEscolaId === 'REDE' ? '' : (escolasMap.get(formEscolaId)?.anoLectivoActivo || anoFiltroEfetivo);
     const base = isAdminGeral
-      ? dbService.getTurmas().filter(t => formEscolaId === 'REDE' || t.escolaId === formEscolaId)
+      ? dbService.getTurmas().filter(t => (formEscolaId === 'REDE' || t.escolaId === formEscolaId) && (!anoForm || !t.anoLectivo || t.anoLectivo === anoForm))
       : todasTurmas;
-    if (isDocenteEscopoRestrito && minhasTurmasIds.size > 0) {
+    if (isDocenteEscopoRestrito) {
       return base.filter(t => minhasTurmasIds.has(t.id));
     }
     return base;
-  }, [isAdminGeral, formEscolaId, todasTurmas, isDocenteEscopoRestrito, minhasTurmasIds]);
+  }, [isAdminGeral, formEscolaId, escolasMap, anoFiltroEfetivo, todasTurmas, isDocenteEscopoRestrito, minhasTurmasIds]);
 
   const disciplinasDisponiveisForm = useMemo(() => {
+    const anoForm = formEscolaId === 'REDE' ? undefined : (escolasMap.get(formEscolaId)?.anoLectivoActivo || anoFiltroEfetivo);
     let base = isAdminGeral
-      ? dbService.getDisciplinas(formEscolaId === 'REDE' ? undefined : formEscolaId)
+      ? dbService.getDisciplinas(formEscolaId === 'REDE' ? undefined : formEscolaId, anoForm)
       : todasDisciplinas;
     if (formTurmaId) {
       const turmaForm = turmasDisponiveisForm.find(t => t.id === formTurmaId);
       if (turmaForm) {
-        const comp = filtrarDisciplinasDaClasse(base, turmaForm.classe, turmaForm.curso);
+        const comp = filtrarDisciplinasDaClasse(
+          base,
+          turmaForm.classe,
+          isSegundoCiclo(turmaForm.classe) ? turmaForm.curso : undefined
+        );
         if (comp.length > 0) base = comp;
       }
     }
-    if (isDocenteEscopoRestrito && minhasDisciplinasIds.size > 0) {
+    if (isDocenteEscopoRestrito) {
       return base.filter(d => minhasDisciplinasIds.has(d.id));
     }
     return base;
-  }, [isAdminGeral, formEscolaId, formTurmaId, turmasDisponiveisForm, todasDisciplinas, isDocenteEscopoRestrito, minhasDisciplinasIds]);
+  }, [isAdminGeral, formEscolaId, escolasMap, anoFiltroEfetivo, formTurmaId, turmasDisponiveisForm, todasDisciplinas, isDocenteEscopoRestrito, minhasDisciplinasIds]);
 
   const abrirModalNovo = (categoriaInicial: CategoriaRelatorioAcontecimento = 'Reuniao') => {
     setEditandoId(null);
@@ -1139,6 +1222,84 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in pb-16">
+      {/* NAVEGAÇÃO PRINCIPAL DE RELATÓRIOS OFICIAIS */}
+      <div className="bg-white rounded-2xl p-2 border border-slate-200 shadow-xs flex flex-wrap items-center gap-2 print:hidden">
+        <button
+          type="button"
+          onClick={() => setActiveReportTab('acontecimentos')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all cursor-pointer ${
+            activeReportTab === 'acontecimentos'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Acontecimentos, Reuniões &amp; Palestras</span>
+        </button>
+
+        {podeVerAbaCoordenacao && (
+          <button
+            type="button"
+            onClick={() => setActiveReportTab('coordenacao_anual')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all cursor-pointer ${
+              activeReportTab === 'coordenacao_anual'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <Award className="w-4 h-4" />
+            <span>Relatório Final de Coordenação (Anual)</span>
+          </button>
+        )}
+
+        {podeVerAbaDocente && (
+          <button
+            type="button"
+            onClick={() => setActiveReportTab('docente_periodo')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center space-x-2 transition-all cursor-pointer ${
+              activeReportTab === 'docente_periodo'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Relatório Docente (Trimestral / Anual)</span>
+          </button>
+        )}
+      </div>
+
+      {activeReportTab === 'coordenacao_anual' && podeVerAbaCoordenacao && (
+        <PedagogicalReportsBuilder
+          mode="COORDENACAO_FINAL_ANO"
+          escola={escolaExibida}
+          currentUser={currentUser}
+          turmas={todasTurmas}
+          alunos={todosAlunos}
+          disciplinas={todasDisciplinas}
+          notasConsolidadas={notasConsolidadas}
+          funcionarios={todosFuncionarios}
+          atribuicoes={todasAtribuicoes}
+          anosDisponiveis={anosDisponiveis}
+        />
+      )}
+
+      {activeReportTab === 'docente_periodo' && podeVerAbaDocente && (
+        <PedagogicalReportsBuilder
+          mode="DOCENTE_TRIMESTRAL_ANUAL"
+          escola={escolaExibida}
+          currentUser={currentUser}
+          turmas={todasTurmas}
+          alunos={todosAlunos}
+          disciplinas={todasDisciplinas}
+          notasConsolidadas={notasConsolidadas}
+          funcionarios={todosFuncionarios}
+          atribuicoes={todasAtribuicoes}
+          anosDisponiveis={anosDisponiveis}
+        />
+      )}
+
+      {activeReportTab === 'acontecimentos' && (
+        <>
       {/* CABEÇALHO DE COMANDO */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm print:hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1359,9 +1520,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800"
             >
               <option value="TODAS">Todas as Turmas</option>
-              {todasTurmas.map(t => (
+              {(isDocenteEscopoRestrito ? todasTurmas.filter(t => minhasTurmasIds.has(t.id)) : todasTurmas).map(t => (
                 <option key={t.id} value={t.id}>
-                  {t.nome} ({t.classe} • {t.turno}{t.curso ? ` • ${t.curso}` : ''})
+                  {t.nome} ({t.classe} • {t.turno}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''})
                 </option>
               ))}
             </select>
@@ -1755,24 +1916,28 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           >
             <div>
               <p className="font-bold uppercase text-slate-900">
-                {isDocenteEscopoRestrito ? 'O(A) Docente / Coordenador(a)' : 'O Subdirector Pedagógico'}
+                {isDocenteEscopoRestrito
+                  ? flexionarGenero(currentUser?.genero, 'O Docente / Coordenador', 'A Docente / Coordenadora')
+                  : obterTituloSubdiretorPedagogico(escolaExibida, todosFuncionarios)}
               </p>
               <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
               <p className="text-[11px] font-semibold text-slate-700 mt-1">
                 {isDocenteEscopoRestrito
                   ? currentUser?.nomeCompleto || 'Assinatura'
-                  : escolaExibida.subdiretorPedagogicoNome || 'Assinatura & Rubrica'}
+                  : obterNomeSubdiretorPedagogico(escolaExibida, todosFuncionarios)}
               </p>
             </div>
             <div>
               <p className="font-bold uppercase text-slate-900">
-                {isVisaoRedeTodas ? 'Supervisão Central da Rede Escolar' : 'O Director Geral da Instituição'}
+                {isVisaoRedeTodas
+                  ? 'Supervisão Central da Rede Escolar'
+                  : obterTituloDiretorSimples(escolaExibida, todosFuncionarios)}
               </p>
               <div className="w-52 h-10 mx-auto border-b border-black mt-4" />
               <p className="text-[11px] font-semibold text-slate-700 mt-1">
                 {isVisaoRedeTodas
                   ? 'Administrador Geral'
-                  : escolaExibida.diretorGeralNome || 'Direcção da Escola'}
+                  : obterNomeDiretorGeral(escolaExibida, todosFuncionarios)}
               </p>
             </div>
           </div>
@@ -2153,7 +2318,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     <option value="">Geral / Sem turma específica</option>
                     {turmasDisponiveisForm.map(t => (
                       <option key={t.id} value={t.id}>
-                        {t.nome} ({t.classe} • {t.turno}{t.sala ? ` • ${t.sala}` : ''}{t.curso ? ` • ${t.curso}` : ''})
+                        {t.nome} ({t.classe} • {t.turno}{t.sala ? ` • ${t.sala}` : ''}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''})
                       </option>
                     ))}
                   </select>
@@ -2260,6 +2425,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

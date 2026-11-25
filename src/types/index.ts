@@ -113,6 +113,13 @@ export interface Escola {
     dataInicio: string;
     motivo: string;
   };
+  // Tempos letivos configuráveis do horário escolar
+  temposHorarios?: Array<{
+    numero: number;
+    inicio: string;
+    fim: string;
+    rotulo?: string;
+  }>;
   atualizadoEm?: string;
 }
 
@@ -329,12 +336,14 @@ export interface Disciplina {
   nivelEnsino: NivelEnsino;
   ehTecnica?: boolean;
   ordem?: number;
+  ordemPorClasseCurso?: Record<string, number>; // Ordem específica por classe e (no IIº Ciclo) curso: ex "10ª::Informática" ou "7ª"
   classe?: string; // Classe associada (ex: '7ª')
   classes?: string[]; // Classes associadas quando criada para múltiplas classes (ex: ['7ª', '8ª', '9ª'])
   ciclo?: string; // Ciclo curricular (ex: 'Ensino Primário', 'Iº Ciclo', 'IIº Ciclo')
   curso?: string; // Curso específico quando aplicável
   cursos?: string[]; // Cursos associados (vazio ou ['TODOS'] = tronco comum / todos os cursos da classe)
   areaFormacao?: string;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -342,11 +351,30 @@ export interface AtribuicaoDocente {
   id: string;
   escolaId: string;
   professorId: string;
+  professorNome?: string;
   turmaId: string;
+  turmaNome?: string;
+  classe?: string;
   disciplinaId: string;
+  disciplinaNome?: string;
   ehCoordenadorTurma: boolean; // Presidente de Turma
   anoLectivo: string;
   atualizadoEm?: string;
+}
+
+export interface FormacaoAcademicaExtra {
+  id: string;
+  nivelFormacao: string; // Ex: 'Ensino Médio', 'Licenciatura', 'Mestrado', 'Doutoramento', 'Curso Técnico', 'Certificação'
+  cursoOuArea: string;
+  instituicaoAcademica: string;
+  anoConclusao: string;
+  observacoes?: string;
+}
+
+export interface CampoPersonalizadoFuncionario {
+  id: string;
+  rotulo: string;
+  valor: string;
 }
 
 export interface Funcionario {
@@ -360,34 +388,81 @@ export interface Funcionario {
   numeroDocumento?: string;
   dataEmissaoBI?: string;
   dataValidadeBI?: string;
+  validadeBI?: string;
   localEmissaoBI?: string;
+  dataEmissaoDocumento?: string;
+  dataValidadeDocumento?: string;
+  localEmissaoDocumento?: string;
   arquivoIdentificacao?: string;
   nomePai?: string;
   nomeMae?: string;
   dataNascimento?: string;
+  naturalidade?: string;
   naturalidadeProvincia?: string;
   naturalidadeMunicipio?: string;
+  provinciaOrigem?: string;
+  municipioResidencia?: string;
   nacionalidade?: string; // ex: "Angolana"
   estadoCivil?: 'Solteiro(a)' | 'Casado(a)' | 'Divorciado(a)' | 'Viúvo(a)' | string;
   residencia?: string;
+  residenciaAtual?: string;
   bairro?: string;
   municipio?: string;
   provincia?: string;
   pais?: string;
   numeroAgente?: string; // Número de Agente do Ministério / Função Pública
   nif?: string; // Número de Identificação Fiscal
+  departamento?: string;
   categoriaProfissional?: string; // ex: "Professor do IIº Ciclo do Ensino Secundário - 6º Grau"
-  grauAcademico?: 'Médio' | 'Bacharel' | 'Licenciado' | 'Mestre' | 'Doutor' | string;
+  grauAcademico?:
+    | 'Ensino Básico'
+    | 'Ensino Médio'
+    | 'Bacharelato'
+    | 'Licenciatura'
+    | 'Pós-Graduação'
+    | 'Mestrado'
+    | 'Doutoramento'
+    | 'Pós-Doutoramento'
+    | 'Médio'
+    | 'Bacharel'
+    | 'Licenciado'
+    | 'Mestre'
+    | 'Doutor'
+    | string;
+  instituicaoAcademica?: string;
+  anoConclusaoFormacao?: string;
+  outrasFormacoes?: FormacaoAcademicaExtra[];
+  camposExtrasFormacao?: CampoPersonalizadoFuncionario[];
   especialidade?: string; // ex: "Ensino da Matemática", "Língua Portuguesa", "Informática"
+  disciplinaEspecialidade?: string;
   comuna?: string;
   altura?: string; // ex: "1.75m"
-  tipoContrato?: 'Efectivo' | 'Contratado' | 'Colaborador';
-  situacaoFuncional?: 'Activo' | 'Em Comissão de Serviço' | 'Licença de Parto' | 'Licença Sabática' | 'Aposentado' | string;
+  tipoContrato?:
+    | 'Efetivo'
+    | 'Efectivo'
+    | 'Função Pública (MED)'
+    | 'Quadro Definitivo'
+    | 'Contratado'
+    | 'Contratado a Termo Certo'
+    | 'Contratado por Tempo Indeterminado'
+    | 'Estagiário'
+    | 'Estagiário Curricular'
+    | 'Estagiário Profissional'
+    | 'Colaborador'
+    | 'Prestador de Serviços'
+    | 'Comissão de Serviço'
+    | 'Substituto / Interino'
+    | 'Voluntário'
+    | 'Outro'
+    | string;
+  situacaoFuncional?: 'Ativo' | 'Activo' | 'Em Comissão de Serviço' | 'Licença de Parto' | 'Licença Sabática' | 'Destacado' | 'Aposentado' | string;
   cargaHorariaSemanal?: number; // horas lectivas ex: 24
+  regimeDocencia?: string;
   tempoServicoAnos?: number; // tempo de serviço efectivo em anos
   banco?: string; // ex: "BAI", "BFA", "BIC", "BPC"
   iban?: string; // ex: "AO06.0040.0000.1234.5678.9012.3"
   numeroSegurancaSocial?: string; // INSS ex: "8492014-9"
+  numeroINSS?: string;
   telefone: string;
   telefoneAlternativo?: string;
   email: string;
@@ -527,6 +602,8 @@ export interface NotaEstudante {
   dataLancamento: string;
   origemNota?: 'Professor' | 'Administrativa' | 'Direcao';
   notaAdministrativaInfo?: NotaAdministrativaMetadata;
+  anoLectivo?: string;
+  escolaId?: string;
   atualizadoEm?: string;
 }
 
@@ -541,7 +618,7 @@ export interface NotaTrimestralConsolidada {
   anoLectivo: string;
   mac: number; // Média de Avaliação Contínua (MAC)
   npp?: number; // Nota da Prova do Professor (NPP)
-  provaTrimestral: number; // NPP / Prova do Professor
+  provaTrimestral?: number; // Prova Trimestral (NPT)
   npt?: number; // Nota de Prova Trimestral (NPT)
   mediaTrimestral: number; // MT
   notaFinal?: number; // MT / CF Final para deliberação do Júri
@@ -579,6 +656,7 @@ export interface SolicitacaoAlteracaoNota {
   respostaDirecao?: string;
   dataSolicitacao: string;
   dataResposta?: string;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -774,6 +852,7 @@ export interface PresencaFuncionario {
   horaEntrada?: string;
   horaSaida?: string;
   justificativa?: string;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -804,10 +883,15 @@ export interface MensagemInterna {
   remetentePapel: string;
   remetenteCargo?: string;
   tipo: 'GERAL' | 'GRUPO' | 'DIRECTA';
-  destinatarioTipo?: 'Todos' | 'Docentes' | 'Secretaria' | 'Individual';
+  destinatarioTipo?: 'Todos' | 'Encarregados' | 'Docentes' | 'Funcionarios' | 'Area' | 'Secretaria' | 'Individual';
   destinatarioId?: string;
   destinatarioNome?: string;
-  grupo?: string; // ex: "Corpo Docente", "Turma 7ª A"
+  areaDestino?: string;
+  classeDestino?: string;
+  turmaIdDestino?: string;
+  turmaNomeDestino?: string;
+  escopoEnvioLabel?: string;
+  grupo?: string; // ex: "Corpo Docente", "Turma 7ª A", "Encarregados"
   titulo: string;
   assunto?: string;
   conteudo: string;
@@ -861,6 +945,7 @@ export interface ReciboPagamento {
   metodoPagamento: 'Dinheiro' | 'Multicaixa / TPA' | 'Transferência Bancária';
   dataHora: string;
   operadorNome: string;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -887,9 +972,12 @@ export interface ItemEmolumentoConfig {
   codigo?: string;
   descricao?: string;
   valorPadraoKz: number;
+  valoresPorClasse?: Record<string, number>;
   periodicidade: 'Unico' | 'Mensal' | 'Anual' | 'Por_Solicitacao';
   classesAbrangidas: string[]; // ['Todas'] ou ['Iniciação', '1ª', ...]
+  niveisAcademicos?: Array<'Todos' | 'Primario' | 'ICiclo' | 'IICiclo'>;
   obrigatorio: boolean;
+  permitirPagamentoParcial?: boolean;
   diaVencimento?: number; // 1 a 31
   multaAtrasoPercentual?: number;
   bloqueiaDocumentosSePendente?: boolean;
@@ -901,6 +989,7 @@ export interface ItemEmolumentoConfig {
 export interface ConfiguracaoFinanceiraEscola {
   escolaId: string;
   propinasPorClasse: Record<string, number>; // Ex: { "Iniciação": 8000, "7ª": 12000, "10ª": 16000 }
+  mesesPropinasAtivos?: string[]; // Ex: ["Setembro", "Outubro", ..., "Julho"]
   taxaMatricula: number;
   taxaConfirmacao: number;
   taxaDeclaracaoComNotas: number;
@@ -947,11 +1036,17 @@ export interface TransacaoFinanceira {
   turmaNome: string;
   classe: string;
   tipo: TipoEmolumento;
+  emolumentoId?: string;
+  nivelAcademico?: string;
   mesReferencia?: string; // ex: "Outubro 2025"
   anoLectivo: string;
   valorKz: number;
   multaKz?: number;
   valorTotalKz: number;
+  valorPrevistoKz?: number;
+  valorPagoAcumuladoKz?: number;
+  saldoDevedorRestanteKz?: number;
+  modalidadePagamento?: 'Total' | 'Parcial';
   metodoPagamento: MetodoPagamentoEscolar;
   numeroComprovativo?: string;
   numeroBordero?: string;
@@ -1068,10 +1163,26 @@ export interface OcorrenciaHistoricoAluno {
   cargo: 'Professor' | 'Coordenador' | 'Coordenador de Turno' | 'Diretor Geral' | 'Subdiretor Pedagógico' | 'Subdiretor Administrativo' | 'Chefe da Secretaria' | 'Secretário' | 'Secretária' | string;
   anoLectivo: string;
   classe?: string;
+  turmaId?: string;
   turmaNome?: string;
   resolucao?: string;
   notificarEncarregado?: boolean;
   notificadoEncarregado?: boolean;
+  // Fluxo oficial de 3 etapas: Registo (Professor/Staff) -> Coordenador da Classe/Turma -> Subdiretor Pedagógico -> Dossiê
+  statusAprovacao?: 'Pendente_Coordenador' | 'Aprovado_Coordenador' | 'Rejeitado_Coordenador' | 'Aprovado_Pedagogico' | 'Rejeitado_Pedagogico';
+  criadoPorId?: string;
+  criadoPorRole?: UserRole | string;
+  criadoEm?: string;
+  coordenadorAprovadorId?: string;
+  coordenadorAprovadorNome?: string;
+  coordenadorAprovadorEm?: string;
+  subdiretorAprovadorId?: string;
+  subdiretorAprovadorNome?: string;
+  subdiretorAprovadorEm?: string;
+  rejeitadoPorId?: string;
+  rejeitadoPorNome?: string;
+  rejeitadoMotivo?: string;
+  rejeitadoEm?: string;
 }
 
 export interface FaltasAnoHistorico {
@@ -1210,6 +1321,7 @@ export interface TurnoConfig {
   toleranciaMinutos?: number;
   diasSemana?: string[];
   ativo: boolean;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -1223,6 +1335,7 @@ export interface ClasseConfig {
   nivelEnsino?: NivelEnsino;
   descricao?: string;
   ordem?: number;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -1276,6 +1389,45 @@ export interface ClasseEscolar {
   ciclo?: string;
   regimeAvaliacao?: string;
   ativa?: boolean;
+  anoLectivo?: string;
+  atualizadoEm?: string;
+}
+
+export type NivelCoordenacaoEnsino = 'Primario' | 'ICiclo' | 'IICiclo';
+
+export type TipoCoordenacaoEscolar =
+  | 'Coordenador Pedagógico'
+  | 'Coordenador da Iniciação'
+  | 'Coordenador de Turno'
+  | 'Coordenador de Classe'
+  | 'Coordenador de Turma'
+  | 'Coordenador de Disciplina'
+  | 'Coordenador de Área Disciplinar'
+  | 'Coordenador de Curso / Área de Formação'
+  | 'Coordenador de Estágio / PAP';
+
+export interface CoordenacaoEscolar {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  nivelEnsino: NivelCoordenacaoEnsino;
+  tipoCoordenacao: TipoCoordenacaoEscolar | string;
+  funcionarioId: string;
+  funcionarioNome: string;
+  professorId?: string;
+  professorNome?: string;
+  turno?: string;
+  classe?: string;
+  turmaId?: string;
+  turmaNome?: string;
+  disciplinaId?: string;
+  disciplinaNome?: string;
+  curso?: string; // Exclusivo IIº Ciclo
+  areaDisciplinar?: string;
+  observacoes?: string;
+  ativo: boolean;
+  criadoPorNome?: string;
+  criadoEm: string;
   atualizadoEm?: string;
 }
 
@@ -1455,6 +1607,7 @@ export interface PresencaAlunoItem {
   justificativa?: string;
   registadoPorId: string;
   registadoPorNome: string;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -1485,6 +1638,7 @@ export interface RegistroAlteracaoNotaDirecao {
   alteradoPorRole: 'DiretorGeral' | 'SubdiretorPedagogico' | 'AdminGeral';
   dataHora: string;
   lidoPeloProfessor?: boolean;
+  anoLectivo?: string;
   atualizadoEm?: string;
 }
 
@@ -1586,24 +1740,53 @@ export interface SessaoAtivaUsuario {
 // DELEGAÇÃO DE PODERES E AUDITORIA EXECUTIVA
 // ==========================================
 
-export type TipoDelegacao = 'Matriculas' | 'CobrancaEmolumentos';
+export type TipoDelegacao = 'Matriculas' | 'CobrancaEmolumentos' | 'Interinidade';
+
+export interface RelatorioFinalInterinidade {
+  delegacaoId: string;
+  escolaId: string;
+  titularId: string;
+  titularNome: string;
+  titularCargo: string;
+  interinoId: string;
+  interinoNome: string;
+  interinoCargoOriginal: string;
+  cargoExercidoRole: UserRole | string;
+  cargoExercidoTitulo: string;
+  dataInicio: string;
+  dataFimRevogacao: string;
+  revogadoPorId?: string;
+  revogadoPorNome: string;
+  totalAcoesAuditadas: number;
+  acoesPorModulo: Array<{ acao: string; quantidade: number }>;
+  ultimosRegistos: Array<{ id: string; dataHora: string; acao: string; detalhe: string }>;
+  resumoExecutivo: string;
+  geradoEm: string;
+}
 
 export interface DelegacaoPoderes {
   id: string;
   escolaId: string;
   delegadoPorId: string;
   delegadoPorNome: string;
-  delegadoPorCargo: 'DiretorGeral' | 'SubdiretorAdministrativo' | 'SubdirectorAdministrativo' | 'ChefeSecretaria' | 'AdminGeral';
+  delegadoPorCargo: UserRole | string;
+  delegadoPorRole?: UserRole;
   funcionarioId: string;
   funcionarioNome: string;
   funcionarioCargo: string;
-  tipo: TipoDelegacao; // 'Matriculas' ou 'CobrancaEmolumentos'
+  tipo: TipoDelegacao; // 'Matriculas', 'CobrancaEmolumentos' ou 'Interinidade'
+  cargoDelegadoRole?: UserRole; // Perfil completo assumido durante interinidade
+  cargoDelegadoTitulo?: string; // Rótulo legível do cargo interinado
   dataInicio: string; // YYYY-MM-DD
-  dataFim?: string; // YYYY-MM-DD (opcional)
+  dataFim?: string; // YYYY-MM-DD (opcional; Interinidade só termina por revogação do titular)
   ativo: boolean;
   motivo?: string;
   criadoEm: string;
   atualizadoEm?: string;
+  revogadoPorId?: string;
+  revogadoPorNome?: string;
+  revogadoEm?: string;
+  relatorioRevogacao?: RelatorioFinalInterinidade;
 }
 
 export interface AcaoDelegadaLog {
@@ -1613,7 +1796,7 @@ export interface AcaoDelegadaLog {
   funcionarioId: string;
   funcionarioNome: string;
   tipo: TipoDelegacao;
-  acao: 'Matricula' | 'Confirmacao' | 'Cobranca' | 'Anulacao';
+  acao: 'Matricula' | 'Confirmacao' | 'Cobranca' | 'Anulacao' | 'Interinidade' | 'Outro';
   detalhes: string;
   alunoId?: string;
   alunoNome?: string;
@@ -1655,7 +1838,9 @@ export interface RegistoAcessoBiblioteca {
 
 export type NotificacaoSistemaCategoria =
   | 'SOLICITACAO_NOTA'
+  | 'OCORRENCIA_ESCOLAR'
   | 'MENSAGEM_BIBLIOTECA'
+  | 'COMUNICACAO'
   | 'MUDANCA_TEMPO'
   | 'TERMINO_TEMPO'
   | 'SISTEMA';
@@ -1682,10 +1867,33 @@ export interface NotificacaoSistemaItem {
 export interface PreferenciasNotificacaoSW {
   somAtivo: boolean;
   notificarSolicitacoesNota: boolean;
+  notificarOcorrencias?: boolean;
   notificarBibliotecaUrgente: boolean;
+  notificarComunicacoes: boolean;
   notificarMudancaTempo: boolean;
   notificarTerminoTempo: boolean;
   avisoPrevio5Min: boolean;
+  executarEmSegundoPlanoSW: boolean;
+}
+
+export type TipoEventoCalendarioCor =
+  | 'blue'
+  | 'red'
+  | 'amber'
+  | 'emerald'
+  | 'indigo'
+  | 'purple'
+  | 'teal'
+  | 'rose';
+
+export interface TipoEventoCalendarioCustom {
+  id: string;
+  nome: string;
+  cor: TipoEventoCalendarioCor;
+  padraoSistema?: boolean;
+  escolaId?: string;
+  criadoPor?: string;
+  criadoEm?: string;
 }
 
 export type CategoriaRelatorioAcontecimento =
@@ -1743,4 +1951,317 @@ export interface RelatorioAcontecimento {
   criadoEm: string;
   atualizadoEm?: string;
 }
+
+export interface TipoCoordenacaoPersonalizada {
+  id: string;
+  escolaId: string;
+  nivelEnsino: NivelCoordenacaoEnsino;
+  tipo: string;
+  descricao: string;
+  requerClasse?: boolean;
+  requerTurma?: boolean;
+  requerDisciplina?: boolean;
+  requerCurso?: boolean;
+  requerTurno?: boolean;
+  requerAreaDisciplinar?: boolean;
+  criadoPorId?: string;
+  criadoPorNome?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+  ativo?: boolean;
+}
+
+export interface SecaoRelatorioPedagogico {
+  id: string;
+  titulo: string;
+  conteudo: string;
+}
+
+export type TipoRelatorioPedagogicoFormal = 'COORDENACAO_FINAL_ANO' | 'DOCENTE_TRIMESTRAL_ANUAL';
+export type PeriodoRelatorioPedagogico = '1' | '2' | '3' | 'Anual';
+export type EstadoRelatorioPedagogico = 'Rascunho' | 'Finalizado' | 'Homologado';
+
+export interface RelatorioPedagogicoFormal {
+  id: string;
+  escolaId: string;
+  escolaNome?: string;
+  anoLectivo: string;
+  tipoRelatorio: TipoRelatorioPedagogicoFormal;
+  periodoReferencia: PeriodoRelatorioPedagogico;
+  coordenacaoId?: string;
+  coordenacaoTipo?: string;
+  nivelEnsino?: NivelCoordenacaoEnsino;
+  classeAlvo?: string;
+  turmaId?: string;
+  turmaNome?: string;
+  disciplinaId?: string;
+  disciplinaNome?: string;
+  cursoAlvo?: string;
+  turnoAlvo?: string;
+  areaDisciplinarAlvo?: string;
+  professorId?: string;
+  professorNome?: string;
+  professorGenero?: 'M' | 'F';
+  tituloDocumento: string;
+  subtituloDocumento?: string;
+  sinteseExecutiva: string;
+  atividadesRealizadas: string;
+  dificuldadesConstrangimentos: string;
+  recomendacoes: string;
+  conclusaoFinal: string;
+  secoesPersonalizadas?: SecaoRelatorioPedagogico[];
+  incluirTabelasEstatisticas?: boolean;
+  incluirDetalhePorTurmaDisciplina?: boolean;
+  incluirOcorrencias?: boolean;
+  estado: EstadoRelatorioPedagogico;
+  homologadoPorNome?: string;
+  homologadoEm?: string;
+  criadoPorId: string;
+  criadoPorNome: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+  estatisticasSnapshot?: Record<string, any>;
+}
+
+// ==========================================
+// PLANO DE ATIVIDADES E EVENTOS (HIERÁRQUICO POR ÁREA E PERFIL)
+// ==========================================
+
+export type AreaPlanoAtividades =
+  | 'Direcao_Geral'
+  | 'Subdirecao_Pedagogica'
+  | 'Subdirecao_Administrativa'
+  | 'Coordenacao_Pedagogica'
+  | 'Secretaria_Geral';
+
+export type EstadoAtividadePlano =
+  | 'Planeada'
+  | 'Em_Curso'
+  | 'Realizada'
+  | 'Adiada'
+  | 'Cancelada';
+
+export type CategoriaAtividadePlano =
+  | 'Pedagógica'
+  | 'Administrativa'
+  | 'Evento'
+  | 'Reunião'
+  | 'Avaliação'
+  | 'Extracurricular'
+  | 'Infraestrutura'
+  | 'Secretaria';
+
+export interface AtividadePlanoEscolar {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  trimestre: '1' | '2' | '3' | 'Anual';
+  titulo: string;
+  descricao: string;
+  categoria: CategoriaAtividadePlano;
+  dataInicio: string; // YYYY-MM-DD
+  dataFim?: string;
+  hora?: string;
+  local?: string;
+  publicoAlvo: string;
+  objetivos?: string;
+  recursosNecessarios?: string;
+  areaOrigem: AreaPlanoAtividades;
+  perfilOrigemRole: UserRole | string;
+  perfilOrigemLabel?: string;
+  coordenacaoTipo?: string;
+  criadoPorId: string;
+  criadoPorNome: string;
+  criadoPorGenero?: 'M' | 'F';
+  responsavelExecucaoNome?: string;
+  estadoExecucao: EstadoAtividadePlano;
+  percentualCumprimento: number; // 0 a 100
+  observacoesCumprimento?: string;
+  evidenciasResultados?: string;
+  excluidaDoPlanoGeralPorDiretor?: boolean;
+  motivoExclusaoDiretor?: string;
+  excluidaPorId?: string;
+  excluidaPorNome?: string;
+  excluidaEm?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+// ==========================================
+// FINANÇAS PESSOAIS DO UTILIZADOR ("MINHAS FINANÇAS")
+// ==========================================
+
+export type TipoTransacaoPessoal = 'Receita' | 'Despesa';
+
+export interface TransacaoPessoal {
+  id: string;
+  userId: string;
+  tipo: TipoTransacaoPessoal;
+  categoria: string;
+  descricao: string;
+  valorKz: number;
+  data: string; // YYYY-MM-DD
+  recorrente?: boolean;
+  notas?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface OrcamentoCategoriaPessoal {
+  categoria: string;
+  limiteMensalKz: number;
+}
+
+export interface MetaPoupancaPessoal {
+  id: string;
+  titulo: string;
+  objetivoKz: number;
+  atualKz: number;
+  prazo?: string; // YYYY-MM-DD
+  prioridade: 'Alta' | 'Média' | 'Baixa';
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface DividaPessoal {
+  id: string;
+  credor: string;
+  descricao: string;
+  valorTotalKz: number;
+  valorPagoKz: number;
+  prestacaoMensalKz?: number;
+  taxaJuroAnual?: number;
+  vencimento?: string; // YYYY-MM-DD
+  estado: 'Ativa' | 'Quitada';
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface DadosFinancasPessoaisUsuario {
+  id: string; // igual ao userId
+  userId: string;
+  userNome?: string;
+  escolaId?: string;
+  transacoes: TransacaoPessoal[];
+  orcamentosPorMes: Record<string, OrcamentoCategoriaPessoal[]>; // chave YYYY-MM
+  metasPoupanca: MetaPoupancaPessoal[];
+  dividas: DividaPessoal[];
+  atualizadoEm: string;
+}
+
+// ==========================================
+// HORÁRIOS DE PROVAS, MAPAS DE FISCALIZAÇÃO (1-4 PROFS/TURMA) & ATAS DE PROVAS
+// ==========================================
+
+export type TipoProvaEscolar =
+  | 'Prova do Professor'
+  | 'Prova Trimestral'
+  | 'Exame Final'
+  | 'Exame Nacional'
+  | 'Prova de Recurso'
+  | 'Prova Especial';
+
+export interface HorarioProvaItem {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  trimestre: Trimestre | 'Época Única' | 'Recurso';
+  tipoProva: TipoProvaEscolar;
+  nivelEnsino: NivelEnsino;
+  classe: string;
+  curso?: string; // Exclusivo IIº Ciclo
+  turmaId: string;
+  turmaNome: string;
+  disciplinaId: string;
+  disciplinaNome: string;
+  data: string; // YYYY-MM-DD
+  horaInicio: string; // HH:mm
+  horaFim: string; // HH:mm
+  sala?: string;
+  duracaoMinutos?: number;
+  observacoes?: string;
+  criadoPorId: string;
+  criadoPorNome: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface ProfessorFiscalizadorItem {
+  professorId: string;
+  professorNome: string;
+  papelFiscalizacao: 'Fiscal Principal' | 'Fiscal Adjunto';
+}
+
+export interface MapaFiscalizacaoProva {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  horarioProvaId: string;
+  turmaId: string;
+  turmaNome: string;
+  classe: string;
+  curso?: string;
+  disciplinaId: string;
+  disciplinaNome: string;
+  tipoProva: TipoProvaEscolar;
+  trimestre: string;
+  data: string;
+  horaInicio: string;
+  horaFim: string;
+  sala?: string;
+  fiscais: ProfessorFiscalizadorItem[]; // 1 a 4 professores
+  instrucoes?: string;
+  escalaAutomatica?: boolean;
+  usouFallbackConflito?: boolean;
+  observacaoConflito?: string;
+  criadoPorId: string;
+  criadoPorNome: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export interface OcorrenciaAtaProva {
+  id: string;
+  hora: string;
+  alunoId?: string;
+  alunoNome?: string;
+  tipo: 'Fraude / Cábulas' | 'Atraso' | 'Indisciplina' | 'Problema de Saúde' | 'Erro de Enunciado' | 'Outro';
+  descricao: string;
+  medidaTomada: string;
+}
+
+export interface AtaProvaRegistro {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  mapaFiscalizacaoId: string;
+  horarioProvaId: string;
+  turmaId: string;
+  turmaNome: string;
+  classe: string;
+  curso?: string;
+  disciplinaId: string;
+  disciplinaNome: string;
+  tipoProva: TipoProvaEscolar;
+  trimestre: string;
+  dataProva: string;
+  horaInicioReal: string;
+  horaFimReal: string;
+  sala?: string;
+  fiscais: ProfessorFiscalizadorItem[];
+  alunosMatriculados: number;
+  alunosPresentes: number;
+  alunosFaltosos: number;
+  alunosAnulados?: number;
+  ocorrencias: OcorrenciaAtaProva[];
+  sinteseOcorrido: string;
+  observacoesGerais?: string;
+  estado: 'Rascunho' | 'Finalizada';
+  redigidaPorId: string;
+  redigidaPorNome: string;
+  redigidaPorGenero?: 'M' | 'F';
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
 

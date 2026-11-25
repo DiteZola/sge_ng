@@ -114,7 +114,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
 
   // Carregar amostra real de dados da escola para pré-visualização fidedigna
   const alunosEscola = dbService.getAlunos(escola.id);
-  const turmasEscola = dbService.getTurmas(escola.id);
+  const turmasEscola = dbService.getTurmas().filter(t => t.escolaId === escola.id);
   const funcsEscola = dbService.getFuncionarios(escola.id);
   const alunoAmostra = alunosEscola[0] || null;
   const turmaAmostra = (alunoAmostra ? turmasEscola.find(t => t.id === alunoAmostra.turmaId) : turmasEscola[0]) || null;
@@ -684,7 +684,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                           <div><span className="text-gray-500">Curso:</span> <strong>{turmaAmostra?.curso || alunoAmostra?.curso || 'Geral'}</strong></div>
                         )}
                         {camposDoc.mostrarEncarregado && (
-                          <div><span className="text-gray-500">Encarregado:</span> <strong>{alunoAmostra?.encarregado || '[Encarregado]'}</strong></div>
+                          <div><span className="text-gray-500">Encarregado:</span> <strong>{alunoAmostra?.nomeEncarregado || alunoAmostra?.encarregadoNome || '[Encarregado]'}</strong></div>
                         )}
                       </div>
                       <table className="w-full text-[9px] border-collapse text-center">
@@ -773,7 +773,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         {camposDoc.mostrarDataNascimento && `nascido(a) em ${alunoAmostra?.dataNascimento || '[Data]'}, `}
                         {camposDoc.mostrarNaturalidadeProvincia && `natural de ${alunoAmostra?.naturalidade || '[Naturalidade]'}, `}
                         {camposDoc.mostrarBI && `portador(a) do B.I. n.º ${alunoAmostra?.numeroBI || '[B.I.]'}, `}
-                        concluiu no ano lectivo de {escola.anoLectivoActivo || '[Ano]'} a <strong>{turmaAmostra?.classe || alunoAmostra?.classe || '[Classe]'}</strong>
+                        concluiu no ano lectivo de {escola.anoLectivoActivo || '[Ano]'} a <strong>{turmaAmostra?.classe || alunoAmostra?.classeId || '[Classe]'}</strong>
                         {camposDoc.mostrarCurso && (turmaAmostra?.curso || alunoAmostra?.curso) ? ` (${turmaAmostra?.curso || alunoAmostra?.curso})` : ''}.
                       </p>
                       {(camposDoc.mostrarMediaGeral || camposDoc.mostrarEscalaExtenso) && (
@@ -819,8 +819,8 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                         Declara-se que <strong>{alunoAmostra?.nomeCompleto || '[Nome do Estudante]'}</strong>
                         {camposDoc.mostrarNumeroProcessoMatricula && `, Processo n.º ${alunoAmostra?.numeroProcesso || '—'}`}
                         {camposDoc.mostrarBI && `, B.I. n.º ${alunoAmostra?.numeroBI || '—'}`}
-                        , encontra-se regularmente matriculado na <strong>{alunoAmostra?.classe || turmaAmostra?.classe || '[Classe]'}</strong>
-                        {camposDoc.mostrarTurmaSalaTurno && `, Turma ${turmaAmostra?.nome || alunoAmostra?.turma || '—'} (${turmaAmostra?.turno || 'Manhã'})`}
+                        , encontra-se regularmente matriculado na <strong>{alunoAmostra?.classeId || turmaAmostra?.classe || '[Classe]'}</strong>
+                        {camposDoc.mostrarTurmaSalaTurno && `, Turma ${turmaAmostra?.nome || '—'} (${turmaAmostra?.turno || 'Manhã'})`}
                         {camposDoc.mostrarCurso && (turmaAmostra?.curso || alunoAmostra?.curso) ? `, Curso de ${turmaAmostra?.curso || alunoAmostra?.curso}` : ''}.
                       </p>
                     </div>
@@ -837,8 +837,8 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                           {camposDoc.mostrarFiliacao && <div><strong>Filiação:</strong> {alunoAmostra?.nomePai || '—'} / {alunoAmostra?.nomeMae || '—'}</div>}
                           {camposDoc.mostrarNaturalidadeProvincia && <div><strong>Naturalidade:</strong> {alunoAmostra?.naturalidade || '—'}</div>}
                           {camposDoc.mostrarResidencia && <div><strong>Residência:</strong> {alunoAmostra?.residencia || alunoAmostra?.bairro || '—'}</div>}
-                          {camposDoc.mostrarEncarregado && <div><strong>Encarregado:</strong> {alunoAmostra?.encarregado || '—'}</div>}
-                          {camposDoc.mostrarContactoEncarregado && <div><strong>Contacto:</strong> {alunoAmostra?.contactoEncarregado || '—'}</div>}
+                          {camposDoc.mostrarEncarregado && <div><strong>Encarregado:</strong> {alunoAmostra?.nomeEncarregado || alunoAmostra?.encarregadoNome || '—'}</div>}
+                          {camposDoc.mostrarContactoEncarregado && <div><strong>Contacto:</strong> {alunoAmostra?.telefoneEncarregado || alunoAmostra?.encarregadoTelefone || alunoAmostra?.telefone || '—'}</div>}
                           {camposDoc.mostrarTurmaSalaTurno && <div><strong>Turma/Turno:</strong> {turmaAmostra?.nome || '—'} • {turmaAmostra?.turno || '—'}</div>}
                         </div>
                         {camposDoc.mostrarFoto && (
@@ -864,7 +864,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                           {camposDoc.mostrarFuncionarioNif && <div><strong>NIF:</strong> {funcAmostra?.nif || '—'}</div>}
                           {camposDoc.mostrarFuncionarioContatos && <div><strong>Contactos:</strong> {funcAmostra?.telefone || '—'}</div>}
                           {camposDoc.mostrarFuncionarioGrauEspecialidade && <div><strong>Habilitação:</strong> {funcAmostra?.grauAcademico || 'Licenciatura'}</div>}
-                          {camposDoc.mostrarFuncionarioCategoriaContrato && <div><strong>Categoria:</strong> {funcAmostra?.categoria || 'Efectivo'}</div>}
+                          {camposDoc.mostrarFuncionarioCategoriaContrato && <div><strong>Categoria:</strong> {funcAmostra?.categoriaProfissional || funcAmostra?.tipoContrato || 'Efectivo'}</div>}
                           {camposDoc.mostrarFuncionarioDadosBancariosIbanInss && <div><strong>IBAN / INSS:</strong> {funcAmostra?.iban || 'AO06...'}</div>}
                           {camposDoc.mostrarFuncionarioCargaHoraria && <div><strong>Carga Horária:</strong> Turmas atribuídas activas</div>}
                         </div>
@@ -923,7 +923,7 @@ export const DocumentTemplateConfigModal: React.FC<DocumentTemplateConfigModalPr
                           <div className="text-[9px] text-gray-600">Proc. n.º: <strong className="font-mono text-black">{alunoAmostra?.numeroProcesso || '[Nº Proc.]'}</strong></div>
                         )}
                         {camposDoc.mostrarTurmaSalaTurno && (
-                          <div className="text-[9px] text-gray-600">Classe: <strong>{alunoAmostra?.classe || '[Classe]'} • {turmaAmostra?.nome || '[Turma]'}</strong></div>
+                          <div className="text-[9px] text-gray-600">Classe: <strong>{alunoAmostra?.classeId || '[Classe]'} • {turmaAmostra?.nome || '[Turma]'}</strong></div>
                         )}
                         <div className="text-[8px] font-mono text-blue-700 bg-white px-1.5 py-0.5 border border-blue-200 rounded inline-block">
                           Validade: {escola.anoLectivoActivo || '[Ano Lectivo]'}

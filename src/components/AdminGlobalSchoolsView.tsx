@@ -144,6 +144,9 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
 
   // Notificação temporária de sucesso
   const [msgSucesso, setMsgSucesso] = useState<string | null>(null);
+  const [erroEliminarEscola, setErroEliminarEscola] = useState<string | null>(null);
+  const [erroEditarEscola, setErroEditarEscola] = useState<string | null>(null);
+  const [erroRedefinirSenha, setErroRedefinirSenha] = useState<string | null>(null);
   const mostrarSucesso = (msg: string) => {
     setMsgSucesso(msg);
     setTimeout(() => setMsgSucesso(null), 4500);
@@ -274,13 +277,15 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const abrirModalEliminar = (esc: Escola) => {
     setEscolaSelecionada(esc);
     setConfirmacaoEliminacao('');
+    setErroEliminarEscola(null);
     setModalEliminarOpen(true);
   };
 
   const confirmarEliminacao = () => {
     if (!escolaSelecionada) return;
+    setErroEliminarEscola(null);
     if (confirmacaoEliminacao.trim() !== escolaSelecionada.sigla && confirmacaoEliminacao.trim() !== escolaSelecionada.nomeOficial) {
-      alert('Para confirmar, digite a Sigla ou o Nome Oficial da escola exatamente como indicado.');
+      setErroEliminarEscola('Para confirmar, digite a Sigla ou o Nome Oficial da escola exatamente como indicado.');
       return;
     }
     onEliminarEscola(escolaSelecionada.id);
@@ -307,14 +312,16 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
     setEditEnsinoPrimario(isPrim);
     setEditTemIniciacao(esc.temIniciacao !== false);
     setEditNiveis(esc.niveisEnsino || ['Primario']);
+    setErroEditarEscola(null);
     setModalEditarEscolaOpen(true);
   };
 
   const handleSubmeterEditarEscola = (e: React.FormEvent) => {
     e.preventDefault();
     if (!escolaSelecionada) return;
+    setErroEditarEscola(null);
     if (!editNomeOficial.trim()) {
-      alert('O Nome Oficial da instituição é obrigatório.');
+      setErroEditarEscola('O Nome Oficial da instituição é obrigatório.');
       return;
     }
 
@@ -361,11 +368,13 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
   const abrirModalSenha = (func: Funcionario) => {
     setDiretorSelecionado(func);
     setNovaSenhaInput(func.password || 'Dir2026!');
+    setErroRedefinirSenha(null);
     setModalSenhaOpen(true);
   };
 
   const salvarNovaSenha = async () => {
     if (!diretorSelecionado || !novaSenhaInput.trim()) return;
+    setErroRedefinirSenha(null);
     try {
       const operador = dbService.getCurrentUser();
       if (dbService.alterarSenhaPorOperador && operador) {
@@ -378,7 +387,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
       setModalSenhaOpen(false);
       mostrarSucesso(`Palavra-passe de ${diretorSelecionado.nomeCompleto} atualizada com proteção AES-256 e acesso desbloqueado!`);
     } catch (err: any) {
-      alert(err?.message || 'Falha ao redefinir a palavra-passe do Diretor.');
+      setErroRedefinirSenha(err?.message || 'Falha ao redefinir a palavra-passe do Diretor.');
     }
   };
 
@@ -1363,6 +1372,12 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
               />
             </div>
 
+            {erroEliminarEscola && (
+              <div className="mt-3 p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-lg text-xs font-bold">
+                {erroEliminarEscola}
+              </div>
+            )}
+
             <div className="flex justify-end space-x-2.5 mt-5 pt-3 border-t border-gray-200">
               <button
                 type="button"
@@ -1432,6 +1447,12 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
               </div>
             </div>
 
+            {erroRedefinirSenha && (
+              <div className="mt-3 p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-lg text-xs font-bold">
+                {erroRedefinirSenha}
+              </div>
+            )}
+
             <div className="flex justify-end space-x-2 mt-5 pt-3 border-t border-gray-200">
               <button
                 type="button"
@@ -1474,6 +1495,11 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
             </div>
 
             <form onSubmit={handleSubmeterEditarEscola} className="mt-4 space-y-4 text-xs">
+              {erroEditarEscola && (
+                <div className="p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-lg text-xs font-bold">
+                  {erroEditarEscola}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="font-bold text-gray-800 block mb-1">Nome Oficial da Escola *</label>

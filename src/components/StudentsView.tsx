@@ -54,13 +54,20 @@ import {
 } from '../types';
 import * as XLSX from 'xlsx';
 import { dbService } from '../services/storage';
+import { notificationService } from '../services/notificationService';
 import { validarElegibilidadeCertificado, formatarTextoPorGenero, obterInformacaoEscala } from '../services/macEngine';
 import { converterNotaParaCertificadoExtenso, converterNotaParaExtenso } from '../utils/numberToWords';
 import { downloadHtmlDocument, downloadExcelFile, downloadElementAsPdf } from '../utils/curriculoAngola';
 import { processarFotoUpload } from '../utils/imageCompressor';
+import {
+  obterTituloChefeSecretaria,
+  obterNomeChefeSecretaria,
+  obterTituloDiretorSimples,
+  obterNomeDiretorGeral
+} from '../utils/directorHelper';
 import { AngolaDateInput } from './AngolaDateInput';
 import { formatarDataAngolana, formatarDataHoraAngolana } from '../utils/dateFormat';
-import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
+import { filtrarDisciplinasDaClasse, ordenarNotasHistoricoPorDisciplinas } from '../services/academicHierarchyService';
 import { LocationPicker, NaturalidadeInput, NacionalidadeInput } from './LocationPicker';
 import { locationService } from '../services/locationService';
 import { InsigniaAngola } from '../constants/insignia';
@@ -91,6 +98,7 @@ import {
   TODAS_CLASSES_OFICIAIS_MED,
   normalizarClasse,
   isSegundoCiclo,
+  isProfessorCoordenadorTurma,
   getTurmasPorClasse,
   getSalaDaTurma,
   getCursoDaTurma,
@@ -234,11 +242,72 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     return () => window.removeEventListener('sge_dados_atualizados_remoto', syncConfig);
   }, []);
   const escola = escolaProp || dbService.getEscolaAtiva();
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerDocIdentAluno = visibilidadeUsuario.dadosSensiveis.verDocumentosIdentificacaoAlunos;
+  const podeVerContactoAluno = visibilidadeUsuario.dadosSensiveis.verContactosAlunosEncarregados;
+  const podeVerPropinaAluno = visibilidadeUsuario.dadosSensiveis.verSituacaoFinanceiraPropinasAlunos;
 
   const isProfessor = currentUser?.role === 'Professor';
+  const podeEditarHistoricoNotas = [
+    'AdminGeral',
+    'DiretorGeral',
+    'SubdiretorPedagogico',
+    'SubdiretorAdministrativo',
+    'SubdirectorAdministrativo',
+    'Secretaria',
+    'ChefeSecretaria',
+    'Secretario',
+    'SecretarioEscolar'
+  ].includes(currentUser?.role || '');
+
+  const podeHomologarSubPed = ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico'].includes(currentUser?.role || '');
+  const isCoordenadorPerfilGeral = currentUser?.role === 'CoordenadorPedagogico' || currentUser?.role === 'CoordenadorTurno';
+
+  const podeAprovarComoCoordenador = (al?: Aluno | null): boolean => {
+    if (podeHomologarSubPed || isCoordenadorPerfilGeral) return true;
+    if (!al || !currentUser?.id) return false;
+    const t = turmasOriginais.find(tm => tm.id === al.turmaId);
+    if (t && isProfessorCoordenadorTurma(t, currentUser.id)) return true;
+
+    const coords = dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo || 'todos').filter(
+      c => c.ativo !== false && (c.funcionarioId === currentUser.id || c.professorId === currentUser.id)
+    );
+    const normStr = (v?: string) =>
+      String(v || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+    const classeAlunoNorm = normStr(normalizarClasse(t?.classe || al.classeId || ''));
+    const turnoAlunoNorm = normStr(t?.turno);
+    const turmaNomeNorm = normStr(t?.nome);
+
+    return coords.some(c => {
+      const tipo = normStr(c.tipoCoordenacao);
+      if (tipo.includes('pedagogic')) return true;
+      if (tipo.includes('classe') && normStr(normalizarClasse(c.classe || '')) === classeAlunoNorm) return true;
+      if (tipo.includes('iniciacao') && classeAlunoNorm.includes('iniciacao')) return true;
+      if (tipo.includes('turno') && (!c.turno || normStr(c.turno) === turnoAlunoNorm)) return true;
+      if (
+        tipo.includes('turma') &&
+        (c.turmaId === al.turmaId || (turmaNomeNorm && normStr(c.turmaNome) === turmaNomeNorm))
+      ) {
+        return true;
+      }
+      return false;
+    });
+  };
+
   const atribuicoesTodas = useMemo(() => {
     return atribuicoes || (dbService.getAtribuicoes ? dbService.getAtribuicoes() : []);
   }, [atribuicoes]);
+
+  const horariosTodos = useMemo(() => {
+    return dbService.obterHorarios(escola.id, escola.anoLectivoActivo);
+  }, [escola.id, escola.anoLectivoActivo]);
 
   const atribuicoesDoProfessor = useMemo(() => {
     if (!isProfessor) return [];
@@ -247,9 +316,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const turmas = useMemo(() => {
     if (!isProfessor) return turmasOriginais;
-    const ids = new Set(atribuicoesDoProfessor.map((a: any) => a.turmaId));
+    const ids = new Set<string>(atribuicoesDoProfessor.map((a: any) => a.turmaId));
+    horariosTodos.forEach((h: any) => {
+      if (h.professorId === currentUser?.id && h.turmaId) ids.add(h.turmaId);
+    });
+    turmasOriginais.forEach((t) => {
+      if (isProfessorCoordenadorTurma(t, currentUser?.id)) {
+        ids.add(t.id);
+      }
+    });
     return turmasOriginais.filter(t => ids.has(t.id));
-  }, [turmasOriginais, isProfessor, atribuicoesDoProfessor]);
+  }, [turmasOriginais, isProfessor, atribuicoesDoProfessor, horariosTodos, currentUser?.id]);
 
   const alunos = useMemo(() => {
     if (!isProfessor) return alunosOriginais;
@@ -275,14 +352,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [selectedSalaFilter, setSelectedSalaFilter] = useState('TODAS');
   const [selectedCursoFilter, setSelectedCursoFilter] = useState('TODOS');
   const [selectedEstadoFilter, setSelectedEstadoFilter] = useState('TODOS');
-  const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking' | 'historico'>(initialSubTab || 'lista');
+  const [abaAtiva, setAbaAtiva] = useState<'lista' | 'ranking' | 'historico'>(
+    initialSubTab === 'historico' && isProfessor ? 'lista' : (initialSubTab || 'lista')
+  );
   const [showListaNominalModal, setShowListaNominalModal] = useState(false);
-  
+
   useEffect(() => {
     if (initialSubTab) {
-      setAbaAtiva(initialSubTab);
+      setAbaAtiva(initialSubTab === 'historico' && isProfessor ? 'lista' : initialSubTab);
     }
-  }, [initialSubTab]);
+  }, [initialSubTab, isProfessor]);
 
   // Aluno selecionado para navegação direta na aba Histórico Escolar
   const [alunoHistoricoId, setAlunoHistoricoId] = useState<string>(() => alunos[0]?.id || '');
@@ -331,8 +410,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
           const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
           if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
-            // Verificar se as notas existentes têm valores reais ou se vieram de preenchimentos automáticos
-            return encontrada;
+            return {
+              ...encontrada,
+              notasDisciplinas: ordenarNotasHistoricoPorDisciplinas(
+                encontrada.notasDisciplinas,
+                todasDisciplinas,
+                cls,
+                target.curso
+              )
+            };
           }
 
           const diffAnos = classesDoCiclo.length - 1 - idx;
@@ -386,8 +472,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           });
 
           const notasValidas = notasDisciplinas.filter(d => d.notaFinal > 0);
-          const mediaGeralClasse = notasValidas.length > 0 
-            ? parseFloat((notasValidas.reduce((acc, d) => acc + d.notaFinal, 0) / notasValidas.length).toFixed(1)) 
+          const mediaGeralClasse = notasValidas.length > 0
+            ? Math.round(notasValidas.reduce((acc, d) => acc + d.notaFinal, 0) / notasValidas.length)
             : 0;
 
           return {
@@ -567,14 +653,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   }, [escola.id, turmasDoAnoFiltro]);
 
   const todasClasses = useMemo(() => {
-    const fromCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome);
+    const fromCfg = dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo).filter(c => c.ativa !== false).map(c => c.nome);
     const fromTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
     return ordenarClassesMED([
       ...TODAS_CLASSES_OFICIAIS_MED,
       ...fromCfg,
       ...fromTurmas
     ]);
-  }, [escola.id, turmas]);
+  }, [escola.id, escola.anoLectivoActivo, turmas]);
 
   // Turmas para o modal de matrícula filtradas pela classe e ano letivo do modal
   const turmasDoModal = useMemo(() => {
@@ -594,8 +680,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   }, [turmas, anoConfirmacaoEfetivo]);
 
   const classesConfiguradasEscola = useMemo(
-    () => dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => c.nome),
-    [escola.id]
+    () => dbService.getClassesConfigs(escola.id, anoConfirmacaoEfetivo).filter(c => c.ativa !== false).map(c => c.nome),
+    [escola.id, anoConfirmacaoEfetivo]
   );
 
   const classesComTurmasNoAnoDestino = useMemo(() => {
@@ -613,13 +699,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const turnosAnoConfirmacao = useMemo(() => {
     const fromCfg = dbService
-      .getTurnosConfigs(escola.id)
+      .getTurnosConfigs(escola.id, anoConfirmacaoEfetivo)
       .filter(t => t.ativo !== false)
       .map(t => t.nome)
       .filter(Boolean);
     const fromTurmas = turmasAnoConfirmacao.map(t => t.turno).filter(Boolean);
     return Array.from(new Set([...fromCfg, ...fromTurmas, 'Manhã', 'Tarde', 'Noite']));
-  }, [escola.id, turmasAnoConfirmacao]);
+  }, [escola.id, anoConfirmacaoEfetivo, turmasAnoConfirmacao]);
 
   const cursosAnoConfirmacao = useMemo(() => {
     const fromCfg = dbService.getCursos(escola.id).filter(c => c.ativo !== false).map(c => c.nome).filter(Boolean);
@@ -928,22 +1014,25 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   };
 
   const [comprimindoFoto, setComprimindoFoto] = useState(false);
+  const [erroAlunoGeral, setErroAlunoGeral] = useState<string | null>(null);
+  const [erroModalAluno, setErroModalAluno] = useState<string | null>(null);
 
   // Upload de foto diretamente do dispositivo do utilizador (suporta até 10 MB com compressão de alta fidelidade)
   const handleFotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setErroModalAluno(null);
     setComprimindoFoto(true);
     try {
       const res = await processarFotoUpload(file, 500, 0.82);
       if (res.sucesso && res.dataUrl) {
         setFotoUrl(res.dataUrl);
       } else {
-        alert(res.erro || 'Falha ao processar a fotografia selecionada.');
+        setErroModalAluno(res.erro || 'Falha ao processar a fotografia selecionada.');
       }
     } catch (err: any) {
-      alert(`Erro no processamento da imagem: ${err.message || 'Erro desconhecido'}`);
+      setErroModalAluno(`Erro no processamento da imagem: ${err.message || 'Erro desconhecido'}`);
     } finally {
       setComprimindoFoto(false);
       e.target.value = '';
@@ -951,6 +1040,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   };
 
   const handleOpenCreate = () => {
+    setErroModalAluno(null);
     setEditingAluno(null);
     setCodigoMatricula(`${new Date().getFullYear()}/MED-${Math.floor(1000 + Math.random() * 9000)}`);
     setNomeCompleto('');
@@ -1000,6 +1090,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   };
 
   const handleOpenEdit = (aluno: Aluno) => {
+    setErroModalAluno(null);
     setEditingAluno(aluno);
     setCodigoMatricula(aluno.codigoMatricula || aluno.numeroProcesso || '');
     setNomeCompleto(aluno.nomeCompleto);
@@ -1051,20 +1142,24 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const handleSaveAluno = (e: React.FormEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setErroModalAluno(null);
 
     if (!nomeCompleto.trim()) {
-      alert('Por favor, informe o nome completo do estudante.');
+      setErroModalAluno('Por favor, informe o nome completo do estudante.');
       return;
     }
 
     const turmaSelecionada = turmas.find(t => t.id === turmaId);
     const classeFinal = turmaSelecionada ? normalizarClasse(turmaSelecionada.classe) : normalizarClasse(modalClasse);
+    const ehSegundoCicloFinal = isSegundoCiclo(classeFinal);
     const cursosEscola = dbService.getCursos(escola.id);
-    const nomeCursoEscolhido = (turmaSelecionada?.curso || modalCurso || '').trim();
-    const cursoObjEncontrado = cursosEscola.find(c => c.nome.trim().toLowerCase() === nomeCursoEscolhido.toLowerCase());
-    const cursoFinal = isSegundoCiclo(classeFinal)
+    const nomeCursoEscolhido = ehSegundoCicloFinal ? (turmaSelecionada?.curso || modalCurso || '').trim() : '';
+    const cursoObjEncontrado = ehSegundoCicloFinal
+      ? cursosEscola.find(c => c.nome.trim().toLowerCase() === nomeCursoEscolhido.toLowerCase())
+      : undefined;
+    const cursoFinal = ehSegundoCicloFinal
       ? (nomeCursoEscolhido || cursosAnoConfirmacao[0] || 'Ciências Físicas e Biológicas (PUNIV)')
-      : (turmaSelecionada?.curso || (modalCurso && modalCurso.trim()) || getCursoDaTurma(turmaSelecionada));
+      : '';
 
     const escolaAtiva = dbService.getEscolaAtiva();
     const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || '';
@@ -1120,8 +1215,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       turmaId: turmaIdFinal,
       classeId: classeFinal,
       curso: cursoFinal,
-      cursoId: turmaSelecionada?.cursoId || cursoObjEncontrado?.id,
-      areaFormacao: turmaSelecionada?.areaFormacao || cursoObjEncontrado?.area,
+      cursoId: ehSegundoCicloFinal ? (turmaSelecionada?.cursoId || cursoObjEncontrado?.id) : undefined,
+      areaFormacao: ehSegundoCicloFinal ? (turmaSelecionada?.areaFormacao || cursoObjEncontrado?.area) : undefined,
       periodo: turmaSelecionada?.turno || editingAluno?.periodo,
       nomePai,
       nomeMae,
@@ -1266,8 +1361,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   }, [showConfirmacaoModal, alunosElegiveisConfirmacao]);
 
   const handleOpenConfirmacao = () => {
+    setErroAlunoGeral(null);
     if (alunos.length === 0) {
-      alert('Não há alunos cadastrados no sistema para confirmação de matrícula.');
+      setErroAlunoGeral('Não há alunos cadastrados no sistema para confirmação de matrícula.');
+      setTimeout(() => setErroAlunoGeral(null), 4500);
       return;
     }
     const anoDestino = escola.anoLectivoActivo || (selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : '') || anosLectivosDisponiveis[0] || '';
@@ -1467,9 +1564,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         'Nº de Processo': a.numeroProcesso || a.codigoMatricula || '—',
         'Nome Completo': a.nomeCompleto,
         'Gênero': a.genero === 'M' ? 'Masculino' : 'Feminino',
-        'Documento de Identificação': `${a.tipoDocumento || 'BI'} ${a.numeroBI || a.numeroDocumento || ''}`,
-        'Data Emissão BI': a.dataEmissaoBI || '—',
-        'Arquivo de Identificação': a.arquivoIdentificacao || '—',
+        'Documento de Identificação': podeVerDocIdentAluno ? `${a.tipoDocumento || 'BI'} ${a.numeroBI || a.numeroDocumento || ''}` : '*** Protegido ***',
+        'Data Emissão BI': podeVerDocIdentAluno ? (a.dataEmissaoBI || '—') : '***',
+        'Arquivo de Identificação': podeVerDocIdentAluno ? (a.arquivoIdentificacao || '—') : '***',
         'Data de Nascimento': a.dataNascimento || '—',
         'Idade': idadeStr,
         'Naturalidade': a.naturalidade || '—',
@@ -1479,15 +1576,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         'Turma': t?.nome || '',
         'Sala de Aula': getSalaDaTurma(t),
         'Turno': t?.turno || a.periodo || 'Manhã',
-        'Curso / Área': a.curso || t?.curso || (isSegundoCiclo(a.classeId || t?.classe) ? 'Ciências Físicas e Biológicas (PUNIV)' : 'Ensino Geral'),
+        'Curso / Área': isSegundoCiclo(a.classeId || t?.classe)
+          ? (a.curso || t?.curso || 'Ciências Físicas e Biológicas (PUNIV)')
+          : '—',
         'Estado da Matrícula': a.estado,
-        'Propina': a.propinaStatus || 'Regularizada',
+        'Propina': podeVerPropinaAluno ? (a.propinaStatus || 'Regularizada') : '*** Protegido ***',
         'Nome do Pai': a.nomePai || '—',
         'Nome da Mãe': a.nomeMae || '—',
         'Nome do Encarregado': a.nomeEncarregado || a.encarregadoNome || '—',
         'Parentesco': a.encarregadoParentesco || '—',
-        'Telefone Encarregado': a.telefoneEncarregado || a.encarregadoTelefone || '—',
-        'Email Encarregado': a.encarregadoEmail || '—',
+        'Telefone Encarregado': podeVerContactoAluno ? (a.telefoneEncarregado || a.encarregadoTelefone || '—') : '*** Protegido ***',
+        'Email Encarregado': podeVerContactoAluno ? (a.encarregadoEmail || '—') : '*** Protegido ***',
         'Endereço Residencial': a.endereco || '—',
         'Foto Registada': a.fotoUrl ? 'Sim' : 'Não',
         // Saúde e Dados Médicos
@@ -1497,7 +1596,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         'Necessidades Especiais': a.necessidadesEspeciais || a.condicaoEspecial || 'Nenhuma',
         'Restrição Ed. Física': a.restricaoEducacaoFisica ? 'Sim (Dispensado)' : 'Apto',
         'Contacto Emergência (Nome)': a.contactoEmergenciaNome || '—',
-        'Contacto Emergência (Telefone)': a.contactoEmergenciaTelefone || '—',
+        'Contacto Emergência (Telefone)': podeVerContactoAluno ? (a.contactoEmergenciaTelefone || '—') : '*** Protegido ***',
         // Notas Detalhadas dos 3 Trimestres
         '1º Tri - MAC': mac1,
         '1º Tri - NPP': npp1,
@@ -1621,6 +1720,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Salvar TODAS as médias das disciplinas da classe de uma vez só!
   const handleSalvarTodasMediasNaClasse = () => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -1642,7 +1742,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     });
 
     const soma = notasAtualizadas.reduce((acc, d) => acc + d.notaFinal, 0);
-    const mediaGeralClasse = parseFloat((soma / (notasAtualizadas.length || 1)).toFixed(1));
+    const mediaGeralClasse = notasAtualizadas.length > 0 ? Math.round(soma / notasAtualizadas.length) : 0;
 
     const classesAtualizadas = [...historicoCompleto.classes];
     classesAtualizadas[classeAtivaIdx] = {
@@ -1668,6 +1768,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Atribuir nota rápida a todas as disciplinas para agilizar lançamento em lote
   const handleAplicarNotaRapidaATodas = (valor: number) => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -1682,6 +1783,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   // Funções do Histórico Escolar Completo
   const handleAdicionarDisciplinaNaClasse = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -1710,7 +1812,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     // Recalcula média geral da classe
     const somaNotas = notasAtualizadas.reduce((acc, d) => acc + d.notaFinal, 0);
-    const mediaGeralClasse = parseFloat((somaNotas / (notasAtualizadas.length || 1)).toFixed(1));
+    const mediaGeralClasse = notasAtualizadas.length > 0 ? Math.round(somaNotas / notasAtualizadas.length) : 0;
 
     const classesAtualizadas = [...historicoCompleto.classes];
     classesAtualizadas[classeAtivaIdx] = {
@@ -1735,14 +1837,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   };
 
   const handleRemoverDisciplina = (idxDisc: number) => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
 
     const notasAtualizadas = classeAtual.notasDisciplinas.filter((_, i) => i !== idxDisc);
     const somaNotas = notasAtualizadas.reduce((acc, d) => acc + d.notaFinal, 0);
-    const mediaGeralClasse = notasAtualizadas.length > 0 
-      ? parseFloat((somaNotas / notasAtualizadas.length).toFixed(1)) 
+    const mediaGeralClasse = notasAtualizadas.length > 0
+      ? Math.round(somaNotas / notasAtualizadas.length)
       : 0;
 
     const classesAtualizadas = [...historicoCompleto.classes];
@@ -1767,6 +1870,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Alteração direta e rápida de nota final da disciplina na tabela
   const handleAlterarNotaDisciplina = (idxDisc: number, novoValorStr: string) => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -1785,8 +1889,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     };
 
     const somaNotas = notasAtualizadas.reduce((acc, d) => acc + d.notaFinal, 0);
-    const mediaGeralClasse = notasAtualizadas.length > 0 
-      ? parseFloat((somaNotas / notasAtualizadas.length).toFixed(1)) 
+    const mediaGeralClasse = notasAtualizadas.length > 0
+      ? Math.round(somaNotas / notasAtualizadas.length)
       : 0;
 
     const classesAtualizadas = [...historicoCompleto.classes];
@@ -1824,6 +1928,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Carregar toda a matriz de disciplinas curriculares da classe num só clique
   const handleCarregarCurriculoPadrao = () => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -1849,7 +1954,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     });
 
     const somaNotas = notasAtualizadas.reduce((acc, d) => acc + d.notaFinal, 0);
-    const mediaGeralClasse = parseFloat((somaNotas / (notasAtualizadas.length || 1)).toFixed(1));
+    const mediaGeralClasse = notasAtualizadas.length > 0 ? Math.round(somaNotas / notasAtualizadas.length) : 0;
 
     const classesAtualizadas = [...historicoCompleto.classes];
     classesAtualizadas[classeAtivaIdx] = {
@@ -1889,6 +1994,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Inicializa ou regenera todas as classes curriculares obrigatórias do ciclo do estudante
   const handleInicializarCicloCompleto = () => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoAluno) return;
     const turma = turmas.find(t => t.id === historicoAluno.turmaId);
     const classeRef = historicoAluno.classeId || turma?.classe || '10ª';
@@ -1904,7 +2010,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const classesAtualizadas: HistoricoClasseDisciplinas[] = classesDoCiclo.map((cls, idx) => {
       const encontrada = classesExistentes.find(c => c.classe.replace(/\s/g, '').toLowerCase() === cls.replace(/\s/g, '').toLowerCase());
       if (encontrada && encontrada.notasDisciplinas && encontrada.notasDisciplinas.length > 0) {
-        return encontrada;
+        return {
+          ...encontrada,
+          notasDisciplinas: ordenarNotasHistoricoPorDisciplinas(
+            encontrada.notasDisciplinas,
+            todasDisciplinas,
+            cls,
+            historicoAluno.curso
+          )
+        };
       }
 
       const diffAnos = classesDoCiclo.length - 1 - idx;
@@ -1953,8 +2067,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       });
 
       const notasValidas = notasDisciplinas.filter(d => d.notaFinal > 0);
-      const mediaGeralClasse = notasValidas.length > 0 
-        ? parseFloat((notasValidas.reduce((acc, d) => acc + d.notaFinal, 0) / notasValidas.length).toFixed(1)) 
+      const mediaGeralClasse = notasValidas.length > 0
+        ? Math.round(notasValidas.reduce((acc, d) => acc + d.notaFinal, 0) / notasValidas.length)
         : 0;
 
       return {
@@ -2010,6 +2124,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   // Inicializa todas as classes do Ensino Primário (1ª à 6ª Classe, escala 0–10) preservando classes já existentes
   const handleInicializarEnsinoPrimario = () => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoAluno) return;
     const primarias = ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
     const classesExistentes = historicoCompleto?.classes || [];
@@ -2113,6 +2228,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleCriarNovaClasse = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
 
     const classeNormalizada = normalizarClasse(novaClasseNome.trim()) || novaClasseNome.trim();
@@ -2163,12 +2279,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   };
 
   const handleRemoverClasse = (idxClasse: number) => {
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     if (historicoCompleto.classes.length <= 1) {
-      alert('O histórico escolar deve conter pelo menos uma classe registada.');
+      setFeedbackHistorico('O histórico escolar deve conter pelo menos uma classe registada.');
+      setTimeout(() => setFeedbackHistorico(null), 3500);
       return;
     }
-    if (!confirm('Deseja realmente remover esta classe do histórico escolar do aluno?')) return;
 
     const classesAtualizadas = historicoCompleto.classes.filter((_, i) => i !== idxClasse);
     const novoHistorico: HistoricoEscolarCompleto = {
@@ -2184,7 +2301,139 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     sincronizarHistoricoComAluno(historicoAluno, classesAtualizadas);
   };
 
-  // Adicionar acontecimento / ocorrência escolar (Professores, Coordenadores, Diretores, Subdiretores, Secretários)
+  const obterStatusBadgeOcorrencia = (status?: OcorrenciaHistoricoAluno['statusAprovacao']) => {
+    switch (status) {
+      case 'Pendente_Coordenador':
+        return { texto: 'Pendente Coordenador', cor: 'bg-amber-100 text-amber-900 border-amber-300' };
+      case 'Aprovado_Coordenador':
+        return { texto: 'Aprov. Coord. • Aguarda Sub. Pedagógico', cor: 'bg-blue-100 text-blue-900 border-blue-300' };
+      case 'Rejeitado_Coordenador':
+        return { texto: 'Rejeitada (Coordenador)', cor: 'bg-red-100 text-red-900 border-red-300' };
+      case 'Rejeitado_Pedagogico':
+        return { texto: 'Rejeitada (Sub. Pedagógico)', cor: 'bg-red-100 text-red-900 border-red-300' };
+      case 'Aprovado_Pedagogico':
+      default:
+        return { texto: 'Aprovada no Dossiê', cor: 'bg-emerald-100 text-emerald-900 border-emerald-300' };
+    }
+  };
+
+  const calcularEstadoInicialOcorrencia = (alunoAlvo: Aluno) => {
+    const agora = new Date().toISOString();
+    const u = currentUser || dbService.getCurrentUser();
+    if (podeHomologarSubPed) {
+      return {
+        statusAprovacao: 'Aprovado_Pedagogico' as const,
+        coordenadorAprovadorId: u?.id,
+        coordenadorAprovadorNome: u?.nomeCompleto,
+        coordenadorAprovadorEm: agora,
+        subdiretorAprovadorId: u?.id,
+        subdiretorAprovadorNome: u?.nomeCompleto,
+        subdiretorAprovadorEm: agora
+      };
+    }
+    if (podeAprovarComoCoordenador(alunoAlvo)) {
+      return {
+        statusAprovacao: 'Aprovado_Coordenador' as const,
+        coordenadorAprovadorId: u?.id,
+        coordenadorAprovadorNome: u?.nomeCompleto,
+        coordenadorAprovadorEm: agora
+      };
+    }
+    return {
+      statusAprovacao: 'Pendente_Coordenador' as const
+    };
+  };
+
+  const handleDecidirOcorrencia = (
+    alunoAlvo: Aluno,
+    idOcorr: string,
+    acao: 'Aprovar_Coord' | 'Rejeitar_Coord' | 'Aprovar_Ped' | 'Rejeitar_Ped'
+  ) => {
+    const u = currentUser || dbService.getCurrentUser();
+    const agora = new Date().toISOString();
+    const atualizarItem = (o: OcorrenciaHistoricoAluno): OcorrenciaHistoricoAluno => {
+      if (o.id !== idOcorr) return o;
+      if (acao === 'Aprovar_Coord') {
+        return {
+          ...o,
+          statusAprovacao: 'Aprovado_Coordenador',
+          coordenadorAprovadorId: u?.id,
+          coordenadorAprovadorNome: u?.nomeCompleto,
+          coordenadorAprovadorEm: agora
+        };
+      }
+      if (acao === 'Rejeitar_Coord') {
+        return {
+          ...o,
+          statusAprovacao: 'Rejeitado_Coordenador',
+          rejeitadoPorId: u?.id,
+          rejeitadoPorNome: u?.nomeCompleto,
+          rejeitadoEm: agora
+        };
+      }
+      if (acao === 'Aprovar_Ped') {
+        return {
+          ...o,
+          statusAprovacao: 'Aprovado_Pedagogico',
+          subdiretorAprovadorId: u?.id,
+          subdiretorAprovadorNome: u?.nomeCompleto,
+          subdiretorAprovadorEm: agora
+        };
+      }
+      return {
+        ...o,
+        statusAprovacao: 'Rejeitado_Pedagogico',
+        rejeitadoPorId: u?.id,
+        rejeitadoPorNome: u?.nomeCompleto,
+        rejeitadoEm: agora
+      };
+    };
+
+    const ocorrenciasAtualizadas = (alunoAlvo.ocorrencias || []).map(atualizarItem);
+    const alunoAtualizado: Aluno = { ...alunoAlvo, ocorrencias: ocorrenciasAtualizadas };
+    onSalvarAluno(alunoAtualizado);
+
+    if (alunoDossieModal?.id === alunoAlvo.id) {
+      setAlunoDossieModal(alunoAtualizado);
+    }
+    if (historicoAluno?.id === alunoAlvo.id) {
+      setHistoricoAluno(alunoAtualizado);
+    }
+
+    const hist = dbService.getHistoricoEscolarCompleto(alunoAlvo.id);
+    if (hist) {
+      const classesAt = hist.classes.map(c => ({
+        ...c,
+        ocorrencias: (c.ocorrencias || []).map(atualizarItem)
+      }));
+      const novoHist: HistoricoEscolarCompleto = {
+        ...hist,
+        classes: classesAt,
+        dataUltimaAtualizacao: agora
+      };
+      dbService.salvarHistoricoEscolarCompleto(novoHist);
+      if (historicoAluno?.id === alunoAlvo.id) {
+        setHistoricoCompleto(novoHist);
+      }
+    }
+
+    const descAcao =
+      acao === 'Aprovar_Coord'
+        ? 'Aprovada pelo Coordenador (encaminhada ao Subdiretor Pedagógico)'
+        : acao === 'Rejeitar_Coord'
+          ? 'Rejeitada pelo Coordenador'
+          : acao === 'Aprovar_Ped'
+            ? 'Homologada pelo Subdiretor Pedagógico no Dossiê'
+            : 'Rejeitada pelo Subdiretor Pedagógico';
+    dbService.registarLog(
+      'Decisão em Ocorrência Escolar',
+      `Ocorrência ${idOcorr} de ${alunoAlvo.nomeCompleto}: ${descAcao} por ${u?.nomeCompleto || 'Sistema'}.`
+    );
+    setFeedbackHistorico(`Ocorrência atualizada: ${descAcao}.`);
+    setTimeout(() => setFeedbackHistorico(null), 3500);
+  };
+
+  // Adicionar acontecimento / ocorrência escolar (Professores registam -> Coordenador aprova -> Subdiretor Pedagógico homologa para Dossiê)
   const handleAdicionarOcorrencia = (e: React.FormEvent) => {
     e.preventDefault();
     if (!historicoCompleto || !historicoAluno) return;
@@ -2193,8 +2442,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     if (!novaOcorrDescricao.trim()) return;
 
-    const userLogado = dbService.getCurrentUser();
+    const userLogado = currentUser || dbService.getCurrentUser();
     const nomeRegistador = novaOcorrRegistadoPor.trim() || userLogado?.nomeCompleto || 'Direção Escolar';
+    const turmaAluno = turmasOriginais.find(t => t.id === historicoAluno.turmaId);
+    const metaAprov = calcularEstadoInicialOcorrencia(historicoAluno);
 
     const novaOcorr: OcorrenciaHistoricoAluno = {
       id: `ocorr-${Date.now()}`,
@@ -2206,8 +2457,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       cargo: novaOcorrCargo,
       anoLectivo: classeAtual.anoLectivo || escola.anoLectivoActivo || '',
       classe: classeAtual.classe,
-      resolucao: novaOcorrResolucao.trim() || 'Averbado no dossiê oficial do estudante.',
-      notificarEncarregado: novaOcorrNotificarEncarregado
+      turmaId: historicoAluno.turmaId,
+      turmaNome: turmaAluno?.nome,
+      resolucao: novaOcorrResolucao.trim() || 'Averbado no processo do estudante.',
+      notificarEncarregado: novaOcorrNotificarEncarregado,
+      criadoPorId: userLogado?.id,
+      criadoPorRole: userLogado?.role,
+      criadoEm: new Date().toISOString(),
+      ...metaAprov
     };
 
     const ocorrenciasAtualizadas = [novaOcorr, ...(classeAtual.ocorrencias || [])];
@@ -2226,7 +2483,6 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     dbService.salvarHistoricoEscolarCompleto(novoHistorico);
     setHistoricoCompleto(novoHistorico);
 
-    // Salvar também diretamente no aluno para persistência universal e espelho no dossiê
     const alunoOcorrencias = [novaOcorr, ...(historicoAluno.ocorrencias || [])];
     const alunoAtualizado: Aluno = {
       ...historicoAluno,
@@ -2235,11 +2491,21 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     onSalvarAluno(alunoAtualizado);
     setHistoricoAluno(alunoAtualizado);
 
-    // Registar no log de auditoria
+    const notificadosCount = notificationService.notificarNovaOcorrenciaRegistrada(alunoAtualizado, novaOcorr, userLogado);
+
     dbService.registarLog(
       'Registo de Ocorrência Escolar',
-      `Ocorrência (${novaOcorr.tipo} - ${novaOcorr.gravidade}) averbada para o discente ${historicoAluno.nomeCompleto} por ${nomeRegistador} (${novaOcorr.cargo}).`
+      `Ocorrência (${novaOcorr.tipo} - ${novaOcorr.gravidade} • Estado: ${novaOcorr.statusAprovacao}) registada para ${historicoAluno.nomeCompleto} por ${nomeRegistador}.`
     );
+
+    setFeedbackHistorico(
+      novaOcorr.statusAprovacao === 'Aprovado_Pedagogico'
+        ? 'Ocorrência registada e homologada no Dossiê do aluno.'
+        : novaOcorr.statusAprovacao === 'Aprovado_Coordenador'
+          ? 'Ocorrência registada e pré-aprovada; aguarda homologação do Subdiretor Pedagógico para constar no Dossiê.'
+          : `Ocorrência submetida! Notificação enviada (${notificadosCount} destinatário(s): Coordenação de Classe/Turma/Turno e Subdiretor Pedagógico).`
+    );
+    setTimeout(() => setFeedbackHistorico(null), 4500);
 
     setNovaOcorrDescricao('');
     setNovaOcorrResolucao('');
@@ -2250,21 +2516,30 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     e.preventDefault();
     if (!alunoDossieModal) return;
 
-    const userLogado = dbService.getCurrentUser();
+    const userLogado = currentUser || dbService.getCurrentUser();
     const nomeRegistador = novaOcorrRegistadoPor.trim() || userLogado?.nomeCompleto || 'Direção Escolar';
     const cargoRegistador = novaOcorrCargo || userLogado?.cargo || userLogado?.role || 'Professor';
+    const turmaAluno = turmasOriginais.find(t => t.id === alunoDossieModal.turmaId);
+    const metaAprov = calcularEstadoInicialOcorrencia(alunoDossieModal);
 
     const novaOcorr: OcorrenciaHistoricoAluno = {
       id: `ocorr-dos-${Date.now()}`,
       data: novaOcorrData || new Date().toISOString().split('T')[0],
       anoLectivo: escola.anoLectivoActivo || '',
+      classe: turmaAluno?.classe || alunoDossieModal.classeId,
+      turmaId: alunoDossieModal.turmaId,
+      turmaNome: turmaAluno?.nome,
       tipo: novaOcorrTipo,
       gravidade: novaOcorrGravidade,
-      descricao: novaOcorrDescricao.trim() || 'Ocorrência averbada no dossiê oficial.',
+      descricao: novaOcorrDescricao.trim() || 'Ocorrência registada.',
       registadoPor: nomeRegistador,
       cargo: cargoRegistador,
-      resolucao: novaOcorrResolucao.trim() || 'Averbado no dossiê do estudante para acompanhamento pedagógico e disciplinar.',
-      notificadoEncarregado: novaOcorrNotificarEncarregado
+      resolucao: novaOcorrResolucao.trim() || 'Encaminhado para acompanhamento pedagógico e disciplinar.',
+      notificadoEncarregado: novaOcorrNotificarEncarregado,
+      criadoPorId: userLogado?.id,
+      criadoPorRole: userLogado?.role,
+      criadoEm: new Date().toISOString(),
+      ...metaAprov
     };
 
     const ocorrenciasAtualizadas = [novaOcorr, ...(alunoDossieModal.ocorrencias || [])];
@@ -2276,7 +2551,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     onSalvarAluno(alunoAtualizado);
     setAlunoDossieModal(alunoAtualizado);
 
-    // Salvar também no histórico multianual se existir
+    const notificadosCount = notificationService.notificarNovaOcorrenciaRegistrada(alunoAtualizado, novaOcorr, userLogado);
+
     try {
       const hist = dbService.getHistoricoEscolarCompleto(alunoDossieModal.id);
       if (hist && hist.classes.length > 0) {
@@ -2296,8 +2572,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
     dbService.registarLog(
       'Registo de Ocorrência no Dossiê',
-      `Ocorrência (${novaOcorr.tipo} - ${novaOcorr.gravidade}) registada para o discente ${alunoDossieModal.nomeCompleto} por ${nomeRegistador} (${cargoRegistador}).`
+      `Ocorrência (${novaOcorr.tipo} - ${novaOcorr.gravidade} • Estado: ${novaOcorr.statusAprovacao}) registada para ${alunoDossieModal.nomeCompleto} por ${nomeRegistador}.`
     );
+
+    setFeedbackHistorico(
+      novaOcorr.statusAprovacao === 'Aprovado_Pedagogico'
+        ? 'Ocorrência homologada no Dossiê.'
+        : `Ocorrência registada! Notificados Coordenador de Classe, Turma, Turno e Subdiretor Pedagógico (${notificadosCount} alerta(s)).`
+    );
+    setTimeout(() => setFeedbackHistorico(null), 4500);
 
     setNovaOcorrDescricao('');
     setNovaOcorrResolucao('');
@@ -2308,6 +2591,8 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
+    const target = (classeAtual.ocorrencias || []).find(o => o.id === idOcorr);
+    if (isProfessor && !podeAprovarComoCoordenador(historicoAluno) && target?.criadoPorId !== currentUser?.id) return;
 
     const ocorrenciasAtualizadas = (classeAtual.ocorrencias || []).filter(o => o.id !== idOcorr);
     const classesAtualizadas = [...historicoCompleto.classes];
@@ -2336,6 +2621,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleSalvarFaltas = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -2375,6 +2661,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleSalvarDividas = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!podeEditarHistoricoNotas) return;
     if (!historicoCompleto || !historicoAluno) return;
     const classeAtual = historicoCompleto.classes[classeAtivaIdx];
     if (!classeAtual) return;
@@ -2419,6 +2706,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {erroAlunoGeral && (
+        <div className="p-3 bg-red-50 border border-red-300 text-red-800 rounded-xl text-xs font-bold flex items-center justify-between">
+          <span>{erroAlunoGeral}</span>
+          <button type="button" onClick={() => setErroAlunoGeral(null)} className="text-red-700 hover:text-red-900 font-black">✕</button>
+        </div>
+      )}
       {/* Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -2531,23 +2824,25 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           <span>Ranking de Desempenho (Top 5 & Menor Rendimento)</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setAbaAtiva('historico');
-            if (alunos.length > 0 && !alunoHistoricoId) {
-              setAlunoHistoricoId(alunos[0].id);
-            }
-          }}
-          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-2 ${
-            abaAtiva === 'historico'
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs'
-              : 'bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100'
-          }`}
-        >
-          <BookOpen className="h-4 w-4" />
-          <span>Histórico Escolar & Dossiê de Ocorrências</span>
-        </button>
+        {!isProfessor && (
+          <button
+            type="button"
+            onClick={() => {
+              setAbaAtiva('historico');
+              if (alunos.length > 0 && !alunoHistoricoId) {
+                setAlunoHistoricoId(alunos[0].id);
+              }
+            }}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-2 ${
+              abaAtiva === 'historico'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs'
+                : 'bg-emerald-50 text-emerald-900 border border-emerald-300 hover:bg-emerald-100'
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Histórico Escolar &amp; Dossiê de Ocorrências</span>
+          </button>
+        )}
       </div>
 
       {abaAtiva === 'ranking' ? (
@@ -2654,7 +2949,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       <span>Classe Atual: <strong>{historicoAluno.classeId || '10ª Classe'}</strong></span>
                       <span>•</span>
                       <span>Turma: <strong>{turmas.find(t => t.id === historicoAluno.turmaId)?.nome || 'Turma A'}</strong></span>
-                      {historicoAluno.curso && (
+                      {isSegundoCiclo(historicoAluno.classeId || turmas.find(t => t.id === historicoAluno.turmaId)?.classe) && historicoAluno.curso && (
                         <>
                           <span>•</span>
                           <span>Curso: <strong>{historicoAluno.curso}</strong></span>
@@ -2769,15 +3064,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   return (
                     <div className="p-8 text-center text-xs text-gray-500 bg-gray-50 rounded-xl border border-gray-200">
                       Nenhuma classe anterior arquivada no histórico deste estudante.
-                      <div className="mt-3">
-                        <button
-                          type="button"
-                          onClick={() => setShowAddClasseForm(true)}
-                          className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer"
-                        >
-                          + Adicionar Primeira Classe
-                        </button>
-                      </div>
+                      {podeEditarHistoricoNotas && (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddClasseForm(true)}
+                            className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer"
+                          >
+                            + Adicionar Primeira Classe
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -2804,44 +3101,46 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         ))}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handleInicializarEnsinoPrimario}
-                          className="px-3 py-1 bg-amber-50 border border-amber-400 text-amber-900 hover:bg-amber-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
-                          title="Adiciona ou completa automaticamente as classes de 1ª à 6ª Classe (Ensino Primário, escala 0–10)"
-                        >
-                          <BookOpen className="w-3.5 h-3.5 text-amber-700" />
-                          <span>Gerar 1ª à 6ª Classe (Primário)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleInicializarCicloCompleto}
-                          className="px-3 py-1 bg-emerald-50 border border-emerald-400 text-emerald-900 hover:bg-emerald-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
-                          title="Inicializa ou complementa automaticamente todas as classes obrigatórias do ciclo curricular atual (1ª à 6ª, 7ª à 9ª ou 10ª à 12ª/13ª)"
-                        >
-                          <Award className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>Gerar Ciclo Atual</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowAddClasseForm(!showAddClasseForm)}
-                          className="px-3 py-1 bg-white border border-emerald-400 text-emerald-800 hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Nova Classe</span>
-                        </button>
-                        {historicoCompleto.classes.length > 1 && (
+                      {podeEditarHistoricoNotas && (
+                        <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => handleRemoverClasse(classeAtivaIdx)}
-                            className="px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 rounded-lg font-bold border border-red-200 cursor-pointer"
-                            title="Remover esta classe"
+                            onClick={handleInicializarEnsinoPrimario}
+                            className="px-3 py-1 bg-amber-50 border border-amber-400 text-amber-900 hover:bg-amber-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                            title="Adiciona ou completa automaticamente as classes de 1ª à 6ª Classe (Ensino Primário, escala 0–10)"
                           >
-                            Eliminar Classe
+                            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+                            <span>Gerar 1ª à 6ª Classe (Primário)</span>
                           </button>
-                        )}
-                      </div>
+                          <button
+                            type="button"
+                            onClick={handleInicializarCicloCompleto}
+                            className="px-3 py-1 bg-emerald-50 border border-emerald-400 text-emerald-900 hover:bg-emerald-100 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                            title="Inicializa ou complementa automaticamente todas as classes obrigatórias do ciclo curricular atual (1ª à 6ª, 7ª à 9ª ou 10ª à 12ª/13ª)"
+                          >
+                            <Award className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>Gerar Ciclo Atual</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowAddClasseForm(!showAddClasseForm)}
+                            className="px-3 py-1 bg-white border border-emerald-400 text-emerald-800 hover:bg-emerald-50 rounded-lg text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Nova Classe</span>
+                          </button>
+                          {historicoCompleto.classes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoverClasse(classeAtivaIdx)}
+                              className="px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 rounded-lg font-bold border border-red-200 cursor-pointer"
+                              title="Remover esta classe"
+                            >
+                              Eliminar Classe
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* FORMULÁRIO NOVA CLASSE */}
@@ -2903,7 +3202,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         return val !== undefined ? Number(val) : d.notaFinal;
                       });
                       const soma = notasValores.reduce((acc, v) => acc + (isNaN(v) ? 0 : v), 0);
-                      const mediaAoVivo = notasValores.length > 0 ? parseFloat((soma / notasValores.length).toFixed(1)) : 0;
+                      const mediaAoVivo = notasValores.length > 0 ? Math.round(soma / notasValores.length) : 0;
                       const aprovadoAoVivo = mediaAoVivo >= escalaInfo.notaAprovacao;
 
                       return (
@@ -2944,46 +3243,56 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                               </div>
 
                               {/* Botão de Gravação em Lote Principal */}
-                              <button
-                                type="button"
-                                onClick={handleSalvarTodasMediasNaClasse}
-                                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-black text-xs shadow-xs inline-flex items-center space-x-1.5 cursor-pointer transition-all transform active:scale-95"
-                              >
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span>Guardar Todas as Médias Desta Classe de Uma Vez</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Barra de Preenchimento Rápido / Atalhos de Notas */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-bold text-gray-600 text-[11px]">Atribuir Nota Base ({escalaInfo.rotuloEscala}):</span>
-                              {(escalaInfo.ehPrimario ? [5, 6, 7, 8, 9, 10] : [10, 12, 14, 15, 16, 18]).map(val => (
+                              {podeEditarHistoricoNotas && (
                                 <button
-                                  key={`btn-val-${val}`}
                                   type="button"
-                                  onClick={() => handleAplicarNotaRapidaATodas(val)}
-                                  className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-900 border border-gray-300 hover:border-emerald-500 rounded-lg font-bold text-xs cursor-pointer shadow-2xs transition-colors"
-                                  title={`Definir ${val} valores em todas as disciplinas desta classe`}
+                                  onClick={handleSalvarTodasMediasNaClasse}
+                                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-black text-xs shadow-xs inline-flex items-center space-x-1.5 cursor-pointer transition-all transform active:scale-95"
                                 >
-                                  {val} Val
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span>Guardar Todas as Médias Desta Classe de Uma Vez</span>
                                 </button>
-                              ))}
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                              <button
-                                type="button"
-                                onClick={handleCarregarCurriculoPadrao}
-                                className="px-3 py-1 bg-blue-50 border border-blue-300 text-blue-800 hover:bg-blue-100 rounded-lg text-xs font-bold inline-flex items-center space-x-1 cursor-pointer"
-                                title="Recarregar todas as disciplinas da matriz oficial MED de Angola"
-                              >
-                                <BookOpen className="w-3.5 h-3.5" />
-                                <span>Recarregar Matriz Oficial MED</span>
-                              </button>
+                              )}
                             </div>
                           </div>
+
+                          {!podeEditarHistoricoNotas ? (
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 font-semibold flex items-center space-x-2">
+                              <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+                              <span>
+                                Modo de Consulta: Apenas Diretor, Subdiretores e Secretaria podem adicionar ou alterar notas no Histórico Escolar. Utilize a aba &quot;Ocorrências &amp; Acontecimentos&quot; para registos disciplinares ou pedagógicos.
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs">
+                              <div className="flex items-center space-x-2">
+                                <span className="font-bold text-gray-600 text-[11px]">Atribuir Nota Base ({escalaInfo.rotuloEscala}):</span>
+                                {(escalaInfo.ehPrimario ? [5, 6, 7, 8, 9, 10] : [10, 12, 14, 15, 16, 18]).map(val => (
+                                  <button
+                                    key={`btn-val-${val}`}
+                                    type="button"
+                                    onClick={() => handleAplicarNotaRapidaATodas(val)}
+                                    className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-900 border border-gray-300 hover:border-emerald-500 rounded-lg font-bold text-xs cursor-pointer shadow-2xs transition-colors"
+                                    title={`Definir ${val} valores em todas as disciplinas desta classe`}
+                                  >
+                                    {val} Val
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={handleCarregarCurriculoPadrao}
+                                  className="px-3 py-1 bg-blue-50 border border-blue-300 text-blue-800 hover:bg-blue-100 rounded-lg text-xs font-bold inline-flex items-center space-x-1 cursor-pointer"
+                                  title="Recarregar todas as disciplinas da matriz oficial MED de Angola"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5" />
+                                  <span>Recarregar Matriz Oficial MED</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Tabela de Todas as Disciplinas com Inputs Diretos */}
                           <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
@@ -2995,7 +3304,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                   <th className="p-3 w-36 text-center">Média Final (0-{escalaInfo.escalaMaxima})</th>
                                   <th className="p-3 w-44">Classificação por Extenso</th>
                                   <th className="p-3 w-28 text-center">Aproveitamento</th>
-                                  <th className="p-3 w-16 text-center">Ações</th>
+                                  {podeEditarHistoricoNotas && <th className="p-3 w-16 text-center">Ações</th>}
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-200">
@@ -3017,40 +3326,46 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                         </div>
                                       </td>
                                       <td className="p-3 text-center">
-                                        <div className="inline-flex items-center justify-center space-x-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const nv = Math.max(0, Number((Number(notaAtual) - 1).toFixed(1)));
-                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
-                                            }}
-                                            className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
-                                          >
-                                            -
-                                          </button>
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            max={escalaInfo.escalaMaxima}
-                                            step="0.5"
-                                            value={notaAtual}
-                                            onChange={(e) => {
-                                              const v = parseFloat(e.target.value) || 0;
-                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: Math.min(escalaInfo.escalaMaxima, Math.max(0, v)) }));
-                                            }}
-                                            className="w-16 p-1 text-center font-black text-sm border-2 border-emerald-500/40 rounded-lg bg-emerald-50/20 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const nv = Math.min(escalaInfo.escalaMaxima, Number((Number(notaAtual) + 1).toFixed(1)));
-                                              setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
-                                            }}
-                                            className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
-                                          >
-                                            +
-                                          </button>
-                                        </div>
+                                        {podeEditarHistoricoNotas ? (
+                                          <div className="inline-flex items-center justify-center space-x-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const nv = Math.max(0, Number((Number(notaAtual) - 1).toFixed(1)));
+                                                setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
+                                              }}
+                                              className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
+                                            >
+                                              -
+                                            </button>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max={escalaInfo.escalaMaxima}
+                                              step="0.5"
+                                              value={notaAtual}
+                                              onChange={(e) => {
+                                                const v = parseFloat(e.target.value) || 0;
+                                                setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: Math.min(escalaInfo.escalaMaxima, Math.max(0, v)) }));
+                                              }}
+                                              className="w-16 p-1 text-center font-black text-sm border-2 border-emerald-500/40 rounded-lg bg-emerald-50/20 focus:bg-white focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const nv = Math.min(escalaInfo.escalaMaxima, Number((Number(notaAtual) + 1).toFixed(1)));
+                                                setNotasEmLote(prev => ({ ...prev, [d.disciplinaNome]: nv }));
+                                              }}
+                                              className="h-6 w-6 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold flex items-center justify-center text-xs cursor-pointer"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <span className="font-mono font-black text-sm text-gray-900">
+                                            {Number(notaAtual) > 0 ? notaAtual : '—'}
+                                          </span>
+                                        )}
                                       </td>
                                       <td className="p-3 font-semibold text-gray-600">
                                         {Number(notaAtual) <= 0 ? '—' : converterNotaParaCertificadoExtenso(Number(notaAtual))}
@@ -3066,16 +3381,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                           {Number(notaAtual) <= 0 ? 'Pendente' : (aprovado ? 'Aprovado' : 'Não Transita')}
                                         </span>
                                       </td>
-                                      <td className="p-3 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoverDisciplina(dIdx)}
-                                          className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                                          title="Remover disciplina"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      </td>
+                                      {podeEditarHistoricoNotas && (
+                                        <td className="p-3 text-center">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoverDisciplina(dIdx)}
+                                            className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                            title="Remover disciplina"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      )}
                                     </tr>
                                   );
                                 })}
@@ -3083,55 +3400,59 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                             </table>
                           </div>
 
-                          {/* Botão de Gravação no Rodapé */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                            <span className="text-xs text-gray-500">
-                              Lançamento em lote: clique no botão ao lado para persistir simultaneamente todas as classificações e atualizar o certificado oficial.
-                            </span>
-                            <button
-                              type="button"
-                              onClick={handleSalvarTodasMediasNaClasse}
-                              className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-black text-xs shadow-xs inline-flex items-center space-x-2 cursor-pointer transition-all justify-center"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Guardar Todas as Médias Desta Classe de Uma Vez</span>
-                            </button>
-                          </div>
+                          {podeEditarHistoricoNotas && (
+                            <>
+                              {/* Botão de Gravação no Rodapé */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                                <span className="text-xs text-gray-500">
+                                  Lançamento em lote: clique no botão ao lado para persistir simultaneamente todas as classificações e atualizar o certificado oficial.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={handleSalvarTodasMediasNaClasse}
+                                  className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-black text-xs shadow-xs inline-flex items-center space-x-2 cursor-pointer transition-all justify-center"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span>Guardar Todas as Médias Desta Classe de Uma Vez</span>
+                                </button>
+                              </div>
 
-                          {/* Formulário para Adicionar Disciplina Avulsa */}
-                          <form onSubmit={handleAdicionarDisciplinaNaClasse} className="flex flex-wrap items-end gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs">
-                            <div className="flex-1 min-w-[200px]">
-                              <label className="font-bold text-gray-700 block mb-1">Adicionar Disciplina Avulsa / Opcional:</label>
-                              <input
-                                type="text"
-                                required
-                                value={novaDiscNome}
-                                onChange={(e) => setNovaDiscNome(e.target.value)}
-                                placeholder="Nome da disciplina curricular..."
-                                className="w-full p-2 border border-gray-300 rounded-lg bg-white"
-                              />
-                            </div>
-                            <div className="w-28">
-                              <label className="font-bold text-gray-700 block mb-1">Nota Final (0-{escalaInfo.escalaMaxima}):</label>
-                              <input
-                                type="number"
-                                min="0"
-                                max={escalaInfo.escalaMaxima}
-                                step="0.5"
-                                value={novaDiscNota}
-                                onChange={(e) => setNovaDiscNota(e.target.value)}
-                                placeholder={String(escalaInfo.notaAprovacao)}
-                                className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
-                              />
-                            </div>
-                            <button
-                              type="submit"
-                              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Adicionar Disciplina</span>
-                            </button>
-                          </form>
+                              {/* Formulário para Adicionar Disciplina Avulsa */}
+                              <form onSubmit={handleAdicionarDisciplinaNaClasse} className="flex flex-wrap items-end gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs">
+                                <div className="flex-1 min-w-[200px]">
+                                  <label className="font-bold text-gray-700 block mb-1">Adicionar Disciplina Avulsa / Opcional:</label>
+                                  <input
+                                    type="text"
+                                    required
+                                    value={novaDiscNome}
+                                    onChange={(e) => setNovaDiscNome(e.target.value)}
+                                    placeholder="Nome da disciplina curricular..."
+                                    className="w-full p-2 border border-gray-300 rounded-lg bg-white"
+                                  />
+                                </div>
+                                <div className="w-28">
+                                  <label className="font-bold text-gray-700 block mb-1">Nota Final (0-{escalaInfo.escalaMaxima}):</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={escalaInfo.escalaMaxima}
+                                    step="0.5"
+                                    value={novaDiscNota}
+                                    onChange={(e) => setNovaDiscNota(e.target.value)}
+                                    placeholder={String(escalaInfo.notaAprovacao)}
+                                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
+                                  />
+                                </div>
+                                <button
+                                  type="submit"
+                                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Adicionar Disciplina</span>
+                                </button>
+                              </form>
+                            </>
+                          )}
                         </div>
                       );
                     })()}
@@ -3268,40 +3589,89 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                   <th className="p-3 w-20">Gravidade</th>
                                   <th className="p-3">Descrição</th>
                                   <th className="p-3 w-36">Registado Por</th>
-                                  <th className="p-3 w-40">Resolução</th>
-                                  <th className="p-3 w-16 text-center">Ações</th>
+                                  <th className="p-3 w-40">Resolução &amp; Estado</th>
+                                  <th className="p-3 w-36 text-center">Decisão / Ações</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-200">
-                                {classeAtual.ocorrencias.map((o) => (
-                                  <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
-                                    <td className="p-3 font-mono text-gray-600">{o.data}</td>
-                                    <td className="p-3 font-bold text-gray-900">{o.tipo}</td>
-                                    <td className="p-3">
-                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                        o.gravidade === 'Grave' ? 'bg-red-100 text-red-800' : o.gravidade === 'Média' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
-                                      }`}>
-                                        {o.gravidade}
-                                      </span>
-                                    </td>
-                                    <td className="p-3 text-gray-800">{o.descricao}</td>
-                                    <td className="p-3 text-gray-700">
-                                      <strong>{o.registadoPor}</strong>
-                                      <span className="block text-[10px] text-gray-500">{o.cargo}</span>
-                                    </td>
-                                    <td className="p-3 text-gray-700">{o.resolucao || '—'}</td>
-                                    <td className="p-3 text-center">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoverOcorrencia(o.id)}
-                                        className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                                        title="Remover ocorrência"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
+                                {classeAtual.ocorrencias.map((o) => {
+                                  const badge = obterStatusBadgeOcorrencia(o.statusAprovacao);
+                                  const podeCoord = historicoAluno && podeAprovarComoCoordenador(historicoAluno);
+                                  return (
+                                    <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
+                                      <td className="p-3 font-mono text-gray-600">{o.data}</td>
+                                      <td className="p-3 font-bold text-gray-900">{o.tipo}</td>
+                                      <td className="p-3">
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                          o.gravidade === 'Grave' ? 'bg-red-100 text-red-800' : o.gravidade === 'Média' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                                        }`}>
+                                          {o.gravidade}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-gray-800">{o.descricao}</td>
+                                      <td className="p-3 text-gray-700">
+                                        <strong>{o.registadoPor}</strong>
+                                        <span className="block text-[10px] text-gray-500">{o.cargo}</span>
+                                      </td>
+                                      <td className="p-3 text-gray-700 space-y-1">
+                                        <div>{o.resolucao || '—'}</div>
+                                        <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold border ${badge.cor}`}>
+                                          {badge.texto}
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <div className="flex flex-col items-center gap-1">
+                                          {o.statusAprovacao === 'Pendente_Coordenador' && podeCoord && historicoAluno && (
+                                            <div className="flex gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDecidirOcorrencia(historicoAluno, o.id, 'Aprovar_Coord')}
+                                                className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold cursor-pointer"
+                                              >
+                                                Aprovar (Coord.)
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDecidirOcorrencia(historicoAluno, o.id, 'Rejeitar_Coord')}
+                                                className="px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-800 rounded text-[10px] font-bold cursor-pointer"
+                                              >
+                                                Rejeitar
+                                              </button>
+                                            </div>
+                                          )}
+                                          {(o.statusAprovacao === 'Aprovado_Coordenador' || o.statusAprovacao === 'Pendente_Coordenador') && podeHomologarSubPed && historicoAluno && (
+                                            <div className="flex gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDecidirOcorrencia(historicoAluno, o.id, 'Aprovar_Ped')}
+                                                className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer"
+                                              >
+                                                Homologar Dossiê
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDecidirOcorrencia(historicoAluno, o.id, 'Rejeitar_Ped')}
+                                                className="px-2 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded text-[10px] font-bold cursor-pointer"
+                                              >
+                                                Rejeitar
+                                              </button>
+                                            </div>
+                                          )}
+                                          {(!isProfessor || podeCoord || o.criadoPorId === currentUser?.id) && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoverOcorrencia(o.id)}
+                                              className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                              title="Remover ocorrência"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -3478,6 +3848,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   if (turmasValidas.length > 0 && !turmasValidas.some(t => t.id === selectedTurmaFilter)) {
                     setSelectedTurmaFilter('TODAS');
                   }
+                  if (!isSegundoCiclo(novaClasse)) {
+                    setSelectedCursoFilter('TODOS');
+                  }
                 }
               }}
               className="w-full py-2 px-3 text-xs font-bold text-gray-900 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
@@ -3522,21 +3895,25 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
           </div>
         </div>
 
-        {/* Linha Opcional para Curso (2º Ciclo) e Estado do Aluno */}
+        {/* Linha Opcional para Curso (exclusivo 2º Ciclo) e Estado do Aluno */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-          {/* Seletor de Curso para o 2º Ciclo */}
-          <div>
-            <select
-              value={selectedCursoFilter}
-              onChange={(e) => setSelectedCursoFilter(e.target.value)}
-              className="w-full py-2 px-3 text-xs font-medium border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white text-gray-800"
-            >
-              <option value="TODOS">Todos os Cursos</option>
-              {cursosAnoConfirmacao.map(c => (
-                <option key={`flt-curso-${c}`} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
+          {/* Seletor de Curso apenas quando houver/estiver selecionado o 2º Ciclo */}
+          {(selectedClasseFilter === 'TODAS'
+            ? turmasDoAnoFiltro.some(t => isSegundoCiclo(t.classe))
+            : isSegundoCiclo(selectedClasseFilter)) && (
+            <div>
+              <select
+                value={selectedCursoFilter}
+                onChange={(e) => setSelectedCursoFilter(e.target.value)}
+                className="w-full py-2 px-3 text-xs font-medium border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white text-gray-800"
+              >
+                <option value="TODOS">Todos os Cursos (2º Ciclo)</option>
+                {cursosAnoConfirmacao.map(c => (
+                  <option key={`flt-curso-${c}`} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Seletor de Estado */}
           <div>
@@ -3590,21 +3967,33 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
 
                 <div className="flex flex-col items-end space-y-1">
-                  <select
-                    value={aluno.estado}
-                    onChange={(e) => handleToggleEstado(aluno, e.target.value as EstadoAluno)}
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-pointer ${
+                  {isProfessor ? (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       aluno.estado === 'Ativo'
                         ? 'bg-green-100 text-green-800 border-green-300'
                         : aluno.estado === 'Desistente'
                         ? 'bg-red-100 text-red-800 border-red-300'
                         : 'bg-amber-100 text-amber-800 border-amber-300'
-                    }`}
-                  >
-                    <option value="Ativo">Ativo</option>
-                    <option value="Desistente">Desistente</option>
-                    <option value="Transferido">Transferido</option>
-                  </select>
+                    }`}>
+                      {aluno.estado}
+                    </span>
+                  ) : (
+                    <select
+                      value={aluno.estado}
+                      onChange={(e) => handleToggleEstado(aluno, e.target.value as EstadoAluno)}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-pointer ${
+                        aluno.estado === 'Ativo'
+                          ? 'bg-green-100 text-green-800 border-green-300'
+                          : aluno.estado === 'Desistente'
+                          ? 'bg-red-100 text-red-800 border-red-300'
+                          : 'bg-amber-100 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      <option value="Ativo">Ativo</option>
+                      <option value="Desistente">Desistente</option>
+                      <option value="Transferido">Transferido</option>
+                    </select>
+                  )}
                 </div>
               </div>
 
@@ -3639,7 +4028,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 )}
                 <div className="flex justify-between">
                   <span>Documento:</span>
-                  <span className="font-mono text-gray-800">{aluno.tipoDocumento} nº {aluno.numeroDocumento}</span>
+                  <span className="font-mono text-gray-800">{podeVerDocIdentAluno ? `${aluno.tipoDocumento} nº ${aluno.numeroDocumento}` : '*** Protegido ***'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Encarregado:</span>
@@ -3647,7 +4036,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span>Contacto:</span>
-                  <span className="text-gray-800">{aluno.telefoneEncarregado}</span>
+                  <span className="text-gray-800">{podeVerContactoAluno ? aluno.telefoneEncarregado : '*** Protegido ***'}</span>
                 </div>
               </div>
 
@@ -3665,80 +4054,102 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   <p className="mt-0.5 text-[10px] leading-tight">
                     {elegivelCertificado.mensagem}
                   </p>
-                  <button
-                    onClick={() => handleOpenHistoricoModal(aluno)}
-                    className="mt-2 w-full py-1 text-center font-bold text-xs text-blue-700 bg-white border border-blue-400 rounded hover:bg-blue-50 inline-flex items-center justify-center space-x-1"
-                  >
-                    <BookOpen className="h-3.5 w-3.5 text-blue-600" />
-                    <span>Notas Finais de Cada Disciplina</span>
-                  </button>
+                  {!isProfessor && (
+                    <button
+                      onClick={() => handleOpenHistoricoModal(aluno)}
+                      className="mt-2 w-full py-1 text-center font-bold text-xs text-blue-700 bg-white border border-blue-400 rounded hover:bg-blue-50 inline-flex items-center justify-center space-x-1"
+                    >
+                      <BookOpen className="h-3.5 w-3.5 text-blue-600" />
+                      <span>Notas Finais de Cada Disciplina</span>
+                    </button>
+                  )}
                 </div>
               )}
 
               <div className="flex flex-wrap justify-end gap-1.5 pt-2 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => setAlunoDossieModal(aluno)}
+                  onClick={() => {
+                    setShowDossieOcorrenciaForm(false);
+                    setAlunoDossieModal(aluno);
+                  }}
                   className="px-2.5 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
                   title="Aceder ao dossiê biográfico e cadastral completo do aluno"
                 >
                   <FileText className="h-3 w-3 text-indigo-600" />
                   <span>Dossiê</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const anoAlvo = escola.anoLectivoActivo || (selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : '') || anosLectivosDisponiveis[0] || '';
-                    setConfirmAnoLectivo(anoAlvo);
-                    setConfirmSearchTerm('');
-                    setConfirmFiltroClasseAnterior('TODAS');
-                    setConfirmFiltroAnoAnterior('TODOS');
-                    handleSelectAlunoConfirmacao(aluno.id, anoAlvo);
-                    setShowConfirmacaoModal(true);
-                  }}
-                  className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
-                  title="Confirmar ou renovar matrícula deste estudante"
-                >
-                  <FileCheck2 className="h-3 w-3 text-emerald-600" />
-                  <span>Confirmar</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReceiptSheetInitialSlots([
-                      converterAlunoParaSlot(
-                        aluno,
-                        turmas,
-                        escola,
-                        0,
-                        'Matricula',
-                        undefined,
-                        currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto
-                      )
-                    ]);
-                    setShowReceiptSheetModal(true);
-                  }}
-                  className="px-2 py-1 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
-                  title="Emitir recibo deste estudante (até 3 por folha A4)"
-                >
-                  <Receipt className="h-3 w-3 text-indigo-600" />
-                  <span>Recibo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleOpenHistoricoModal(aluno)}
-                  className="px-2.5 py-1 text-xs font-semibold text-green-700 hover:bg-green-50 rounded inline-flex items-center space-x-1"
-                >
-                  <BookOpen className="h-3 w-3" />
-                  <span>Histórico</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleOpenEdit(aluno)}
-                  className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded"
-                >
-                  Editar
-                </button>
+                {isProfessor ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDossieOcorrenciaForm(true);
+                      setAlunoDossieModal(aluno);
+                    }}
+                    className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                    title="Registar ocorrência disciplinar ou pedagógica deste estudante"
+                  >
+                    <AlertTriangle className="h-3 w-3 text-amber-700" />
+                    <span>Registar Ocorrência</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const anoAlvo = escola.anoLectivoActivo || (selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : '') || anosLectivosDisponiveis[0] || '';
+                        setConfirmAnoLectivo(anoAlvo);
+                        setConfirmSearchTerm('');
+                        setConfirmFiltroClasseAnterior('TODAS');
+                        setConfirmFiltroAnoAnterior('TODOS');
+                        handleSelectAlunoConfirmacao(aluno.id, anoAlvo);
+                        setShowConfirmacaoModal(true);
+                      }}
+                      className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                      title="Confirmar ou renovar matrícula deste estudante"
+                    >
+                      <FileCheck2 className="h-3 w-3 text-emerald-600" />
+                      <span>Confirmar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptSheetInitialSlots([
+                          converterAlunoParaSlot(
+                            aluno,
+                            turmas,
+                            escola,
+                            0,
+                            'Matricula',
+                            undefined,
+                            currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto
+                          )
+                        ]);
+                        setShowReceiptSheetModal(true);
+                      }}
+                      className="px-2 py-1 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1 cursor-pointer"
+                      title="Emitir recibo deste estudante (até 3 por folha A4)"
+                    >
+                      <Receipt className="h-3 w-3 text-indigo-600" />
+                      <span>Recibo</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenHistoricoModal(aluno)}
+                      className="px-2.5 py-1 text-xs font-semibold text-green-700 hover:bg-green-50 rounded inline-flex items-center space-x-1 cursor-pointer"
+                    >
+                      <BookOpen className="h-3 w-3" />
+                      <span>Histórico</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(aluno)}
+                      className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                    >
+                      Editar
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           );
@@ -3764,6 +4175,12 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveAluno} className="space-y-5 text-xs">
+              {erroModalAluno && (
+                <div className="p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-lg text-xs font-bold flex items-center justify-between">
+                  <span>{erroModalAluno}</span>
+                  <button type="button" onClick={() => setErroModalAluno(null)} className="text-red-700 hover:text-red-900 font-black">✕</button>
+                </div>
+              )}
               {/* 1. SELEÇÃO DE FOTO DO DISPOSITIVO */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <label className="font-bold text-gray-800 block mb-2">Fotografia Tipo Passe do Estudante</label>
@@ -4117,7 +4534,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     <div className="pt-2 border-t border-purple-200 text-[11px] text-purple-900">
                       <strong>Matriz de Disciplinas da {modalClasse} ({modalCurso}):</strong>
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
-                        {resolverNomesDisciplinasPorClasseECurso(dbService.getDisciplinas(escola.id), modalClasse, modalCurso).map(d => (
+                        {resolverNomesDisciplinasPorClasseECurso(dbService.getDisciplinas(escola.id, modalAnoLectivo || escola.anoLectivoActivo), modalClasse, modalCurso).map(d => (
                           <span key={d} className="px-2 py-0.5 bg-white text-purple-900 rounded-md border border-purple-200 font-medium text-[10px]">
                             {d}
                           </span>
@@ -4548,10 +4965,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     <div className="flex-1 min-w-0 space-y-0.5">
                       <h4 className="font-black text-gray-900 truncate">{al.nomeCompleto}</h4>
                       <p className="text-gray-600">
-                        Doc.: <strong className="font-mono">{al.numeroDocumento || al.numeroBI || '—'}</strong> • Gênero: <strong>{al.genero === 'M' ? 'Masculino' : 'Feminino'}</strong>
+                        Doc.: <strong className="font-mono">{podeVerDocIdentAluno ? (al.numeroDocumento || al.numeroBI || '—') : '*** Protegido ***'}</strong> • Gênero: <strong>{al.genero === 'M' ? 'Masculino' : 'Feminino'}</strong>
                       </p>
                       <p className="text-gray-600">
-                        Enc.: {al.nomeEncarregado || al.encarregadoNome || '—'} ({al.telefoneEncarregado || al.telefone || '—'})
+                        Enc.: {al.nomeEncarregado || al.encarregadoNome || '—'} ({podeVerContactoAluno ? (al.telefoneEncarregado || al.telefone || '—') : '*** Protegido ***'})
                       </p>
                       <span className="inline-block text-[10px] font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded">
                         Enquadramento Anterior ({al.anoLectivo || al.anoMatricula || tAtual?.anoLectivo || '—'}): {al.classeId || tAtual?.classe} • {tAtual?.nome || 'Sem Turma'} ({tAtual?.turno || 'Manhã'}) • Estado: {al.estado}
@@ -4851,24 +5268,28 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </button>
               ))}
 
-              <button
-                type="button"
-                onClick={handleInicializarEnsinoPrimario}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 inline-flex items-center space-x-1 cursor-pointer"
-                title="Adiciona automaticamente as classes de 1ª à 6ª Classe (Ensino Primário, escala 0–10)"
-              >
-                <BookOpen className="h-3.5 w-3.5" />
-                <span>Gerar 1ª à 6ª Classe (Primário)</span>
-              </button>
+              {podeEditarHistoricoNotas && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleInicializarEnsinoPrimario}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 inline-flex items-center space-x-1 cursor-pointer"
+                    title="Adiciona automaticamente as classes de 1ª à 6ª Classe (Ensino Primário, escala 0–10)"
+                  >
+                    <BookOpen className="h-3.5 w-3.5" />
+                    <span>Gerar 1ª à 6ª Classe (Primário)</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setShowAddClasseForm(!showAddClasseForm)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-green-800 bg-green-50 hover:bg-green-100 border border-green-300 inline-flex items-center space-x-1 cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Adicionar Nova Classe</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddClasseForm(!showAddClasseForm)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-green-800 bg-green-50 hover:bg-green-100 border border-green-300 inline-flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Adicionar Nova Classe</span>
+                  </button>
+                </>
+              )}
             </div>
 
             {/* FORMULÁRIO PARA ADICIONAR NOVA CLASSE */}
@@ -4983,15 +5404,17 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         </span>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={handleCarregarCurriculoPadrao}
-                        className="px-3 py-1.5 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-2xs transition-colors flex items-center space-x-1 cursor-pointer"
-                        title="Preencher automaticamente todas as disciplinas curriculares oficiais desta classe no plano curricular"
-                      >
-                        <BookOpen className="h-3.5 w-3.5 text-blue-700" />
-                        <span>Carregar Matriz Completa</span>
-                      </button>
+                      {podeEditarHistoricoNotas && (
+                        <button
+                          type="button"
+                          onClick={handleCarregarCurriculoPadrao}
+                          className="px-3 py-1.5 text-xs font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-300 rounded-lg shadow-2xs transition-colors flex items-center space-x-1 cursor-pointer"
+                          title="Preencher automaticamente todas as disciplinas curriculares oficiais desta classe no plano curricular"
+                        >
+                          <BookOpen className="h-3.5 w-3.5 text-blue-700" />
+                          <span>Carregar Matriz Completa</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -5003,14 +5426,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         <span>Excel (.xlsx)</span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleRemoverClasse(classeAtivaIdx)}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors"
-                        title="Eliminar esta classe do histórico"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {podeEditarHistoricoNotas && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverClasse(classeAtivaIdx)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors"
+                          title="Eliminar esta classe do histórico"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -5101,7 +5526,11 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                         <span className="flex items-center space-x-1.5">
                           <CheckCircle className="h-4 w-4 text-blue-600 shrink-0" />
                           <span>
-                            <strong>Edição Rápida em Lista:</strong> Digite diretamente as notas finais nas caixas de texto abaixo. As médias e os resultados de transição são calculados automaticamente em tempo real na escala <strong>0 a {escalaInfo.escalaMaxima}</strong>.
+                            {podeEditarHistoricoNotas ? (
+                              <><strong>Edição Rápida em Lista:</strong> Digite diretamente as notas finais nas caixas de texto abaixo. As médias e os resultados de transição são calculados automaticamente em tempo real na escala <strong>0 a {escalaInfo.escalaMaxima}</strong>.</>
+                            ) : (
+                              <><strong>Modo de Consulta:</strong> Apenas Diretor, Subdiretores e Secretaria podem editar ou adicionar notas no Histórico Escolar.</>
+                            )}
                           </span>
                         </span>
                         <span className="text-[11px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
@@ -5119,22 +5548,24 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                               <th className="p-3 text-center w-36">Nota Final (0 a {escalaInfo.escalaMaxima})</th>
                               <th className="p-3">Classificação Oficial por Extenso (MED)</th>
                               <th className="p-3 text-center w-28">Situação</th>
-                              <th className="p-3 text-right w-16">Ação</th>
+                              {podeEditarHistoricoNotas && <th className="p-3 text-right w-16">Ação</th>}
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200 bg-white">
                             {classeAtual.notasDisciplinas.length === 0 ? (
                               <tr>
-                                <td colSpan={6} className="p-8 text-center text-gray-500">
+                                <td colSpan={podeEditarHistoricoNotas ? 6 : 5} className="p-8 text-center text-gray-500">
                                   <p className="font-semibold text-gray-700 mb-2">Nenhuma disciplina cadastrada nesta classe ainda.</p>
-                                  <button
-                                    type="button"
-                                    onClick={handleCarregarCurriculoPadrao}
-                                    className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg font-bold text-xs shadow-xs inline-flex items-center space-x-1.5 cursor-pointer"
-                                  >
-                                    <Plus className="h-4 w-4" />
-                                    <span>Carregar Todas as Disciplinas do Currículo Oficial</span>
-                                  </button>
+                                  {podeEditarHistoricoNotas && (
+                                    <button
+                                      type="button"
+                                      onClick={handleCarregarCurriculoPadrao}
+                                      className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg font-bold text-xs shadow-xs inline-flex items-center space-x-1.5 cursor-pointer"
+                                    >
+                                      <Plus className="h-4 w-4" />
+                                      <span>Carregar Todas as Disciplinas do Currículo Oficial</span>
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
                             ) : (
@@ -5154,24 +5585,30 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                       )}
                                     </td>
                                     <td className="p-2 text-center">
-                                      <div className="flex items-center justify-center space-x-1">
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max={escalaInfo.escalaMaxima}
-                                          step="0.5"
-                                          value={disc.notaFinal}
-                                          onChange={(e) => handleAlterarNotaDisciplina(dIdx, e.target.value)}
-                                          className={`w-20 text-center font-black p-1.5 rounded-lg border-2 text-sm focus:ring-2 focus:outline-none transition-all ${
-                                            aprovado
-                                              ? 'border-blue-400 bg-blue-50/40 text-blue-950 focus:ring-blue-600 focus:border-blue-600'
-                                              : 'border-red-400 bg-red-50/40 text-red-950 focus:ring-red-600 focus:border-red-600'
-                                          }`}
-                                        />
-                                        <span className="text-[10px] font-semibold text-gray-400">
-                                          /{escalaInfo.escalaMaxima}
+                                      {podeEditarHistoricoNotas ? (
+                                        <div className="flex items-center justify-center space-x-1">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max={escalaInfo.escalaMaxima}
+                                            step="0.5"
+                                            value={disc.notaFinal}
+                                            onChange={(e) => handleAlterarNotaDisciplina(dIdx, e.target.value)}
+                                            className={`w-20 text-center font-black p-1.5 rounded-lg border-2 text-sm focus:ring-2 focus:outline-none transition-all ${
+                                              aprovado
+                                                ? 'border-blue-400 bg-blue-50/40 text-blue-950 focus:ring-blue-600 focus:border-blue-600'
+                                                : 'border-red-400 bg-red-50/40 text-red-950 focus:ring-red-600 focus:border-red-600'
+                                            }`}
+                                          />
+                                          <span className="text-[10px] font-semibold text-gray-400">
+                                            /{escalaInfo.escalaMaxima}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="font-mono font-black text-sm text-gray-900">
+                                          {disc.notaFinal} / {escalaInfo.escalaMaxima}
                                         </span>
-                                      </div>
+                                      )}
                                     </td>
                                     <td className="p-3 text-gray-700 italic font-medium">
                                       {converterNotaParaCertificadoExtenso(disc.notaFinal)}
@@ -5185,16 +5622,18 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                         {aprovado ? 'Aprovado' : 'Não Transita'}
                                       </span>
                                     </td>
-                                    <td className="p-3 text-right">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoverDisciplina(dIdx)}
-                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-colors"
-                                        title="Remover disciplina da lista"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    </td>
+                                    {podeEditarHistoricoNotas && (
+                                      <td className="p-3 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoverDisciplina(dIdx)}
+                                          className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-colors"
+                                          title="Remover disciplina da lista"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </td>
+                                    )}
                                   </tr>
                                 );
                               })
@@ -5204,70 +5643,72 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       </div>
 
                       {/* ADICIONAR DISCIPLINA EXTRA (AVULSA) */}
-                      <form onSubmit={handleAdicionarDisciplinaNaClasse} className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs">
-                        <div className="flex items-center justify-between">
-                          <h5 className="font-bold text-gray-800 text-[11px] uppercase tracking-wider flex items-center space-x-1.5">
-                            <Plus className="h-3.5 w-3.5 text-green-700" />
-                            <span>Adicionar Outra Disciplina à Lista</span>
-                          </h5>
-                          <span className="text-[10px] text-gray-500">Caso a disciplina não conste da matriz</span>
-                        </div>
+                      {podeEditarHistoricoNotas && (
+                        <form onSubmit={handleAdicionarDisciplinaNaClasse} className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <h5 className="font-bold text-gray-800 text-[11px] uppercase tracking-wider flex items-center space-x-1.5">
+                              <Plus className="h-3.5 w-3.5 text-green-700" />
+                              <span>Adicionar Outra Disciplina à Lista</span>
+                            </h5>
+                            <span className="text-[10px] text-gray-500">Caso a disciplina não conste da matriz</span>
+                          </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                          <div className="sm:col-span-2">
-                            <div className="flex gap-1.5">
-                              <select
-                                value={DISCIPLINAS_ANGOLA_PADRAO.includes(novaDiscNome) ? novaDiscNome : 'OUTRA'}
-                                onChange={(e) => {
-                                  if (e.target.value !== 'OUTRA') setNovaDiscNome(e.target.value);
-                                  else setNovaDiscNome('');
-                                }}
-                                className="w-full p-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold"
-                              >
-                                <option value="">-- Escolher Disciplina --</option>
-                                {DISCIPLINAS_ANGOLA_PADRAO.map((d, i) => (
-                                  <option key={i} value={d}>{d}</option>
-                                ))}
-                                <option value="OUTRA">Outra (Digitar Nome Personalizado)</option>
-                              </select>
-                              {!DISCIPLINAS_ANGOLA_PADRAO.includes(novaDiscNome) && (
-                                <input
-                                  type="text"
-                                  required
-                                  value={novaDiscNome}
-                                  onChange={(e) => setNovaDiscNome(e.target.value)}
-                                  placeholder="Nome da disciplina..."
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                            <div className="sm:col-span-2">
+                              <div className="flex gap-1.5">
+                                <select
+                                  value={DISCIPLINAS_ANGOLA_PADRAO.includes(novaDiscNome) ? novaDiscNome : 'OUTRA'}
+                                  onChange={(e) => {
+                                    if (e.target.value !== 'OUTRA') setNovaDiscNome(e.target.value);
+                                    else setNovaDiscNome('');
+                                  }}
                                   className="w-full p-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold"
-                                />
-                              )}
+                                >
+                                  <option value="">-- Escolher Disciplina --</option>
+                                  {DISCIPLINAS_ANGOLA_PADRAO.map((d, i) => (
+                                    <option key={i} value={d}>{d}</option>
+                                  ))}
+                                  <option value="OUTRA">Outra (Digitar Nome Personalizado)</option>
+                                </select>
+                                {!DISCIPLINAS_ANGOLA_PADRAO.includes(novaDiscNome) && (
+                                  <input
+                                    type="text"
+                                    required
+                                    value={novaDiscNome}
+                                    onChange={(e) => setNovaDiscNome(e.target.value)}
+                                    placeholder="Nome da disciplina..."
+                                    className="w-full p-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold"
+                                  />
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <input
+                                type="number"
+                                min="0"
+                                max={escalaInfo.escalaMaxima}
+                                step="0.5"
+                                required
+                                value={novaDiscNota}
+                                onChange={(e) => setNovaDiscNota(e.target.value)}
+                                placeholder={`Nota (0-${escalaInfo.escalaMaxima})`}
+                                className="w-full p-2 border border-gray-300 rounded-lg bg-white font-black text-center text-xs"
+                              />
+                            </div>
+
+                            <div>
+                              <button
+                                type="submit"
+                                className="w-full py-2 px-3 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded-lg shadow-2xs flex items-center justify-center space-x-1 cursor-pointer transition-colors"
+                              >
+                                <Plus className="h-4 w-4" />
+                                <span>Adicionar à Lista</span>
+                              </button>
                             </div>
                           </div>
-
-                          <div>
-                            <input
-                              type="number"
-                              min="0"
-                              max={escalaInfo.escalaMaxima}
-                              step="0.5"
-                              required
-                              value={novaDiscNota}
-                              onChange={(e) => setNovaDiscNota(e.target.value)}
-                              placeholder={`Nota (0-${escalaInfo.escalaMaxima})`}
-                              className="w-full p-2 border border-gray-300 rounded-lg bg-white font-black text-center text-xs"
-                            />
-                          </div>
-
-                          <div>
-                            <button
-                              type="submit"
-                              className="w-full py-2 px-3 text-xs font-bold text-white bg-green-700 hover:bg-green-800 rounded-lg shadow-2xs flex items-center justify-center space-x-1 cursor-pointer transition-colors"
-                            >
-                              <Plus className="h-4 w-4" />
-                              <span>Adicionar à Lista</span>
-                            </button>
-                          </div>
-                        </div>
-                      </form>
+                        </form>
+                      )}
                     </div>
                   )}
 
@@ -5469,6 +5910,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                 ? 'bg-amber-500 text-white'
                                 : 'bg-slate-200 text-slate-800';
 
+                            const badgeStatus = obterStatusBadgeOcorrencia(ocorr.statusAprovacao);
+                            const podeCoord = historicoAluno && podeAprovarComoCoordenador(historicoAluno);
+
                             return (
                               <div key={ocorr.id || oIdx} className="p-4 bg-white border border-gray-200 rounded-xl shadow-2xs space-y-2 hover:border-indigo-300 transition-all">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2">
@@ -5481,6 +5925,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                         {ocorr.gravidade}
                                       </span>
                                     )}
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeStatus.cor}`}>
+                                      {badgeStatus.texto}
+                                    </span>
                                     <span className="text-xs font-bold text-gray-900">
                                       Data: {ocorr.data}
                                     </span>
@@ -5492,14 +5939,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                   </div>
                                   <div className="flex items-center space-x-2 text-[11px] text-gray-500">
                                     <span>Registado por: <strong>{ocorr.registadoPor}</strong> ({ocorr.cargo})</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoverOcorrencia(ocorr.id)}
-                                      className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
-                                      title="Remover este acontecimento"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                    {(!isProfessor || podeCoord || ocorr.criadoPorId === currentUser?.id) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoverOcorrencia(ocorr.id)}
+                                        className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                        title="Remover este acontecimento"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
 
@@ -5511,6 +5960,48 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-700 flex items-center space-x-1.5">
                                     <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                                     <span><strong>Providência / Resolução:</strong> {ocorr.resolucao}</span>
+                                  </div>
+                                )}
+
+                                {((ocorr.statusAprovacao === 'Pendente_Coordenador' && podeCoord) ||
+                                  ((ocorr.statusAprovacao === 'Aprovado_Coordenador' || ocorr.statusAprovacao === 'Pendente_Coordenador') && podeHomologarSubPed)) && historicoAluno && (
+                                  <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                                    {ocorr.statusAprovacao === 'Pendente_Coordenador' && podeCoord && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDecidirOcorrencia(historicoAluno, ocorr.id, 'Aprovar_Coord')}
+                                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                                        >
+                                          Aprovar (Coordenador)
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDecidirOcorrencia(historicoAluno, ocorr.id, 'Rejeitar_Coord')}
+                                          className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg text-[11px] font-bold cursor-pointer"
+                                        >
+                                          Rejeitar (Coord.)
+                                        </button>
+                                      </>
+                                    )}
+                                    {(ocorr.statusAprovacao === 'Aprovado_Coordenador' || ocorr.statusAprovacao === 'Pendente_Coordenador') && podeHomologarSubPed && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDecidirOcorrencia(historicoAluno, ocorr.id, 'Aprovar_Ped')}
+                                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                                        >
+                                          Homologar no Dossiê (Sub. Pedagógico)
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDecidirOcorrencia(historicoAluno, ocorr.id, 'Rejeitar_Ped')}
+                                          className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg text-[11px] font-bold cursor-pointer"
+                                        >
+                                          Rejeitar (Sub. Ped.)
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -5535,14 +6026,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                           </p>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setEditandoFaltas(!editandoFaltas)}
-                          className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs cursor-pointer shrink-0"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          <span>{editandoFaltas ? 'Cancelar Edição' : 'Retificar Faltas'}</span>
-                        </button>
+                        {podeEditarHistoricoNotas && (
+                          <button
+                            type="button"
+                            onClick={() => setEditandoFaltas(!editandoFaltas)}
+                            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs cursor-pointer shrink-0"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>{editandoFaltas ? 'Cancelar Edição' : 'Retificar Faltas'}</span>
+                          </button>
+                        )}
                       </div>
 
                       {/* Painel de Métricas de Faltas */}
@@ -5655,14 +6148,16 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                           </p>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setEditandoDividas(!editandoDividas)}
-                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs cursor-pointer shrink-0"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          <span>{editandoDividas ? 'Cancelar Edição' : 'Atualizar Estado Financeiro'}</span>
-                        </button>
+                        {podeEditarHistoricoNotas && (
+                          <button
+                            type="button"
+                            onClick={() => setEditandoDividas(!editandoDividas)}
+                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-xs cursor-pointer shrink-0"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>{editandoDividas ? 'Cancelar Edição' : 'Atualizar Estado Financeiro'}</span>
+                          </button>
+                        )}
                       </div>
 
                       {/* Painel Financeiro */}
@@ -6024,13 +6519,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 República de Angola
               </div>
               <div className="text-xs font-bold uppercase tracking-wider text-gray-800">
-                Governo Provincial de Luanda • Ministério da Educação
+                Governo Provincial de {(escola.provincia || 'Angola')} • Ministério da Educação
               </div>
               <div className="text-sm font-black text-gray-950 uppercase mt-1">
                 {escola.nomeOficial}
               </div>
               <div className="inline-block mt-2 px-4 py-1 bg-gray-900 text-white rounded-md text-xs font-black uppercase tracking-wider">
-                Ficha Individual & Dossiê Biográfico do Aluno
+                {alunoDossieModal.genero === 'F' ? 'Ficha Individual & Dossiê Biográfico da Aluna' : 'Ficha Individual & Dossiê Biográfico do Aluno'}
               </div>
             </div>
 
@@ -6058,7 +6553,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
               <div className="flex-1 space-y-2 text-xs w-full">
                 <div>
-                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Nome Completo do Aluno</span>
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                    {alunoDossieModal.genero === 'F' ? 'Nome Completo da Aluna' : 'Nome Completo do Aluno'}
+                  </span>
                   <div className="text-base font-black text-gray-950">{alunoDossieModal.nomeCompleto}</div>
                 </div>
 
@@ -6112,15 +6609,15 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Nº do Documento:</span>
-                  <strong className="text-gray-900 font-mono">{alunoDossieModal.numeroDocumento || 'Pendente'}</strong>
+                  <strong className="text-gray-900 font-mono">{podeVerDocIdentAluno ? (alunoDossieModal.numeroDocumento || 'Pendente') : '*** Protegido ***'}</strong>
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Local de Emissão:</span>
-                  <strong className="text-gray-900">{alunoDossieModal.arquivoIdentificacao || 'Arquivo de Identificação de Luanda'}</strong>
+                  <strong className="text-gray-900">{podeVerDocIdentAluno ? (alunoDossieModal.arquivoIdentificacao || 'Arquivo de Identificação de Luanda') : '*** Protegido ***'}</strong>
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Data de Emissão:</span>
-                  <strong className="text-gray-900">{formatarDataAngolana(alunoDossieModal.dataEmissaoBI, 'curto', 'Não averbada')}</strong>
+                  <strong className="text-gray-900">{podeVerDocIdentAluno ? formatarDataAngolana(alunoDossieModal.dataEmissaoBI, 'curto', 'Não averbada') : '***'}</strong>
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Data de Nascimento:</span>
@@ -6163,7 +6660,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50 p-3 rounded-lg text-xs">
                 <div>
-                  <span className="text-[10px] text-gray-500 font-bold block">Filho de (Pai):</span>
+                  <span className="text-[10px] text-gray-500 font-bold block">
+                    {alunoDossieModal.genero === 'F' ? 'Filha de (Pai):' : 'Filho de (Pai):'}
+                  </span>
                   <strong className="text-gray-900">{alunoDossieModal.nomePai || 'Não declarado'}</strong>
                 </div>
                 <div>
@@ -6180,7 +6679,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Contacto Telefónico:</span>
-                  <strong className="text-gray-900 font-mono">{alunoDossieModal.telefoneEncarregado || '+244 923 000 000'}</strong>
+                  <strong className="text-gray-900 font-mono">{podeVerContactoAluno ? (alunoDossieModal.telefoneEncarregado || '+244 923 000 000') : '*** Protegido ***'}</strong>
                 </div>
                 <div>
                   <span className="text-[10px] text-gray-500 font-bold block">Morada de Residência / Bairro:</span>
@@ -6357,88 +6856,171 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                 </form>
               )}
 
-              {/* Lista de Ocorrências no Dossiê */}
-              {alunoDossieModal.ocorrencias && alunoDossieModal.ocorrencias.length > 0 ? (
-                <div className="border border-gray-200 rounded-lg overflow-hidden bg-white text-xs">
-                  <table className="w-full text-left">
-                    <thead className="bg-gray-100 text-gray-800 uppercase font-black text-[10px] tracking-wider border-b border-gray-200">
-                      <tr>
-                        <th className="p-2 w-24">Data</th>
-                        <th className="p-2 w-28">Tipo</th>
-                        <th className="p-2 w-20">Gravidade</th>
-                        <th className="p-2">Descrição do Acontecimento</th>
-                        <th className="p-2 w-32">Registado Por</th>
-                        <th className="p-2 w-36">Resolução Adotada</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {alunoDossieModal.ocorrencias.map((o) => (
-                        <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
-                          <td className="p-2 font-mono text-[11px] text-gray-600">{formatarDataAngolana(o.data, 'curto')}</td>
-                          <td className="p-2 font-bold text-gray-900">{o.tipo}</td>
-                          <td className="p-2">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              o.gravidade === 'Grave' 
-                                ? 'bg-red-100 text-red-800' 
-                                : o.gravidade === 'Média' 
-                                  ? 'bg-amber-100 text-amber-800' 
-                                  : 'bg-blue-100 text-blue-800'
-                            }`}>
-                              {o.gravidade}
-                            </span>
-                          </td>
-                          <td className="p-2 text-gray-800">{o.descricao}</td>
-                          <td className="p-2 text-[11px] text-gray-700">
-                            <strong>{o.registadoPor}</strong>
-                            <span className="block text-[10px] text-gray-500">{o.cargo}</span>
-                          </td>
-                          <td className="p-2 text-gray-700">{o.resolucao || '—'}</td>
+              {/* Painel de Fluxo de Aprovação de Ocorrências Pendentes (oculto na impressão) */}
+              {(() => {
+                const pendentesOuRejeitadas = (alunoDossieModal.ocorrencias || []).filter(
+                  o => o.statusAprovacao && o.statusAprovacao !== 'Aprovado_Pedagogico'
+                );
+                if (pendentesOuRejeitadas.length === 0) return null;
+                const podeCoord = podeAprovarComoCoordenador(alunoDossieModal);
+                return (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2 text-xs print:hidden">
+                    <div className="font-bold text-amber-950 flex items-center justify-between">
+                      <span>Ocorrências em Tramitação / Aguardando Aprovação ({pendentesOuRejeitadas.length})</span>
+                      <span className="text-[10px] font-normal text-amber-800">
+                        Só constam no Dossiê impresso após homologação do Subdiretor Pedagógico
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {pendentesOuRejeitadas.map((o) => {
+                        const badge = obterStatusBadgeOcorrencia(o.statusAprovacao);
+                        return (
+                          <div key={`pend-${o.id}`} className="p-2.5 bg-white border border-amber-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                <span className="font-bold text-gray-900">{o.tipo}</span>
+                                <span className="text-[10px] font-mono text-gray-500">({formatarDataAngolana(o.data, 'curto')})</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${badge.cor}`}>{badge.texto}</span>
+                              </div>
+                              <p className="text-[11px] text-gray-800">{o.descricao}</p>
+                              <p className="text-[10px] text-gray-500">Por: {o.registadoPor} ({o.cargo})</p>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 shrink-0">
+                              {o.statusAprovacao === 'Pendente_Coordenador' && podeCoord && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDecidirOcorrencia(alunoDossieModal, o.id, 'Aprovar_Coord')}
+                                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    Aprovar (Coord.)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDecidirOcorrencia(alunoDossieModal, o.id, 'Rejeitar_Coord')}
+                                    className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    Rejeitar
+                                  </button>
+                                </>
+                              )}
+                              {(o.statusAprovacao === 'Aprovado_Coordenador' || o.statusAprovacao === 'Pendente_Coordenador') && podeHomologarSubPed && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDecidirOcorrencia(alunoDossieModal, o.id, 'Aprovar_Ped')}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    Homologar Dossiê (Sub. Ped.)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDecidirOcorrencia(alunoDossieModal, o.id, 'Rejeitar_Ped')}
+                                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    Rejeitar
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Lista Oficial de Ocorrências Homologadas no Dossiê */}
+              {(() => {
+                const ocorrenciasAprovadasDossie = dbService.obterOcorrenciasAprovadasDossie(alunoDossieModal.ocorrencias);
+                return ocorrenciasAprovadasDossie.length > 0 ? (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden bg-white text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-gray-100 text-gray-800 uppercase font-black text-[10px] tracking-wider border-b border-gray-200">
+                        <tr>
+                          <th className="p-2 w-24">Data</th>
+                          <th className="p-2 w-28">Tipo</th>
+                          <th className="p-2 w-20">Gravidade</th>
+                          <th className="p-2">Descrição do Acontecimento</th>
+                          <th className="p-2 w-32">Registado Por</th>
+                          <th className="p-2 w-36">Resolução Adotada</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="p-3 bg-gray-50 rounded-lg text-center text-xs text-gray-500 italic border border-gray-200">
-                  Nenhuma ocorrência disciplinar ou pedagógica averbada no dossiê deste estudante. Comportamento exemplar.
-                </div>
-              )}
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {ocorrenciasAprovadasDossie.map((o) => (
+                          <tr key={o.id} className="hover:bg-amber-50/30 transition-colors">
+                            <td className="p-2 font-mono text-[11px] text-gray-600">{formatarDataAngolana(o.data, 'curto')}</td>
+                            <td className="p-2 font-bold text-gray-900">{o.tipo}</td>
+                            <td className="p-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                o.gravidade === 'Grave' 
+                                  ? 'bg-red-100 text-red-800' 
+                                  : o.gravidade === 'Média' 
+                                    ? 'bg-amber-100 text-amber-800' 
+                                    : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {o.gravidade}
+                              </span>
+                            </td>
+                            <td className="p-2 text-gray-800">{o.descricao}</td>
+                            <td className="p-2 text-[11px] text-gray-700">
+                              <strong>{o.registadoPor}</strong>
+                              <span className="block text-[10px] text-gray-500">{o.cargo}</span>
+                            </td>
+                            <td className="p-2 text-gray-700">{o.resolucao || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-gray-50 rounded-lg text-center text-xs text-gray-500 italic border border-gray-200">
+                    Nenhuma ocorrência disciplinar ou pedagógica homologada no dossiê deste estudante. Comportamento exemplar.
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Assinaturas Oficiais (Título -> Linha -> Nome) e Validação Digital QR */}
-            <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-3 gap-6 items-end text-center text-xs">
-              <div className="flex flex-col items-center justify-end space-y-1">
-                <p className="font-bold text-gray-900 uppercase text-[11px]">O(A) Chefe da Secretaria</p>
-                <div className="h-8" />
-                <div className="border-b border-gray-900 w-48 mx-auto" />
-                <p className="font-bold text-gray-800 text-[11px] uppercase">
-                  {escola.chefeSecretariaNome || 'Chefia da Secretaria Pedagógica'}
-                </p>
-              </div>
+            {(() => {
+              const funcionariosEscDossie = dbService.getFuncionarios(escola.id);
+              return (
+                <div className="pt-6 border-t-2 border-gray-900 grid grid-cols-3 gap-6 items-end text-center text-xs">
+                  <div className="flex flex-col items-center justify-end space-y-1">
+                    <p className="font-bold text-gray-900 uppercase text-[11px]">{obterTituloChefeSecretaria(escola, funcionariosEscDossie)}</p>
+                    <div className="h-8" />
+                    <div className="border-b border-gray-900 w-48 mx-auto" />
+                    <p className="font-bold text-gray-800 text-[11px] uppercase">
+                      {obterNomeChefeSecretaria(escola, funcionariosEscDossie)}
+                    </p>
+                  </div>
 
-              <div className="flex flex-col items-center justify-center">
-                <OfficialQrCode
-                  value={gerarPayloadQrEstudante(
-                    alunoDossieModal,
-                    escola,
-                    turmas.find(t => t.id === alunoDossieModal.turmaId)
-                  )}
-                  size={64}
-                  label="QR Biográfico"
-                />
-              </div>
+                  <div className="flex flex-col items-center justify-center">
+                    <OfficialQrCode
+                      value={gerarPayloadQrEstudante(
+                        alunoDossieModal,
+                        escola,
+                        turmas.find(t => t.id === alunoDossieModal.turmaId)
+                      )}
+                      size={64}
+                      label="QR Biográfico"
+                    />
+                  </div>
 
-              <div className="flex flex-col items-center justify-end space-y-1">
-                <p className="font-bold text-gray-900 uppercase text-[11px]">
-                  {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
-                </p>
-                <div className="h-8" />
-                <div className="border-b border-gray-900 w-48 mx-auto" />
-                <p className="font-bold text-gray-800 text-[11px] uppercase">
-                  {escola.diretorGeralNome || 'Direcção da Instituição'}
-                </p>
-              </div>
-            </div>
+                  <div className="flex flex-col items-center justify-end space-y-1">
+                    <p className="font-bold text-gray-900 uppercase text-[11px]">
+                      {obterTituloDiretorSimples(escola, funcionariosEscDossie)}
+                    </p>
+                    <div className="h-8" />
+                    <div className="border-b border-gray-900 w-48 mx-auto" />
+                    <p className="font-bold text-gray-800 text-[11px] uppercase">
+                      {obterNomeDiretorGeral(escola, funcionariosEscDossie)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
             </div>
           </div>
         </div>

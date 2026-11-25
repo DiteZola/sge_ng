@@ -23,6 +23,7 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola }) => {
   const [filtroEstado, setFiltroEstado] = useState<string>('todos');
   const [showNovoModal, setShowNovoModal] = useState(false);
   const [itemEmEdicao, setItemEmEdicao] = useState<ItemPatrimonio | null>(null);
+  const [itemParaExcluirId, setItemParaExcluirId] = useState<string | null>(null);
 
   // Form State
   const [codigoTombo, setCodigoTombo] = useState('');
@@ -85,10 +86,14 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola }) => {
   };
 
   const handleExcluir = (id: string) => {
-    if (confirm('Tem a certeza que deseja remover este registo de património?')) {
-      dbService.eliminarItemPatrimonio(id);
-      setItens(dbService.getPatrimonio(escola.id));
-    }
+    setItemParaExcluirId(id);
+  };
+
+  const confirmarExcluirPatrimonio = () => {
+    if (!itemParaExcluirId) return;
+    dbService.eliminarItemPatrimonio(itemParaExcluirId);
+    setItens(dbService.getPatrimonio(escola.id));
+    setItemParaExcluirId(null);
   };
 
   const handleRevisarRapido = (id: string, novoEstado: EstadoConservacao) => {
@@ -435,6 +440,36 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {itemParaExcluirId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-center space-x-2 text-rose-600">
+              <AlertTriangle className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">Remover Registo Patrimonial</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300">
+              Tem a certeza que deseja remover este registo de património?
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setItemParaExcluirId(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarExcluirPatrimonio}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Remover Registo
+              </button>
+            </div>
           </div>
         </div>
       )}

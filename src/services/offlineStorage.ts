@@ -25,6 +25,7 @@ export interface StorageHealthInfo {
   usedPercentage: number;
   indexedDbDisponivel: boolean;
   localStorageDisponivel: boolean;
+  isStoragePersisted: boolean;
   totalRegistosNoDiario: number;
   ultimoSnapshotHora: string | null;
 }
@@ -62,22 +63,40 @@ export interface StoredPdfEntry {
 }
 
 const DB_NAME = 'SGE_NG_ANGOLA_OFFLINE_DB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_ENTITIES = 'entities';
 const STORE_JOURNAL = 'journal';
 const STORE_SNAPSHOTS = 'snapshots';
 const STORE_MEDIA = 'media_blobs';
 const STORE_FUNCIONARIOS = 'funcionarios';
 const STORE_PDFS = 'biblioteca_pdfs';
+const STORE_PERIODIC_BACKUPS = 'backups_periodicos';
 
-export function base64ToBlob(dataUrl: string): Blob | null {
+export function base64ToBlob(dataUrl: string, defaultMime: string = 'image/jpeg'): Blob | null {
   try {
-    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
-    const [header, data] = dataUrl.split(',');
-    if (!data) return null;
-    const mimeMatch = header.match(/data:([^;]+);base64/i);
-    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-    const binary = atob(data);
+    if (!dataUrl || typeof dataUrl !== 'string') return null;
+    const trimmed = dataUrl.trim();
+    if (!trimmed) return null;
+
+    let mime = defaultMime;
+    let base64Body = '';
+
+    if (trimmed.startsWith('data:')) {
+      const commaIdx = trimmed.indexOf(',');
+      if (commaIdx < 0) return null;
+      const header = trimmed.slice(0, commaIdx);
+      base64Body = trimmed.slice(commaIdx + 1);
+      const mimeMatch = header.match(/data:([^;]+);base64/i);
+      if (mimeMatch && mimeMatch[1]) {
+        mime = mimeMatch[1].trim();
+      }
+    } else {
+      base64Body = trimmed;
+    }
+
+    const cleaned = base64Body.replace(/\s+/g, '');
+    if (!cleaned) return null;
+    const binary = atob(cleaned);
     const len = binary.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
@@ -152,10 +171,17 @@ class OfflineStorageEngine {
           if (!db.objectStoreNames.contains(STORE_PDFS)) {
             db.createObjectStore(STORE_PDFS, { keyPath: 'id' });
           }
+          if (!db.objectStoreNames.contains(STORE_PERIODIC_BACKUPS)) {
+            const pbStore = db.createObjectStore(STORE_PERIODIC_BACKUPS, { keyPath: 'id' });
+            pbStore.createIndex('criadoEm', 'criadoEm', { unique: false });
+            pbStore.createIndex('escolaId', 'escolaId', { unique: false });
+          }
         };
 
         request.onsuccess = (event) => {
           this.db = (event.target as IDBOpenDBRequest).result;
+          // Solicitar persistência nativa do navegador para evitar limpeza automática pelo SO
+          this.solicitarPersistenciaNativa().catch(() => {});
           // Primeiro hidratar cache de mídia / funcionários do IndexedDB, depois espelhar localStorage
           setTimeout(() => {
             this.hidratarArmazenamentoDoIndexedDB().finally(() => {
@@ -205,12 +231,41 @@ class OfflineStorageEngine {
     // Proteção contra perda acidental durante navegação
     window.addEventListener('beforeunload', () => {
       this.criarSnapshotEmergencia('Auto-Save pré-fechamento do separador');
+      this.flushMirrorQueueSync();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this.flushMirrorQueueSync();
+      }
     });
 
     // Snapshots automáticos periódicos em segundo plano (a cada 5 minutos)
     setInterval(() => {
       this.criarSnapshotEmergencia('Snapshot de rotina em segundo plano');
     }, 300000);
+  }
+
+  private flushMirrorQueueSync() {
+    if (!this.db || this.mirrorQueue.size === 0) return;
+    if (this.mirrorTimer) {
+      clearTimeout(this.mirrorTimer);
+      this.mirrorTimer = null;
+    }
+    const keys = Array.from(this.mirrorQueue);
+    this.mirrorQueue.clear();
+    try {
+      const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
+      const store = tx.objectStore(STORE_ENTITIES);
+      const tsMap = this.obterTimestampsLocalStorage();
+      const now = new Date().toISOString();
+      for (const k of keys) {
+        const val = localStorage.getItem(k);
+        if (val !== null) {
+          store.put({ key: k, value: val, updatedAt: tsMap[k] || now });
+        }
+      }
+    } catch {}
   }
 
   private agendarEspelhamentoChave(key: string) {
@@ -509,6 +564,55 @@ class OfflineStorageEngine {
     await this.dbReadyPromise;
     const rec = await this.lerUmDoIndexedDB<{ key: string; value: string }>(STORE_ENTITIES, key);
     return rec?.value ?? null;
+  }
+
+  public async verificarPersistenciaNativa(): Promise<boolean> {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.persisted === 'function') {
+        return await navigator.storage.persisted();
+      }
+    } catch {}
+    return false;
+  }
+
+  public async solicitarPersistenciaNativa(): Promise<boolean> {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.storage) {
+        if (typeof navigator.storage.persisted === 'function') {
+          const jaPersistido = await navigator.storage.persisted();
+          if (jaPersistido) return true;
+        }
+        if (typeof navigator.storage.persist === 'function') {
+          return await navigator.storage.persist();
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  public async gravarSnapshotPeriodicoNoIDB(record: any): Promise<boolean> {
+    await this.dbReadyPromise;
+    return this.gravarNoIndexedDB(STORE_PERIODIC_BACKUPS, record);
+  }
+
+  public async listarSnapshotsPeriodicosDoIDB<T = any>(): Promise<T[]> {
+    await this.dbReadyPromise;
+    const items = await this.lerTodosDoIndexedDB<T>(STORE_PERIODIC_BACKUPS);
+    return items.sort((a: any, b: any) =>
+      String(b?.criadoEm || '').localeCompare(String(a?.criadoEm || ''))
+    );
+  }
+
+  public async obterSnapshotPeriodicoDoIDB<T = any>(id: string): Promise<T | null> {
+    if (!id) return null;
+    await this.dbReadyPromise;
+    return this.lerUmDoIndexedDB<T>(STORE_PERIODIC_BACKUPS, id);
+  }
+
+  public async eliminarSnapshotPeriodicoDoIDB(id: string): Promise<boolean> {
+    if (!id) return false;
+    await this.dbReadyPromise;
+    return this.eliminarDoIndexedDB(STORE_PERIODIC_BACKUPS, id);
   }
 
   /**
@@ -959,6 +1063,7 @@ class OfflineStorageEngine {
       usedBytes = lsChars * 2;
     }
 
+    const isStoragePersisted = await this.verificarPersistenciaNativa();
     const usedPercentage = Math.min(100, Math.round((usedBytes / quotaBytes) * 1000) / 10);
     const ultimoSnapshotHora = localStorage.getItem('sge_last_snapshot_time');
     const journal = this.obterDiario();
@@ -970,6 +1075,7 @@ class OfflineStorageEngine {
       usedPercentage,
       indexedDbDisponivel: !!this.db,
       localStorageDisponivel: typeof window !== 'undefined' && !!window.localStorage,
+      isStoragePersisted,
       totalRegistosNoDiario: journal.length,
       ultimoSnapshotHora
     };
@@ -1075,14 +1181,23 @@ class OfflineStorageEngine {
 
     let base64 = '';
     let blob: Blob | null = null;
+    const fallbackMime = meta?.mimeType || 'application/pdf';
 
     if (typeof Blob !== 'undefined' && blobOrBase64 instanceof Blob) {
-      blob = blobOrBase64;
-      base64 = await blobToBase64(blobOrBase64);
+      try {
+        const ab = await blobOrBase64.arrayBuffer();
+        blob = new Blob([ab], { type: blobOrBase64.type || fallbackMime });
+      } catch {
+        blob = blobOrBase64;
+      }
+      base64 = await blobToBase64(blob);
     } else if (typeof blobOrBase64 === 'string') {
       base64 = blobOrBase64.trim();
-      if (base64.startsWith('data:')) {
-        blob = base64ToBlob(base64);
+      if (base64 && !base64.startsWith('data:')) {
+        base64 = `data:${fallbackMime};base64,${base64}`;
+      }
+      if (base64) {
+        blob = base64ToBlob(base64, fallbackMime);
       }
     }
 
@@ -1091,7 +1206,7 @@ class OfflineStorageEngine {
     }
 
     const tamanhoBytes = blob?.size || Math.round((base64.length * 3) / 4);
-    const mimeType = meta?.mimeType || blob?.type || 'application/pdf';
+    const mimeType = meta?.mimeType || blob?.type || fallbackMime;
     const nome = meta?.nome || `documento-${docId}.pdf`;
     const updatedAt = meta?.updatedAt || new Date().toISOString();
 

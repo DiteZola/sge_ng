@@ -15,6 +15,13 @@ import { downloadElementAsPdf, imprimirElementoDiretamente, PdfMarginsMm } from 
 import { formatarParaDataAngola } from './AngolaDateInput';
 import { dbService } from '../services/storage';
 import { hojeAngolano } from '../utils/dateFormat';
+import {
+  obterTituloDirectorTurma,
+  obterTituloSubdiretorPedagogico,
+  obterTituloDiretorSimples,
+  obterNomeSubdiretorPedagogico,
+  obterNomeDiretorGeral
+} from '../utils/directorHelper';
 
 interface StudentClassListPdfDocumentProps {
   escola: Escola;
@@ -135,7 +142,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
   // Classes disponíveis na escola / alunos
   const classesDisponiveis = useMemo(() => {
     const set = new Set<string>();
-    dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).forEach((c) => {
+    dbService.getClassesConfigs(escola.id, anoBase).filter(c => c.ativa !== false).forEach((c) => {
       if (c.nome) set.add(normalizarClasse(c.nome));
     });
     turmasBase.forEach((t) => {
@@ -152,27 +159,34 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
       if (iB === -1) return -1;
       return iA - iB;
     });
-  }, [escola.id, turmasBase, todosAlunos, alunos]);
+  }, [escola.id, anoBase, turmasBase, todosAlunos, alunos]);
 
-  // Cursos disponíveis para a classe selecionada (dinâmicos da Direção + Turmas + MED)
+  const temSegundoCicloDisponivel = useMemo(() => {
+    if (filtroClasse !== 'TODAS') return isSegundoCiclo(filtroClasse);
+    return turmasBase.some((t) => isSegundoCiclo(t.classe));
+  }, [filtroClasse, turmasBase]);
+
+  // Cursos disponíveis exclusivamente para o IIº Ciclo (10ª–13ª)
   const cursosDisponiveis = useMemo(() => {
+    if (!temSegundoCicloDisponivel) return [];
     const set = new Set<string>();
     dbService.getCursos(escola.id).filter(c => c.ativo !== false).forEach((c) => {
       if (c.nome && c.nome.trim()) set.add(c.nome.trim());
     });
     turmasBase.forEach((t) => {
+      if (!isSegundoCiclo(t.classe)) return;
       if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return;
       if (t.curso && t.curso.trim()) set.add(t.curso.trim());
     });
     (todosAlunos || alunos).forEach((a) => {
-      if (filtroClasse !== 'TODAS' && normalizarClasse(a.classeId) !== normalizarClasse(filtroClasse)) return;
+      const clAl = a.classeId || '';
+      if (clAl && !isSegundoCiclo(clAl)) return;
+      if (filtroClasse !== 'TODAS' && normalizarClasse(clAl) !== normalizarClasse(filtroClasse)) return;
       if (a.curso && a.curso.trim()) set.add(a.curso.trim());
     });
-    if (filtroClasse === 'TODAS' || isSegundoCiclo(filtroClasse)) {
-      CURSOS_SEGUNDO_CICLO.forEach((c) => set.add(c));
-    }
+    CURSOS_SEGUNDO_CICLO.forEach((c) => set.add(c));
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
-  }, [escola.id, turmasBase, todosAlunos, alunos, filtroClasse]);
+  }, [escola.id, turmasBase, todosAlunos, alunos, filtroClasse, temSegundoCicloDisponivel]);
 
   // Turmas filtradas por Classe e Curso
   const turmasFiltradas = useMemo(() => {
@@ -256,16 +270,17 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
       ? `${turmaSelecionadaObj.nome}${turmaSelecionadaObj.turno ? ` (${turmaSelecionadaObj.turno})` : ''}`
       : 'Todas as Turmas';
   const salaCabecalho = turmaSelecionadaObj?.sala || 'Diversas';
+  const ehCabecalhoSegundoCiclo =
+    classeCabecalho !== 'Todas as Classes'
+      ? isSegundoCiclo(classeCabecalho)
+      : temSegundoCicloDisponivel && filtroCurso !== 'TODOS';
   const temCurso =
-    (classeCabecalho !== 'Todas as Classes' && isSegundoCiclo(classeCabecalho)) ||
-    filtroCurso !== 'TODOS' ||
-    Boolean(turmaSelecionadaObj?.curso && turmaSelecionadaObj.curso.trim());
+    ehCabecalhoSegundoCiclo &&
+    (filtroCurso !== 'TODOS' || Boolean(turmaSelecionadaObj?.curso && turmaSelecionadaObj.curso.trim()));
   const cursoExibicao =
-    filtroCurso !== 'TODOS'
-      ? filtroCurso
-      : temCurso
-        ? (turmaSelecionadaObj?.curso || 'Todos os Cursos')
-        : '';
+    ehCabecalhoSegundoCiclo
+      ? (filtroCurso !== 'TODOS' ? filtroCurso : (turmaSelecionadaObj?.curso || 'Todos os Cursos'))
+      : '';
 
   const mostrarColunaTurma = !turmaSelecionadaObj;
 
@@ -385,9 +400,9 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
           </div>
         </div>
 
-        {/* Seletores interativos de Classe, Curso e Turma */}
+        {/* Seletores interativos de Classe, Curso (somente IIº Ciclo) e Turma */}
         {temModoInterativo && (
-          <div className="pt-3 border-t border-slate-700/80 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+          <div className={`pt-3 border-t border-slate-700/80 grid grid-cols-1 ${temSegundoCicloDisponivel ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2.5 text-xs`}>
             <div>
               <label className="block text-[10px] font-bold uppercase text-slate-300 mb-1 flex items-center space-x-1">
                 <Filter className="w-3 h-3 text-blue-400" />
@@ -407,26 +422,23 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
               </select>
             </div>
 
-            <div>
-              <label className="block text-[10px] font-bold uppercase text-slate-300 mb-1">
-                Curso / Especialidade {filtroClasse !== 'TODAS' && !isSegundoCiclo(filtroClasse) ? '(2º Ciclo)' : ''}
-              </label>
-              <select
-                value={filtroCurso}
-                onChange={(e) => handleCursoChange(e.target.value)}
-                disabled={filtroClasse !== 'TODAS' && !isSegundoCiclo(filtroClasse) && cursosDisponiveis.length === 0}
-                className="w-full p-2 rounded-lg bg-slate-800 border border-slate-700 text-white font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
-              >
-                <option value="TODOS">
-                  {filtroClasse !== 'TODAS' && !isSegundoCiclo(filtroClasse)
-                    ? 'Ensino Geral (Sem Curso)'
-                    : 'Todos os Cursos'}
-                </option>
-                {cursosDisponiveis.map((c) => (
-                  <option key={`ln-cur-${c}`} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
+            {temSegundoCicloDisponivel && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase text-slate-300 mb-1">
+                  Curso / Especialidade (IIº Ciclo)
+                </label>
+                <select
+                  value={filtroCurso}
+                  onChange={(e) => handleCursoChange(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-slate-800 border border-slate-700 text-white font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="TODOS">Todos os Cursos</option>
+                  {cursosDisponiveis.map((c) => (
+                    <option key={`ln-cur-${c}`} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="block text-[10px] font-bold uppercase text-slate-300 mb-1">
@@ -440,7 +452,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
                 <option value="TODAS">Todas as Turmas ({turmasFiltradas.length})</option>
                 {turmasFiltradas.map((t) => (
                   <option key={`ln-tur-${t.id}`} value={t.id}>
-                    Turma {t.nome} ({t.classe}) • {t.turno}{t.curso ? ` • ${t.curso}` : ''}
+                    Turma {t.nome} ({t.classe}) • {t.turno}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''}
                   </option>
                 ))}
               </select>
@@ -514,7 +526,7 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
                 <th className="p-1 border border-black text-center min-w-[28px]">Nº</th>
                 <th className="p-1 border border-black text-center min-w-[44px]">Foto</th>
                 <th className="p-1 border border-black text-center min-w-[74px]">Nº Proc.</th>
-                <th className="p-1.5 border border-black min-w-[160px]">Nome Completo do(a) Estudante</th>
+                <th className="p-1.5 border border-black min-w-[160px]">Nome Completo do Estudante</th>
                 {mostrarColunaTurma && (
                   <th className="p-1 border border-black text-center min-w-[74px]">Classe/Turma</th>
                 )}
@@ -607,33 +619,40 @@ export const StudentClassListPdfDocument: React.FC<StudentClassListPdfDocumentPr
           <span>Data de Emissão: <strong className="font-black text-black">{hojeAngolano('curto')}</strong></span>
         </div>
 
-        {/* Assinaturas Oficiais com Traço Centrado e Gênero Correto */}
-        <div data-pdf-fixed-signatures="true" className="grid grid-cols-3 gap-4 pt-4 text-center text-[10px]">
-          <div className="min-w-0">
-            <p className="font-bold text-gray-900 mb-7">O(A) Director(a) de Turma</p>
-            <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
-            <p className="font-bold text-gray-900 break-words">{turmaSelecionadaObj?.coordenadorNome || 'Coordenação de Turma'}</p>
-            <p className="text-gray-500 text-[9px]">Docente Responsável</p>
-          </div>
+        {/* Assinaturas Oficiais com Traço Centrado e Género Correto */}
+        {(() => {
+          const funcionariosLista = dbService.getFuncionarios(escola.id);
+          return (
+            <div data-pdf-fixed-signatures="true" className="grid grid-cols-3 gap-4 pt-4 text-center text-[10px]">
+              <div className="min-w-0">
+                <p className="font-bold text-gray-900 mb-7">
+                  {turmaSelecionadaObj ? obterTituloDirectorTurma(turmaSelecionadaObj, funcionariosLista) : 'Direcção de Turma'}
+                </p>
+                <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
+                <p className="font-bold text-gray-900 break-words">{turmaSelecionadaObj?.coordenadorNome || 'Coordenação de Turma'}</p>
+                <p className="text-gray-500 text-[9px]">Docente Responsável</p>
+              </div>
 
-          <div className="min-w-0">
-            <p className="font-bold text-gray-900 mb-7">
-              {escola.subdiretorPedagogicoNome ? 'O Subdirector Pedagógico' : 'A Subdirecção Pedagógica'}
-            </p>
-            <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
-            <p className="font-bold text-gray-900 break-words">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
-            <p className="text-gray-500 text-[9px]">Área Pedagógica</p>
-          </div>
+              <div className="min-w-0">
+                <p className="font-bold text-gray-900 mb-7">
+                  {obterTituloSubdiretorPedagogico(escola, funcionariosLista)}
+                </p>
+                <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
+                <p className="font-bold text-gray-900 break-words">{obterNomeSubdiretorPedagogico(escola, funcionariosLista)}</p>
+                <p className="text-gray-500 text-[9px]">Área Pedagógica</p>
+              </div>
 
-          <div className="min-w-0">
-            <p className="font-bold text-gray-900 mb-7">
-              {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
-            </p>
-            <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
-            <p className="font-bold text-gray-900 break-words">{escola.diretorGeralNome || 'Direcção da Escola'}</p>
-            <p className="text-gray-500 text-[9px]">Visto & Homologado</p>
-          </div>
-        </div>
+              <div className="min-w-0">
+                <p className="font-bold text-gray-900 mb-7">
+                  {obterTituloDiretorSimples(escola, funcionariosLista)}
+                </p>
+                <div className="w-full max-w-[160px] border-b border-black mx-auto mb-1" />
+                <p className="font-bold text-gray-900 break-words">{obterNomeDiretorGeral(escola, funcionariosLista)}</p>
+                <p className="text-gray-500 text-[9px]">Visto & Homologado</p>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="mt-5 pt-3 border-t border-gray-300 flex items-center justify-between text-[9px] text-gray-600">
           <div>

@@ -33,7 +33,15 @@ import {
   Camera,
   HeartPulse
 } from 'lucide-react';
-import { Funcionario, RegistoAssiduidade, Escola, UserRole, Genero } from '../types';
+import {
+  Funcionario,
+  RegistoAssiduidade,
+  Escola,
+  UserRole,
+  Genero,
+  FormacaoAcademicaExtra,
+  CampoPersonalizadoFuncionario
+} from '../types';
 import { dbService } from '../services/storage';
 import { securityEngine } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
@@ -112,7 +120,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const [localEmissaoBI, setLocalEmissaoBI] = useState('');
   const [dataValidadeBI, setDataValidadeBI] = useState('');
   const [telefoneAlternativo, setTelefoneAlternativo] = useState('');
-  const [grauAcademico, setGrauAcademico] = useState<'Médio' | 'Bacharel' | 'Licenciado' | 'Mestre' | 'Doutor'>('Licenciado');
+  const [grauAcademico, setGrauAcademico] = useState<string>('Licenciatura');
+  const [instituicaoAcademica, setInstituicaoAcademica] = useState('');
+  const [anoConclusaoFormacao, setAnoConclusaoFormacao] = useState('');
+  const [outrasFormacoes, setOutrasFormacoes] = useState<FormacaoAcademicaExtra[]>([]);
+  const [camposExtrasFormacao, setCamposExtrasFormacao] = useState<CampoPersonalizadoFuncionario[]>([]);
   const [especialidade, setEspecialidade] = useState('');
   const [categoriaProfissional, setCategoriaProfissional] = useState('');
   const [numeroMecanografico, setNumeroMecanografico] = useState('');
@@ -145,6 +157,10 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const [modalSenhaOpen, setModalSenhaOpen] = useState(false);
   const [funcSelecionado, setFuncSelecionado] = useState<Funcionario | null>(null);
   const [novaSenhaInput, setNovaSenhaInput] = useState('');
+  const [senhaErro, setSenhaErro] = useState<string | null>(null);
+
+  // Modal Confirmação Eliminação
+  const [funcParaEliminar, setFuncParaEliminar] = useState<Funcionario | null>(null);
 
   // Notificações
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -153,8 +169,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  // Permissão da Direção
+  // Permissão da Direção & Visibilidade de Empregados
   const ehDiretor = currentUser.role === 'DiretorGeral' || currentUser.role === 'AdminGeral';
+  const visibilidadeUsuario = dbService.getVisibilidadeEfetivaUsuario(currentUser, escola);
+  const podeVerSensiveisDe = (func: Funcionario) =>
+    visibilidadeUsuario.dadosSensiveis.verDadosSensiveisFuncionarios || func.id === currentUser.id;
   const podeCadastrarFuncionarios = ehDiretor || (currentUser.role === 'SubdiretorPedagogico' && Boolean(escola.permitirSubdiretorCadastrarFuncionarios));
   const temPermissaoAssiduidade = [
     'DiretorGeral',
@@ -165,9 +184,9 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     'ChefeSecretaria'
   ].includes(currentUser.role);
 
-  // Apenas funcionários estritamente pertencentes a esta escola
-  const funcionariosDaEscola = funcionarios.filter(f => 
-    (escola.id === 'todas' || f.escolaId === escola.id) &&
+  // Apenas funcionários estritamente pertencentes a esta escola (incluindo Diretor Geral)
+  const funcionariosDaEscola = funcionarios.filter(f =>
+    (escola.id === 'todas' || f.escolaId === escola.id || (escola.diretorGeralId && f.id === escola.diretorGeralId)) &&
     f.role !== 'AdminGeral'
   );
 
@@ -203,7 +222,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
   const handleMarcarPresenca = (funcId: string, presente: boolean, justificada = false, motivo = '') => {
     if (!temPermissaoAssiduidade) {
-      alert('Apenas o Diretor Geral e a Subdiretora Pedagógica têm autorização para assinar o livro de ponto.');
+      emitirFeedback('Apenas o Diretor Geral, Subdiretor Pedagógico, Coordenadores ou Chefe da Secretaria têm autorização para assinar o livro de ponto.');
       return;
     }
 
@@ -249,14 +268,25 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       if (res.sucesso && res.dataUrl) {
         setFotoUrl(res.dataUrl);
       } else {
-        alert(res.erro || 'Falha ao processar a fotografia selecionada.');
+        emitirFeedback(res.erro || 'Falha ao processar a fotografia selecionada.');
       }
     } catch (err: any) {
-      alert(`Erro no processamento da imagem: ${err.message || 'Erro desconhecido'}`);
+      emitirFeedback(`Erro no processamento da imagem: ${err.message || 'Erro desconhecido'}`);
     } finally {
       setComprimindoFoto(false);
       e.target.value = '';
     }
+  };
+
+  const normalizarGrauAcademicoOpcao = (valor?: string) => {
+    const mapa: Record<string, string> = {
+      'Médio': 'Ensino Médio',
+      'Bacharel': 'Bacharelato',
+      'Licenciado': 'Licenciatura',
+      'Mestre': 'Mestrado',
+      'Doutor': 'Doutoramento'
+    };
+    return (valor && mapa[valor]) || valor || 'Licenciatura';
   };
 
   const abrirModalNovoFuncionario = () => {
@@ -283,7 +313,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setGenero('M');
     setCargo('Professor');
     setRole('Professor');
-    setGrauAcademico('Licenciado');
+    setGrauAcademico('Licenciatura');
+    setInstituicaoAcademica('');
+    setAnoConclusaoFormacao('');
+    setOutrasFormacoes([]);
+    setCamposExtrasFormacao([]);
     setEspecialidade('');
     setHabilitacoes('');
     setCategoriaProfissional('');
@@ -316,36 +350,40 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     setNumeroBI(func.numeroBI || func.bi || func.numeroDocumento || '');
     setTipoDocumento(func.tipoDocumento || 'BI');
     setDataEmissaoBI(func.dataEmissaoBI || '');
-    setDataValidadeBI(func.dataValidadeBI || '');
+    setDataValidadeBI(func.dataValidadeBI || func.validadeBI || '');
     setLocalEmissaoBI(func.localEmissaoBI || func.arquivoIdentificacao || '');
     setDataNascimento(func.dataNascimento || '');
-    setNaturalidade(func.naturalidadeMunicipio || func.municipio || func.provincia || '');
-    setProvincia(func.provincia || func.naturalidadeProvincia || 'Luanda');
-    setMunicipio(func.municipio || func.naturalidadeMunicipio || 'Luanda');
+    setNaturalidade(func.naturalidadeMunicipio || func.naturalidade || func.municipio || func.provincia || '');
+    setProvincia(func.provincia || func.provinciaOrigem || func.naturalidadeProvincia || 'Luanda');
+    setMunicipio(func.municipio || func.municipioResidencia || func.naturalidadeMunicipio || 'Luanda');
     setPais(func.pais || 'Angola');
     setNacionalidade(func.nacionalidade || 'Angolana');
     setEstadoCivil(func.estadoCivil || 'Solteiro(a)');
     setNomePai(func.nomePai || '');
     setNomeMae(func.nomeMae || '');
-    setEndereco(func.residencia || func.bairro || '');
+    setEndereco(func.residencia || func.residenciaAtual || func.bairro || '');
     setTelefone(func.telefone || '');
     setTelefoneAlternativo(func.telefoneAlternativo || '');
     setEmail(func.email || '');
     setGenero(func.genero || 'M');
     setCargo(func.cargo || 'Professor');
     setRole(func.role || 'Professor');
-    setGrauAcademico((func.grauAcademico as any) || 'Licenciado');
+    setGrauAcademico(normalizarGrauAcademicoOpcao(func.grauAcademico || func.habilitacoes));
+    setInstituicaoAcademica(func.instituicaoAcademica || '');
+    setAnoConclusaoFormacao(func.anoConclusaoFormacao || '');
+    setOutrasFormacoes(Array.isArray(func.outrasFormacoes) ? func.outrasFormacoes.map(o => ({ ...o })) : []);
+    setCamposExtrasFormacao(Array.isArray(func.camposExtrasFormacao) ? func.camposExtrasFormacao.map(c => ({ ...c })) : []);
     setEspecialidade(func.especialidade || func.habilitacoes || '');
     setHabilitacoes(func.habilitacoes || '');
     setCategoriaProfissional(func.categoriaProfissional || '');
     setNumeroMecanografico(func.numeroAgente || '');
-    setTipoContrato(func.tipoContrato === 'Contratado' ? 'Contratado' : func.tipoContrato === 'Colaborador' ? 'Colaborador' : 'Efetivo');
+    setTipoContrato(func.tipoContrato || 'Efetivo');
     setSituacaoFuncional(func.situacaoFuncional || 'Ativo');
     setCargaHorariaSemanal(func.cargaHorariaSemanal || 24);
     setDataAdmissao(func.dataAdmissao || new Date().toISOString().split('T')[0]);
     setBanco(func.banco || '');
     setIban(func.iban || '');
-    setNumeroSegurancaSocial(func.numeroSegurancaSocial || '');
+    setNumeroSegurancaSocial(func.numeroSegurancaSocial || func.numeroINSS || '');
     setNif(func.nif || func.numeroBI || '');
     setPassword(func.password || '');
     setEhProfessor(func.ehProfessor ?? true);
@@ -378,6 +416,24 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     if (nacionalidade.trim()) locationService.adicionarNacionalidade(nacionalidade.trim());
     if (naturalidade.trim()) locationService.adicionarNaturalidade(naturalidade.trim());
 
+    const outrasLimpas: FormacaoAcademicaExtra[] = outrasFormacoes
+      .filter(f => (f.nivelFormacao || '').trim() || (f.cursoOuArea || '').trim() || (f.instituicaoAcademica || '').trim())
+      .map((f, i) => ({
+        id: f.id || `form-${Date.now()}-${i}`,
+        nivelFormacao: (f.nivelFormacao || 'Outro').trim(),
+        cursoOuArea: (f.cursoOuArea || '').trim(),
+        instituicaoAcademica: (f.instituicaoAcademica || '').trim(),
+        anoConclusao: (f.anoConclusao || '').trim()
+      }));
+
+    const extrasLimpos = camposExtrasFormacao
+      .filter(c => (c.rotulo || '').trim() || (c.valor || '').trim())
+      .map((c, i) => ({
+        id: c.id || `campo-${Date.now()}-${i}`,
+        rotulo: (c.rotulo || `Campo ${i + 1}`).trim(),
+        valor: (c.valor || '').trim()
+      }));
+
     const funcionarioAtualizado: Funcionario = {
       ...(funcExistente || {}),
       id: editingFuncionarioId || `func-${Date.now()}`,
@@ -389,31 +445,41 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       numeroBI: (numeroBI || funcExistente?.numeroBI || '').trim(),
       dataEmissaoBI,
       dataValidadeBI,
+      validadeBI: dataValidadeBI,
       localEmissaoBI,
       arquivoIdentificacao: localEmissaoBI,
       dataNascimento,
       naturalidadeProvincia: provincia,
+      provinciaOrigem: provincia,
       naturalidadeMunicipio: (naturalidade || municipio).trim(),
+      naturalidade: (naturalidade || municipio).trim(),
       nacionalidade,
       estadoCivil,
       nomePai: nomePai.trim(),
       nomeMae: nomeMae.trim(),
       residencia: endereco.trim(),
+      residenciaAtual: endereco.trim(),
       bairro: endereco.trim(),
       municipio,
+      municipioResidencia: municipio,
       provincia,
       pais: pais.trim() || 'Angola',
       numeroAgente: numeroMecanografico.trim(),
       nif: (nif || numeroBI).trim(),
       categoriaProfissional,
       grauAcademico,
+      instituicaoAcademica: instituicaoAcademica.trim(),
+      anoConclusaoFormacao: anoConclusaoFormacao.trim(),
+      outrasFormacoes: outrasLimpas,
+      camposExtrasFormacao: extrasLimpos,
       especialidade: especialidade.trim(),
-      tipoContrato: tipoContrato as any,
+      tipoContrato: tipoContrato || 'Efetivo',
       situacaoFuncional,
       cargaHorariaSemanal: Number(cargaHorariaSemanal) || 24,
       banco,
       iban: iban.trim(),
       numeroSegurancaSocial: numeroSegurancaSocial.trim(),
+      numeroINSS: numeroSegurancaSocial.trim(),
       telefone: telefone.trim(),
       telefoneAlternativo: telefoneAlternativo.trim(),
       email: email.trim().toLowerCase(),
@@ -421,7 +487,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       role,
       ehProfessor,
       ehAdministrativoQueLeciona,
-      habilitacoes: (habilitacoes || especialidade).trim(),
+      habilitacoes: (habilitacoes || grauAcademico || especialidade).trim(),
       fotoUrl: fotoUrl.trim(),
       grupoSanguineo,
       alergias: alergias.trim(),
@@ -448,94 +514,143 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
     );
   };
 
-  // Exportar TODOS os funcionários com todos os dados completos em Excel
+  // Exportar TODOS os funcionários com todos os dados completos em Excel (inclui formações e campos extras)
   const handleExportarTodosFuncionariosExcel = () => {
-    const dados = funcionarios.map((func, idx) => ({
-      'Nº Ordem': idx + 1,
-      'Nome Completo': func.nomeCompleto,
-      'Género': func.genero === 'M' ? 'Masculino' : 'Feminino',
-      'Nº BI': func.numeroBI || (func as any).bi || '',
-      'Data Emissão BI': func.dataEmissaoBI || '',
-      'Data Validade BI': func.dataValidadeBI || '',
-      'Local Emissão': func.localEmissaoBI || func.arquivoIdentificacao || '',
-      'Data de Nascimento': func.dataNascimento || '',
-      'Naturalidade': func.naturalidadeMunicipio || func.provincia || '',
-      'Província': func.provincia || func.naturalidadeProvincia || '',
-      'Município': func.municipio || func.naturalidadeMunicipio || '',
-      'Nacionalidade': func.nacionalidade || 'Angolana',
-      'Estado Civil': func.estadoCivil || '',
-      'Filiação (Pai)': func.nomePai || '',
-      'Filiação (Mãe)': func.nomeMae || '',
-      'Residência / Bairro': func.residencia || func.bairro || '',
-      'Telefone Principal': func.telefone,
-      'Telefone Alternativo': func.telefoneAlternativo || '',
-      'Email Institucional': func.email,
-      'Cargo / Função': func.cargo,
-      'Perfil de Acesso (Role)': func.role,
-      'Categoria Profissional MED': func.categoriaProfissional || '',
-      'Nº Mecanográfico / Agente': func.numeroAgente || (func as any).numeroMecanografico || '',
-      'Grau Académico': func.grauAcademico || '',
-      'Especialidade / Curso': func.especialidade || func.habilitacoes || '',
-      'Tipo de Contrato': func.tipoContrato || 'Efetivo',
-      'Situação Funcional': func.situacaoFuncional || 'Ativo',
-      'Data de Admissão': func.dataAdmissao || '',
-      'Carga Horária Semanal': `${func.cargaHorariaSemanal || 24} h/sem`,
-      'Instituição Bancária': func.banco || '',
-      'IBAN': func.iban || '',
-      'NIF': func.nif || func.numeroBI || '',
-      'Nº de Segurança Social (INSS)': func.numeroSegurancaSocial || '',
-      'Grupo Sanguíneo': func.grupoSanguineo || '—',
-      'Alergias': func.alergias || 'Nenhuma',
-      'Doenças Crónicas': func.doencasCronicas || 'Nenhuma',
-      'Necessidades Especiais': func.necessidadesEspeciais || 'Nenhuma',
-      'Contacto Emergência (Nome)': func.contactoEmergenciaNome || '',
-      'Contacto Emergência (Telefone)': func.contactoEmergenciaTelefone || '',
-      'Data do Atestado Médico': func.atestadoMedicoData || '',
-      'Estado da Conta': func.statusConta || (func.ativo ? 'Ativa' : 'Inativa')
-    }));
-
-    downloadExcelFile(
-      'Funcionarios_Quadro_Completo', 
-      dados, 
-      `Quadro_Pessoal_Completo_${escola.sigla || 'MED'}.xlsx`
+    const rotulosExtras = Array.from(
+      new Set(
+        funcionariosDaEscola.flatMap(f =>
+          (f.camposExtrasFormacao || []).map(c => (c.rotulo || '').trim()).filter(Boolean)
+        )
+      )
     );
-    emitirFeedback('Ficheiro Excel com todos os dados completos dos funcionários gerado com êxito!');
+
+    const dados = funcionariosDaEscola.map((func, idx) => {
+      const podeVer = podeVerSensiveisDe(func);
+      const outrasText = (func.outrasFormacoes || [])
+        .map(o => `${o.nivelFormacao}${o.cursoOuArea ? ` em ${o.cursoOuArea}` : ''}${o.instituicaoAcademica ? ` (${o.instituicaoAcademica})` : ''}${o.anoConclusao ? ` [${o.anoConclusao}]` : ''}`)
+        .join('; ');
+      const row: Record<string, any> = {
+        'Nº Ordem': idx + 1,
+        'Nome Completo': func.nomeCompleto,
+        'Género': func.genero === 'M' ? 'Masculino' : 'Feminino',
+        'Nº BI': podeVer ? (func.numeroBI || (func as any).bi || '') : '*** Protegido ***',
+        'Data Emissão BI': podeVer ? (func.dataEmissaoBI || '') : '***',
+        'Data Validade BI': podeVer ? (func.dataValidadeBI || func.validadeBI || '') : '***',
+        'Local Emissão': podeVer ? (func.localEmissaoBI || func.arquivoIdentificacao || '') : '***',
+        'Data de Nascimento': func.dataNascimento || '',
+        'Naturalidade': func.naturalidadeMunicipio || func.naturalidade || func.provincia || '',
+        'Província': func.provincia || func.provinciaOrigem || func.naturalidadeProvincia || '',
+        'Município': func.municipio || func.municipioResidencia || func.naturalidadeMunicipio || '',
+        'Nacionalidade': func.nacionalidade || 'Angolana',
+        'Estado Civil': func.estadoCivil || '',
+        'Filiação (Pai)': func.nomePai || '',
+        'Filiação (Mãe)': func.nomeMae || '',
+        'Residência / Bairro': podeVer ? (func.residencia || func.residenciaAtual || func.bairro || '') : '*** Protegido ***',
+        'Telefone Principal': podeVer ? func.telefone : '*** Protegido ***',
+        'Telefone Alternativo': podeVer ? (func.telefoneAlternativo || '') : '***',
+        'Email Institucional': podeVer ? func.email : '*** Protegido ***',
+        'Cargo / Função': func.cargo,
+        'Perfil de Acesso (Role)': func.role,
+        'Categoria Profissional MED': func.categoriaProfissional || '',
+        'Nº Mecanográfico / Agente': func.numeroAgente || (func as any).numeroMecanografico || '',
+        'Grau / Formação Académica': func.grauAcademico || func.habilitacoes || '',
+        'Especialidade / Curso': func.especialidade || func.habilitacoes || '',
+        'Instituição Académica': func.instituicaoAcademica || '',
+        'Ano de Conclusão': func.anoConclusaoFormacao || '',
+        'Outras Formações Académicas': outrasText || '—',
+        'Tipo de Contrato': func.tipoContrato || 'Efetivo',
+        'Situação Funcional': func.situacaoFuncional || 'Ativo',
+        'Data de Admissão': func.dataAdmissao || '',
+        'Carga Horária Semanal': `${func.cargaHorariaSemanal || 24} h/sem`,
+        'Instituição Bancária': podeVer ? (func.banco || '') : '*** Protegido ***',
+        'IBAN': podeVer ? (func.iban || '') : '*** Protegido ***',
+        'NIF': podeVer ? (func.nif || func.numeroBI || '') : '*** Protegido ***',
+        'Nº de Segurança Social (INSS)': podeVer ? (func.numeroSegurancaSocial || func.numeroINSS || '') : '*** Protegido ***',
+        'Grupo Sanguíneo': func.grupoSanguineo || '—',
+        'Alergias': func.alergias || 'Nenhuma',
+        'Doenças Crónicas': func.doencasCronicas || 'Nenhuma',
+        'Necessidades Especiais': func.necessidadesEspeciais || 'Nenhuma',
+        'Contacto Emergência (Nome)': func.contactoEmergenciaNome || '',
+        'Contacto Emergência (Telefone)': podeVer ? (func.contactoEmergenciaTelefone || '') : '*** Protegido ***',
+        'Data do Atestado Médico': func.atestadoMedicoData || '',
+        'Estado da Conta': func.statusConta || (func.ativo ? 'Ativa' : 'Inativa')
+      };
+      rotulosExtras.forEach(rot => {
+        const encontrado = (func.camposExtrasFormacao || []).find(c => (c.rotulo || '').trim() === rot);
+        row[rot] = encontrado?.valor || '';
+      });
+      return row;
+    });
+
+    const linhasOutrasFormacoes = funcionariosDaEscola.flatMap(func =>
+      (func.outrasFormacoes || []).map((o, i) => ({
+        'Funcionário': func.nomeCompleto,
+        'Cargo': func.cargo,
+        'Nº': i + 1,
+        'Nível de Formação': o.nivelFormacao || '',
+        'Curso / Área': o.cursoOuArea || '',
+        'Instituição Académica': o.instituicaoAcademica || '',
+        'Ano de Conclusão': o.anoConclusao || ''
+      }))
+    );
+
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(dados.length > 0 ? dados : [{ Aviso: 'Sem funcionários registados' }]);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Quadro_Completo');
+    if (linhasOutrasFormacoes.length > 0) {
+      const ws2 = XLSX.utils.json_to_sheet(linhasOutrasFormacoes);
+      XLSX.utils.book_append_sheet(wb, ws2, 'Outras_Formacoes');
+    }
+    XLSX.writeFile(wb, `Quadro_Pessoal_Completo_${escola.sigla || 'MED'}.xlsx`);
+    emitirFeedback('Ficheiro Excel com todos os dados completos, formações e campos extras gerado com êxito!');
   };
 
   const handleExportarFichaExcel = (func: Funcionario) => {
-    const dados = [{
+    const podeVer = podeVerSensiveisDe(func);
+    const row: Record<string, any> = {
       'Nome Completo': func.nomeCompleto,
       'Gênero': func.genero === 'M' ? 'Masculino' : 'Feminino',
-      'Bilhete de Identidade': func.numeroBI,
-      'Emissão BI': func.dataEmissaoBI || '—',
-      'Validade BI': func.dataValidadeBI || '—',
-      'Local Emissão': func.localEmissaoBI || '—',
+      'Bilhete de Identidade': podeVer ? func.numeroBI : '*** Protegido ***',
+      'Emissão BI': podeVer ? (func.dataEmissaoBI || '—') : '***',
+      'Validade BI': podeVer ? (func.dataValidadeBI || func.validadeBI || '—') : '***',
+      'Local Emissão': podeVer ? (func.localEmissaoBI || '—') : '***',
       'Data de Nascimento': func.dataNascimento || '—',
       'Estado Civil': func.estadoCivil || '—',
       'Nacionalidade': func.nacionalidade || 'Angolana',
-      'Naturalidade': func.naturalidadeMunicipio || func.naturalidadeProvincia || '—',
+      'Naturalidade': func.naturalidadeMunicipio || func.naturalidade || func.naturalidadeProvincia || '—',
       'Nome do Pai': func.nomePai || '—',
       'Nome da Mãe': func.nomeMae || '—',
-      'Morada / Residência': func.residencia || '—',
-      'Telefone Principal': func.telefone,
-      'Telefone Alternativo': func.telefoneAlternativo || '—',
-      'E-mail': func.email,
+      'Morada / Residência': podeVer ? (func.residencia || func.residenciaAtual || '—') : '*** Protegido ***',
+      'Telefone Principal': podeVer ? func.telefone : '*** Protegido ***',
+      'Telefone Alternativo': podeVer ? (func.telefoneAlternativo || '—') : '***',
+      'E-mail': podeVer ? func.email : '*** Protegido ***',
       'Cargo / Função': func.cargo,
       'Perfil Role': func.role,
-      'Grau Académico': func.grauAcademico || '—',
-      'Especialidade': func.especialidade || func.habilitacoes || '—',
+      'Grau / Formação Académica': func.grauAcademico || func.habilitacoes || '—',
+      'Especialidade / Curso': func.especialidade || func.habilitacoes || '—',
+      'Instituição Académica': func.instituicaoAcademica || '—',
+      'Ano de Conclusão': func.anoConclusaoFormacao || '—',
+      'Outras Formações Académicas':
+        (func.outrasFormacoes || [])
+          .map(o => `${o.nivelFormacao}${o.cursoOuArea ? ` (${o.cursoOuArea})` : ''}${o.instituicaoAcademica ? ` - ${o.instituicaoAcademica}` : ''}${o.anoConclusao ? ` [${o.anoConclusao}]` : ''}`)
+          .join('; ') || '—',
       'Categoria Profissional': func.categoriaProfissional || '—',
       'Nº Mecanográfico / Agente': func.numeroAgente || '—',
       'Tipo de Contrato': func.tipoContrato || '—',
       'Situação Funcional': func.situacaoFuncional || '—',
       'Data de Admissão': func.dataAdmissao ? formatarDataAngolana(func.dataAdmissao, 'curto') : '—',
       'Carga Horária Semanal': func.cargaHorariaSemanal ? `${func.cargaHorariaSemanal} h/sem` : '—',
-      'Banco': func.banco || '—',
-      'IBAN': func.iban || '—',
-      'NIF': func.nif || func.numeroBI || '—',
-      'Nº de Segurança Social (INSS)': func.numeroSegurancaSocial || '—'
-    }];
-    downloadExcelFile('Ficha_Funcionario', dados, `Ficha_${func.nomeCompleto.replace(/\s+/g, '_')}.xlsx`);
+      'Banco': podeVer ? (func.banco || '—') : '*** Protegido ***',
+      'IBAN': podeVer ? (func.iban || '—') : '*** Protegido ***',
+      'NIF': podeVer ? (func.nif || func.numeroBI || '—') : '*** Protegido ***',
+      'Nº de Segurança Social (INSS)': podeVer ? (func.numeroSegurancaSocial || func.numeroINSS || '—') : '*** Protegido ***'
+    };
+    (func.camposExtrasFormacao || []).forEach(c => {
+      if ((c.rotulo || '').trim()) {
+        row[c.rotulo.trim()] = c.valor || '—';
+      }
+    });
+    downloadExcelFile('Ficha_Funcionario', [row], `Ficha_${func.nomeCompleto.replace(/\s+/g, '_')}.xlsx`);
   };
 
   const handleExportarFichaHTML = (func: Funcionario) => {
@@ -561,11 +676,13 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   const abrirModalSenha = (func: Funcionario) => {
     setFuncSelecionado(func);
     setNovaSenhaInput('');
+    setSenhaErro(null);
     setModalSenhaOpen(true);
   };
 
   const salvarNovaSenha = async () => {
     if (!funcSelecionado || !novaSenhaInput.trim()) return;
+    setSenhaErro(null);
     try {
       if (dbService.alterarSenhaPorOperador) {
         await dbService.alterarSenhaPorOperador(funcSelecionado.id, novaSenhaInput.trim(), currentUser);
@@ -577,19 +694,23 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
       setModalSenhaOpen(false);
       emitirFeedback(`Credenciais de ${funcSelecionado.nomeCompleto} atualizadas com cifragem AES-256 e acesso desbloqueado!`);
     } catch (err: any) {
-      alert(err?.message || 'Falha ao redefinir a palavra-passe do funcionário.');
+      setSenhaErro(err?.message || 'Falha ao redefinir a palavra-passe do funcionário.');
     }
   };
 
   const handleEliminar = (func: Funcionario) => {
-    if (confirm(`Tem certeza que deseja remover ${func.nomeCompleto} da escola? O registo deste colaborador cadastrado por engano ou descuido e as respetivas credenciais serão eliminados permanentemente.`)) {
-      if (onEliminarFuncionario) {
-        onEliminarFuncionario(func.id);
-      } else {
-        dbService.eliminarFuncionario(func.id);
-      }
-      emitirFeedback(`Funcionário ${func.nomeCompleto} removido com sucesso.`);
+    setFuncParaEliminar(func);
+  };
+
+  const confirmarEliminacaoFuncionario = () => {
+    if (!funcParaEliminar) return;
+    if (onEliminarFuncionario) {
+      onEliminarFuncionario(funcParaEliminar.id);
+    } else {
+      dbService.eliminarFuncionario(funcParaEliminar.id);
     }
+    emitirFeedback(`Funcionário ${funcParaEliminar.nomeCompleto} removido com sucesso.`);
+    setFuncParaEliminar(null);
   };
 
   return (
@@ -773,7 +894,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                               )}
                               <div>
                                 <h4 className="font-bold text-gray-900">{func.nomeCompleto}</h4>
-                                <span className="text-[10px] text-gray-500">BI: {func.numeroBI}</span>
+                                <span className="text-[10px] text-gray-500">BI: {podeVerSensiveisDe(func) ? func.numeroBI : '*** Protegido ***'}</span>
                               </div>
                             </div>
                           </td>
@@ -788,8 +909,8 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                           </td>
 
                           <td className="p-3">
-                            <span className="font-mono text-blue-700 font-semibold block">{func.email}</span>
-                            <span className="text-[10px] text-gray-400 block">{func.telefone}</span>
+                            <span className="font-mono text-blue-700 font-semibold block">{podeVerSensiveisDe(func) ? func.email : '*** Protegido ***'}</span>
+                            <span className="text-[10px] text-gray-400 block">{podeVerSensiveisDe(func) ? func.telefone : '***'}</span>
                           </td>
 
                           <td className="p-3">
@@ -1190,7 +1311,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                             </span>
                           )}
                         </td>
-                        <td className="p-3 font-mono text-gray-600">{func.telefone}</td>
+                        <td className="p-3 font-mono text-gray-600">{podeVerSensiveisDe(func) ? func.telefone : '*** Protegido ***'}</td>
                         <td className="p-3">
                           {estadoPonto === 'Presente' ? (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-800 border border-green-300 inline-flex items-center">
@@ -1587,17 +1708,21 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Grau Académico</label>
+                    <label className="font-bold text-gray-700 block mb-1">Nível / Formação Académica</label>
                     <select
                       value={grauAcademico}
-                      onChange={(e) => setGrauAcademico(e.target.value as any)}
-                      className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      onChange={(e) => setGrauAcademico(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-800 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                     >
-                      <option value="Doutor">Doutoramento (PhD)</option>
-                      <option value="Mestre">Mestrado</option>
-                      <option value="Licenciado">Licenciatura (ISCED/Ensino Superior)</option>
-                      <option value="Bacharel">Bacharelato</option>
-                      <option value="Médio">Técnico Médio</option>
+                      <option value="Ensino Básico">Ensino Básico</option>
+                      <option value="Ensino Médio">Ensino Médio / Técnico Médio</option>
+                      <option value="Bacharelato">Bacharelato</option>
+                      <option value="Licenciatura">Licenciatura</option>
+                      <option value="Pós-Graduação">Pós-Graduação</option>
+                      <option value="Mestrado">Mestrado</option>
+                      <option value="Doutoramento">Doutoramento (PhD)</option>
+                      <option value="Pós-Doutoramento">Pós-Doutoramento</option>
+                      <option value="Outro">Outro</option>
                     </select>
                   </div>
 
@@ -1613,12 +1738,34 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="font-bold text-gray-700 block mb-1">Instituição de Habilitação</label>
+                    <label className="font-bold text-gray-700 block mb-1">Instituição Académica</label>
+                    <input
+                      type="text"
+                      value={instituicaoAcademica}
+                      onChange={(e) => setInstituicaoAcademica(e.target.value)}
+                      placeholder="Ex: Universidade Agostinho Neto / ISCED"
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Ano de Conclusão</label>
+                    <input
+                      type="text"
+                      value={anoConclusaoFormacao}
+                      onChange={(e) => setAnoConclusaoFormacao(e.target.value)}
+                      placeholder="Ex: 2019"
+                      className="w-full p-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700 block mb-1">Habilitações / Observações</label>
                     <input
                       type="text"
                       value={habilitacoes}
                       onChange={(e) => setHabilitacoes(e.target.value)}
-                      placeholder="Ex: ISCED Luanda / UAN"
+                      placeholder="Ex: Agregação Pedagógica"
                       className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
                     />
                   </div>
@@ -1691,11 +1838,22 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     <select
                       value={tipoContrato}
                       onChange={(e) => setTipoContrato(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:outline-none"
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                     >
                       <option value="Efetivo">Efetivo (Quadro Definitivo MED)</option>
-                      <option value="Contratado">Contratado a Termo</option>
-                      <option value="Colaborador">Docente Colaborador</option>
+                      <option value="Função Pública (MED)">Função Pública (MED)</option>
+                      <option value="Quadro Definitivo">Quadro Definitivo</option>
+                      <option value="Contratado a Termo Certo">Contratado a Termo Certo</option>
+                      <option value="Contratado por Tempo Indeterminado">Contratado por Tempo Indeterminado</option>
+                      <option value="Estagiário">Estagiário</option>
+                      <option value="Estagiário Curricular">Estagiário Curricular</option>
+                      <option value="Estagiário Profissional">Estagiário Profissional</option>
+                      <option value="Colaborador / Tempo Parcial">Colaborador / Tempo Parcial</option>
+                      <option value="Prestador de Serviços">Prestador de Serviços</option>
+                      <option value="Comissão de Serviço">Comissão de Serviço</option>
+                      <option value="Substituto / Interino">Substituto / Interino</option>
+                      <option value="Voluntário">Voluntário</option>
+                      <option value="Outro">Outro</option>
                     </select>
                   </div>
 
@@ -1809,6 +1967,158 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                       placeholder="Ex: 001928374LA045"
                       className="w-full p-2 border border-gray-300 rounded-lg font-mono focus:ring-2 focus:ring-blue-600 focus:outline-none"
                     />
+                  </div>
+                </div>
+
+                {/* Outras Formações Académicas & Campos Personalizados (para Excel / RH) */}
+                <div className="pt-3 border-t border-gray-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-black text-gray-800 text-[11px] uppercase">Outras Formações Académicas / Certificações</p>
+                      <p className="text-[10px] text-gray-500">Adicione formações complementares (Ensino Médio, Licenciatura, Mestrado, Doutoramento, Cursos Técnicos).</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOutrasFormacoes(prev => [
+                          ...prev,
+                          { id: `form-${Date.now()}`, nivelFormacao: 'Licenciatura', cursoOuArea: '', instituicaoAcademica: '', anoConclusao: '' }
+                        ])
+                      }
+                      className="px-2.5 py-1 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold hover:bg-indigo-100 cursor-pointer flex items-center space-x-1"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Adicionar Formação</span>
+                    </button>
+                  </div>
+
+                  {outrasFormacoes.map((formItem, idx) => (
+                    <div key={formItem.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-white rounded-lg border border-gray-200 items-end">
+                      <div className="sm:col-span-3">
+                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">Nível</label>
+                        <select
+                          value={formItem.nivelFormacao}
+                          onChange={e =>
+                            setOutrasFormacoes(prev => prev.map((it, i) => (i === idx ? { ...it, nivelFormacao: e.target.value } : it)))
+                          }
+                          className="w-full p-1.5 border border-gray-300 rounded text-xs bg-white"
+                        >
+                          <option value="Ensino Médio">Ensino Médio</option>
+                          <option value="Bacharelato">Bacharelato</option>
+                          <option value="Licenciatura">Licenciatura</option>
+                          <option value="Pós-Graduação">Pós-Graduação</option>
+                          <option value="Mestrado">Mestrado</option>
+                          <option value="Doutoramento">Doutoramento</option>
+                          <option value="Curso Técnico / Especialização">Curso Técnico / Especialização</option>
+                          <option value="Outro">Outro</option>
+                        </select>
+                      </div>
+                      <div className="sm:col-span-4">
+                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">Curso / Área</label>
+                        <input
+                          type="text"
+                          value={formItem.cursoOuArea}
+                          onChange={e =>
+                            setOutrasFormacoes(prev => prev.map((it, i) => (i === idx ? { ...it, cursoOuArea: e.target.value } : it)))
+                          }
+                          placeholder="Ex: Administração Escolar"
+                          className="w-full p-1.5 border border-gray-300 rounded text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">Instituição Académica</label>
+                        <input
+                          type="text"
+                          value={formItem.instituicaoAcademica}
+                          onChange={e =>
+                            setOutrasFormacoes(prev => prev.map((it, i) => (i === idx ? { ...it, instituicaoAcademica: e.target.value } : it)))
+                          }
+                          placeholder="Ex: UAN / ISCED"
+                          className="w-full p-1.5 border border-gray-300 rounded text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-1">
+                        <label className="text-[10px] font-bold text-gray-600 block mb-0.5">Ano</label>
+                        <input
+                          type="text"
+                          value={formItem.anoConclusao || ''}
+                          onChange={e =>
+                            setOutrasFormacoes(prev => prev.map((it, i) => (i === idx ? { ...it, anoConclusao: e.target.value } : it)))
+                          }
+                          placeholder="2022"
+                          className="w-full p-1.5 border border-gray-300 rounded text-xs font-mono"
+                        />
+                      </div>
+                      <div className="sm:col-span-1 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setOutrasFormacoes(prev => prev.filter((_, i) => i !== idx))}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                          title="Remover formação"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="pt-2 border-t border-gray-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-black text-gray-800 text-[11px] uppercase">Campos Personalizados Adicionais</p>
+                        <p className="text-[10px] text-gray-500">Todos os campos adicionados aqui entram automaticamente no Excel de Funcionários e no Excel Geral da Escola.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCamposExtrasFormacao(prev => [
+                            ...prev,
+                            { id: `campo-${Date.now()}`, rotulo: '', valor: '' }
+                          ])
+                        }
+                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-[11px] font-bold hover:bg-emerald-100 cursor-pointer flex items-center space-x-1"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Adicionar Campo</span>
+                      </button>
+                    </div>
+
+                    {camposExtrasFormacao.map((campoItem, idx) => (
+                      <div key={campoItem.id} className="grid grid-cols-1 sm:grid-cols-11 gap-2 p-2 bg-white rounded-lg border border-gray-200 items-center">
+                        <div className="sm:col-span-5">
+                          <input
+                            type="text"
+                            value={campoItem.rotulo}
+                            onChange={e =>
+                              setCamposExtrasFormacao(prev => prev.map((c, i) => (i === idx ? { ...c, rotulo: e.target.value } : c)))
+                            }
+                            placeholder="Nome do campo (ex: Bolsa de Estudo / Nº Ordem)"
+                            className="w-full p-1.5 border border-gray-300 rounded text-xs font-semibold"
+                          />
+                        </div>
+                        <div className="sm:col-span-5">
+                          <input
+                            type="text"
+                            value={campoItem.valor}
+                            onChange={e =>
+                              setCamposExtrasFormacao(prev => prev.map((c, i) => (i === idx ? { ...c, valor: e.target.value } : c)))
+                            }
+                            placeholder="Valor / Informação"
+                            className="w-full p-1.5 border border-gray-300 rounded text-xs"
+                          />
+                        </div>
+                        <div className="sm:col-span-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setCamposExtrasFormacao(prev => prev.filter((_, i) => i !== idx))}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            title="Remover campo"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -2100,10 +2410,10 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                 )}
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 leading-relaxed">
                   <div><span className="text-gray-600 font-semibold">Nome Completo:</span> <strong className="uppercase">{funcParaFicha.nomeCompleto}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{funcParaFicha.numeroBI}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Data Emissão BI:</span> <strong>{funcParaFicha.dataEmissaoBI ? formatarDataAngolana(funcParaFicha.dataEmissaoBI, 'curto') : '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Data Validade BI:</span> <strong>{funcParaFicha.dataValidadeBI ? formatarDataAngolana(funcParaFicha.dataValidadeBI, 'curto') : '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Local de Emissão:</span> <strong>{funcParaFicha.localEmissaoBI || funcParaFicha.arquivoIdentificacao || '—'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">N.º do Bilhete de Identidade:</span> <strong className="font-mono">{podeVerSensiveisDe(funcParaFicha) ? funcParaFicha.numeroBI : '*** Protegido ***'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Data Emissão BI:</span> <strong>{podeVerSensiveisDe(funcParaFicha) && funcParaFicha.dataEmissaoBI ? formatarDataAngolana(funcParaFicha.dataEmissaoBI, 'curto') : '***'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Data Validade BI:</span> <strong>{podeVerSensiveisDe(funcParaFicha) && funcParaFicha.dataValidadeBI ? formatarDataAngolana(funcParaFicha.dataValidadeBI, 'curto') : '***'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Local de Emissão:</span> <strong>{podeVerSensiveisDe(funcParaFicha) ? (funcParaFicha.localEmissaoBI || funcParaFicha.arquivoIdentificacao || '—') : '*** Protegido ***'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Gênero:</span> <strong>{funcParaFicha.genero === 'M' ? 'Masculino' : 'Feminino'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Data de Nascimento:</span> <strong>{funcParaFicha.dataNascimento ? formatarDataAngolana(funcParaFicha.dataNascimento, 'curto') : '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Estado Civil:</span> <strong>{funcParaFicha.estadoCivil || '—'}</strong></div>
@@ -2111,10 +2421,10 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   <div><span className="text-gray-600 font-semibold">Naturalidade:</span> <strong>{funcParaFicha.naturalidadeMunicipio || funcParaFicha.provincia || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Filiação (Pai):</span> <strong>{funcParaFicha.nomePai || '—'}</strong></div>
                   <div><span className="text-gray-600 font-semibold">Filiação (Mãe):</span> <strong>{funcParaFicha.nomeMae || '—'}</strong></div>
-                  <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Residência / Bairro:</span> <strong>{funcParaFicha.residencia || funcParaFicha.bairro || '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Telefone Principal:</span> <strong className="font-mono">{funcParaFicha.telefone || '—'}</strong></div>
-                  <div><span className="text-gray-600 font-semibold">Telefone Alternativo:</span> <strong className="font-mono">{funcParaFicha.telefoneAlternativo || '—'}</strong></div>
-                  <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Correio Electrónico:</span> <strong>{funcParaFicha.email || '—'}</strong></div>
+                  <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Residência / Bairro:</span> <strong>{podeVerSensiveisDe(funcParaFicha) ? (funcParaFicha.residencia || funcParaFicha.bairro || '—') : '*** Protegido ***'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Telefone Principal:</span> <strong className="font-mono">{podeVerSensiveisDe(funcParaFicha) ? (funcParaFicha.telefone || '—') : '*** Protegido ***'}</strong></div>
+                  <div><span className="text-gray-600 font-semibold">Telefone Alternativo:</span> <strong className="font-mono">{podeVerSensiveisDe(funcParaFicha) ? (funcParaFicha.telefoneAlternativo || '—') : '***'}</strong></div>
+                  <div className="sm:col-span-2"><span className="text-gray-600 font-semibold">Correio Electrónico:</span> <strong>{podeVerSensiveisDe(funcParaFicha) ? (funcParaFicha.email || '—') : '*** Protegido ***'}</strong></div>
                 </div>
               </div>
 
@@ -2122,8 +2432,10 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
               <div className="border-b border-black pb-4 text-xs space-y-1.5">
                 <h4 className="font-black uppercase text-[11px] text-gray-900 border-b border-gray-300 pb-1">Habilitações & Carreira Ministerial (MED)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded border border-gray-200">
-                  <div><span className="text-gray-600">Grau Académico:</span> <strong>{funcParaFicha.grauAcademico || '—'}</strong></div>
+                  <div><span className="text-gray-600">Nível / Grau Académico:</span> <strong>{funcParaFicha.grauAcademico || funcParaFicha.habilitacoes || '—'}</strong></div>
                   <div><span className="text-gray-600">Especialidade / Curso:</span> <strong>{funcParaFicha.especialidade || funcParaFicha.habilitacoes || '—'}</strong></div>
+                  <div><span className="text-gray-600">Instituição Académica:</span> <strong>{funcParaFicha.instituicaoAcademica || '—'}</strong></div>
+                  <div><span className="text-gray-600">Ano de Conclusão:</span> <strong>{funcParaFicha.anoConclusaoFormacao || '—'}</strong></div>
                   <div><span className="text-gray-600">Categoria Profissional:</span> <strong>{funcParaFicha.categoriaProfissional || '—'}</strong></div>
                   <div><span className="text-gray-600">Cargo / Função Atual:</span> <strong>{funcParaFicha.cargo || '—'}</strong></div>
                   <div><span className="text-gray-600">Perfil / Categoria Funcional:</span> <strong className="text-blue-900">{funcParaFicha.role}</strong></div>
@@ -2133,18 +2445,51 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                   <div><span className="text-gray-600">Data de Admissão:</span> <strong>{funcParaFicha.dataAdmissao ? formatarDataAngolana(funcParaFicha.dataAdmissao, 'curto') : '—'}</strong></div>
                   <div><span className="text-gray-600">Carga Horária Semanal:</span> <strong>{funcParaFicha.cargaHorariaSemanal ? `${funcParaFicha.cargaHorariaSemanal} horas/semana` : '—'}</strong></div>
                 </div>
+                {((funcParaFicha.outrasFormacoes && funcParaFicha.outrasFormacoes.length > 0) ||
+                  (funcParaFicha.camposExtrasFormacao && funcParaFicha.camposExtrasFormacao.length > 0)) && (
+                  <div className="bg-gray-50 p-3 rounded border border-gray-200 space-y-1.5 mt-2">
+                    {funcParaFicha.outrasFormacoes && funcParaFicha.outrasFormacoes.length > 0 && (
+                      <div>
+                        <span className="text-gray-700 font-bold block text-[10px] uppercase">Outras Formações Académicas:</span>
+                        <ul className="list-disc pl-4 text-[11px] space-y-0.5 mt-0.5">
+                          {funcParaFicha.outrasFormacoes.map((o, idx) => (
+                            <li key={o.id || idx}>
+                              <strong>{o.nivelFormacao}</strong>
+                              {o.cursoOuArea ? ` em ${o.cursoOuArea}` : ''}
+                              {o.instituicaoAcademica ? ` — ${o.instituicaoAcademica}` : ''}
+                              {o.anoConclusao ? ` (${o.anoConclusao})` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {funcParaFicha.camposExtrasFormacao && funcParaFicha.camposExtrasFormacao.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                        {funcParaFicha.camposExtrasFormacao.map((c, idx) => (
+                          <div key={c.id || idx}>
+                            <span className="text-gray-600">{c.rotulo}:</span> <strong>{c.valor || '—'}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Dados Bancários e Segurança Social */}
               <div className="border-b border-black pb-4 text-xs space-y-1.5">
                 <h4 className="font-black uppercase text-[11px] text-gray-900 border-b border-gray-300 pb-1">Dados Bancários & Segurança Social (INSS)</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div><span className="text-gray-600 block">Instituição Bancária:</span><strong>{funcParaFicha.banco || '—'}</strong></div>
-                  <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcParaFicha.iban || '—'}</strong></div>
-                  <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcParaFicha.numeroSegurancaSocial || '—'}</strong></div>
-                  <div><span className="text-gray-600 block">NIF Fiscal:</span><strong className="font-mono">{funcParaFicha.nif || funcParaFicha.numeroBI || '—'}</strong></div>
-                  <div><span className="text-gray-600 block">Data de Registo:</span><strong>{funcParaFicha.dataCriacao ? formatarDataAngolana(funcParaFicha.dataCriacao, 'curto') : (funcParaFicha.dataAdmissao ? formatarDataAngolana(funcParaFicha.dataAdmissao, 'curto') : '—')}</strong></div>
-                </div>
+                {podeVerSensiveisDe(funcParaFicha) ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div><span className="text-gray-600 block">Instituição Bancária:</span><strong>{funcParaFicha.banco || '—'}</strong></div>
+                    <div className="sm:col-span-2"><span className="text-gray-600 block">IBAN Bancário:</span><strong className="font-mono">{funcParaFicha.iban || '—'}</strong></div>
+                    <div><span className="text-gray-600 block">N.º de Segurança Social (INSS):</span><strong className="font-mono">{funcParaFicha.numeroSegurancaSocial || '—'}</strong></div>
+                    <div><span className="text-gray-600 block">NIF Fiscal:</span><strong className="font-mono">{funcParaFicha.nif || funcParaFicha.numeroBI || '—'}</strong></div>
+                    <div><span className="text-gray-600 block">Data de Registo:</span><strong>{funcParaFicha.dataCriacao ? formatarDataAngolana(funcParaFicha.dataCriacao, 'curto') : (funcParaFicha.dataAdmissao ? formatarDataAngolana(funcParaFicha.dataAdmissao, 'curto') : '—')}</strong></div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-500 italic">Dados bancários, NIF e INSS protegidos pelas políticas de confidencialidade da direcção.</p>
+                )}
               </div>
 
               {/* Assinaturas Oficiais: Título em cima -> Linha -> Nome por baixo */}
@@ -2219,6 +2564,11 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     {mostrarSenha ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {senhaErro && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg text-[11px] font-bold text-red-700">
+                    {senhaErro}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2521,6 +2871,42 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
             onSalvarRegistoAssiduidade(registo);
           }}
         />
+      )}
+
+      {funcParaEliminar && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-red-200 dark:border-red-800 rounded-2xl max-w-md w-full shadow-2xl p-6 space-y-4">
+            <div className="flex items-start space-x-3">
+              <div className="p-2 bg-red-100 dark:bg-red-950/70 text-red-700 dark:text-red-300 rounded-xl shrink-0">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  Remover Funcionário da Escola?
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  Tem certeza que deseja remover <strong>{funcParaEliminar.nomeCompleto}</strong> da escola? O registo e as respetivas credenciais serão eliminados permanentemente.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFuncParaEliminar(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminacaoFuncionario}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-black cursor-pointer"
+              >
+                Confirmar Remoção
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

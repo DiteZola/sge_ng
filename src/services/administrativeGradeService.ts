@@ -463,10 +463,17 @@ export function aplicarNotasAdministrativas(params: {
         : existente?.mac ?? resMac.macCalculada;
 
     const nppVal = alvoTipo === 'NPP' ? item.notaProposta : existente?.npp;
+    const existentePt = existente
+      ? (typeof existente.npt === 'number'
+          ? existente.npt
+          : (!('npt' in existente) || (typeof existente.provaTrimestral === 'number' && existente.provaTrimestral > 0)
+              ? existente.provaTrimestral
+              : undefined))
+      : undefined;
     const ptVal =
       alvoTipo === 'PROVA_TRIMESTRAL'
         ? item.notaProposta
-        : existente?.provaTrimestral ?? existente?.npt;
+        : existentePt;
     const exameVal = ehClasseFinal
       ? alvoTipo === 'EXAME'
         ? item.notaProposta
@@ -516,7 +523,7 @@ export function aplicarNotasAdministrativas(params: {
       anoLectivo: existente?.anoLectivo || anoLectivo,
       mac: macVal,
       npp: nppVal,
-      provaTrimestral: ptVal ?? 0,
+      provaTrimestral: ptVal,
       npt: ptVal,
       mediaTrimestral: mediaTri,
       notaFinal,

@@ -19,7 +19,10 @@ import {
   Info,
   Layers,
   ChevronRight,
-  Filter
+  Filter,
+  Edit2,
+  Settings,
+  X
 } from 'lucide-react';
 import { 
   Escola, 
@@ -34,6 +37,11 @@ import { dbService } from '../services/storage';
 import { notificationService } from '../services/notificationService';
 import { InsigniaAngola } from '../constants/insignia';
 import { filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
+import {
+  obterTituloCoordenadorTurno,
+  obterTituloSubdiretorPedagogico,
+  obterNomeSubdiretorPedagogico
+} from '../utils/directorHelper';
 
 interface ScheduleTimetableViewProps {
   escola: Escola;
@@ -91,6 +99,23 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
   const [turmaFormId, setTurmaFormId] = useState<string>(turmas[0]?.id || '');
   const [mensagemConflito, setMensagemConflito] = useState<string | null>(null);
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
+  const [horarioParaEliminarId, setHorarioParaEliminarId] = useState<string | null>(null);
+  const [editandoHorarioId, setEditandoHorarioId] = useState<string | null>(null);
+
+  const podeGerirHorarios = ['DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'AdminGeral'].includes(currentUser.role);
+
+  const [temposDefinicao, setTemposDefinicao] = useState<Array<{ numero: number; inicio: string; fim: string; rotulo: string }>>(
+    () => dbService.getTemposHorarios(escola.id)
+  );
+  const [showConfigTemposModal, setShowConfigTemposModal] = useState(false);
+  const [temposEditaveis, setTemposEditaveis] = useState<Array<{ numero: number; inicio: string; fim: string }>>([]);
+  const [atualizarHorasAulasExistentes, setAtualizarHorasAulasExistentes] = useState(true);
+  const [erroTemposModal, setErroTemposModal] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHorarios(dbService.obterHorarios(escola.id));
+    setTemposDefinicao(dbService.getTemposHorarios(escola.id));
+  }, [escola.id]);
 
   const turmaFormObj = useMemo(() => turmas.find(t => t.id === turmaFormId) || turmas[0], [turmas, turmaFormId]);
 
@@ -101,25 +126,55 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
   }, [disciplinas, turmaFormObj]);
 
   useEffect(() => {
+    if (editandoHorarioId) return;
     if (turmaFormObj?.sala) {
       setSalaInput(turmaFormObj.sala);
     }
     if (disciplinasParaTurmaForm.length > 0 && !disciplinasParaTurmaForm.some(d => d.id === disciplinaIdInput)) {
       setDisciplinaIdInput(disciplinasParaTurmaForm[0].id);
     }
-  }, [turmaFormObj, disciplinasParaTurmaForm, disciplinaIdInput]);
+  }, [turmaFormObj, disciplinasParaTurmaForm, disciplinaIdInput, editandoHorarioId]);
 
   const configSistema = dbService.getConfiguracaoSistema();
 
-  // Definição dos tempos letivos padrão (MED Angola)
-  const temposDefinicao = useMemo(() => [
-    { numero: 1, inicio: '07:15', fim: '08:00', rotulo: '1º Tempo (07:15 - 08:00)' },
-    { numero: 2, inicio: '08:05', fim: '08:50', rotulo: '2º Tempo (08:05 - 08:50)' },
-    { numero: 3, inicio: '09:10', fim: '09:55', rotulo: '3º Tempo (09:10 - 09:55)' },
-    { numero: 4, inicio: '10:00', fim: '10:45', rotulo: '4º Tempo (10:00 - 10:45)' },
-    { numero: 5, inicio: '10:50', fim: '11:35', rotulo: '5º Tempo (10:50 - 11:35)' },
-    { numero: 6, inicio: '11:40', fim: '12:25', rotulo: '6º Tempo (11:40 - 12:25)' }
-  ], []);
+  const handleAbrirConfigTempos = () => {
+    setErroTemposModal(null);
+    setTemposEditaveis(temposDefinicao.map(t => ({ numero: t.numero, inicio: t.inicio, fim: t.fim })));
+    setAtualizarHorasAulasExistentes(true);
+    setShowConfigTemposModal(true);
+  };
+
+  const handleSalvarConfigTempos = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErroTemposModal(null);
+    if (temposEditaveis.length === 0) {
+      setErroTemposModal('Deve manter pelo menos 1 tempo letivo configurado.');
+      return;
+    }
+    const numerosSeen = new Set<number>();
+    for (const t of temposEditaveis) {
+      if (!t.inicio || !t.fim) {
+        setErroTemposModal('Todos os tempos devem possuir hora de início e de fim.');
+        return;
+      }
+      if (t.fim <= t.inicio) {
+        setErroTemposModal(`No ${t.numero}º Tempo, a hora de fim (${t.fim}) deve ser posterior à hora de início (${t.inicio}).`);
+        return;
+      }
+      if (numerosSeen.has(Number(t.numero))) {
+        setErroTemposModal(`O número de tempo ${t.numero}º está duplicado.`);
+        return;
+      }
+      numerosSeen.add(Number(t.numero));
+    }
+
+    dbService.salvarTemposHorarios(escola.id, temposEditaveis, atualizarHorasAulasExistentes);
+    setTemposDefinicao(dbService.getTemposHorarios(escola.id));
+    setHorarios(dbService.obterHorarios(escola.id));
+    setShowConfigTemposModal(false);
+    setMensagemSucesso('Tempos letivos e horários de início/fim atualizados com sucesso!');
+    setTimeout(() => setMensagemSucesso(null), 4000);
+  };
 
   // Tocar sino escolar usando sintetizador Web Audio API puro
   const tocarSinoEscolar = () => {
@@ -267,31 +322,43 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
       anoLectivo: escola.anoLectivoActivo || ''
     };
 
-    const validacao = dbService.validarConflitoHorario(testeItem);
+    const validacao = dbService.validarConflitoHorario(testeItem, editandoHorarioId || undefined);
     if (validacao.temConflito) {
       setMensagemConflito(validacao.motivo || 'Existe choque de tempo!');
     } else {
       setMensagemConflito(null);
     }
-  }, [diaSemanaInput, tempoInput, disciplinaIdInput, professorIdInput, salaInput, turmaFormId, activeTab]);
+  }, [diaSemanaInput, tempoInput, disciplinaIdInput, professorIdInput, salaInput, turmaFormId, activeTab, editandoHorarioId, temposDefinicao]);
+
+  const handleAbrirEdicaoHorario = (aula: HorarioAulaItem) => {
+    setEditandoHorarioId(aula.id);
+    setTurmaFormId(aula.turmaId);
+    setDiaSemanaInput(aula.diaSemana);
+    setTempoInput(aula.numeroTempo);
+    setDisciplinaIdInput(aula.disciplinaId);
+    setProfessorIdInput(aula.professorId);
+    setSalaInput(aula.sala);
+    setMensagemConflito(null);
+    setActiveTab('novo');
+  };
 
   const handleSalvarHorario = (e: React.FormEvent) => {
     e.preventDefault();
     const turmaObj = turmas.find(t => t.id === turmaFormId);
-    const tempoObj = temposDefinicao.find(t => t.numero === tempoInput);
+    const tempoObj = temposDefinicao.find(t => t.numero === tempoInput) || temposDefinicao[0];
     const profObj = funcionarios.find(f => f.id === professorIdInput);
     const discObj = disciplinas.find(d => d.id === disciplinaIdInput);
 
     if (!turmaObj || !tempoObj || !profObj || !discObj) return;
 
     const novoItem: HorarioAulaItem = {
-      id: `hor-${Date.now()}`,
+      id: editandoHorarioId || `hor-${Date.now()}`,
       escolaId: escola.id,
       turmaId: turmaFormId,
       turmaNome: turmaObj.nome,
       classe: turmaObj.classe || turmaObj.nome,
       diaSemana: diaSemanaInput,
-      numeroTempo: tempoInput,
+      numeroTempo: tempoObj.numero,
       horaInicio: tempoObj.inicio,
       horaFim: tempoObj.fim,
       disciplinaId: disciplinaIdInput,
@@ -309,17 +376,26 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
     }
 
     setHorarios(dbService.obterHorarios(escola.id));
-    setMensagemSucesso(`Tempo de ${novoItem.disciplinaNome} atribuído com sucesso sem qualquer choque!`);
+    setMensagemSucesso(
+      editandoHorarioId
+        ? `Aula de ${novoItem.disciplinaNome} atualizada com sucesso sem conflitos!`
+        : `Tempo de ${novoItem.disciplinaNome} atribuído com sucesso sem qualquer choque!`
+    );
     setTimeout(() => setMensagemSucesso(null), 4000);
+    setEditandoHorarioId(null);
     setActiveTab('turma');
     setSelectedTurmaId(turmaFormId);
   };
 
   const handleEliminarHorario = (id: string) => {
-    if (confirm('Tem a certeza de que deseja retirar esta aula do horário?')) {
-      dbService.eliminarHorario(id);
-      setHorarios(dbService.obterHorarios(escola.id));
-    }
+    setHorarioParaEliminarId(id);
+  };
+
+  const confirmarEliminarHorario = () => {
+    if (!horarioParaEliminarId) return;
+    dbService.eliminarHorario(horarioParaEliminarId);
+    setHorarios(dbService.obterHorarios(escola.id));
+    setHorarioParaEliminarId(null);
   };
 
   const handlePrint = () => {
@@ -402,15 +478,29 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
             <span>Imprimir Grade A4</span>
           </button>
 
-          {['DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'AdminGeral'].includes(currentUser.role) && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('novo')}
-              className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Adicionar Tempo</span>
-            </button>
+          {podeGerirHorarios && (
+            <>
+              <button
+                type="button"
+                onClick={handleAbrirConfigTempos}
+                className="px-3.5 py-2 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+                title="Editar horas de início, fim e quantidade de tempos letivos"
+              >
+                <Settings className="h-4 w-4 text-indigo-600" />
+                <span>Configurar Tempos & Horas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditandoHorarioId(null);
+                  setActiveTab('novo');
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Adicionar Tempo</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -443,7 +533,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
           </span>
         </button>
 
-        {['DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'AdminGeral'].includes(currentUser.role) && (
+        {podeGerirHorarios && (
           <button
             onClick={() => setActiveTab('novo')}
             className={`py-2 px-4 text-xs font-bold border-b-2 transition-colors flex items-center space-x-1.5 cursor-pointer ${
@@ -452,8 +542,8 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                 : 'border-transparent text-gray-600 hover:text-gray-900'
             }`}
           >
-            <Plus className="h-4 w-4" />
-            <span>Alocar Aula Anti-Conflito</span>
+            {editandoHorarioId ? <Edit2 className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            <span>{editandoHorarioId ? 'Editar Aula no Horário' : 'Alocar Aula Anti-Conflito'}</span>
           </button>
         )}
       </div>
@@ -549,14 +639,25 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                                   </div>
                                   <div className="flex items-center justify-between text-[9px] text-gray-500 pt-1 border-t border-blue-200 mt-1">
                                     <span className="font-mono">{aula.sala}</span>
-                                    {['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral'].includes(currentUser.role) && (
-                                      <button
-                                        onClick={() => handleEliminarHorario(aula.id)}
-                                        className="text-red-600 hover:text-red-800 no-print cursor-pointer"
-                                        title="Eliminar aula"
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </button>
+                                    {podeGerirHorarios && (
+                                      <div className="flex items-center space-x-1.5 no-print">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAbrirEdicaoHorario(aula)}
+                                          className="text-blue-700 hover:text-blue-900 cursor-pointer"
+                                          title="Editar aula / tempo"
+                                        >
+                                          <Edit2 className="h-3 w-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleEliminarHorario(aula.id)}
+                                          className="text-red-600 hover:text-red-800 cursor-pointer"
+                                          title="Eliminar aula"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
@@ -576,14 +677,14 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
             {/* Rodapé Oficial para Impressão */}
             <div data-pdf-fixed-signatures="true" className="grid grid-cols-2 gap-8 pt-6 text-center text-xs mt-4">
               <div>
-                <p className="font-bold text-gray-900 mb-8">O(A) Coordenador(a) de Turno</p>
+                <p className="font-bold text-gray-900 mb-8">{obterTituloCoordenadorTurno(turmaSelecionada?.turno || 'Manhã', funcionarios, escola)}</p>
                 <div className="w-48 border-b border-black mx-auto mb-1" />
                 <p className="text-gray-700 font-semibold text-[10px]">Coordenação de Turno</p>
               </div>
               <div>
-                <p className="font-bold text-gray-900 mb-8">O Subdirector Pedagógico</p>
+                <p className="font-bold text-gray-900 mb-8">{obterTituloSubdiretorPedagogico(escola, funcionarios)}</p>
                 <div className="w-48 border-b border-black mx-auto mb-1" />
-                <p className="text-gray-700 font-semibold text-[10px]">{escola.subdiretorPedagogicoNome || 'Direcção Pedagógica'}</p>
+                <p className="text-gray-700 font-semibold text-[10px]">{obterNomeSubdiretorPedagogico(escola, funcionarios)}</p>
               </div>
             </div>
           </div>
@@ -656,18 +757,31 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                   </p>
                 </div>
 
-                <div className="mt-4 pt-2 border-t border-gray-100 flex items-center justify-between">
+                <div className="mt-4 pt-2 border-t border-gray-100 flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-emerald-700 flex items-center space-x-1">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     <span>Sem choque</span>
                   </span>
-                  <button
-                    onClick={() => emitirAlertaProfessor('5_MIN_ANTES', aula)}
-                    className="text-[11px] font-bold text-amber-700 hover:text-amber-900 hover:underline flex items-center space-x-1 cursor-pointer"
-                  >
-                    <Bell className="h-3 w-3" />
-                    <span>Lembrar 5 min antes</span>
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    {podeGerirHorarios && (
+                      <button
+                        type="button"
+                        onClick={() => handleAbrirEdicaoHorario(aula)}
+                        className="text-[11px] font-bold text-blue-700 hover:text-blue-900 hover:underline flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                        <span>Editar</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => emitirAlertaProfessor('5_MIN_ANTES', aula)}
+                      className="text-[11px] font-bold text-amber-700 hover:text-amber-900 hover:underline flex items-center space-x-1 cursor-pointer"
+                    >
+                      <Bell className="h-3 w-3" />
+                      <span>5 min antes</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -712,14 +826,28 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'novo' && (
         <div className="max-w-2xl mx-auto bg-white border border-gray-200 rounded-2xl p-6 shadow-sm no-print space-y-5">
-          <div>
-            <h3 className="text-base font-black text-gray-900 flex items-center space-x-2">
-              <Plus className="h-5 w-5 text-blue-600" />
-              <span>Alocação de Tempo de Aula com Verificação Anti-Choque</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-1">
-              O motor valida em tempo real a disponibilidade do professor, da sala e da turma para impedir colisões de horário.
-            </p>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h3 className="text-base font-black text-gray-900 flex items-center space-x-2">
+                {editandoHorarioId ? <Edit2 className="h-5 w-5 text-blue-600" /> : <Plus className="h-5 w-5 text-blue-600" />}
+                <span>
+                  {editandoHorarioId
+                    ? 'Editar Tempo / Aula no Horário Escolar'
+                    : 'Alocação de Tempo de Aula com Verificação Anti-Choque'}
+                </span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                O motor valida em tempo real a disponibilidade do professor, da sala e da turma para impedir colisões de horário.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAbrirConfigTempos}
+              className="px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg flex items-center space-x-1 shrink-0 cursor-pointer"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              <span>Editar Horas dos Tempos</span>
+            </button>
           </div>
 
           {mensagemConflito && (
@@ -809,7 +937,7 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white"
                 >
                   {disciplinasParaTurmaForm.map(d => (
-                    <option key={d.id} value={d.id}>{d.nome} ({d.sigla})</option>
+                    <option key={d.id} value={d.id}>{d.nome}</option>
                   ))}
                 </select>
               </div>
@@ -831,7 +959,10 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
             <div className="pt-3 border-t flex justify-end space-x-2">
               <button
                 type="button"
-                onClick={() => setActiveTab('turma')}
+                onClick={() => {
+                  setEditandoHorarioId(null);
+                  setActiveTab('turma');
+                }}
                 className="px-4 py-2 border border-gray-300 rounded-xl text-gray-700 font-bold hover:bg-gray-50 cursor-pointer"
               >
                 Cancelar
@@ -845,10 +976,177 @@ export const ScheduleTimetableView: React.FC<ScheduleTimetableViewProps> = ({
                     : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
-                Validar e Alocar Aula
+                {editandoHorarioId ? 'Guardar Alteração no Horário' : 'Validar e Alocar Aula'}
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {horarioParaEliminarId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 no-print">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-center space-x-2 text-rose-600">
+              <AlertTriangle className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">Retirar Aula do Horário</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300">
+              Tem a certeza de que deseja retirar esta aula do horário?
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setHorarioParaEliminarId(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminarHorario}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Retirar Aula
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIGURAR TEMPOS LETIVOS E HORÁRIOS (INÍCIO E FIM) */}
+      {showConfigTemposModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 no-print overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-indigo-100 text-indigo-800 rounded-xl">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-gray-900">Configurar Tempos Letivos & Horas</h3>
+                  <p className="text-xs text-gray-500">Defina a hora de início e fim de cada tempo do horário da escola</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConfigTemposModal(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {erroTemposModal && (
+              <div className="p-2.5 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-xs font-bold">
+                {erroTemposModal}
+              </div>
+            )}
+
+            <form onSubmit={handleSalvarConfigTempos} className="space-y-4 text-xs">
+              <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                {temposEditaveis.map((tempo, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center p-2.5 bg-gray-50 border border-gray-200 rounded-xl">
+                    <div className="col-span-3">
+                      <label className="block text-[10px] font-bold text-gray-500 mb-0.5">Tempo (N.º)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={tempo.numero}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setTemposEditaveis(prev => prev.map((item, i) => (i === idx ? { ...item, numero: v } : item)));
+                        }}
+                        className="w-full p-1.5 border border-gray-300 rounded-lg font-bold bg-white"
+                      />
+                    </div>
+                    <div className="col-span-4">
+                      <label className="block text-[10px] font-bold text-gray-500 mb-0.5">Hora Início</label>
+                      <input
+                        type="time"
+                        required
+                        value={tempo.inicio}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTemposEditaveis(prev => prev.map((item, i) => (i === idx ? { ...item, inicio: v } : item)));
+                        }}
+                        className="w-full p-1.5 border border-gray-300 rounded-lg font-mono font-bold bg-white"
+                      />
+                    </div>
+                    <div className="col-span-4">
+                      <label className="block text-[10px] font-bold text-gray-500 mb-0.5">Hora Fim</label>
+                      <input
+                        type="time"
+                        required
+                        value={tempo.fim}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTemposEditaveis(prev => prev.map((item, i) => (i === idx ? { ...item, fim: v } : item)));
+                        }}
+                        className="w-full p-1.5 border border-gray-300 rounded-lg font-mono font-bold bg-white"
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-end pt-4">
+                      <button
+                        type="button"
+                        disabled={temposEditaveis.length <= 1}
+                        onClick={() => setTemposEditaveis(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-rose-600 hover:text-rose-800 disabled:opacity-30 cursor-pointer"
+                        title="Remover tempo"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const maxNum = temposEditaveis.reduce((m, t) => Math.max(m, t.numero), 0);
+                    const ultimo = temposEditaveis[temposEditaveis.length - 1];
+                    const novaInicio = ultimo ? ultimo.fim : '12:30';
+                    const [hh, mm] = novaInicio.split(':').map(Number);
+                    const totalMin = (isNaN(hh) ? 12 : hh) * 60 + (isNaN(mm) ? 30 : mm) + 45;
+                    const novaFim = `${String(Math.floor(totalMin / 60) % 24).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+                    setTemposEditaveis(prev => [...prev, { numero: maxNum + 1, inicio: novaInicio, fim: novaFim }]);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg flex items-center space-x-1 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Adicionar Tempo</span>
+                </button>
+
+                <label className="inline-flex items-center space-x-2 text-xs font-semibold text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={atualizarHorasAulasExistentes}
+                    onChange={(e) => setAtualizarHorasAulasExistentes(e.target.checked)}
+                    className="rounded border-gray-300 text-indigo-600"
+                  />
+                  <span>Sincronizar horas nas aulas já agendadas</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setShowConfigTemposModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl cursor-pointer"
+                >
+                  Guardar Horário dos Tempos
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

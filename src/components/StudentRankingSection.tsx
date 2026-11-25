@@ -86,7 +86,7 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
     const validas = notasHomologadas.map(n => n.notaFinal ?? n.mediaTrimestral ?? 0).filter(v => v > 0);
     if (validas.length > 0) {
       const soma = validas.reduce((acc, v) => acc + v, 0);
-      return Number((soma / validas.length).toFixed(1));
+      return Math.round(soma / validas.length);
     }
   }
 
@@ -100,7 +100,7 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
         .filter(v => typeof v === 'number' && v > 0);
       if (validas.length > 0) {
         const soma = validas.reduce((acc, v) => acc + v, 0);
-        return Number((soma / validas.length).toFixed(1));
+        return Math.round(soma / validas.length);
       }
     }
   } catch {}
@@ -110,7 +110,7 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
     const notasIndividuais = dbService.obterNotas().filter(n => n.alunoId === aluno.id && typeof (n.valorNota ?? (n as any).valor) === 'number' && (n.valorNota ?? (n as any).valor) > 0);
     if (notasIndividuais.length > 0) {
       const soma = notasIndividuais.reduce((acc, n) => acc + (n.valorNota ?? (n as any).valor ?? 0), 0);
-      return Number((soma / notasIndividuais.length).toFixed(1));
+      return Math.round(soma / notasIndividuais.length);
     }
   } catch {}
 
@@ -119,7 +119,7 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
     const validas = aluno.historicoMultiAno.filter(h => typeof h.mediaFinal === 'number' && h.mediaFinal > 0);
     if (validas.length > 0) {
       const soma = validas.reduce((acc, h) => acc + (h.mediaFinal as number), 0);
-      return Number((soma / validas.length).toFixed(1));
+      return Math.round(soma / validas.length);
     }
   }
 
@@ -129,7 +129,7 @@ export function calcularMediaGeralAluno(aluno: Aluno): number {
     if (validos.length > 0) {
       const ultimo = validos[validos.length - 1];
       if (ultimo && typeof ultimo.mediaFinal === 'number' && ultimo.mediaFinal > 0) {
-        return Number(ultimo.mediaFinal.toFixed(1));
+        return Math.round(ultimo.mediaFinal);
       }
     }
   }
@@ -407,7 +407,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       let mediaAlunos = 0;
       if (notasTurmas.length > 0) {
         const soma = notasTurmas.reduce((acc, n) => acc + (n.notaFinal ?? n.mediaTrimestral ?? 0), 0);
-        mediaAlunos = Number((soma / notasTurmas.length).toFixed(1));
+        mediaAlunos = Math.round(soma / notasTurmas.length);
       }
 
       const indiceGlobal = (taxaAssiduidade > 0 || mediaAlunos > 0) 
@@ -551,7 +551,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
       let taxaAprovacao = 0;
       if (valores.length > 0) {
         const soma = valores.reduce((acc, v) => acc + v, 0);
-        mediaGeral = Number((soma / valores.length).toFixed(1));
+        mediaGeral = Math.round(soma / valores.length);
         const positivas = valores.filter(v => v >= limiarAprovacao).length;
         taxaAprovacao = Math.round((positivas / valores.length) * 100);
       }
@@ -1138,7 +1138,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                         </td>
                         <td className="py-2.5 px-4 text-right">
                           <span className="inline-block px-2.5 py-1 bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-black text-sm">
-                            {item.mediaGeral.toFixed(1)} <span className="text-[10px] font-normal">val</span>
+                            {Math.round(item.mediaGeral)} <span className="text-[10px] font-normal">val</span>
                           </span>
                         </td>
                       </tr>
@@ -1226,7 +1226,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                               item.mediaGeral >= (item.notaAprovacao ?? 9.5) ? 'bg-blue-100 text-blue-900 border border-blue-300' :
                               'bg-rose-100 text-rose-900 border border-rose-300'
                             }`}>
-                              {item.mediaGeral.toFixed(1)} val
+                              {Math.round(item.mediaGeral)} val
                             </span>
                           ) : (
                             <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 border border-slate-300 rounded text-[10px] font-bold">
@@ -1323,7 +1323,7 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                         </td>
                         <td className="py-2.5 px-4 text-right">
                           <span className="inline-block px-2.5 py-1 bg-rose-100 text-rose-900 border border-rose-300 rounded-lg font-black text-sm">
-                            {item.mediaGeral.toFixed(1)} <span className="text-[10px] font-normal">val</span>
+                            {Math.round(item.mediaGeral)} <span className="text-[10px] font-normal">val</span>
                           </span>
                         </td>
                         <td className="py-2.5 px-4 text-center">
@@ -1445,7 +1445,6 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                           </td>
                           <td className="py-2.5 px-4 font-bold text-slate-900">
                             {item.disciplina.nome}
-                            <span className="ml-2 text-[10px] text-slate-500 font-normal">({item.disciplina.sigla || 'DISC'})</span>
                           </td>
                           <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
                             {item.nivel}
@@ -1502,7 +1501,6 @@ export const StudentRankingSection: React.FC<StudentRankingSectionProps> = ({
                           </td>
                           <td className="py-2.5 px-4 font-bold text-slate-900">
                             {item.disciplina.nome}
-                            <span className="ml-2 text-[10px] text-slate-500 font-normal">({item.disciplina.sigla || 'DISC'})</span>
                           </td>
                           <td className="py-2.5 px-4 text-center text-slate-600 font-medium">
                             {item.nivel}

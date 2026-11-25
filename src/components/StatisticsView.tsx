@@ -38,6 +38,8 @@ import {
   formatarCicloPorClasse,
   ordenarDisciplinas,
   isClasseFinal,
+  isSegundoCiclo,
+  isProfessorCoordenadorTurma,
   CURSOS_SEGUNDO_CICLO,
   disciplinaPertenceAoCurso
 } from '../services/academicHierarchyService';
@@ -200,6 +202,14 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     return base.filter(a => !a.escolaId || a.escolaId === escolaExibida.id);
   }, [propAtribuicoes, isAdminGeral, isVisaoRedeTodas, escolaExibida.id]);
 
+  const horariosTodas = useMemo(() => {
+    const base = dbService.obterHorarios(
+      isVisaoRedeTodas ? undefined : escolaExibida.id,
+      isVisaoRedeTodas ? undefined : escolaExibida.anoLectivoActivo
+    );
+    return base;
+  }, [isVisaoRedeTodas, escolaExibida.id, escolaExibida.anoLectivoActivo]);
+
   // Escopo estrito por perfil:
   // - Professor / CoordenadorDisciplina / CoordenadorTurno: estritamente limitado às suas turmas/disciplinas/turno
   // - CoordenadorPedagogico / Direção: visão global da escola (com opção de auditar docente)
@@ -277,42 +287,86 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     return null;
   }, [isDocenteEscopoRestrito, currentUser, isDirecao, isCoordenadorPedagogico, isAdminGeral, filtroDocenteId, funcionarios]);
 
-  // Atribuições do Docente Alvo
+  // Atribuições e Horários do Docente Alvo
   const atribuicoesDoDocenteAlvo = useMemo(() => {
     if (!docenteAlvo) return [];
     return atribuicoesTodas.filter(a => a.professorId === docenteAlvo.id);
   }, [docenteAlvo, atribuicoesTodas]);
 
-  const turmasDocenteIds = useMemo(() => {
-    if (!docenteAlvo) return new Set<string>();
-    const ids = new Set<string>(atribuicoesDoDocenteAlvo.map(a => a.turmaId));
+  const horariosDoDocenteAlvo = useMemo(() => {
+    if (!docenteAlvo) return [];
+    return horariosTodas.filter(h => h.professorId === docenteAlvo.id);
+  }, [docenteAlvo, horariosTodas]);
+
+  const turmasCoordenadasIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!docenteAlvo) return ids;
     turmas.forEach(t => {
-      if (t.coordenadorId === docenteAlvo.id || 
-          (t.coordenadorNome && t.coordenadorNome.toLowerCase() === docenteAlvo.nomeCompleto.toLowerCase()) ||
-          (t.directorTurmaNome && t.directorTurmaNome.toLowerCase() === docenteAlvo.nomeCompleto.toLowerCase())) {
+      if (
+        isProfessorCoordenadorTurma(t, docenteAlvo.id) ||
+        (t.directorTurmaNome && t.directorTurmaNome.toLowerCase() === docenteAlvo.nomeCompleto.toLowerCase())
+      ) {
         ids.add(t.id);
       }
     });
     return ids;
-  }, [docenteAlvo, atribuicoesDoDocenteAlvo, turmas]);
+  }, [docenteAlvo, turmas]);
+
+  const turmasDocenteIds = useMemo(() => {
+    if (!docenteAlvo) return new Set<string>();
+    const ids = new Set<string>(atribuicoesDoDocenteAlvo.map(a => a.turmaId));
+    horariosDoDocenteAlvo.forEach(h => {
+      if (h.turmaId) ids.add(h.turmaId);
+    });
+    turmasCoordenadasIds.forEach(id => ids.add(id));
+    if (isCoordenadorTurno && docenteAlvo.cargo) {
+      const cargo = docenteAlvo.cargo.toLowerCase();
+      turmas.forEach(t => {
+        if (cargo.includes('manhã') && t.turno === 'Manhã') ids.add(t.id);
+        else if (cargo.includes('tarde') && t.turno === 'Tarde') ids.add(t.id);
+        else if (cargo.includes('noite') && t.turno === 'Noite') ids.add(t.id);
+      });
+    }
+    return ids;
+  }, [docenteAlvo, atribuicoesDoDocenteAlvo, horariosDoDocenteAlvo, turmasCoordenadasIds, isCoordenadorTurno, turmas]);
+
+  const paresTurmaDisciplinaDocente = useMemo(() => {
+    const pares = new Set<string>();
+    atribuicoesDoDocenteAlvo.forEach(a => {
+      if (a.turmaId && a.disciplinaId) pares.add(`${a.turmaId}::${a.disciplinaId}`);
+    });
+    horariosDoDocenteAlvo.forEach(h => {
+      if (h.turmaId && h.disciplinaId) pares.add(`${h.turmaId}::${h.disciplinaId}`);
+    });
+    return pares;
+  }, [atribuicoesDoDocenteAlvo, horariosDoDocenteAlvo]);
 
   const disciplinasDocenteIds = useMemo(() => {
     if (!docenteAlvo) return new Set<string>();
     const ids = new Set<string>(atribuicoesDoDocenteAlvo.map(a => a.disciplinaId));
-    if (docenteAlvo.especialidade) {
+    horariosDoDocenteAlvo.forEach(h => {
+      if (h.disciplinaId) ids.add(h.disciplinaId);
+    });
+    // Se coordena alguma turma, inclui as disciplinas curriculares das classes coordenadas
+    turmas.forEach(t => {
+      if (turmasCoordenadasIds.has(t.id)) {
+        filtrarDisciplinasDaClasse(disciplinas, t.classe, isSegundoCiclo(t.classe) ? t.curso : undefined).forEach(d => ids.add(d.id));
+      }
+    });
+    if (docenteAlvo.role === 'CoordenadorDisciplina' && docenteAlvo.especialidade) {
       disciplinas.forEach(d => {
-        if (d.nome.toLowerCase().includes(docenteAlvo.especialidade!.toLowerCase()) || 
+        if (d.nome.toLowerCase().includes(docenteAlvo.especialidade!.toLowerCase()) ||
             docenteAlvo.especialidade!.toLowerCase().includes(d.nome.toLowerCase())) {
           ids.add(d.id);
         }
       });
     }
     return ids;
-  }, [docenteAlvo, atribuicoesDoDocenteAlvo, disciplinas]);
+  }, [docenteAlvo, atribuicoesDoDocenteAlvo, horariosDoDocenteAlvo, turmas, turmasCoordenadasIds, disciplinas]);
 
-  // Turmas permitidas conforme o perfil ou filtro
+  // Turmas permitidas conforme o perfil ou filtro (NUNCA devolve todas as turmas da escola ao professor)
   const turmasPermitidas = useMemo(() => {
-    if (docenteAlvo && turmasDocenteIds.size > 0) {
+    if (docenteAlvo) {
       return turmas.filter(t => turmasDocenteIds.has(t.id));
     }
     if (isCoordenadorTurno && modoVisao === 'minhas_atribuicoes' && currentUser?.cargo) {
@@ -324,23 +378,22 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     return turmas;
   }, [turmas, docenteAlvo, turmasDocenteIds, isCoordenadorTurno, modoVisao, currentUser]);
 
-  // Disciplinas permitidas
+  // Disciplinas permitidas (NUNCA devolve todas as disciplinas da escola ao professor)
   const disciplinasPermitidas = useMemo(() => {
-    if (docenteAlvo && disciplinasDocenteIds.size > 0) {
-      const filtradas = disciplinas.filter(d => disciplinasDocenteIds.has(d.id));
-      return filtradas.length > 0 ? ordenarDisciplinas(filtradas) : ordenarDisciplinas(disciplinas);
+    if (docenteAlvo) {
+      return ordenarDisciplinas(disciplinas.filter(d => disciplinasDocenteIds.has(d.id)));
     }
     if (isCoordenadorDisciplina && modoVisao === 'minhas_atribuicoes' && currentUser?.especialidade) {
-      const filtradas = disciplinas.filter(d => 
+      const filtradas = disciplinas.filter(d =>
         d.nome.toLowerCase().includes(currentUser.especialidade!.toLowerCase()) ||
         currentUser.especialidade!.toLowerCase().includes(d.nome.toLowerCase())
       );
-      if (filtradas.length > 0) return ordenarDisciplinas(filtradas);
+      return ordenarDisciplinas(filtradas);
     }
     return ordenarDisciplinas(disciplinas);
   }, [disciplinas, docenteAlvo, disciplinasDocenteIds, isCoordenadorDisciplina, modoVisao, currentUser]);
 
-  // Cursos, Classes, Salas e Turnos disponíveis (dinâmicos da Direção + Turmas)
+  // Cursos, Classes, Salas e Turnos disponíveis (Curso exclusivo para IIº Ciclo)
   const cursosDisponiveis = useMemo(() => {
     const setCursos = new Set<string>();
     const cfg = isVisaoRedeTodas
@@ -350,36 +403,57 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       if (c.nome && c.nome.trim()) setCursos.add(c.nome.trim());
     });
     turmasPermitidas.forEach(t => {
-      if (t.curso && t.curso.trim()) setCursos.add(t.curso.trim());
+      if (isSegundoCiclo(t.classe) && t.curso && t.curso.trim()) setCursos.add(t.curso.trim());
     });
-    CURSOS_SEGUNDO_CICLO.forEach(c => setCursos.add(c));
+    if (turmasPermitidas.some(t => isSegundoCiclo(t.classe))) {
+      CURSOS_SEGUNDO_CICLO.forEach(c => setCursos.add(c));
+    }
     return Array.from(setCursos).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
   }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
 
   const classesDisponiveis = useMemo(() => {
     const cfg = isVisaoRedeTodas
       ? dbService.getClassesConfigs()
-      : dbService.getClassesConfigs(escolaExibida.id);
-    const fromCfg = cfg.filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome)).filter(Boolean);
+      : dbService.getClassesConfigs(escolaExibida.id, escolaExibida.anoLectivoActivo);
+    const fromCfg = isDocenteEscopoRestrito
+      ? []
+      : cfg.filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome)).filter(Boolean);
     const fromTurmas = turmasPermitidas.map(t => normalizarClasse(t.classe)).filter(Boolean);
     return ordenarClassesMED([...fromCfg, ...fromTurmas]);
-  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
+  }, [isVisaoRedeTodas, escolaExibida.id, escolaExibida.anoLectivoActivo, turmasPermitidas, isDocenteEscopoRestrito]);
+
+  const exibirFiltroCurso = useMemo(() => {
+    if (filtroClasse !== 'TODAS') return isSegundoCiclo(filtroClasse);
+    if (filtroCiclo !== 'TODOS' && filtroCiclo !== 'IIº Ciclo') return false;
+    return classesDisponiveis.some(c => isSegundoCiclo(c)) || turmasPermitidas.some(t => isSegundoCiclo(t.classe));
+  }, [filtroClasse, filtroCiclo, classesDisponiveis, turmasPermitidas]);
+
+  useEffect(() => {
+    if (!exibirFiltroCurso && filtroCurso !== 'TODOS') {
+      setFiltroCurso('TODOS');
+    }
+  }, [exibirFiltroCurso, filtroCurso]);
 
   const salasDisponiveis = useMemo(() => {
     const set = new Set<string>();
     const cfg = isVisaoRedeTodas ? dbService.getSalasAulas() : dbService.getSalasAulas(escolaExibida.id);
-    cfg.filter(s => s.ativo !== false).forEach(s => { if (s.nome) set.add(s.nome); });
+    if (!isDocenteEscopoRestrito) {
+      cfg.filter(s => s.ativo !== false).forEach(s => { if (s.nome) set.add(s.nome); });
+    }
     turmasPermitidas.forEach(t => { if (t.sala && t.sala.trim()) set.add(t.sala.trim()); });
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
-  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas, isDocenteEscopoRestrito]);
 
   const turnosDisponiveis = useMemo(() => {
-    const set = new Set<string>(['Manhã', 'Tarde', 'Noite']);
-    const cfg = isVisaoRedeTodas ? dbService.getTurnosConfigs() : dbService.getTurnosConfigs(escolaExibida.id);
-    cfg.filter(t => t.ativo !== false).forEach(t => { if (t.nome) set.add(t.nome); });
+    const set = new Set<string>();
+    if (!isDocenteEscopoRestrito) {
+      ['Manhã', 'Tarde', 'Noite'].forEach(tr => set.add(tr));
+      const cfg = isVisaoRedeTodas ? dbService.getTurnosConfigs() : dbService.getTurnosConfigs(escolaExibida.id, escolaExibida.anoLectivoActivo);
+      cfg.filter(t => t.ativo !== false).forEach(t => { if (t.nome) set.add(t.nome); });
+    }
     turmasPermitidas.forEach(t => { if (t.turno) set.add(t.turno); });
     return Array.from(set);
-  }, [isVisaoRedeTodas, escolaExibida.id, turmasPermitidas]);
+  }, [isVisaoRedeTodas, escolaExibida.id, escolaExibida.anoLectivoActivo, turmasPermitidas, isDocenteEscopoRestrito]);
 
   // Turmas filtradas
   const turmasFiltradas = useMemo(() => {
@@ -390,7 +464,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         const cicloTurma = formatarCicloPorClasse(t.classe);
         if (!cicloTurma.toLowerCase().includes(filtroCiclo.toLowerCase())) return false;
       }
-      if (filtroCurso !== 'TODOS' && (t.curso || '').trim().toLowerCase() !== filtroCurso.trim().toLowerCase()) return false;
+      if (filtroCurso !== 'TODOS' && (!isSegundoCiclo(t.classe) || (t.curso || '').trim().toLowerCase() !== filtroCurso.trim().toLowerCase())) return false;
       if (filtroSala !== 'TODAS' && (t.sala || '').trim().toLowerCase() !== filtroSala.trim().toLowerCase()) return false;
       if (filtroClasse !== 'TODAS' && normalizarClasse(t.classe) !== normalizarClasse(filtroClasse)) return false;
       if (filtroTurmaId !== 'TODAS' && t.id !== filtroTurmaId) return false;
@@ -401,27 +475,36 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   // Alunos das turmas filtradas
   const alunosFiltrados = useMemo(() => {
     const idsTurmas = new Set(turmasFiltradas.map(t => t.id));
-    if (filtroClasse === 'TODAS' && filtroCiclo === 'TODOS' && filtroCurso === 'TODOS' && filtroTurno === 'TODOS' && filtroSala === 'TODAS' && filtroTurmaId === 'TODAS' && (!filtroAno || filtroAno === 'TODOS')) {
+    if (!docenteAlvo && !isDocenteEscopoRestrito && filtroClasse === 'TODAS' && filtroCiclo === 'TODOS' && filtroCurso === 'TODOS' && filtroTurno === 'TODOS' && filtroSala === 'TODAS' && filtroTurmaId === 'TODAS' && (!filtroAno || filtroAno === 'TODOS')) {
       const escolaIds = new Set(turmasFiltradas.map(t => t.escolaId));
       return alunos.filter(a => idsTurmas.has(a.turmaId) || (!a.turmaId && (escolaIds.has(a.escolaId) || isVisaoRedeTodas)));
     }
     return alunos.filter(a => idsTurmas.has(a.turmaId));
-  }, [alunos, turmasFiltradas, filtroClasse, filtroCiclo, filtroCurso, filtroTurno, filtroSala, filtroTurmaId, filtroAno, isVisaoRedeTodas]);
+  }, [alunos, turmasFiltradas, docenteAlvo, isDocenteEscopoRestrito, filtroClasse, filtroCiclo, filtroCurso, filtroTurno, filtroSala, filtroTurmaId, filtroAno, isVisaoRedeTodas]);
 
-  // Notas aplicáveis aos filtros
+  // Notas aplicáveis aos filtros (professor vê estritamente suas disciplinas/turmas/coordenações)
   const notasFiltradas = useMemo(() => {
     const idsAlunos = new Set(alunosFiltrados.map(a => a.id));
+    const alunoTurmaMap = new Map<string, string>();
+    alunosFiltrados.forEach(a => {
+      if (a.turmaId) alunoTurmaMap.set(a.id, a.turmaId);
+    });
     return notas.filter(n => {
       if (!idsAlunos.has(n.alunoId)) return false;
       if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
       if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
       if (filtroDisciplinaId !== 'TODAS' && n.disciplinaId !== filtroDisciplinaId) return false;
-      if (docenteAlvo && disciplinasDocenteIds.size > 0) {
+      if (docenteAlvo) {
+        const turmaNota = n.turmaId || alunoTurmaMap.get(n.alunoId) || '';
+        if (turmasCoordenadasIds.has(turmaNota)) return true;
+        if (paresTurmaDisciplinaDocente.size > 0 && turmaNota) {
+          return paresTurmaDisciplinaDocente.has(`${turmaNota}::${n.disciplinaId}`);
+        }
         return disciplinasDocenteIds.has(n.disciplinaId);
       }
       return true;
     });
-  }, [notas, alunosFiltrados, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, disciplinasDocenteIds]);
+  }, [notas, alunosFiltrados, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, turmasCoordenadasIds, paresTurmaDisciplinaDocente, disciplinasDocenteIds]);
 
   // Indicadores Centrais (KPIs)
   const metricasGlobais = useMemo(() => {
@@ -461,7 +544,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     const totalAprovados = mediasAlunos.filter(m => m.aprovado).length;
     const totalReprovados = totalAvaliados - totalAprovados;
     const taxaAprovacao = totalAvaliados > 0 ? ((totalAprovados / totalAvaliados) * 100).toFixed(1) : '0.0';
-    const mediaGeralEscola = totalAvaliados > 0 ? (somaMediasGerais / totalAvaliados).toFixed(1) : '—';
+    const mediaGeralEscola = totalAvaliados > 0 ? String(Math.round(somaMediasGerais / totalAvaliados)) : '—';
 
     // Distribuição de notas normalizada na escala /20 para classificar Primário (0-10) e Secundário (0-20) com rigor MED
     let excelente = 0;
@@ -535,7 +618,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
 
     return Object.values(mapaClasses).map(c => {
       const taxa = c.avaliados > 0 ? ((c.aprovados / c.avaliados) * 100).toFixed(1) : '0.0';
-      const media = c.avaliados > 0 ? (c.somaMedias / c.avaliados).toFixed(1) : '—';
+      const media = c.avaliados > 0 ? String(Math.round(c.somaMedias / c.avaliados)) : '—';
       return {
         ...c,
         taxaAprovacao: parseFloat(taxa),
@@ -571,7 +654,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         avaliados,
         aprovados,
         taxaAprovacao: parseFloat(taxa.toFixed(1)),
-        mediaTurma: parseFloat(media.toFixed(1))
+        mediaTurma: avaliados > 0 ? Math.round(media) : 0
       };
     }).filter(t => t.avaliados > 0);
 
@@ -1040,7 +1123,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       });
 
       const taxaAprovacao = avaliados > 0 ? parseFloat(((aprovados / avaliados) * 100).toFixed(1)) : 0;
-      const mediaGeral = avaliados > 0 ? (somaMedias20 / avaliados).toFixed(1) : '—';
+      const mediaGeral = avaliados > 0 ? String(Math.round(somaMedias20 / avaliados)) : '—';
 
       const presEsc = presencasTodas.filter(p => p.escolaId === esc.id);
       const assiduidadePct = presEsc.length > 0
@@ -1066,8 +1149,11 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     });
   }, [isAdminGeral, escolas, propTurmas, propAlunos, propNotas, propFuncionarios, filtroAno, filtroTrimestre, filtroTurno, filtroCiclo, filtroCurso, filtroSala, filtroClasse]);
 
-  // Rendimento Agregado por Curso & Área de Formação
+  // Rendimento Agregado por Curso & Área de Formação (Exclusivo IIº Ciclo)
   const rendimentoPorCurso = useMemo(() => {
+    const turmasSegundoCiclo = turmasFiltradas.filter(t => isSegundoCiclo(t.classe));
+    if (turmasSegundoCiclo.length === 0) return [];
+
     const cursosConfigsMap = new Map<string, string>();
     const cursosCfg = isVisaoRedeTodas ? dbService.getCursos() : dbService.getCursos(escolaExibida.id);
     cursosCfg.forEach(c => {
@@ -1076,10 +1162,11 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
 
     const grupos = new Map<string, { curso: string; area: string; turmasCount: number; matriculados: number; avaliados: number; aprovados: number; somaMedias: number }>();
 
-    turmasFiltradas.forEach(t => {
-      const cursoNome = (t.curso || 'Ensino Geral').trim();
+    turmasSegundoCiclo.forEach(t => {
+      const cursoNome = (t.curso || '').trim();
+      if (!cursoNome) return;
       const key = cursoNome.toLowerCase();
-      const areaNome = t.areaFormacao || cursosConfigsMap.get(key) || (cursoNome === 'Ensino Geral' ? 'Formação Geral' : 'Especialidade');
+      const areaNome = t.areaFormacao || cursosConfigsMap.get(key) || 'Especialidade';
       if (!grupos.has(key)) {
         grupos.set(key, { curso: cursoNome, area: areaNome, turmasCount: 0, matriculados: 0, avaliados: 0, aprovados: 0, somaMedias: 0 });
       }
@@ -1105,7 +1192,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       .map(g => ({
         ...g,
         taxaAprovacao: g.avaliados > 0 ? Number(((g.aprovados / g.avaliados) * 100).toFixed(1)) : 0,
-        mediaGeral: g.avaliados > 0 ? (g.somaMedias / g.avaliados).toFixed(1) : '—'
+        mediaGeral: g.avaliados > 0 ? String(Math.round(g.somaMedias / g.avaliados)) : '—'
       }))
       .sort((a, b) => b.matriculados - a.matriculados || a.curso.localeCompare(b.curso, 'pt'));
   }, [isVisaoRedeTodas, escolaExibida.id, turmasFiltradas, alunos, notasFiltradas]);
@@ -1323,7 +1410,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
             m.escolaSigla,
             m.turma.nome,
             m.turma.classe,
-            m.turma.curso || 'Geral',
+            isSegundoCiclo(m.turma.classe) ? (m.turma.curso || '—') : '—',
             m.turma.turno || 'Manhã',
             m.matriculadosTotal,
             m.matriculadosM,
@@ -1711,22 +1798,24 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
-              <Filter className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Curso</span>
-            </label>
-            <select
-              value={filtroCurso}
-              onChange={e => setFiltroCurso(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="TODOS">Todos os Cursos ({cursosDisponiveis.length})</option>
-              {cursosDisponiveis.map(cur => (
-                <option key={cur} value={cur}>{cur}</option>
-              ))}
-            </select>
-          </div>
+          {exibirFiltroCurso && (
+            <div>
+              <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
+                <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Curso (IIº Ciclo)</span>
+              </label>
+              <select
+                value={filtroCurso}
+                onChange={e => setFiltroCurso(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="TODOS">Todos os Cursos ({cursosDisponiveis.length})</option>
+                {cursosDisponiveis.map(cur => (
+                  <option key={cur} value={cur}>{cur}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase mb-1 flex items-center space-x-1">
@@ -2579,12 +2668,17 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           </div>
 
           <div className="overflow-x-auto">
+            {(() => {
+              const mostrarColunaCursoMapa = mapaRendimentoTurmas.some(m => isSegundoCiclo(m.turma.classe));
+              return (
             <table className="w-full text-left text-[11px] border border-black divide-y divide-black">
               <thead className="bg-slate-100 font-bold text-center text-[10px]">
                 <tr>
                   <th rowSpan={2} className="p-2 border-r border-black w-8">Nº</th>
                   <th rowSpan={2} className="p-2 border-r border-black text-left">TURMA / CLASSE</th>
-                  <th rowSpan={2} className="p-2 border-r border-black text-left">CURSO</th>
+                  {mostrarColunaCursoMapa && (
+                    <th rowSpan={2} className="p-2 border-r border-black text-left">CURSO (IIº CICLO)</th>
+                  )}
                   <th colSpan={3} className="p-1 border-r border-black bg-slate-200">MATRÍCULA INICIAL</th>
                   <th rowSpan={2} className="p-2 border-r border-black w-14">DESIST.</th>
                   <th colSpan={3} className="p-1 border-r border-black bg-blue-50">AVALIADOS</th>
@@ -2618,7 +2712,11 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
                         )}
                         {item.turma.nome}
                       </td>
-                      <td className="p-1.5 border-r border-black text-left font-sans text-[10px] whitespace-normal break-words min-w-[100px] max-w-[180px]">{item.turma.curso || 'Ensino Geral'}</td>
+                      {mostrarColunaCursoMapa && (
+                        <td className="p-1.5 border-r border-black text-left font-sans text-[10px] whitespace-normal break-words min-w-[100px] max-w-[180px]">
+                          {isSegundoCiclo(item.turma.classe) ? (item.turma.curso || '—') : '—'}
+                        </td>
+                      )}
                       <td className="p-1 border-r border-black font-bold">{item.matriculadosTotal}</td>
                       <td className="p-1 border-r border-black text-slate-600">{item.matriculadosM}</td>
                       <td className="p-1 border-r border-black text-slate-600">{item.matriculadosF}</td>
@@ -2643,7 +2741,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={17} className="p-6 text-center font-sans text-slate-500 italic">
+                    <td colSpan={mostrarColunaCursoMapa ? 17 : 16} className="p-6 text-center font-sans text-slate-500 italic">
                       Nenhuma turma localizada para os critérios de filtro selecionados.
                     </td>
                   </tr>
@@ -2651,7 +2749,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
               </tbody>
               <tfoot className="bg-slate-200 font-bold text-center border-t-2 border-black font-mono">
                 <tr>
-                  <td colSpan={3} className="p-2 border-r border-black text-right font-sans uppercase">
+                  <td colSpan={mostrarColunaCursoMapa ? 3 : 2} className="p-2 border-r border-black text-right font-sans uppercase">
                     {docenteAlvo ? 'TOTAIS DO DOCENTE:' : 'TOTAIS CONSOLIDADOS:'}
                   </td>
                   <td className="p-1 border-r border-black">{totaisGeraisMapa.matriculados}</td>
@@ -2669,6 +2767,8 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
                 </tr>
               </tfoot>
             </table>
+              );
+            })()}
           </div>
           <div className="text-[10px] text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
             <p><strong>Critérios de Aprovação:</strong> O aproveitamento positivo exige nota igual ou superior a 5,0 valores no Ensino Primário (0 a 10) ou 10,0 valores nos Iº e IIº Ciclos (0 a 20). Classes terminais (6ª, 9ª e 12ª/13ª) ficam sujeitas a Exame Nacional / Prova de Escola.</p>

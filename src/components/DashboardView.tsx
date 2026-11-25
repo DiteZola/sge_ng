@@ -35,7 +35,8 @@ import {
   Eye,
   EyeOff,
   Search,
-  CheckSquare
+  CheckSquare,
+  CalendarCheck
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -271,6 +272,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const isEstagiario = role === 'Estagiario';
   const isTecnicoTI = role === 'TecnicoTI';
   const isEncarregado = role === 'Encarregado';
+
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModuloDash = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
 
   const isClassePrimariaDash = (classeStr?: string): boolean => {
     const norm = (classeStr || '').trim().toLowerCase();
@@ -777,9 +785,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const notasEscola = notasConsolidadas.filter(
       n => (n as any).escolaId === escola.id || alunosIdsEscola.has(n.alunoId) || turmasIdsEscola.has(n.turmaId)
     );
-    const disciplinas = dbService.getDisciplinas(escola.id);
-    const avaliacoesEscola = dbService.getAvaliacoes().filter(av => av.escolaId === escola.id);
-    const notasIndividuais = dbService.getNotas();
+    const anoRef = escola.anoLectivoActivo || '';
+    const disciplinas = dbService.getDisciplinas(escola.id, anoRef);
+    const avaliacoesEscola = dbService.getAvaliacoes().filter(av => av.escolaId === escola.id && (!anoRef || !av.anoLectivo || av.anoLectivo === anoRef));
+    const notasIndividuais = dbService.getNotas().filter(n => !anoRef || !n.anoLectivo || n.anoLectivo === anoRef);
 
     const map: Record<string, { disciplinaId: string; totalNotas: number; soma: number; positivas: number; negativas: number; escala: number; limiar: number }> = {};
 
@@ -853,8 +862,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const turmasIdsSet = new Set(turmas.map(t => t.id));
     const alunosIdsSet = new Set(alunos.map(a => a.id));
 
+    const anoRefDash = escola.anoLectivoActivo || '';
     const presencasEscola = todasPresencasAlunos.filter(
-      p => p.escolaId === escola.id || turmasIdsSet.has(p.turmaId) || alunosIdsSet.has(p.alunoId)
+      p => (p.escolaId === escola.id || turmasIdsSet.has(p.turmaId) || alunosIdsSet.has(p.alunoId)) &&
+        (!anoRefDash || !p.anoLectivo || p.anoLectivo === anoRefDash)
     );
 
     const hojeIso = new Date().toISOString().split('T')[0];
@@ -1014,7 +1025,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // 1. Estatísticas Completas por Classe (Matriculados, Avaliados, Aprovados, Reprovados, Desistentes e Percentagens)
   const estatisticasPorClasse = useMemo(() => {
-    const classesCfg = dbService.getClassesConfigs(escola.id).filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome));
+    const classesCfg = dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo).filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome));
     const classesTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
     const classesNomes = ordenarClassesMED([...TODAS_CLASSES_OFICIAIS_MED, ...classesCfg, ...classesTurmas]);
     return classesNomes.map(cls => {
@@ -1278,6 +1289,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleBaixarTodosAlunosXLSX = () => {
+    const podeDocAluno = visibilidadeUsuario.dadosSensiveis.verDocumentosIdentificacaoAlunos;
+    const podeContactoAluno = visibilidadeUsuario.dadosSensiveis.verContactosAlunosEncarregados;
     const dados = alunos.map((a, i) => {
       const t = turmas.find(tm => tm.id === a.turmaId);
       return {
@@ -1286,7 +1299,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         'Nº Processo': a.numeroProcesso || a.codigoMatricula,
         'Nome Completo': a.nomeCompleto,
         'Gênero': a.genero === 'M' ? 'Masculino' : 'Feminino',
-        'Bilhete de Identidade': a.numeroDocumento || a.numeroBI || '—',
+        'Bilhete de Identidade': podeDocAluno ? (a.numeroDocumento || a.numeroBI || '—') : 'Restrito pela Direção',
         'Data Nascimento': a.dataNascimento,
         'Naturalidade': a.naturalidade,
         'Província Origem': a.provinciaOrigem,
@@ -1296,7 +1309,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         'Curso': a.curso || t?.curso || 'Ensino Geral',
         'Estado': a.estado,
         'Encarregado': a.nomeEncarregado || a.encarregadoNome || '—',
-        'Telefone Encarregado': a.telefoneEncarregado || a.telefone || '—'
+        'Telefone Encarregado': podeContactoAluno ? (a.telefoneEncarregado || a.telefone || '—') : 'Restrito pela Direção'
       };
     });
     downloadExcelFile('Alunos_Todos', dados, `Estudantes_Todos_${escola.sigla || 'MED'}.xlsx`);
@@ -1322,24 +1335,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleBaixarTodosFuncionariosXLSX = () => {
-    const dados = todosFuncionarios.map((f, i) => ({
-      'Nº': i + 1,
-      'Nome Completo': f.nomeCompleto,
-      'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
-      'Bilhete de Identidade': f.numeroBI,
-      'Cargo': f.cargo,
-      'Perfil Role': f.role,
-      'Grau Académico': f.grauAcademico || '—',
-      'Especialidade': f.especialidade || f.habilitacoes || '—',
-      'Categoria Profissional': f.categoriaProfissional || '—',
-      'Nº Mecanográfico / Agente': f.numeroAgente || '—',
-      'Telefone': f.telefone,
-      'Email': f.email,
-      'Banco': f.banco || '—',
-      'IBAN': f.iban || '—',
-      'INSS': f.numeroSegurancaSocial || '—',
-      'Estado': f.statusConta || 'Ativa'
-    }));
+    const dados = todosFuncionarios.map((f, i) => {
+      const podeVerFunc = visibilidadeUsuario.dadosSensiveis.verDadosSensiveisFuncionarios || f.id === currentUser.id;
+      return {
+        'Nº': i + 1,
+        'Nome Completo': f.nomeCompleto,
+        'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
+        'Bilhete de Identidade': podeVerFunc ? f.numeroBI : 'Restrito',
+        'Cargo': f.cargo,
+        'Perfil Role': f.role,
+        'Grau Académico': f.grauAcademico || '—',
+        'Especialidade': f.especialidade || f.habilitacoes || '—',
+        'Categoria Profissional': f.categoriaProfissional || '—',
+        'Nº Mecanográfico / Agente': f.numeroAgente || '—',
+        'Telefone': podeVerFunc ? f.telefone : 'Restrito',
+        'Email': podeVerFunc ? f.email : 'Restrito',
+        'Banco': podeVerFunc ? (f.banco || '—') : 'Restrito',
+        'IBAN': podeVerFunc ? (f.iban || '—') : 'Restrito',
+        'INSS': podeVerFunc ? (f.numeroSegurancaSocial || '—') : 'Restrito',
+        'Estado': f.statusConta || 'Ativa'
+      };
+    });
     downloadExcelFile('Funcionarios_Todos', dados, `Funcionarios_${escola.sigla || 'MED'}.xlsx`);
     setAvisoSucesso('Dossier completo de todos os funcionários baixado!');
     setTimeout(() => setAvisoSucesso(null), 4000);
@@ -1713,6 +1729,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 >
                   <HeartHandshake className="h-4 w-4 shrink-0" />
                   <span>Central de Apoio Técnico</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('plano_atividades')}
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-xs transition-colors flex items-center space-x-2 cursor-pointer whitespace-nowrap shrink-0"
+                  title="Aceder ao Plano de Atividades e Eventos das Escolas"
+                >
+                  <CalendarCheck className="h-4 w-4 shrink-0" />
+                  <span>Plano de Atividades</span>
                 </button>
                 <button
                   type="button"
@@ -2611,30 +2636,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <FileText className="h-4 w-4 text-blue-700 dark:text-blue-400 shrink-0" />
                 <span>Pautas Gerais</span>
               </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('estatisticas')}
-                className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <BarChart3 className="h-4 w-4 text-indigo-700 dark:text-indigo-400 shrink-0" />
-                <span>Estatísticas</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('relatorios')}
-                className="px-3.5 py-2 text-xs font-bold text-gray-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <FileSpreadsheet className="h-4 w-4 text-slate-700 dark:text-slate-300 shrink-0" />
-                <span>Relatórios</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('pagamentos')}
-                className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <DollarSign className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                <span>Pagamentos</span>
-              </button>
+              {(visibilidadeUsuario.irrestrito || (visibilidadeUsuario.dadosSensiveis.verEstatisticasGlobaisEscola && podeVerModuloDash('estatisticas'))) && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('estatisticas')}
+                  className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <BarChart3 className="h-4 w-4 text-indigo-700 dark:text-indigo-400 shrink-0" />
+                  <span>Estatísticas</span>
+                </button>
+              )}
+              {podeVerModuloDash('relatorios') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('relatorios')}
+                  className="px-3.5 py-2 text-xs font-bold text-gray-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <FileSpreadsheet className="h-4 w-4 text-slate-700 dark:text-slate-300 shrink-0" />
+                  <span>Relatórios</span>
+                </button>
+              )}
+              {podeVerModuloDash('plano_atividades') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('plano_atividades')}
+                  className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+                  <span>Plano de Atividades</span>
+                </button>
+              )}
+              {podeVerModuloDash('pagamentos') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('pagamentos')}
+                  className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <DollarSign className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                  <span>Pagamentos</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -3084,18 +3125,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="bg-white/10 p-3.5 rounded-xl border border-white/10">
-                      <div className="flex items-center justify-between text-xs text-blue-200">
-                        <span>Taxa de Adimplência</span>
-                        <AlertTriangle className="h-4 w-4 text-amber-400" />
+                    {visibilidadeUsuario.dadosSensiveis.verSituacaoFinanceiraPropinasAlunos && (
+                      <div className="bg-white/10 p-3.5 rounded-xl border border-white/10">
+                        <div className="flex items-center justify-between text-xs text-blue-200">
+                          <span>Taxa de Adimplência</span>
+                          <AlertTriangle className="h-4 w-4 text-amber-400" />
+                        </div>
+                        <div className="text-xl font-black text-amber-300 mt-1 font-mono">
+                          {taxaAdimplencia}%
+                        </div>
+                        <div className="text-[10px] text-amber-200 mt-1">
+                          {alunosDevedores.length} alunos com propina pendente
+                        </div>
                       </div>
-                      <div className="text-xl font-black text-amber-300 mt-1 font-mono">
-                        {taxaAdimplencia}%
-                      </div>
-                      <div className="text-[10px] text-amber-200 mt-1">
-                        {alunosDevedores.length} alunos com propina pendente
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 
@@ -3373,6 +3416,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* ========================================================================= */}
           {/* ESTATÍSTICAS COMPLETAS: ESCOLA, NÍVEL E CADA CLASSE (MED ANGOLA)          */}
           {/* ========================================================================= */}
+          {(visibilidadeUsuario.irrestrito || (visibilidadeUsuario.dadosSensiveis.verEstatisticasGlobaisEscola && podeVerModuloDash('estatisticas'))) && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-indigo-100 dark:border-indigo-900/70 shadow-sm p-4 sm:p-6 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 dark:border-slate-800 pb-4">
               <div>
@@ -3710,6 +3754,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             )}
           </div>
+          )}
 
         </div>
       )}
@@ -3797,41 +3842,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         ))}
                       </div>
                     )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => onNavigate('boletins')}
-                      className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <FileText className="h-4 w-4 shrink-0" />
-                      <span>Boletim Escolar</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate('pagamentos')}
-                      className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <DollarSign className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                      <span>Consultar Propinas</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate('calendario_escolar')}
-                      className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <Calendar className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      <span>Calendário Escolar</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate('comunicacao')}
-                      className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                      <span>Comunicação</span>
-                    </button>
                   </div>
                 </div>
 

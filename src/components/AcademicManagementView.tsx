@@ -46,7 +46,10 @@ import {
   AreaFormacaoConfig,
   SalaAulaConfig,
   TipoAvaliacaoConfig,
-  RegraCalculoMAC
+  RegraCalculoMAC,
+  CoordenacaoEscolar,
+  NivelCoordenacaoEnsino,
+  TipoCoordenacaoPersonalizada
 } from '../types';
 import { dbService } from '../services/storage';
 import { 
@@ -64,10 +67,17 @@ import {
   normalizarClasse,
   getDisciplinasDaTurma,
   getDisciplinasPorClasseECiclo,
+  filtrarDisciplinasDaClasse,
+  ordenarDisciplinas,
+  gerarChaveOrdemDisciplina,
+  getOrdemDisciplinaNoContexto,
   formatarCicloPorClasse,
   getSalaDaTurma,
   getCursoDaTurma,
-  validarCriacaoTurma
+  validarCriacaoTurma,
+  TIPOS_COORDENACAO_POR_NIVEL,
+  DefinicaoTipoCoordenacao,
+  getClassesPorNivelCoordenacao
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput } from '../utils/securitySanitizer';
 import { ExcelSchoolDataImportModal } from './ExcelSchoolDataImportModal';
@@ -80,6 +90,7 @@ export type AcademicSubTab =
   | 'turmas' 
   | 'turnos' 
   | 'atribuicoes' 
+  | 'coordenacoes'
   | 'juris'
   | 'configuracoes_avaliacoes';
 
@@ -94,6 +105,7 @@ interface AcademicManagementViewProps {
   onSalvarTurma: (turma: Turma) => void;
   onEliminarTurma?: (id: string) => void;
   onSalvarDisciplina?: (disc: Disciplina) => void;
+  onRecarregarDisciplinas?: () => void;
   onEliminarDisciplina?: (id: string) => void;
   onLimparDisciplinas?: () => void;
   onSalvarAtribuicao: (atrib: AtribuicaoDocente) => void;
@@ -102,6 +114,7 @@ interface AcademicManagementViewProps {
   onNavigateToJury?: () => void;
   initialSubTab?: AcademicSubTab;
   onAnoLectivoAlterado?: (novoAno: string) => void;
+  onAnoLectivoEliminado?: () => void;
 }
 
 export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
@@ -115,6 +128,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   onSalvarTurma,
   onEliminarTurma,
   onSalvarDisciplina,
+  onRecarregarDisciplinas,
   onEliminarDisciplina,
   onLimparDisciplinas,
   onSalvarAtribuicao,
@@ -122,7 +136,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   onSalvarJuri,
   onNavigateToJury,
   initialSubTab = 'anos',
-  onAnoLectivoAlterado
+  onAnoLectivoAlterado,
+  onAnoLectivoEliminado
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<AcademicSubTab>(initialSubTab);
 
@@ -135,10 +150,10 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const currentUser = dbService.getCurrentUser();
   const isAdminGeral = currentUser?.role === 'AdminGeral';
 
-  // Lista de anos letivos, turnos e classes configurados estritamente para esta escola
+  // Lista de anos letivos, turnos e classes configurados estritamente para esta escola e ano ativo
   const [anosConfigs, setAnosConfigs] = useState<AnoLectivoConfig[]>(() => dbService.getAnosLectivosConfigs(escola.id));
-  const [turnosConfigs, setTurnosConfigs] = useState<TurnoConfig[]>(() => dbService.getTurnosConfigs(escola.id));
-  const [classesConfigs, setClassesConfigs] = useState<ClasseConfig[]>(() => dbService.getClassesConfigs(escola.id));
+  const [turnosConfigs, setTurnosConfigs] = useState<TurnoConfig[]>(() => dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
+  const [classesConfigs, setClassesConfigs] = useState<ClasseConfig[]>(() => dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
 
   // Mensagens de feedback
   const [feedbackMsg, setFeedbackMsg] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
@@ -208,6 +223,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const [novaDiscClasses, setNovaDiscClasses] = useState<string[]>(['7ª']);
   const [novaDiscCiclo, setNovaDiscCiclo] = useState<string>('Iº Ciclo');
   const [novaDiscCursos, setNovaDiscCursos] = useState<string[]>([]);
+  const [novaDiscTroncoComum, setNovaDiscTroncoComum] = useState<boolean>(false);
   const [filtroCicloDisciplinas, setFiltroCicloDisciplinas] = useState<string>('TODOS');
   const [filtroClasseDisciplinas, setFiltroClasseDisciplinas] = useState<string>('TODAS');
   const [filtroCursoDisciplinas, setFiltroCursoDisciplinas] = useState<string>('TODOS');
@@ -246,6 +262,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const [editDiscClasses, setEditDiscClasses] = useState<string[]>([]);
   const [editDiscCiclo, setEditDiscCiclo] = useState<string>('Ensino Primário');
   const [editDiscCursos, setEditDiscCursos] = useState<string[]>([]);
+  const [editDiscTroncoComum, setEditDiscTroncoComum] = useState<boolean>(false);
 
   // Gestão de Áreas de Formação (criação livre pela Direção)
   const [areasFormacaoList, setAreasFormacaoList] = useState<AreaFormacaoConfig[]>(() => dbService.getAreasFormacao(escola.id));
@@ -304,12 +321,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
   useEffect(() => {
     setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
-    setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
-    setClassesConfigs(dbService.getClassesConfigs(escola.id));
+    setTurnosConfigs(dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
+    setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
     setCursosList(dbService.getCursos(escola.id));
     setAreasFormacaoList(dbService.getAreasFormacao(escola.id));
     setSalasList(dbService.getSalasAulas(escola.id));
-  }, [escola.id]);
+  }, [escola.id, escola.anoLectivoActivo]);
 
   // Listas relacionais unificadas (criações da Direção + padrões MED)
   const areasDisponiveis = useMemo(() => {
@@ -362,12 +379,96 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     return Array.from(map.values());
   }, [salasList, turmas]);
 
-  // Modal Atribuição Docente
+  // Modal Atribuição Unificada em Lote ("De Uma Só Vez": Professor/Coordenador/Funcionário -> Classes -> Cursos IIº Ciclo -> Turmas -> Disciplinas -> Coordenações)
   const [showAtribuicaoModal, setShowAtribuicaoModal] = useState(false);
   const [atribProfId, setAtribProfId] = useState('');
-  const [atribTurmaId, setAtribTurmaId] = useState('');
-  const [atribDiscId, setAtribDiscId] = useState('');
+  const [atribClassesSel, setAtribClassesSel] = useState<string[]>([]);
+  const [atribCursosSel, setAtribCursosSel] = useState<string[]>([]);
+  const [atribTurmasSel, setAtribTurmasSel] = useState<string[]>([]);
+  const [atribDiscIds, setAtribDiscIds] = useState<string[]>([]);
   const [atribEhCoordenador, setAtribEhCoordenador] = useState(false);
+  const [atribCoordClasse, setAtribCoordClasse] = useState(false);
+  const [atribCoordDisciplina, setAtribCoordDisciplina] = useState(false);
+  const [atribCoordCurso, setAtribCoordCurso] = useState(false);
+  const [atribCoordTurno, setAtribCoordTurno] = useState(false);
+  const [atribCoordTurnoNome, setAtribCoordTurnoNome] = useState('Manhã');
+  const [atribCoordPedagogico, setAtribCoordPedagogico] = useState(false);
+  const [atribCoordCustomTipo, setAtribCoordCustomTipo] = useState('');
+
+  // Coordenações Pedagógicas por Nível de Ensino (Primário, Iº Ciclo, IIº Ciclo)
+  const [coordenacoesList, setCoordenacoesList] = useState<CoordenacaoEscolar[]>(() =>
+    dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo)
+  );
+  const [tiposCoordenacaoCustom, setTiposCoordenacaoCustom] = useState<TipoCoordenacaoPersonalizada[]>(() =>
+    dbService.getTiposCoordenacaoPersonalizados(escola.id)
+  );
+  const [filtroNivelCoordenacao, setFiltroNivelCoordenacao] = useState<'TODOS' | NivelCoordenacaoEnsino>('TODOS');
+  const [showNovaCoordenacaoModal, setShowNovaCoordenacaoModal] = useState(false);
+  const [coordNivel, setCoordNivel] = useState<NivelCoordenacaoEnsino>('Primario');
+  const [coordTipo, setCoordTipo] = useState<string>(TIPOS_COORDENACAO_POR_NIVEL.Primario[0].tipo);
+  const [coordFuncionarioId, setCoordFuncionarioId] = useState('');
+  const [coordClasse, setCoordClasse] = useState('1ª');
+  const [coordTurmaId, setCoordTurmaId] = useState('');
+  const [coordDisciplinaId, setCoordDisciplinaId] = useState('');
+  const [coordCurso, setCoordCurso] = useState('');
+  const [coordTurno, setCoordTurno] = useState('Manhã');
+  const [coordAreaDisciplinar, setCoordAreaDisciplinar] = useState('Língua Portuguesa');
+  const [coordObservacoes, setCoordObservacoes] = useState('');
+
+  // Modal Criar Novo Tipo de Coordenação Personalizado pela Direção
+  const [showCriarTipoCoordenacaoModal, setShowCriarTipoCoordenacaoModal] = useState(false);
+  const [novoTipoCoordNivel, setNovoTipoCoordNivel] = useState<NivelCoordenacaoEnsino>('Primario');
+  const [novoTipoCoordNome, setNovoTipoCoordNome] = useState('');
+  const [novoTipoCoordDesc, setNovoTipoCoordDesc] = useState('');
+  const [novoTipoCoordReqClasse, setNovoTipoCoordReqClasse] = useState(false);
+  const [novoTipoCoordReqTurma, setNovoTipoCoordReqTurma] = useState(false);
+  const [novoTipoCoordReqDisciplina, setNovoTipoCoordReqDisciplina] = useState(false);
+  const [novoTipoCoordReqCurso, setNovoTipoCoordReqCurso] = useState(false);
+  const [novoTipoCoordReqTurno, setNovoTipoCoordReqTurno] = useState(false);
+  const [novoTipoCoordReqArea, setNovoTipoCoordReqArea] = useState(false);
+
+  const tiposCoordenacaoPorNivelCombinados = useMemo<
+    Record<NivelCoordenacaoEnsino, Array<DefinicaoTipoCoordenacao & { customId?: string }>>
+  >(() => {
+    const combinados: Record<NivelCoordenacaoEnsino, Array<DefinicaoTipoCoordenacao & { customId?: string }>> = {
+      Primario: [...TIPOS_COORDENACAO_POR_NIVEL.Primario],
+      ICiclo: [...TIPOS_COORDENACAO_POR_NIVEL.ICiclo],
+      IICiclo: [...TIPOS_COORDENACAO_POR_NIVEL.IICiclo]
+    };
+    tiposCoordenacaoCustom.forEach(tc => {
+      if (tc.ativo === false) return;
+      const niv = tc.nivelEnsino || 'Primario';
+      const existe = combinados[niv].some(
+        x => x.tipo.trim().toLowerCase() === tc.tipo.trim().toLowerCase()
+      );
+      if (!existe) {
+        combinados[niv].push({
+          tipo: tc.tipo.trim(),
+          descricao: tc.descricao?.trim() || 'Coordenação institucional personalizada pela Direção da Escola.',
+          requerClasse: Boolean(tc.requerClasse),
+          requerTurma: Boolean(tc.requerTurma),
+          requerDisciplina: Boolean(tc.requerDisciplina),
+          requerCurso: niv === 'IICiclo' ? Boolean(tc.requerCurso) : false,
+          requerTurno: Boolean(tc.requerTurno),
+          requerAreaDisciplinar: Boolean(tc.requerAreaDisciplinar),
+          customId: tc.id
+        });
+      }
+    });
+    return combinados;
+  }, [tiposCoordenacaoCustom]);
+
+  // Modal de Confirmação Inline (substitui window.confirm / window.alert)
+  const [confirmModal, setConfirmModal] = useState<{
+    titulo: string;
+    mensagem: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  useEffect(() => {
+    setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+    setTiposCoordenacaoCustom(dbService.getTiposCoordenacaoPersonalizados(escola.id));
+  }, [escola.id, escola.anoLectivoActivo]);
 
   // Modal Comissão de Júri
   const [showJuriModal, setShowJuriModal] = useState(false);
@@ -379,6 +480,14 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
   const professoresDisponiveis = funcionarios.filter(
     f => (!escola.id || escola.id === 'todas' || f.escolaId === escola.id) && (f.ehProfessor || f.ehAdministrativoQueLeciona)
+  );
+
+  const funcionariosParaAtribuicao = useMemo(
+    () =>
+      funcionarios.filter(
+        f => (!escola.id || escola.id === 'todas' || f.escolaId === escola.id) && f.ativo !== false
+      ),
+    [funcionarios, escola.id]
   );
 
   // Turmas e Atribuições Estritamente Isoladas pelo Ano Letivo Ativo da escola
@@ -499,14 +608,18 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     }
 
     if (confirmacaoTextoEliminarAno.trim() !== anoNome.trim()) {
-      alert(`O texto digitado não coincide com o nome do ano letivo (${anoNome}).`);
+      setFeedbackMsg({ tipo: 'erro', texto: `O texto digitado não coincide com o nome do ano letivo (${anoNome}).` });
       return;
     }
 
     const sucesso = dbService.eliminarAnoLectivoConfig(anoParaEliminarSeguro.id || anoNome, escola.id);
     if (sucesso) {
       setAnosConfigs(dbService.getAnosLectivosConfigs(escola.id));
-      setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${anoNome} eliminado com segurança!` });
+      setTurnosConfigs(dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
+      setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
+      setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+      if (onAnoLectivoEliminado) onAnoLectivoEliminado();
+      setFeedbackMsg({ tipo: 'sucesso', texto: `Ano letivo ${anoNome} e todos os seus dados académicos/financeiros associados foram eliminados em cascata com segurança!` });
       setAnoParaEliminarSeguro(null);
       setConfirmacaoTextoEliminarAno('');
     } else {
@@ -519,43 +632,52 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       setFeedbackMsg({ tipo: 'erro', texto: 'Defina ou crie primeiro um ano letivo ativo para esta instituição.' });
       return;
     }
-    if (!confirm(`Deseja replicar as classes, turmas, disciplinas, atribuições docentes e coordenações do ano lectivo anterior para o ano letivo ativo (${escola.anoLectivoActivo})?\n\nAs turmas e os professores manterão a mesma estrutura organizada do ano anterior.`)) {
-      return;
-    }
-
-    const resultado = dbService.replicarAtribuicoesAnoAnterior(escola.id, escola.anoLectivoActivo);
-    if (resultado.sucesso) {
-      if (resultado.novasTurmas && resultado.novasTurmas.length > 0) {
-        resultado.novasTurmas.forEach(t => onSalvarTurma(t));
+    setConfirmModal({
+      titulo: 'Replicar Estrutura do Ano Anterior',
+      mensagem: `Deseja replicar as classes, turnos, disciplinas, turmas, atribuições docentes e coordenações do ano letivo anterior para ${escola.anoLectivoActivo}?`,
+      onConfirm: () => {
+        const resultado = dbService.replicarAtribuicoesAnoAnterior(escola.id, escola.anoLectivoActivo);
+        if (resultado.sucesso) {
+          if (resultado.novasTurmas && resultado.novasTurmas.length > 0) {
+            resultado.novasTurmas.forEach(t => onSalvarTurma(t));
+          }
+          resultado.novasAtribuicoes.forEach(nova => {
+            onSalvarAtribuicao(nova);
+          });
+          setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
+          setTurnosConfigs(dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
+          setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+          if (onRecarregarDisciplinas) onRecarregarDisciplinas();
+          setFeedbackMsg({
+            tipo: 'sucesso',
+            texto: `${resultado.mensagem}. Estrutura replicada com sucesso para o ano letivo ativo!`
+          });
+        } else {
+          setFeedbackMsg({
+            tipo: 'erro',
+            texto: resultado.mensagem
+          });
+        }
       }
-      resultado.novasAtribuicoes.forEach(nova => {
-        onSalvarAtribuicao(nova);
-      });
-      setFeedbackMsg({
-        tipo: 'sucesso',
-        texto: `${resultado.mensagem}. Estrutura retribuída com sucesso para o ano letivo ativo!`
-      });
-    } else {
-      setFeedbackMsg({
-        tipo: 'erro',
-        texto: resultado.mensagem
-      });
-    }
+    });
   };
 
   const handleLimparTodasDisciplinas = () => {
-    if (!confirm('Tem a certeza de que deseja limpar todas as disciplinas existentes desta instituição para cadastrar novas disciplinas? Esta ação não pode ser revertida.')) {
-      return;
-    }
-    dbService.limparTodasDisciplinas(escola.id);
-    if (onLimparDisciplinas) {
-      onLimparDisciplinas();
-    } else if (onEliminarDisciplina) {
-      disciplinas.forEach(d => onEliminarDisciplina(d.id));
-    }
-    setFeedbackMsg({
-      tipo: 'sucesso',
-      texto: 'Todas as disciplinas desta instituição foram limpas com sucesso. A Direção tem agora a grelha livre para cadastrar as disciplinas classe a classe.'
+    setConfirmModal({
+      titulo: 'Limpar Todas as Disciplinas',
+      mensagem: 'Tem a certeza de que deseja limpar todas as disciplinas existentes desta instituição para cadastrar novas disciplinas? Esta ação não pode ser revertida.',
+      onConfirm: () => {
+        dbService.limparTodasDisciplinas(escola.id);
+        if (onLimparDisciplinas) {
+          onLimparDisciplinas();
+        } else if (onEliminarDisciplina) {
+          disciplinas.forEach(d => onEliminarDisciplina(d.id));
+        }
+        setFeedbackMsg({
+          tipo: 'sucesso',
+          texto: 'Todas as disciplinas desta instituição foram limpas com sucesso. A Direção tem agora a grelha livre para cadastrar as disciplinas classe a classe.'
+        });
+      }
     });
   };
 
@@ -603,6 +725,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       const nova: ClasseConfig = {
         id: `cls-${escola.id}-${Date.now()}-${idx}`,
         escolaId: escola.id,
+        anoLectivo: escola.anoLectivoActivo,
         nome: clsNome === 'Iniciação' || clsNome.toLowerCase().includes('classe') ? clsNome : `${clsNome} Classe`,
         nivelEnsino: nivel,
         ciclo,
@@ -617,7 +740,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       criadas++;
     });
 
-    setClassesConfigs(dbService.getClassesConfigs(escola.id));
+    setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
     setShowNovaClasseModal(false);
     setNovaClasseNome('1ª');
     setNovaClasseMultiplas([]);
@@ -660,21 +783,25 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     };
 
     dbService.salvarClasseConfig(atualizada);
-    setClassesConfigs(dbService.getClassesConfigs(escola.id));
+    setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
     setShowEditarClasseModal(false);
     setFeedbackMsg({ tipo: 'sucesso', texto: `Classe "${atualizada.nome}" atualizada com sucesso.` });
   };
 
   const handleEliminarClasse = (id: string, nome: string) => {
-    if (!confirm(`Tem certeza de que deseja eliminar a classe "${nome}"?`)) return;
-
-    const ok = dbService.eliminarClasseConfig(id);
-    if (ok) {
-      setClassesConfigs(dbService.getClassesConfigs(escola.id));
-      setFeedbackMsg({ tipo: 'sucesso', texto: `Classe "${nome}" eliminada com sucesso.` });
-    } else {
-      setFeedbackMsg({ tipo: 'erro', texto: 'Erro ao eliminar a classe.' });
-    }
+    setConfirmModal({
+      titulo: 'Eliminar Classe',
+      mensagem: `Tem certeza de que deseja eliminar a classe "${nome}"?`,
+      onConfirm: () => {
+        const ok = dbService.eliminarClasseConfig(id);
+        if (ok) {
+          setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
+          setFeedbackMsg({ tipo: 'sucesso', texto: `Classe "${nome}" eliminada com sucesso.` });
+        } else {
+          setFeedbackMsg({ tipo: 'erro', texto: 'Erro ao eliminar a classe.' });
+        }
+      }
+    });
   };
 
   // HANDLERS DE TURMAS
@@ -687,7 +814,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setEditTurmaSala(t.sala || 'Sala 01');
     setEditTurmaCapacidade(t.capacidade || 45);
     setEditTurmaCoordenadorId(t.coordenadorId || '');
-    setEditTurmaCurso(t.curso || (isSegundoCiclo(t.classe) ? (cursosDisponiveisEscola[0] || 'Ciências Físicas e Biológicas (PUNIV)') : ''));
+    setEditTurmaCurso(isSegundoCiclo(t.classe) ? (t.curso || cursosDisponiveisEscola[0] || 'Ciências Físicas e Biológicas (PUNIV)') : '');
     setShowEditarTurmaModal(true);
   };
 
@@ -695,11 +822,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     e.preventDefault();
     if (!turmaSendoEditada || !editTurmaNome.trim()) return;
 
+    const cursoParaValidacao = isSegundoCiclo(editTurmaClasse) ? editTurmaCurso : '';
     const validacao = validarCriacaoTurma({
       nome: editTurmaNome,
       classe: editTurmaClasse,
       sala: editTurmaSala,
-      curso: editTurmaCurso
+      curso: cursoParaValidacao
     });
 
     if (!validacao.valida) {
@@ -707,7 +835,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       return;
     }
 
-    const cursoObj = cursosList.find(c => c.nome.toLowerCase() === validacao.cursoAjustado.toLowerCase());
+    const ehII = isSegundoCiclo(editTurmaClasse);
+    const cursoObj = ehII ? cursosList.find(c => c.nome.toLowerCase() === validacao.cursoAjustado.toLowerCase()) : undefined;
     const salaObj = salasList.find(s => s.nome.toLowerCase() === validacao.salaAjustada.toLowerCase());
 
     const atualizada: Turma = {
@@ -718,27 +847,65 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       turno: editTurmaTurno,
       sala: validacao.salaAjustada,
       salaId: salaObj?.id,
-      curso: validacao.cursoAjustado,
-      cursoId: cursoObj?.id,
-      areaFormacao: cursoObj?.area,
+      curso: ehII ? validacao.cursoAjustado : undefined,
+      cursoId: ehII ? cursoObj?.id : undefined,
+      areaFormacao: ehII ? cursoObj?.area : undefined,
       capacidade: editTurmaCapacidade,
       coordenadorId: editTurmaCoordenadorId || undefined
     };
 
     onSalvarTurma(atualizada);
+
+    // Sincronizar Coordenador de Turma na tabela de Coordenações Escolares
+    if (editTurmaCoordenadorId) {
+      const profCoord = funcionarios.find(f => f.id === editTurmaCoordenadorId);
+      if (profCoord) {
+        const nivelCoord: NivelCoordenacaoEnsino = isEnsinoPrimario(atualizada.classe)
+          ? 'Primario'
+          : isPrimeiroCiclo(atualizada.classe)
+            ? 'ICiclo'
+            : 'IICiclo';
+        const existente = coordenacoesList.find(
+          c => c.tipoCoordenacao === 'Coordenador de Turma' && c.turmaId === atualizada.id && c.anoLectivo === atualizada.anoLectivo
+        );
+        dbService.salvarCoordenacao({
+          id: existente?.id || `coord-turma-${atualizada.id}`,
+          escolaId: escola.id,
+          anoLectivo: atualizada.anoLectivo || escola.anoLectivoActivo,
+          nivelEnsino: nivelCoord,
+          tipoCoordenacao: 'Coordenador de Turma',
+          funcionarioId: profCoord.id,
+          funcionarioNome: profCoord.nomeCompleto,
+          classe: atualizada.classe,
+          turmaId: atualizada.id,
+          turmaNome: atualizada.nome,
+          curso: ehII ? atualizada.curso : undefined,
+          turno: atualizada.turno,
+          ativo: true,
+          criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+          criadoEm: existente?.criadoEm || new Date().toISOString()
+        });
+        setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+      }
+    }
+
     setShowEditarTurmaModal(false);
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Turma "${atualizada.nome}" atualizada com coerência acadêmica.` });
+    setFeedbackMsg({ tipo: 'sucesso', texto: `Turma "${atualizada.nome}" atualizada e conectada com coerência académica.` });
   };
 
   const handleEliminarTurmaLocal = (id: string, nome: string) => {
-    if (!confirm(`Tem certeza de que deseja eliminar a turma "${nome}"? Esta ação removerá a turma do ano letivo atual.`)) return;
-
-    if (onEliminarTurma) {
-      onEliminarTurma(id);
-    } else {
-      dbService.eliminarTurma(id);
-    }
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Turma "${nome}" eliminada do sistema.` });
+    setConfirmModal({
+      titulo: 'Eliminar Turma',
+      mensagem: `Tem certeza de que deseja eliminar a turma "${nome}"? Esta ação removerá a turma do ano letivo atual.`,
+      onConfirm: () => {
+        if (onEliminarTurma) {
+          onEliminarTurma(id);
+        } else {
+          dbService.eliminarTurma(id);
+        }
+        setFeedbackMsg({ tipo: 'sucesso', texto: `Turma "${nome}" eliminada do sistema.` });
+      }
+    });
   };
 
   const handleAbrirEditarDisciplina = (disc: Disciplina) => {
@@ -748,13 +915,15 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setEditDiscCarga(disc.cargaHorariaSemanal || 4);
     setEditDiscComponente((disc.componente as any) || 'Geral');
     setEditDiscNivel(disc.nivelEnsino || 'ICiclo');
-    setEditDiscClasses(disc.classes || (disc.classe ? [disc.classe] : ['7ª']));
+    const clsInit = disc.classes || (disc.classe ? [disc.classe] : ['7ª']);
+    setEditDiscClasses(clsInit);
     setEditDiscCiclo(disc.ciclo || 'Ensino Primário');
-    setEditDiscCursos(
+    const cursosInit =
       disc.cursos && disc.cursos.length > 0
         ? disc.cursos
-        : (disc.curso ? [disc.curso] : [])
-    );
+        : (disc.curso ? [disc.curso] : []);
+    setEditDiscCursos(cursosInit);
+    setEditDiscTroncoComum(clsInit.some(c => isSegundoCiclo(c)) && cursosInit.length === 0);
     setShowEditarDisciplinaModal(true);
   };
 
@@ -770,7 +939,16 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         ? 'ICiclo' 
         : 'IICiclo';
 
-    const cursosAssoc = editDiscCursos.filter(Boolean);
+    const temSegundoCiclo = classesAssoc.some(c => isSegundoCiclo(c));
+    const cursosAssoc = temSegundoCiclo && !editDiscTroncoComum ? editDiscCursos.filter(Boolean) : [];
+    if (temSegundoCiclo && !editDiscTroncoComum && cursosAssoc.length === 0) {
+      setFeedbackMsg({
+        tipo: 'erro',
+        texto: 'No IIº Ciclo (10ª–13ª), selecione pelo menos um Curso específico ou marque "Tronco Comum (Todos os Cursos)".'
+      });
+      return;
+    }
+
     const atualizada: Disciplina = {
       ...disciplinaSendoEditada,
       escolaId: disciplinaSendoEditada.escolaId || escola.id,
@@ -792,19 +970,33 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     } else {
       dbService.salvarDisciplina(atualizada);
     }
+
+    // Propagar atualização do nome da disciplina para atribuições e coordenações conectadas
+    atribuicoes
+      .filter(at => at.disciplinaId === atualizada.id && at.disciplinaNome !== atualizada.nome)
+      .forEach(at => onSalvarAtribuicao({ ...at, disciplinaNome: atualizada.nome }));
+    coordenacoesList
+      .filter(c => c.disciplinaId === atualizada.id && c.disciplinaNome !== atualizada.nome)
+      .forEach(c => dbService.salvarCoordenacao({ ...c, disciplinaNome: atualizada.nome }));
+    setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+
     setShowEditarDisciplinaModal(false);
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Disciplina "${atualizada.nome}" atualizada com sucesso.` });
+    setFeedbackMsg({ tipo: 'sucesso', texto: `Disciplina "${atualizada.nome}" atualizada e sincronizada com turmas e atribuições.` });
   };
 
   const handleEliminarDisciplinaLocal = (id: string, nome: string) => {
-    if (!confirm(`Tem certeza de que deseja eliminar a disciplina "${nome}"?`)) return;
-
-    if (onEliminarDisciplina) {
-      onEliminarDisciplina(id);
-    } else {
-      dbService.eliminarDisciplina(id);
-    }
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Disciplina "${nome}" eliminada da matriz curricular.` });
+    setConfirmModal({
+      titulo: 'Eliminar Disciplina',
+      mensagem: `Tem certeza de que deseja eliminar a disciplina "${nome}"?`,
+      onConfirm: () => {
+        if (onEliminarDisciplina) {
+          onEliminarDisciplina(id);
+        } else {
+          dbService.eliminarDisciplina(id);
+        }
+        setFeedbackMsg({ tipo: 'sucesso', texto: `Disciplina "${nome}" eliminada da matriz curricular.` });
+      }
+    });
   };
 
   // 2. CRIAÇÃO DE TURMAS COM ASSOCIAÇÃO COERENTE
@@ -812,11 +1004,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     e.preventDefault();
     if (!novaTurmaNome.trim()) return;
 
+    const ehII = isSegundoCiclo(novaTurmaClasse);
     const validacao = validarCriacaoTurma({
       nome: novaTurmaNome,
       classe: novaTurmaClasse,
       sala: novaTurmaSala,
-      curso: novaTurmaCurso
+      curso: ehII ? novaTurmaCurso : ''
     });
 
     if (!validacao.valida) {
@@ -824,7 +1017,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       return;
     }
 
-    const cursoObj = cursosList.find(c => c.nome.toLowerCase() === validacao.cursoAjustado.toLowerCase());
+    const cursoObj = ehII ? cursosList.find(c => c.nome.toLowerCase() === validacao.cursoAjustado.toLowerCase()) : undefined;
     const salaObj = salasList.find(s => s.nome.toLowerCase() === validacao.salaAjustada.toLowerCase());
 
     const nova: Turma = {
@@ -836,34 +1029,469 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       turno: novaTurmaTurno,
       sala: validacao.salaAjustada,
       salaId: salaObj?.id,
-      curso: validacao.cursoAjustado,
-      cursoId: cursoObj?.id,
-      areaFormacao: cursoObj?.area,
+      curso: ehII ? validacao.cursoAjustado : undefined,
+      cursoId: ehII ? cursoObj?.id : undefined,
+      areaFormacao: ehII ? cursoObj?.area : undefined,
       capacidade: novaTurmaCapacidade,
       anoLectivo: escola.anoLectivoActivo
     };
     onSalvarTurma(nova);
     setShowNovaTurmaModal(false);
     setNovaTurmaNome('');
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Turma "${nova.nome}" criada e vinculada a ${nova.sala} (${nova.curso}) com sucesso.` });
+    setFeedbackMsg({
+      tipo: 'sucesso',
+      texto: `Turma "${nova.nome}" criada e vinculada a ${nova.sala}${ehII && nova.curso ? ` • Curso: ${nova.curso}` : ''} com sucesso.`
+    });
   };
 
-  // 3. ATRIBUIÇÃO DOCENTE
+  const abrirModalAtribuicaoUnificada = () => {
+    setAtribProfId('');
+    setAtribClassesSel([]);
+    setAtribCursosSel([]);
+    setAtribTurmasSel([]);
+    setAtribDiscIds([]);
+    setAtribEhCoordenador(false);
+    setAtribCoordClasse(false);
+    setAtribCoordDisciplina(false);
+    setAtribCoordCurso(false);
+    setAtribCoordTurno(false);
+    setAtribCoordTurnoNome(turnosDisponiveisEscola[0] || 'Manhã');
+    setAtribCoordPedagogico(false);
+    setAtribCoordCustomTipo('');
+    setShowAtribuicaoModal(true);
+  };
+
+  // 3. ATRIBUIÇÃO UNIFICADA EM LOTE ("DE UMA SÓ VEZ": Classes, Cursos IIº Ciclo, Turmas, Disciplinas e Coordenações)
   const handleCreateAtribuicao = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!atribProfId || !atribTurmaId || !atribDiscId) return;
-    const nova: AtribuicaoDocente = {
-      id: `atrib-${Date.now()}`,
-      escolaId: escola.id,
-      professorId: atribProfId,
-      turmaId: atribTurmaId,
-      disciplinaId: atribDiscId,
-      ehCoordenadorTurma: atribEhCoordenador,
-      anoLectivo: escola.anoLectivoActivo
+    const funcObj = funcionariosParaAtribuicao.find(f => f.id === atribProfId);
+    if (!funcObj) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Selecione o professor, coordenador ou funcionário de destino.' });
+      return;
+    }
+
+    const temAtribDocente = atribTurmasSel.length > 0 && atribDiscIds.length > 0;
+    const temAlgumaCoordenacao =
+      atribEhCoordenador ||
+      atribCoordClasse ||
+      atribCoordDisciplina ||
+      atribCoordCurso ||
+      atribCoordTurno ||
+      atribCoordPedagogico ||
+      Boolean(atribCoordCustomTipo);
+
+    if (!temAtribDocente && !temAlgumaCoordenacao) {
+      setFeedbackMsg({
+        tipo: 'erro',
+        texto: 'Selecione pelo menos Turmas + Disciplinas ou uma Coordenação para atribuir.'
+      });
+      return;
+    }
+
+    let criadasAtrib = 0;
+    let criadasCoord = 0;
+    const anoAtivo = escola.anoLectivoActivo || '';
+    const coordsAtuais = [...coordenacoesList];
+
+    const registrarCoordenacaoSeNaoExistir = (nova: CoordenacaoEscolar) => {
+      const dup = coordsAtuais.some(
+        c =>
+          c.anoLectivo === nova.anoLectivo &&
+          c.nivelEnsino === nova.nivelEnsino &&
+          c.tipoCoordenacao === nova.tipoCoordenacao &&
+          (c.funcionarioId || c.professorId) === nova.funcionarioId &&
+          (c.classe || '') === (nova.classe || '') &&
+          (c.turmaId || '') === (nova.turmaId || '') &&
+          (c.disciplinaId || '') === (nova.disciplinaId || '') &&
+          (c.curso || '') === (nova.curso || '') &&
+          (c.turno || '') === (nova.turno || '')
+      );
+      if (!dup) {
+        dbService.salvarCoordenacao(nova);
+        coordsAtuais.push(nova);
+        criadasCoord++;
+      }
     };
-    onSalvarAtribuicao(nova);
+
+    const nivelPorClasse = (cls: string): NivelCoordenacaoEnsino =>
+      isEnsinoPrimario(cls) ? 'Primario' : isPrimeiroCiclo(cls) ? 'ICiclo' : 'IICiclo';
+
+    // A. Atribuições Docentes em Lote (por cada Turma selecionada x Disciplinas válidas dessa Turma)
+    atribTurmasSel.forEach((turmaId, tIdx) => {
+      const turmaObj = turmasDoAnoActivo.find(t => t.id === turmaId) || turmas.find(t => t.id === turmaId);
+      if (!turmaObj) return;
+
+      const discsValidasTurma = getDisciplinasDaTurma(disciplinas, turmaObj);
+      const idsParaTurma = atribDiscIds.filter(dId => discsValidasTurma.some(vd => vd.id === dId));
+
+      idsParaTurma.forEach((discId, dIdx) => {
+        const jaExiste = atribuicoesDoAnoActivo.some(
+          a => a.professorId === funcObj.id && a.turmaId === turmaObj.id && a.disciplinaId === discId
+        );
+        if (jaExiste) return;
+        const discObj = disciplinas.find(d => d.id === discId);
+        const nova: AtribuicaoDocente = {
+          id: `atrib-${Date.now()}-${tIdx}-${dIdx}-${Math.random().toString(36).slice(2, 6)}`,
+          escolaId: escola.id,
+          professorId: funcObj.id,
+          professorNome: funcObj.nomeCompleto,
+          turmaId: turmaObj.id,
+          turmaNome: turmaObj.nome,
+          classe: turmaObj.classe,
+          disciplinaId: discId,
+          disciplinaNome: discObj?.nome,
+          ehCoordenadorTurma: atribEhCoordenador && dIdx === 0,
+          anoLectivo: anoAtivo
+        };
+        onSalvarAtribuicao(nova);
+        criadasAtrib++;
+      });
+
+      if (atribEhCoordenador) {
+        if (turmaObj.coordenadorId !== funcObj.id) {
+          onSalvarTurma({ ...turmaObj, coordenadorId: funcObj.id });
+        }
+        registrarCoordenacaoSeNaoExistir({
+          id: `coord-turma-${turmaObj.id}-${funcObj.id}`,
+          escolaId: escola.id,
+          anoLectivo: anoAtivo,
+          nivelEnsino: nivelPorClasse(turmaObj.classe),
+          tipoCoordenacao: 'Coordenador de Turma',
+          funcionarioId: funcObj.id,
+          funcionarioNome: funcObj.nomeCompleto,
+          classe: turmaObj.classe,
+          turmaId: turmaObj.id,
+          turmaNome: turmaObj.nome,
+          curso: isSegundoCiclo(turmaObj.classe) ? turmaObj.curso : undefined,
+          turno: turmaObj.turno,
+          ativo: true,
+          criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+          criadoEm: new Date().toISOString()
+        });
+      }
+    });
+
+    // Classes efetivas (das checkboxes ou derivadas das turmas selecionadas)
+    const classesEfetivas = Array.from(
+      new Set([
+        ...atribClassesSel,
+        ...atribTurmasSel
+          .map(id => turmasDoAnoActivo.find(t => t.id === id)?.classe)
+          .filter(Boolean) as string[]
+      ])
+    );
+    const cursosIIEfetivos = Array.from(
+      new Set([
+        ...atribCursosSel,
+        ...atribTurmasSel
+          .map(id => turmasDoAnoActivo.find(t => t.id === id))
+          .filter(t => t && isSegundoCiclo(t.classe) && t.curso)
+          .map(t => t!.curso as string)
+      ])
+    );
+
+    // B. Coordenador de Classe
+    if (atribCoordClasse && classesEfetivas.length > 0) {
+      classesEfetivas.forEach((cls, i) => {
+        registrarCoordenacaoSeNaoExistir({
+          id: `coord-cls-${Date.now()}-${i}`,
+          escolaId: escola.id,
+          anoLectivo: anoAtivo,
+          nivelEnsino: nivelPorClasse(cls),
+          tipoCoordenacao: 'Coordenador de Classe',
+          funcionarioId: funcObj.id,
+          funcionarioNome: funcObj.nomeCompleto,
+          classe: cls,
+          ativo: true,
+          criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+          criadoEm: new Date().toISOString()
+        });
+      });
+    }
+
+    // C. Coordenador de Disciplina
+    if (atribCoordDisciplina && atribDiscIds.length > 0) {
+      const nivelDiscFallback: NivelCoordenacaoEnsino =
+        classesEfetivas.length > 0 ? nivelPorClasse(classesEfetivas[0]) : 'ICiclo';
+      atribDiscIds.forEach((discId, i) => {
+        const discObj = disciplinas.find(d => d.id === discId);
+        if (!discObj) return;
+        const nivDisc =
+          discObj.nivelEnsino === 'Primario' || discObj.nivelEnsino === 'Iniciacao'
+            ? 'Primario'
+            : discObj.nivelEnsino === 'IICiclo' || discObj.nivelEnsino === 'EnsinoTecnico'
+              ? 'IICiclo'
+              : nivelDiscFallback;
+        registrarCoordenacaoSeNaoExistir({
+          id: `coord-disc-${Date.now()}-${i}`,
+          escolaId: escola.id,
+          anoLectivo: anoAtivo,
+          nivelEnsino: nivDisc,
+          tipoCoordenacao: 'Coordenador de Disciplina',
+          funcionarioId: funcObj.id,
+          funcionarioNome: funcObj.nomeCompleto,
+          disciplinaId: discObj.id,
+          disciplinaNome: discObj.nome,
+          ativo: true,
+          criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+          criadoEm: new Date().toISOString()
+        });
+      });
+    }
+
+    // D. Coordenador de Curso / Área de Formação (apenas IIº Ciclo)
+    if (atribCoordCurso && cursosIIEfetivos.length > 0) {
+      cursosIIEfetivos.forEach((cur, i) => {
+        registrarCoordenacaoSeNaoExistir({
+          id: `coord-cur-${Date.now()}-${i}`,
+          escolaId: escola.id,
+          anoLectivo: anoAtivo,
+          nivelEnsino: 'IICiclo',
+          tipoCoordenacao: 'Coordenador de Curso / Área de Formação',
+          funcionarioId: funcObj.id,
+          funcionarioNome: funcObj.nomeCompleto,
+          curso: cur,
+          ativo: true,
+          criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+          criadoEm: new Date().toISOString()
+        });
+      });
+    }
+
+    // E. Coordenador de Turno
+    if (atribCoordTurno && atribCoordTurnoNome) {
+      const nivTurno = classesEfetivas.length > 0 ? nivelPorClasse(classesEfetivas[0]) : 'Primario';
+      registrarCoordenacaoSeNaoExistir({
+        id: `coord-turno-${Date.now()}`,
+        escolaId: escola.id,
+        anoLectivo: anoAtivo,
+        nivelEnsino: nivTurno,
+        tipoCoordenacao: 'Coordenador de Turno',
+        funcionarioId: funcObj.id,
+        funcionarioNome: funcObj.nomeCompleto,
+        turno: atribCoordTurnoNome,
+        ativo: true,
+        criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+        criadoEm: new Date().toISOString()
+      });
+    }
+
+    // F. Coordenador Pedagógico
+    if (atribCoordPedagogico) {
+      const niveisPed: NivelCoordenacaoEnsino[] =
+        classesEfetivas.length > 0
+          ? Array.from(new Set(classesEfetivas.map(nivelPorClasse)))
+          : ['Primario'];
+      niveisPed.forEach((niv, i) => {
+        registrarCoordenacaoSeNaoExistir({
+          id: `coord-ped-${Date.now()}-${i}`,
+          escolaId: escola.id,
+          anoLectivo: anoAtivo,
+          nivelEnsino: niv,
+          tipoCoordenacao: 'Coordenador Pedagógico',
+          funcionarioId: funcObj.id,
+          funcionarioNome: funcObj.nomeCompleto,
+          ativo: true,
+          criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+          criadoEm: new Date().toISOString()
+        });
+      });
+    }
+
+    // G. Coordenação Personalizada / Outra
+    if (atribCoordCustomTipo) {
+      const nivCustom = classesEfetivas.length > 0 ? nivelPorClasse(classesEfetivas[0]) : 'Primario';
+      registrarCoordenacaoSeNaoExistir({
+        id: `coord-custom-${Date.now()}`,
+        escolaId: escola.id,
+        anoLectivo: anoAtivo,
+        nivelEnsino: nivCustom,
+        tipoCoordenacao: atribCoordCustomTipo,
+        funcionarioId: funcObj.id,
+        funcionarioNome: funcObj.nomeCompleto,
+        classe: classesEfetivas[0],
+        curso: cursosIIEfetivos[0],
+        ativo: true,
+        criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+        criadoEm: new Date().toISOString()
+      });
+    }
+
+    setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
     setShowAtribuicaoModal(false);
-    setFeedbackMsg({ tipo: 'sucesso', texto: 'Atribuição docente registada com sucesso.' });
+    setFeedbackMsg({
+      tipo: criadasAtrib > 0 || criadasCoord > 0 ? 'sucesso' : 'erro',
+      texto:
+        criadasAtrib > 0 || criadasCoord > 0
+          ? `Atribuição em lote concluída para ${funcObj.nomeCompleto}: ${criadasAtrib} atribuição(ões) docente(s) e ${criadasCoord} coordenação(ões) registada(s).`
+          : 'Todas as atribuições/coordenações selecionadas já se encontram registadas para este funcionário.'
+    });
+  };
+
+  // 3B. GESTÃO DE COORDENAÇÕES POR NÍVEL DE ENSINO
+  const abrirModalNovaCoordenacao = (nivelPre?: NivelCoordenacaoEnsino) => {
+    const nivel = nivelPre || (filtroNivelCoordenacao !== 'TODOS' ? filtroNivelCoordenacao : 'Primario');
+    const defs = tiposCoordenacaoPorNivelCombinados[nivel];
+    const classesNivel = getClassesPorNivelCoordenacao(nivel);
+    setCoordNivel(nivel);
+    setCoordTipo(defs[0]?.tipo || TIPOS_COORDENACAO_POR_NIVEL[nivel][0].tipo);
+    setCoordClasse(classesNivel[0] || '');
+    setCoordCurso(nivel === 'IICiclo' ? (cursosDisponiveisEscola[0] || '') : '');
+    setCoordTurmaId('');
+    setCoordDisciplinaId('');
+    setCoordTurno(turnosDisponiveisEscola[0] || 'Manhã');
+    setCoordAreaDisciplinar('Língua Portuguesa');
+    setCoordFuncionarioId('');
+    setCoordObservacoes('');
+    setShowNovaCoordenacaoModal(true);
+  };
+
+  const abrirModalCriarTipoCoordenacao = () => {
+    const nivInicial: NivelCoordenacaoEnsino = filtroNivelCoordenacao !== 'TODOS' ? filtroNivelCoordenacao : 'Primario';
+    setNovoTipoCoordNivel(nivInicial);
+    setNovoTipoCoordNome('');
+    setNovoTipoCoordDesc('');
+    setNovoTipoCoordReqClasse(false);
+    setNovoTipoCoordReqTurma(false);
+    setNovoTipoCoordReqDisciplina(false);
+    setNovoTipoCoordReqCurso(false);
+    setNovoTipoCoordReqTurno(false);
+    setNovoTipoCoordReqArea(false);
+    setShowCriarTipoCoordenacaoModal(true);
+  };
+
+  const handleCriarTipoCoordenacaoPersonalizada = (e: React.FormEvent) => {
+    e.preventDefault();
+    const nomeLimpo = novoTipoCoordNome.trim();
+    if (!nomeLimpo) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Indique o nome oficial da nova coordenação.' });
+      return;
+    }
+
+    const jaExiste = tiposCoordenacaoPorNivelCombinados[novoTipoCoordNivel].some(
+      t => t.tipo.trim().toLowerCase() === nomeLimpo.toLowerCase()
+    );
+    if (jaExiste) {
+      setFeedbackMsg({ tipo: 'erro', texto: `Já existe uma coordenação "${nomeLimpo}" neste nível de ensino.` });
+      return;
+    }
+
+    const novoTipo: TipoCoordenacaoPersonalizada = {
+      id: `tcoord-${escola.id}-${Date.now()}`,
+      escolaId: escola.id,
+      nivelEnsino: novoTipoCoordNivel,
+      tipo: nomeLimpo,
+      descricao:
+        novoTipoCoordDesc.trim() ||
+        `Coordenação personalizada criada pela Direção para o nível ${novoTipoCoordNivel === 'Primario' ? 'Ensino Primário' : novoTipoCoordNivel === 'ICiclo' ? 'Iº Ciclo' : 'IIº Ciclo'}.`,
+      requerClasse: novoTipoCoordReqClasse,
+      requerTurma: novoTipoCoordReqTurma,
+      requerDisciplina: novoTipoCoordReqDisciplina,
+      requerCurso: novoTipoCoordNivel === 'IICiclo' ? novoTipoCoordReqCurso : false,
+      requerTurno: novoTipoCoordReqTurno,
+      requerAreaDisciplinar: novoTipoCoordReqArea,
+      criadoPorId: currentUser?.id,
+      criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+      criadoEm: new Date().toISOString(),
+      ativo: true
+    };
+
+    dbService.salvarTipoCoordenacaoPersonalizada(novoTipo);
+    dbService.registarLog(
+      'Criação de Tipo de Coordenação',
+      `Nova coordenação criada pela Direção (${currentUser?.nomeCompleto || 'Direção'}): "${novoTipo.tipo}" (${novoTipo.nivelEnsino}).`,
+      escola.id
+    );
+    setTiposCoordenacaoCustom(dbService.getTiposCoordenacaoPersonalizados(escola.id));
+    setShowCriarTipoCoordenacaoModal(false);
+    setFeedbackMsg({
+      tipo: 'sucesso',
+      texto: `Nova coordenação "${novoTipo.tipo}" registada! Já está disponível para atribuição.`
+    });
+  };
+
+  const handleRemoverTipoCoordenacaoPersonalizada = (tc: TipoCoordenacaoPersonalizada) => {
+    setConfirmModal({
+      titulo: 'Remover Tipo de Coordenação',
+      mensagem: `Deseja remover o tipo de coordenação personalizado "${tc.tipo}"? As coordenações já atribuídas anteriormente não serão apagadas automaticamente.`,
+      onConfirm: () => {
+        dbService.removerTipoCoordenacaoPersonalizada(tc.id);
+        setTiposCoordenacaoCustom(dbService.getTiposCoordenacaoPersonalizados(escola.id));
+        setFeedbackMsg({ tipo: 'sucesso', texto: `Tipo de coordenação "${tc.tipo}" removido.` });
+      }
+    });
+  };
+
+  const handleCriarCoordenacao = (e: React.FormEvent) => {
+    e.preventDefault();
+    const funcObj = funcionarios.find(f => f.id === coordFuncionarioId);
+    if (!funcObj) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Selecione o funcionário ou docente responsável pela coordenação.' });
+      return;
+    }
+
+    const defSelecionada = tiposCoordenacaoPorNivelCombinados[coordNivel].find(d => d.tipo === coordTipo);
+    const turmaObj = coordTurmaId ? turmasDoAnoActivo.find(t => t.id === coordTurmaId) : undefined;
+    const discObj = coordDisciplinaId ? disciplinas.find(d => d.id === coordDisciplinaId) : undefined;
+
+    if (defSelecionada?.requerTurma && !turmaObj) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Selecione a turma para esta coordenação.' });
+      return;
+    }
+    if (defSelecionada?.requerDisciplina && !discObj) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Selecione a disciplina para esta coordenação.' });
+      return;
+    }
+    if (defSelecionada?.requerCurso && coordNivel === 'IICiclo' && !coordCurso) {
+      setFeedbackMsg({ tipo: 'erro', texto: 'Selecione o curso do IIº Ciclo para esta coordenação.' });
+      return;
+    }
+
+    const novaCoord: CoordenacaoEscolar = {
+      id: `coord-${escola.id}-${Date.now()}`,
+      escolaId: escola.id,
+      anoLectivo: escola.anoLectivoActivo || '',
+      nivelEnsino: coordNivel,
+      tipoCoordenacao: coordTipo,
+      funcionarioId: funcObj.id,
+      funcionarioNome: funcObj.nomeCompleto,
+      classe: defSelecionada?.requerTurma && turmaObj
+        ? turmaObj.classe
+        : defSelecionada?.requerClasse
+          ? coordClasse
+          : undefined,
+      turmaId: defSelecionada?.requerTurma ? turmaObj?.id : undefined,
+      turmaNome: defSelecionada?.requerTurma ? turmaObj?.nome : undefined,
+      disciplinaId: defSelecionada?.requerDisciplina ? discObj?.id : undefined,
+      disciplinaNome: defSelecionada?.requerDisciplina ? discObj?.nome : undefined,
+      curso: coordNivel === 'IICiclo' && defSelecionada?.requerCurso ? coordCurso : undefined,
+      turno: defSelecionada?.requerTurno ? coordTurno : (turmaObj?.turno || undefined),
+      areaDisciplinar: defSelecionada?.requerAreaDisciplinar ? coordAreaDisciplinar : undefined,
+      observacoes: coordObservacoes.trim() || undefined,
+      ativo: true,
+      criadoPorNome: currentUser?.nomeCompleto || 'Direção',
+      criadoEm: new Date().toISOString()
+    };
+
+    dbService.salvarCoordenacao(novaCoord);
+    setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+    setShowNovaCoordenacaoModal(false);
+    setFeedbackMsg({
+      tipo: 'sucesso',
+      texto: `${novaCoord.tipoCoordenacao} (${coordNivel === 'Primario' ? 'Ensino Primário' : coordNivel === 'ICiclo' ? 'Iº Ciclo' : 'IIº Ciclo'}) atribuída a ${funcObj.nomeCompleto}.`
+    });
+  };
+
+  const handleRemoverCoordenacao = (coord: CoordenacaoEscolar) => {
+    setConfirmModal({
+      titulo: 'Remover Coordenação',
+      mensagem: `Deseja remover "${coord.tipoCoordenacao}" de ${coord.funcionarioNome || coord.professorNome || 'Docente'}?`,
+      onConfirm: () => {
+        dbService.removerCoordenacao(coord.id);
+        setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+        setFeedbackMsg({ tipo: 'sucesso', texto: 'Coordenação removida com sucesso.' });
+      }
+    });
   };
 
   // 4. JÚRI DE EXAME
@@ -926,8 +1554,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
   // 5. TURNOS
   const handleAtualizarTurno = (turno: TurnoConfig) => {
-    dbService.salvarTurnoConfig({ ...turno, escolaId: turno.escolaId || escola.id });
-    setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
+    dbService.salvarTurnoConfig({ ...turno, escolaId: turno.escolaId || escola.id, anoLectivo: turno.anoLectivo || escola.anoLectivoActivo });
+    setTurnosConfigs(dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
     setFeedbackMsg({ tipo: 'sucesso', texto: `Horário do turno ${turno.nome} atualizado.` });
   };
 
@@ -936,6 +1564,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     const novoTurno: TurnoConfig = {
       id: `turno-${escola.id}-${Date.now()}`,
       escolaId: escola.id,
+      anoLectivo: escola.anoLectivoActivo,
       nome: novoTurnoNome,
       horaInicio: novoTurnoInicio,
       horaFim: novoTurnoFim,
@@ -946,27 +1575,32 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       ativo: true
     };
     dbService.salvarTurnoConfig(novoTurno);
-    setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
+    setTurnosConfigs(dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
     setShowNovoTurnoModal(false);
     setFeedbackMsg({ tipo: 'sucesso', texto: `Turno ${novoTurno.nome} cadastrado com sucesso.` });
   };
 
   const handleEliminarTurno = (id: string, nome: string) => {
-    if (!confirm(`Deseja eliminar o turno "${nome}"?`)) return;
-    if (dbService.eliminarTurnoConfig(id)) {
-      setTurnosConfigs(dbService.getTurnosConfigs(escola.id));
-      setFeedbackMsg({ tipo: 'sucesso', texto: `Turno "${nome}" eliminado com sucesso.` });
-    }
+    setConfirmModal({
+      titulo: 'Eliminar Turno',
+      mensagem: `Deseja eliminar o turno "${nome}"?`,
+      onConfirm: () => {
+        if (dbService.eliminarTurnoConfig(id)) {
+          setTurnosConfigs(dbService.getTurnosConfigs(escola.id, escola.anoLectivoActivo));
+          setFeedbackMsg({ tipo: 'sucesso', texto: `Turno "${nome}" eliminado com sucesso.` });
+        }
+      }
+    });
   };
 
   // 6. CLASSES
   const handleToggleClasse = (classe: ClasseConfig) => {
-    const atualizada = { ...classe, escolaId: classe.escolaId || escola.id, ativa: !classe.ativa };
+    const atualizada = { ...classe, escolaId: classe.escolaId || escola.id, anoLectivo: classe.anoLectivo || escola.anoLectivoActivo, ativa: !classe.ativa };
     dbService.salvarClasseConfig(atualizada);
-    setClassesConfigs(dbService.getClassesConfigs(escola.id));
+    setClassesConfigs(dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo));
   };
 
-  // 7. ÁREAS DE FORMAÇÃO E CURSOS
+  // 7. ÁREAS DE FORMAÇÃO E CURSOS (Exclusivo IIº Ciclo / Ensino Técnico)
   const handleCreateAreaFormacao = (e: React.FormEvent) => {
     e.preventDefault();
     if (!novaAreaNome.trim()) return;
@@ -1015,10 +1649,15 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   };
 
   const handleEliminarAreaFormacao = (id: string, nome: string) => {
-    if (!confirm(`Deseja eliminar a Área de Formação "${nome}"?`)) return;
-    dbService.eliminarAreaFormacao(id);
-    setAreasFormacaoList(dbService.getAreasFormacao(escola.id));
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Área de Formação "${nome}" eliminada.` });
+    setConfirmModal({
+      titulo: 'Eliminar Área de Formação',
+      mensagem: `Deseja eliminar a Área de Formação "${nome}"?`,
+      onConfirm: () => {
+        dbService.eliminarAreaFormacao(id);
+        setAreasFormacaoList(dbService.getAreasFormacao(escola.id));
+        setFeedbackMsg({ tipo: 'sucesso', texto: `Área de Formação "${nome}" eliminada.` });
+      }
+    });
   };
 
   const handleCreateCurso = (e: React.FormEvent) => {
@@ -1048,7 +1687,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       area: areaFinal,
       areaFormacaoId: areaObj?.id,
       duracao: novoCursoDuracao.trim() || '3 Anos',
-      ciclo: novoCursoCiclo,
+      ciclo: novoCursoCiclo === 'Ensino Técnico' ? 'Ensino Técnico' : 'IIº Ciclo',
       ativo: true
     };
     dbService.salvarCurso(novo);
@@ -1057,7 +1696,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setNovoCursoNome('');
     setNovoCursoCodigo('');
     setNovoCursoAreaCustom('');
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${novo.nome}" (${novo.area}) cadastrado com sucesso.` });
+    setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${novo.nome}" (${novo.area}) cadastrado com sucesso para o IIº Ciclo.` });
   };
 
   const handleAbrirEditarCurso = (curso: CursoConfig) => {
@@ -1067,7 +1706,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setEditCursoArea(curso.area);
     setEditCursoAreaCustom('');
     setEditCursoDuracao(curso.duracao || '3 Anos');
-    setEditCursoCiclo(curso.ciclo || 'IIº Ciclo');
+    setEditCursoCiclo(curso.ciclo === 'Ensino Técnico' ? 'Ensino Técnico' : 'IIº Ciclo');
     setShowEditarCursoModal(true);
   };
 
@@ -1090,6 +1729,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       setAreasFormacaoList(dbService.getAreasFormacao(escola.id));
     }
 
+    const nomeAnterior = cursoSendoEditado.nome;
     const atualizado: CursoConfig = {
       ...cursoSendoEditado,
       escolaId: cursoSendoEditado.escolaId || escola.id,
@@ -1098,20 +1738,36 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       area: areaFinal,
       areaFormacaoId: areaObj?.id,
       duracao: editCursoDuracao.trim() || '3 Anos',
-      ciclo: editCursoCiclo
+      ciclo: editCursoCiclo === 'Ensino Técnico' ? 'Ensino Técnico' : 'IIº Ciclo'
     };
     dbService.salvarCurso(atualizado);
     setCursosList(dbService.getCursos(escola.id));
+
+    // Propagar atualização para Turmas do IIº Ciclo e Coordenações ligadas a este Curso
+    if (nomeAnterior !== atualizado.nome) {
+      turmas
+        .filter(t => isSegundoCiclo(t.classe) && (t.cursoId === atualizado.id || t.curso === nomeAnterior))
+        .forEach(t => onSalvarTurma({ ...t, curso: atualizado.nome, cursoId: atualizado.id, areaFormacao: atualizado.area }));
+      coordenacoesList
+        .filter(c => c.nivelEnsino === 'IICiclo' && c.curso === nomeAnterior)
+        .forEach(c => dbService.salvarCoordenacao({ ...c, curso: atualizado.nome }));
+      setCoordenacoesList(dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo));
+    }
+
     setShowEditarCursoModal(false);
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${editCursoNome}" atualizado com sucesso.` });
+    setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${atualizado.nome}" atualizado e sincronizado com turmas e coordenações.` });
   };
 
   const handleEliminarCurso = (id: string, nome: string) => {
-    if (confirm(`Tem certeza que deseja remover o curso "${nome}"?`)) {
-      dbService.eliminarCurso(id);
-      setCursosList(dbService.getCursos(escola.id));
-      setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${nome}" eliminado.` });
-    }
+    setConfirmModal({
+      titulo: 'Eliminar Curso',
+      mensagem: `Tem certeza que deseja remover o curso "${nome}"?`,
+      onConfirm: () => {
+        dbService.eliminarCurso(id);
+        setCursosList(dbService.getCursos(escola.id));
+        setFeedbackMsg({ tipo: 'sucesso', texto: `Curso "${nome}" eliminado.` });
+      }
+    });
   };
 
   // HANDLERS DE SALAS DE AULAS
@@ -1148,6 +1804,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const handleSalvarEditarSala = (e: React.FormEvent) => {
     e.preventDefault();
     if (!salaSendoEditada || !editSalaNome.trim()) return;
+    const salaAnterior = salaSendoEditada.nome;
     const atualizada: SalaAulaConfig = {
       ...salaSendoEditada,
       escolaId: salaSendoEditada.escolaId || escola.id,
@@ -1158,15 +1815,28 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     };
     dbService.salvarSalaAula(atualizada);
     setSalasList(dbService.getSalasAulas(escola.id));
+
+    // Propagar atualização de sala para as Turmas vinculadas
+    if (salaAnterior !== atualizada.nome) {
+      turmas
+        .filter(t => t.salaId === atualizada.id || t.sala === salaAnterior)
+        .forEach(t => onSalvarTurma({ ...t, sala: atualizada.nome, salaId: atualizada.id }));
+    }
+
     setShowEditarSalaModal(false);
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Sala "${atualizada.nome}" atualizada.` });
+    setFeedbackMsg({ tipo: 'sucesso', texto: `Sala "${atualizada.nome}" atualizada e sincronizada com as turmas.` });
   };
 
   const handleEliminarSalaAula = (id: string, nome: string) => {
-    if (!confirm(`Deseja eliminar a sala "${nome}"?`)) return;
-    dbService.eliminarSalaAula(id);
-    setSalasList(dbService.getSalasAulas(escola.id));
-    setFeedbackMsg({ tipo: 'sucesso', texto: `Sala "${nome}" eliminada.` });
+    setConfirmModal({
+      titulo: 'Eliminar Sala de Aula',
+      mensagem: `Deseja eliminar a sala "${nome}"?`,
+      onConfirm: () => {
+        dbService.eliminarSalaAula(id);
+        setSalasList(dbService.getSalasAulas(escola.id));
+        setFeedbackMsg({ tipo: 'sucesso', texto: `Sala "${nome}" eliminada.` });
+      }
+    });
   };
 
   // 8. DISCIPLINAS (COM SUPORTE A CRIAÇÃO PARA MÚLTIPLAS CLASSES AO MESMO TEMPO E VINCULAÇÃO A CLASSE, CICLO E CURSOS)
@@ -1182,10 +1852,21 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         ? 'ICiclo' 
         : 'IICiclo';
 
-    const cursosAssoc = novaDiscCursos.filter(Boolean);
+    const temSegundoCiclo = classesAssociadas.some(c => isSegundoCiclo(c));
+    const cursosAssoc = temSegundoCiclo && !novaDiscTroncoComum ? novaDiscCursos.filter(Boolean) : [];
+    if (temSegundoCiclo && !novaDiscTroncoComum && cursosAssoc.length === 0) {
+      setFeedbackMsg({
+        tipo: 'erro',
+        texto: 'No IIº Ciclo (10ª–13ª), selecione pelo menos um Curso específico ou clique em "Tronco Comum (Todos os Cursos)".'
+      });
+      return;
+    }
+
+    const maxOrdem = disciplinas.reduce((acc, d) => Math.max(acc, d.ordem || 0), 0);
     const nova: Disciplina = {
       id: `disc-${Date.now()}`,
       escolaId: escola.id,
+      anoLectivo: escola.anoLectivoActivo,
       nome: novaDiscNome.trim(),
       sigla: novaDiscCodigo ? novaDiscCodigo.toUpperCase() : novaDiscNome.substring(0, 3).toUpperCase(),
       codigo: novaDiscCodigo || `DISC-${Math.floor(100 + Math.random() * 900)}`,
@@ -1196,7 +1877,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       classes: classesAssociadas,
       ciclo: novaDiscCiclo || formatarCicloPorClasse(primeiraClasse),
       cursos: cursosAssoc.length > 0 ? cursosAssoc : undefined,
-      curso: cursosAssoc.length === 1 ? cursosAssoc[0] : undefined
+      curso: cursosAssoc.length === 1 ? cursosAssoc[0] : undefined,
+      ordem: maxOrdem + 1
     };
 
     if (onSalvarDisciplina) onSalvarDisciplina(nova);
@@ -1206,9 +1888,10 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     setNovaDiscCodigo('');
     setNovaDiscClasses(['7ª']);
     setNovaDiscCursos([]);
+    setNovaDiscTroncoComum(false);
     setFeedbackMsg({ 
       tipo: 'sucesso', 
-      texto: `Disciplina "${nova.nome}" registada e associada a ${classesAssociadas.length} classe(s) (${classesAssociadas.join(', ')}) no ciclo ${nova.ciclo}${cursosAssoc.length > 0 ? ` • Curso(s): ${cursosAssoc.join(', ')}` : ' • Tronco Comum'}.` 
+      texto: `Disciplina "${nova.nome}" registada e associada a ${classesAssociadas.length} classe(s) (${classesAssociadas.join(', ')}) no ciclo ${nova.ciclo}${cursosAssoc.length > 0 ? ` • Curso(s): ${cursosAssoc.join(', ')}` : temSegundoCiclo ? ' • Tronco Comum (IIº Ciclo)' : ''}.` 
     });
   };
 
@@ -1216,11 +1899,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
   const todasClasses = useMemo(() => [...TODAS_CLASSES_OFICIAIS_MED], []);
 
   const disciplinasFiltradas = useMemo(() => {
+    const mostrarFiltroCursoDisc = filtroCicloDisciplinas === 'IIº Ciclo' || isSegundoCiclo(filtroClasseDisciplinas);
     return getDisciplinasPorClasseECiclo(
       disciplinas,
       filtroClasseDisciplinas !== 'TODAS' ? filtroClasseDisciplinas : undefined,
       filtroCicloDisciplinas !== 'TODOS' ? filtroCicloDisciplinas : undefined,
-      filtroCursoDisciplinas !== 'TODOS' ? filtroCursoDisciplinas : undefined
+      mostrarFiltroCursoDisc && filtroCursoDisciplinas !== 'TODOS' ? filtroCursoDisciplinas : undefined
     );
   }, [disciplinas, filtroClasseDisciplinas, filtroCicloDisciplinas, filtroCursoDisciplinas]);
 
@@ -1231,19 +1915,48 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
     const targetIdx = direcao === 'cima' ? idx - 1 : idx + 1;
     if (targetIdx < 0 || targetIdx >= list.length) return;
 
-    const outro = list[targetIdx];
-    const ordemDisc = disc.ordem || idx + 1;
-    const ordemOutro = outro.ordem || targetIdx + 1;
+    // Reordenar trocando os dois elementos e normalizando 1..N para evitar empates de ordem indefinida
+    const reordenada = [...list];
+    const [movida] = reordenada.splice(idx, 1);
+    reordenada.splice(targetIdx, 0, movida);
 
-    const discAtualizada = { ...disc, ordem: ordemOutro };
-    const outroAtualizada = { ...outro, ordem: ordemDisc };
+    const ctxClasse = filtroClasseDisciplinas !== 'TODAS' ? filtroClasseDisciplinas : undefined;
+    const ctxCurso =
+      (ctxClasse && isSegundoCiclo(ctxClasse) && filtroCursoDisciplinas !== 'TODOS')
+        ? filtroCursoDisciplinas
+        : (filtroCicloDisciplinas === 'IIº Ciclo' && filtroCursoDisciplinas !== 'TODOS'
+            ? filtroCursoDisciplinas
+            : undefined);
+    const chaveCtx = ctxClasse ? gerarChaveOrdemDisciplina(ctxClasse, ctxCurso) : undefined;
 
-    dbService.salvarDisciplina(discAtualizada);
-    dbService.salvarDisciplina(outroAtualizada);
-    if (onSalvarDisciplina) {
-      onSalvarDisciplina(discAtualizada);
-      onSalvarDisciplina(outroAtualizada);
+    const atualizadas: Disciplina[] = reordenada.map((item, posIdx) => {
+      const novaPosicao = posIdx + 1;
+      if (chaveCtx) {
+        return {
+          ...item,
+          ordemPorClasseCurso: {
+            ...(item.ordemPorClasseCurso || {}),
+            [chaveCtx]: novaPosicao
+          },
+          ordem: item.ordem ?? novaPosicao
+        };
+      }
+      return {
+        ...item,
+        ordem: novaPosicao
+      };
+    });
+
+    dbService.salvarDisciplinasOrdenadas(atualizadas);
+    if (onRecarregarDisciplinas) {
+      onRecarregarDisciplinas();
+    } else if (onSalvarDisciplina && atualizadas.length > 0) {
+      onSalvarDisciplina(atualizadas[0]);
     }
+    setFeedbackMsg({
+      tipo: 'sucesso',
+      texto: `Ordem de "${disc.nome}" atualizada para #${targetIdx + 1}${ctxClasse ? ` (${ctxClasse}${ctxCurso ? ` • ${ctxCurso}` : ''})` : ''} e aplicada a todos os documentos.`
+    });
   };
 
   // Ações de Configuração de Avaliação (Diretor & Administrador Geral)
@@ -1348,11 +2061,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
           {[
             { id: 'anos' as AcademicSubTab, label: 'Ano Letivo', icon: Calendar, badge: `${anosConfigs.length}` },
             { id: 'classes' as AcademicSubTab, label: 'Classes', icon: Layers, badge: `${classesConfigs.length}` },
-            { id: 'cursos' as AcademicSubTab, label: 'Cursos', icon: GraduationCap },
+            { id: 'cursos' as AcademicSubTab, label: 'Cursos (IIº Ciclo)', icon: GraduationCap },
             { id: 'disciplinas' as AcademicSubTab, label: 'Disciplinas', icon: BookOpen, badge: `${disciplinas.length}` },
             { id: 'turmas' as AcademicSubTab, label: 'Turmas', icon: Users, badge: `${turmas.length}` },
             { id: 'turnos' as AcademicSubTab, label: 'Turnos', icon: Clock },
-            { id: 'atribuicoes' as AcademicSubTab, label: 'Atribuição Docente', icon: UserCheck },
+            { id: 'atribuicoes' as AcademicSubTab, label: 'Atribuição Docente', icon: UserCheck, badge: `${atribuicoesDoAnoActivo.length}` },
+            { id: 'coordenacoes' as AcademicSubTab, label: 'Coordenações', icon: Award, badge: `${coordenacoesList.length}` },
             { id: 'juris' as AcademicSubTab, label: 'Comissão de Júri', icon: Gavel, badge: `${juris.length}` },
             { id: 'configuracoes_avaliacoes' as AcademicSubTab, label: 'Avaliações & Fórmulas', icon: Sliders, badge: 'MED' }
           ].filter(tab => !(tab.id === 'juris' && isAdminGeral)).map((tab) => {
@@ -1897,6 +2611,9 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     onClick={() => {
                       setFiltroCicloDisciplinas(c);
                       setFiltroClasseDisciplinas('TODAS');
+                      if (c !== 'IIº Ciclo' && c !== 'TODOS') {
+                        setFiltroCursoDisciplinas('TODOS');
+                      }
                     }}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       filtroCicloDisciplinas === c
@@ -1916,7 +2633,10 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                     value={filtroClasseDisciplinas}
                     onChange={(e) => {
                       setFiltroClasseDisciplinas(e.target.value);
-                      if (e.target.value !== 'TODAS') setFiltroCicloDisciplinas('TODOS');
+                      if (e.target.value !== 'TODAS') {
+                        setFiltroCicloDisciplinas('TODOS');
+                        if (!isSegundoCiclo(e.target.value)) setFiltroCursoDisciplinas('TODOS');
+                      }
                     }}
                     className="text-xs p-1.5 border border-gray-300 rounded-lg bg-white font-bold text-gray-900 focus:ring-2 focus:ring-blue-500"
                   >
@@ -1927,19 +2647,21 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   </select>
                 </div>
 
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-xs font-bold text-slate-700">Curso:</span>
-                  <select
-                    value={filtroCursoDisciplinas}
-                    onChange={(e) => setFiltroCursoDisciplinas(e.target.value)}
-                    className="text-xs p-1.5 border border-gray-300 rounded-lg bg-white font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 max-w-[200px]"
-                  >
-                    <option value="TODOS">Todos os Cursos</option>
-                    {cursosDisponiveisEscola.map((c: string) => (
-                      <option key={`filt-cur-${c}`} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
+                {(filtroCicloDisciplinas === 'IIº Ciclo' || isSegundoCiclo(filtroClasseDisciplinas)) && (
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-xs font-bold text-slate-700">Curso (IIº Ciclo):</span>
+                    <select
+                      value={filtroCursoDisciplinas}
+                      onChange={(e) => setFiltroCursoDisciplinas(e.target.value)}
+                      className="text-xs p-1.5 border border-gray-300 rounded-lg bg-white font-bold text-gray-900 focus:ring-2 focus:ring-blue-500 max-w-[200px]"
+                    >
+                      <option value="TODOS">Todos os Cursos</option>
+                      {cursosDisponiveisEscola.map((c: string) => (
+                        <option key={`filt-cur-${c}`} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1980,15 +2702,17 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                           Currículo Base
                         </span>
                       )}
-                      {disc.cursos && disc.cursos.length > 0 ? (
-                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-800 rounded font-semibold">
-                          {disc.cursos.join(', ')}
-                        </span>
-                      ) : disc.curso ? (
-                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-800 rounded font-semibold">
-                          {disc.curso}
-                        </span>
-                      ) : null}
+                      {(disc.classes?.some(c => isSegundoCiclo(c)) || isSegundoCiclo(disc.classe)) && (
+                        disc.cursos && disc.cursos.length > 0 ? (
+                          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-800 rounded font-semibold">
+                            {disc.cursos.join(', ')}
+                          </span>
+                        ) : disc.curso ? (
+                          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-800 rounded font-semibold">
+                            {disc.curso}
+                          </span>
+                        ) : null
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1">
@@ -1999,21 +2723,23 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                       <div className="flex items-center space-x-1">
                         <button
                           type="button"
+                          disabled={idx === 0}
                           onClick={() => handleMoverOrdemDisciplina(disc, 'cima')}
-                          className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[10px] font-bold cursor-pointer"
+                          className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-35 disabled:cursor-not-allowed text-gray-700 rounded text-[10px] font-bold cursor-pointer"
                           title="Subir posição nos documentos oficiais"
                         >
                           ▲
                         </button>
                         <button
                           type="button"
+                          disabled={idx === disciplinasFiltradas.length - 1}
                           onClick={() => handleMoverOrdemDisciplina(disc, 'baixo')}
-                          className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-[10px] font-bold cursor-pointer"
+                          className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-35 disabled:cursor-not-allowed text-gray-700 rounded text-[10px] font-bold cursor-pointer"
                           title="Descer posição nos documentos oficiais"
                         >
                           ▼
                         </button>
-                        <span className="text-[10px] text-gray-400 font-mono ml-1">Ord. {disc.ordem || idx + 1}</span>
+                        <span className="text-[10px] text-gray-500 font-mono font-bold ml-1">Ord. {idx + 1}</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <button
@@ -2147,10 +2873,12 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                       <span>Nível de Ensino:</span>
                       <strong className="text-gray-900">{t.nivelEnsino}</strong>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <span>Curso / Área:</span>
-                      <strong className="text-purple-800 truncate max-w-[170px]">{getCursoDaTurma(t)}</strong>
-                    </div>
+                    {isSegundoCiclo(t.classe) && (
+                      <div className="flex justify-between gap-2">
+                        <span>Curso / Área:</span>
+                        <strong className="text-purple-800 truncate max-w-[170px]">{getCursoDaTurma(t)}</strong>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span>Sala / Lotação:</span>
                       <strong className="text-gray-900">{t.sala} ({t.capacidade || 45} vagas)</strong>
@@ -2280,12 +3008,20 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
       {/* 7. ABA ATRIBUIÇÃO DOCENTE */}
       {activeSubTab === 'atribuicoes' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-gray-900">Atribuições Docentes & Coordenações ({atribuicoesDoAnoActivo.length})</h3>
-              <p className="text-xs text-gray-500">Vinculação de professores, disciplinas e turmas para o ano {escola.anoLectivoActivo || 'Atual'}</p>
+              <p className="text-xs text-gray-500">Vinculação conectada de professores, turmas, disciplinas reais e coordenações para {escola.anoLectivoActivo || 'Atual'}</p>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('coordenacoes')}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                <Award className="w-4 h-4 text-amber-600" />
+                <span>Gerir Coordenações por Nível ({coordenacoesList.length})</span>
+              </button>
               <button
                 type="button"
                 onClick={handleReplicarAtribuicoesAnoAnterior}
@@ -2297,11 +3033,11 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setShowAtribuicaoModal(true)}
+                onClick={abrirModalAtribuicaoUnificada}
                 className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                <span>Nova Atribuição</span>
+                <span>Atribuir em Lote (De Uma Só Vez)</span>
               </button>
             </div>
           </div>
@@ -2312,8 +3048,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-[10px] font-bold">
                   <tr>
                     <th className="p-3">Docente</th>
-                    <th className="p-3">Turma</th>
-                    <th className="p-3">Disciplina</th>
+                    <th className="p-3">Classe & Turma (Turno / Sala)</th>
+                    <th className="p-3">Disciplina Registada</th>
                     <th className="p-3">Cargo na Turma</th>
                     <th className="p-3 text-right">Ações</th>
                   </tr>
@@ -2326,9 +3062,19 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
 
                     return (
                       <tr key={`atrib-item-${atrib.id || idx}-${idx}`} className="hover:bg-gray-50">
-                        <td className="p-3 font-bold text-gray-900">{prof?.nomeCompleto || 'Desconhecido'}</td>
-                        <td className="p-3 font-semibold text-blue-700">{turma?.nome || 'N/A'}</td>
-                        <td className="p-3 font-medium text-gray-700">{disc?.nome || 'N/A'}</td>
+                        <td className="p-3 font-bold text-gray-900">{prof?.nomeCompleto || atrib.professorNome || 'Desconhecido'}</td>
+                        <td className="p-3">
+                          <div className="font-semibold text-blue-700">
+                            {turma ? `${turma.classe} • ${turma.nome}` : (atrib.turmaNome || 'N/A')}
+                          </div>
+                          {turma && (
+                            <div className="text-[10px] text-gray-500">
+                              {turma.turno} • {getSalaDaTurma(turma)}
+                              {isSegundoCiclo(turma.classe) && turma.curso ? ` • Curso: ${turma.curso}` : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3 font-semibold text-gray-800">{disc?.nome || atrib.disciplinaNome || 'N/A'}</td>
                         <td className="p-3">
                           {atrib.ehCoordenadorTurma ? (
                             <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-full">
@@ -2364,6 +3110,298 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7B. ABA COORDENAÇÕES COMPLETAS POR NÍVEL DE ENSINO (ENSINO PRIMÁRIO, Iº CICLO, IIº CICLO) */}
+      {activeSubTab === 'coordenacoes' && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-indigo-950 rounded-2xl p-6 text-white shadow-lg border border-amber-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <span className="px-2.5 py-0.5 bg-amber-500/20 border border-amber-400/40 text-amber-300 rounded-full text-[10px] font-black uppercase tracking-wider inline-flex items-center space-x-1">
+                <Award className="w-3 h-3" />
+                <span>Estrutura de Coordenação MED Angola</span>
+              </span>
+              <h3 className="text-lg font-black text-white">Coordenações Pedagógicas por Nível de Ensino</h3>
+              <p className="text-xs text-slate-300 max-w-2xl">
+                Atribua todas as coordenações oficiais do <strong>Ensino Primário</strong>, <strong>Iº Ciclo</strong> e <strong>IIº Ciclo</strong> (Pedagógica, Iniciação, Classe, Turma, Disciplina, Turno, Área Disciplinar, Curso e Estágio/PAP), ligadas automaticamente às turmas, disciplinas e cursos.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={abrirModalAtribuicaoUnificada}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-xl text-xs shadow-md transition-all flex items-center space-x-2 cursor-pointer"
+              >
+                <CheckSquare className="w-4 h-4" />
+                <span>Atribuir Tudo de Uma Só Vez</span>
+              </button>
+              <button
+                type="button"
+                onClick={abrirModalCriarTipoCoordenacao}
+                className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-amber-300/40 text-amber-100 font-black rounded-xl text-xs shadow-md transition-all flex items-center space-x-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>+ Nova Coordenação (Personalizar)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => abrirModalNovaCoordenacao()}
+                className="px-5 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black rounded-xl text-xs shadow-md transition-all flex items-center space-x-2 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Atribuir Coordenação</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Cards resumo por Nível de Ensino */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {([
+              { id: 'Primario' as NivelCoordenacaoEnsino, titulo: 'Ensino Primário (Iniciação à 6ª)', cor: 'emerald', sub: 'Pedagógico, Iniciação, Classe, Turma, Turno, Área Disciplinar' },
+              { id: 'ICiclo' as NivelCoordenacaoEnsino, titulo: 'Iº Ciclo (7ª à 9ª Classe)', cor: 'blue', sub: 'Pedagógico, Classe, Turma, Disciplina, Turno' },
+              { id: 'IICiclo' as NivelCoordenacaoEnsino, titulo: 'IIº Ciclo (10ª à 13ª Classe)', cor: 'purple', sub: 'Pedagógico, Curso/Área, Classe, Turma, Disciplina, Turno, Estágio/PAP' }
+            ]).map(nivelCard => {
+              const totalNivel = coordenacoesList.filter(c => c.nivelEnsino === nivelCard.id).length;
+              return (
+                <div key={nivelCard.id} className="bg-white rounded-2xl border border-gray-200 p-4 shadow-2xs flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-gray-900">{nivelCard.titulo}</span>
+                      <span className="px-2 py-0.5 text-[11px] font-black rounded-full bg-slate-100 text-slate-800">{totalNivel}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-1">{nivelCard.sub}</p>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => setFiltroNivelCoordenacao(nivelCard.id)}
+                      className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                    >
+                      Filtrar ({totalNivel})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => abrirModalNovaCoordenacao(nivelCard.id)}
+                      className="text-[11px] font-bold text-amber-700 hover:underline cursor-pointer"
+                    >
+                      + Atribuir neste nível
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Barra de filtro por nível */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {([
+                  { id: 'TODOS', label: 'Todos os Níveis' },
+                  { id: 'Primario', label: 'Ensino Primário' },
+                  { id: 'ICiclo', label: 'Iº Ciclo' },
+                  { id: 'IICiclo', label: 'IIº Ciclo' }
+                ] as const).map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setFiltroNivelCoordenacao(f.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                      filtroNivelCoordenacao === f.id
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-slate-100 text-gray-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-gray-500 font-semibold">
+                Ano Letivo: <strong className="text-gray-900">{escola.anoLectivoActivo || 'Atual'}</strong>
+              </span>
+            </div>
+
+            {(() => {
+              const coordsFiltradas = coordenacoesList.filter(
+                c => filtroNivelCoordenacao === 'TODOS' || c.nivelEnsino === filtroNivelCoordenacao
+              );
+
+              if (coordsFiltradas.length === 0) {
+                return (
+                  <div className="p-8 text-center bg-slate-50 border border-dashed border-gray-300 rounded-xl space-y-2">
+                    <Award className="w-8 h-8 text-gray-400 mx-auto" />
+                    <p className="text-xs font-bold text-gray-700">Nenhuma coordenação registada para o nível selecionado.</p>
+                    <p className="text-[11px] text-gray-500">Utilize o botão "Atribuir Coordenação" para nomear coordenadores por nível de ensino.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-[10px] font-bold">
+                      <tr>
+                        <th className="p-3">Nível de Ensino</th>
+                        <th className="p-3">Tipo de Coordenação</th>
+                        <th className="p-3">Âmbito / Vínculo Académico</th>
+                        <th className="p-3">Responsável Designado</th>
+                        <th className="p-3 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {coordsFiltradas.map(coord => {
+                        const func = funcionarios.find(f => f.id === (coord.funcionarioId || coord.professorId));
+                        const turmaLink = coord.turmaId ? turmas.find(t => t.id === coord.turmaId) : undefined;
+                        const discLink = coord.disciplinaId ? disciplinas.find(d => d.id === coord.disciplinaId) : undefined;
+                        const nivelLabel =
+                          coord.nivelEnsino === 'Primario' ? 'Ensino Primário' :
+                          coord.nivelEnsino === 'ICiclo' ? 'Iº Ciclo' : 'IIº Ciclo';
+                        return (
+                          <tr key={coord.id} className="hover:bg-gray-50">
+                            <td className="p-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                coord.nivelEnsino === 'Primario' ? 'bg-emerald-100 text-emerald-800' :
+                                coord.nivelEnsino === 'ICiclo' ? 'bg-blue-100 text-blue-800' :
+                                'bg-purple-100 text-purple-800'
+                              }`}>
+                                {nivelLabel}
+                              </span>
+                            </td>
+                            <td className="p-3 font-bold text-gray-900">{coord.tipoCoordenacao}</td>
+                            <td className="p-3 text-gray-700 space-y-0.5">
+                              {coord.classe && <div>Classe: <strong>{coord.classe}</strong></div>}
+                              {(turmaLink || coord.turmaNome) && <div>Turma: <strong>{turmaLink?.nome || coord.turmaNome}</strong></div>}
+                              {(discLink || coord.disciplinaNome) && <div>Disciplina: <strong>{discLink?.nome || coord.disciplinaNome}</strong></div>}
+                              {coord.nivelEnsino === 'IICiclo' && coord.curso && <div>Curso: <strong className="text-purple-800">{coord.curso}</strong></div>}
+                              {coord.turno && <div>Turno: <strong>{coord.turno}</strong></div>}
+                              {coord.areaDisciplinar && <div>Área Disciplinar: <strong>{coord.areaDisciplinar}</strong></div>}
+                              {!coord.classe && !coord.turmaNome && !coord.disciplinaNome && !coord.curso && !coord.turno && !coord.areaDisciplinar && (
+                                <span className="text-gray-400 italic">Supervisão Geral do Nível</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <div className="font-bold text-gray-900">{func?.nomeCompleto || coord.funcionarioNome || coord.professorNome}</div>
+                              {func?.cargo && <div className="text-[10px] text-gray-500">{func.cargo}</div>}
+                            </td>
+                            <td className="p-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoverCoordenacao(coord)}
+                                className="text-red-600 hover:text-red-800 p-1 cursor-pointer"
+                                title="Remover coordenação"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* TIPOS DE COORDENAÇÃO PERSONALIZADOS CRIADOS PELA DIREÇÃO */}
+          <div className="bg-white rounded-2xl border border-amber-200 p-4 shadow-2xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 pb-2">
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <div>
+                  <h4 className="text-xs font-black text-gray-900">
+                    Coordenações Personalizadas Criadas pela Direção ({tiposCoordenacaoCustom.length})
+                  </h4>
+                  <p className="text-[11px] text-gray-500">
+                    Adicione novas coordenações que não constam na lista padrão (ex.: Coordenação de Laboratórios, Desporto Escolar, Orientação Vocacional, Apoio Especial).
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={abrirModalCriarTipoCoordenacao}
+                className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-[11px] font-black flex items-center space-x-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Criar Tipo de Coordenação</span>
+              </button>
+            </div>
+
+            {tiposCoordenacaoCustom.length === 0 ? (
+              <p className="text-[11px] text-gray-500 italic py-2">
+                Nenhuma coordenação personalizada criada ainda para esta escola. Clique em &ldquo;Criar Tipo de Coordenação&rdquo; para adicionar novas coordenações.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {tiposCoordenacaoCustom.map(tc => {
+                  const nivLabel =
+                    tc.nivelEnsino === 'Primario'
+                      ? 'Ensino Primário'
+                      : tc.nivelEnsino === 'ICiclo'
+                        ? 'Iº Ciclo'
+                        : 'IIº Ciclo';
+                  const vinculos: string[] = [];
+                  if (tc.requerClasse) vinculos.push('Classe');
+                  if (tc.requerTurma) vinculos.push('Turma');
+                  if (tc.requerDisciplina) vinculos.push('Disciplina');
+                  if (tc.nivelEnsino === 'IICiclo' && tc.requerCurso) vinculos.push('Curso');
+                  if (tc.requerTurno) vinculos.push('Turno');
+                  if (tc.requerAreaDisciplinar) vinculos.push('Área Disciplinar');
+
+                  return (
+                    <div
+                      key={tc.id}
+                      className="p-3 rounded-xl border border-amber-200/80 bg-amber-50/40 flex flex-col justify-between gap-2"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-xs font-black text-gray-900">{tc.tipo}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-white border border-amber-200 text-amber-900 shrink-0">
+                            {nivLabel}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-600 mt-1 line-clamp-2">{tc.descricao}</p>
+                        {vinculos.length > 0 && (
+                          <p className="text-[10px] text-indigo-700 font-bold mt-1">
+                            Vínculos: {vinculos.join(' • ')}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t border-amber-200/50">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCoordNivel(tc.nivelEnsino);
+                            setCoordTipo(tc.tipo);
+                            setCoordClasse(getClassesPorNivelCoordenacao(tc.nivelEnsino)[0] || '');
+                            setCoordCurso(tc.nivelEnsino === 'IICiclo' ? (cursosDisponiveisEscola[0] || '') : '');
+                            setCoordTurmaId('');
+                            setCoordDisciplinaId('');
+                            setCoordTurno(turnosDisponiveisEscola[0] || 'Manhã');
+                            setCoordFuncionarioId('');
+                            setCoordObservacoes('');
+                            setShowNovaCoordenacaoModal(true);
+                          }}
+                          className="text-[11px] font-black text-blue-700 hover:underline cursor-pointer"
+                        >
+                          Atribuir agora →
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverTipoCoordenacaoPersonalizada(tc)}
+                          className="text-red-600 hover:text-red-800 p-1 cursor-pointer"
+                          title="Remover tipo personalizado"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2912,7 +3950,17 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   <label className="block text-xs font-bold text-gray-700 mb-1">Classe</label>
                   <select
                     value={novaTurmaClasse}
-                    onChange={(e) => setNovaTurmaClasse(e.target.value)}
+                    onChange={(e) => {
+                      const cls = e.target.value;
+                      setNovaTurmaClasse(cls);
+                      if (isSegundoCiclo(cls)) {
+                        if (!novaTurmaCurso && cursosDisponiveisEscola.length > 0) {
+                          setNovaTurmaCurso(cursosDisponiveisEscola[0]);
+                        }
+                      } else {
+                        setNovaTurmaCurso('');
+                      }
+                    }}
                     className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
                   >
                     {(classesConfigs.filter(c => c.ativa !== false).length > 0
@@ -2939,35 +3987,36 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               </div>
 
-              {/* Curso / Especialidade (Obrigatório no 2º Ciclo, opcional nos demais ciclos) */}
-              <div className={isSegundoCiclo(novaTurmaClasse) ? 'bg-purple-50 p-3 rounded-lg border border-purple-200' : 'bg-gray-50 p-3 rounded-lg border border-gray-200'}>
-                <div className="flex items-center justify-between mb-1">
-                  <label className={`block text-xs font-bold ${isSegundoCiclo(novaTurmaClasse) ? 'text-purple-900' : 'text-gray-700'}`}>
-                    {isSegundoCiclo(novaTurmaClasse) ? 'Curso Curricular Obrigatório (2º Ciclo) *' : 'Curso / Plano Curricular (Opcional)'}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNovaTurmaModal(false);
-                      setActiveSubTab('cursos');
-                      setShowNovoCursoModal(true);
-                    }}
-                    className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer"
+              {/* Curso / Especialidade (Exclusivo para o IIº Ciclo) */}
+              {isSegundoCiclo(novaTurmaClasse) && (
+                <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-purple-900">
+                      Curso Curricular Obrigatório (2º Ciclo) *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNovaTurmaModal(false);
+                        setActiveSubTab('cursos');
+                        setShowNovoCursoModal(true);
+                      }}
+                      className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer"
+                    >
+                      + Criar Curso
+                    </button>
+                  </div>
+                  <select
+                    value={novaTurmaCurso}
+                    onChange={(e) => setNovaTurmaCurso(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-purple-300 rounded-lg bg-white font-bold text-gray-900"
                   >
-                    + Criar Curso
-                  </button>
+                    {cursosDisponiveisEscola.map(c => (
+                      <option key={`nt-c-${c}`} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  value={novaTurmaCurso}
-                  onChange={(e) => setNovaTurmaCurso(e.target.value)}
-                  className="w-full text-xs px-3 py-2 border border-purple-300 rounded-lg bg-white font-bold text-gray-900"
-                >
-                  {!isSegundoCiclo(novaTurmaClasse) && <option value="">Padrão do Ciclo ({formatarCicloPorClasse(novaTurmaClasse)})</option>}
-                  {cursosDisponiveisEscola.map(c => (
-                    <option key={`nt-c-${c}`} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -3034,121 +4083,447 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         </div>
       )}
 
-      {/* MODAL NOVA ATRIBUIÇÃO */}
-      {showAtribuicaoModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h3 className="text-base font-bold text-gray-900">Atribuir Docente / Coordenador</h3>
-              <button onClick={() => setShowAtribuicaoModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
-            </div>
+      {/* MODAL UNIFICADO DE ATRIBUIÇÃO EM LOTE ("DE UMA SÓ VEZ": Funcionário -> Classes -> Cursos IIº Ciclo -> Turmas -> Disciplinas -> Coordenações) */}
+      {showAtribuicaoModal && (() => {
+        const classesDisponiveisTurmas = Array.from(new Set(turmasDoAnoActivo.map(t => t.classe)));
+        const classesBase = classesDisponiveisTurmas.length > 0 ? classesDisponiveisTurmas : [...TODAS_CLASSES_OFICIAIS_MED];
+        const temIICicloSel = atribClassesSel.some(c => isSegundoCiclo(c));
+        const cursosDisponiveisLote = temIICicloSel
+          ? Array.from(
+              new Set([
+                ...turmasDoAnoActivo
+                  .filter(t => isSegundoCiclo(t.classe) && atribClassesSel.includes(t.classe))
+                  .map(t => t.curso)
+                  .filter(Boolean) as string[],
+                ...cursosDisponiveisEscola
+              ])
+            )
+          : [];
 
-            <form onSubmit={handleCreateAtribuicao} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Professor</label>
-                <select
-                  value={atribProfId}
-                  onChange={(e) => setAtribProfId(e.target.value)}
-                  required
-                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
-                >
-                  <option value="">Selecione o Professor...</option>
-                  {professoresDisponiveis.map((p, idx) => (
-                    <option key={`opt-prof-${p.id || idx}-${idx}`} value={p.id}>{p.nomeCompleto} ({p.cargo})</option>
-                  ))}
-                </select>
+        const turmasFiltradasLote = turmasDoAnoActivo.filter(t => {
+          if (atribClassesSel.length > 0 && !atribClassesSel.includes(t.classe)) return false;
+          if (temIICicloSel && isSegundoCiclo(t.classe) && atribCursosSel.length > 0) {
+            if (!t.curso || !atribCursosSel.includes(t.curso)) return false;
+          }
+          return true;
+        });
+
+        // Agregar disciplinas válidas mantendo ordem curricular do menu Disciplinas
+        const disciplinasLote = (() => {
+          const map = new Map<string, Disciplina>();
+          if (atribTurmasSel.length > 0) {
+            atribTurmasSel.forEach(tId => {
+              const tObj = turmasDoAnoActivo.find(t => t.id === tId);
+              if (!tObj) return;
+              getDisciplinasDaTurma(disciplinas, tObj).forEach(d => {
+                if (!map.has(d.id)) map.set(d.id, d);
+              });
+            });
+          } else if (atribClassesSel.length > 0) {
+            atribClassesSel.forEach(cls => {
+              if (isSegundoCiclo(cls) && atribCursosSel.length > 0) {
+                atribCursosSel.forEach(cur => {
+                  filtrarDisciplinasDaClasse(disciplinas, cls, cur).forEach(d => {
+                    if (!map.has(d.id)) map.set(d.id, d);
+                  });
+                });
+              } else {
+                filtrarDisciplinasDaClasse(disciplinas, cls).forEach(d => {
+                  if (!map.has(d.id)) map.set(d.id, d);
+                });
+              }
+            });
+          } else {
+            ordenarDisciplinas(disciplinas).forEach(d => map.set(d.id, d));
+          }
+          return ordenarDisciplinas(
+            Array.from(map.values()),
+            atribClassesSel.length === 1 ? atribClassesSel[0] : undefined,
+            atribCursosSel.length === 1 ? atribCursosSel[0] : undefined
+          );
+        })();
+
+        const tiposCustomAtivos = tiposCoordenacaoCustom.filter(t => t.ativo !== false);
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4 my-6 max-h-[92vh] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div>
+                  <h3 className="text-base font-black text-gray-900">
+                    Atribuição Unificada em Lote (De Uma Só Vez)
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    Atribua simultaneamente Classes, Cursos (IIº Ciclo), Turmas, Disciplinas e Coordenações a um Professor, Coordenador ou Funcionário • Ano: <strong>{escola.anoLectivoActivo || 'Atual'}</strong>
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowAtribuicaoModal(false)} className="text-gray-400 hover:text-gray-600 font-bold cursor-pointer">✕</button>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Turma de Destino *</label>
-                <select
-                  value={atribTurmaId}
-                  onChange={(e) => setAtribTurmaId(e.target.value)}
-                  required
-                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white font-bold"
-                >
-                  <option value="">Selecione a Turma...</option>
-                  {turmasDoAnoActivo.map((t, idx) => (
-                    <option key={`opt-turma-${t.id || idx}-${idx}`} value={t.id}>
-                      {t.nome} ({t.classe}) - {t.sala || 'Sala 01'}
-                    </option>
-                  ))}
-                </select>
+              <form onSubmit={handleCreateAtribuicao} className="space-y-4">
+                {/* 1. FUNCIONÁRIO / PROFESSOR / COORDENADOR */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-800 mb-1">
+                    1. Professor, Coordenador ou Funcionário *
+                  </label>
+                  <select
+                    value={atribProfId}
+                    onChange={(e) => setAtribProfId(e.target.value)}
+                    required
+                    className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white font-semibold"
+                  >
+                    <option value="">Selecione o funcionário...</option>
+                    {funcionariosParaAtribuicao.map((p, idx) => (
+                      <option key={`opt-prof-${p.id || idx}-${idx}`} value={p.id}>
+                        {p.nomeCompleto} — {p.cargo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                {/* Resumo da Associação Coerente da Turma */}
-                {atribTurmaId && (() => {
-                  const tSel = turmas.find(t => t.id === atribTurmaId);
-                  if (!tSel) return null;
-                  return (
-                    <div className="mt-1.5 p-2 bg-blue-50 rounded-lg border border-blue-200 text-[11px] text-blue-900 flex justify-between items-center">
-                      <span><strong>Classe:</strong> {tSel.classe}</span>
-                      <span><strong>Sala:</strong> {getSalaDaTurma(tSel)}</span>
-                      {isSegundoCiclo(tSel.classe) && (
-                        <span><strong>Curso:</strong> {tSel.curso || 'Ciências Físicas e Biológicas (PUNIV)'}</span>
+                {/* 2. MÚLTIPLAS CLASSES */}
+                <div className="border border-blue-200 bg-blue-50/40 rounded-xl p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-blue-950">
+                      2. Classes ({atribClassesSel.length} selecionada(s))
+                    </label>
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAtribClassesSel(classesBase.filter(c => isEnsinoPrimario(c)));
+                          setAtribCursosSel([]);
+                          setAtribTurmasSel([]);
+                        }}
+                        className="text-[10px] px-2 py-0.5 bg-white border border-blue-200 rounded font-bold text-blue-800 cursor-pointer"
+                      >
+                        Primário
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAtribClassesSel(classesBase.filter(c => isPrimeiroCiclo(c)));
+                          setAtribCursosSel([]);
+                          setAtribTurmasSel([]);
+                        }}
+                        className="text-[10px] px-2 py-0.5 bg-white border border-blue-200 rounded font-bold text-blue-800 cursor-pointer"
+                      >
+                        Iº Ciclo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAtribClassesSel(classesBase.filter(c => isSegundoCiclo(c)));
+                          setAtribTurmasSel([]);
+                        }}
+                        className="text-[10px] px-2 py-0.5 bg-white border border-purple-200 rounded font-bold text-purple-800 cursor-pointer"
+                      >
+                        IIº Ciclo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAtribClassesSel(classesBase);
+                          setAtribTurmasSel([]);
+                        }}
+                        className="text-[10px] px-2 py-0.5 bg-blue-600 text-white rounded font-bold cursor-pointer"
+                      >
+                        Todas
+                      </button>
+                      {atribClassesSel.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAtribClassesSel([]);
+                            setAtribCursosSel([]);
+                            setAtribTurmasSel([]);
+                          }}
+                          className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-700 rounded font-bold cursor-pointer"
+                        >
+                          Limpar
+                        </button>
                       )}
                     </div>
-                  );
-                })()}
-              </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {classesBase.map(c => {
+                      const sel = atribClassesSel.includes(c);
+                      return (
+                        <button
+                          key={`lote-cls-${c}`}
+                          type="button"
+                          onClick={() => {
+                            const prox = sel ? atribClassesSel.filter(x => x !== c) : [...atribClassesSel, c];
+                            setAtribClassesSel(prox);
+                            if (!prox.some(isSegundoCiclo)) setAtribCursosSel([]);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                            sel ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-800 border-gray-200 hover:bg-blue-50'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-gray-700">Disciplina da Matriz Curricular *</label>
-                  {atribTurmaId && (
-                    <span className="text-[10px] text-blue-700 font-semibold">
-                      Matriz da {turmas.find(t => t.id === atribTurmaId)?.classe}
-                    </span>
+                {/* 3. CURSOS DO IIº CICLO (APENAS QUANDO HÁ CLASSES DO IIº CICLO SELECIONADAS) */}
+                {temIICicloSel && (
+                  <div className="border border-purple-200 bg-purple-50/40 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-purple-950">
+                        3. Cursos do IIº Ciclo / Ensino Médio ({atribCursosSel.length === 0 ? 'Todos os Cursos' : `${atribCursosSel.length} selecionado(s)`})
+                      </label>
+                      {atribCursosSel.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAtribCursosSel([])}
+                          className="text-[10px] font-bold text-purple-700 hover:underline cursor-pointer"
+                        >
+                          Limpar (Todos)
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {cursosDisponiveisLote.map(cur => {
+                        const sel = atribCursosSel.includes(cur);
+                        return (
+                          <button
+                            key={`lote-cur-${cur}`}
+                            type="button"
+                            onClick={() =>
+                              setAtribCursosSel(prev => (sel ? prev.filter(x => x !== cur) : [...prev, cur]))
+                            }
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-colors ${
+                              sel ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-gray-800 border-gray-200 hover:bg-purple-50'
+                            }`}
+                          >
+                            {cur}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. MÚLTIPLAS TURMAS */}
+                <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-gray-800">
+                      {temIICicloSel ? '4.' : '3.'} Turmas de Destino ({atribTurmasSel.length} selecionada(s))
+                    </label>
+                    {turmasFiltradasLote.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (atribTurmasSel.length === turmasFiltradasLote.length) setAtribTurmasSel([]);
+                          else setAtribTurmasSel(turmasFiltradasLote.map(t => t.id));
+                        }}
+                        className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer"
+                      >
+                        {atribTurmasSel.length === turmasFiltradasLote.length ? 'Desmarcar todas' : 'Selecionar todas'}
+                      </button>
+                    )}
+                  </div>
+                  {turmasFiltradasLote.length === 0 ? (
+                    <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                      Nenhuma turma encontrada para os filtros atuais. Pode prosseguir atribuindo apenas Coordenações de Classe/Nível ou ajustar as Classes acima.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto p-1.5 bg-slate-50 rounded-lg border border-gray-100">
+                      {turmasFiltradasLote.map(t => {
+                        const sel = atribTurmasSel.includes(t.id);
+                        return (
+                          <label
+                            key={`lote-turma-${t.id}`}
+                            className={`flex items-center space-x-2 p-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
+                              sel ? 'bg-blue-600 text-white border-blue-700 font-bold' : 'bg-white text-gray-800 border-gray-200 hover:bg-blue-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sel}
+                              onChange={(e) => {
+                                if (e.target.checked) setAtribTurmasSel(prev => [...prev, t.id]);
+                                else setAtribTurmasSel(prev => prev.filter(x => x !== t.id));
+                              }}
+                              className="rounded text-blue-600"
+                            />
+                            <span className="truncate">
+                              {t.classe} • {t.nome} ({t.turno}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''})
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                <select
-                  value={atribDiscId}
-                  onChange={(e) => setAtribDiscId(e.target.value)}
-                  required
-                  className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
-                >
-                  <option value="">Selecione a Disciplina...</option>
-                  {(() => {
-                    const tSel = turmas.find(t => t.id === atribTurmaId);
-                    const discsDaTurma = getDisciplinasDaTurma(disciplinas, tSel);
-                    return discsDaTurma.map((d, idx) => (
-                      <option key={`opt-disc-${d.id || idx}-${idx}`} value={d.id}>{d.nome} ({d.codigo || d.sigla})</option>
-                    ));
-                  })()}
-                </select>
-              </div>
 
-              <div className="flex items-center space-x-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="coordenador"
-                  checked={atribEhCoordenador}
-                  onChange={(e) => setAtribEhCoordenador(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="coordenador" className="text-xs font-bold text-gray-800 cursor-pointer">
-                  Nomear como Coordenador Pedagógico desta Turma
-                </label>
-              </div>
+                {/* 5. MÚLTIPLAS DISCIPLINAS (RESPEITANDO ORDEM CURRICULAR E CLASSE+CURSO) */}
+                <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-gray-800">
+                      {temIICicloSel ? '5.' : '4.'} Disciplinas Registadas ({atribDiscIds.length} selecionada(s))
+                    </label>
+                    {disciplinasLote.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (atribDiscIds.length === disciplinasLote.length) setAtribDiscIds([]);
+                          else setAtribDiscIds(disciplinasLote.map(d => d.id));
+                        }}
+                        className="text-[10px] font-bold text-blue-700 hover:underline cursor-pointer"
+                      >
+                        {atribDiscIds.length === disciplinasLote.length ? 'Desmarcar todas' : 'Selecionar todas'}
+                      </button>
+                    )}
+                  </div>
+                  {disciplinasLote.length === 0 ? (
+                    <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                      Nenhuma disciplina cadastrada para as turmas/classes selecionadas.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 max-h-40 overflow-y-auto p-1.5 bg-slate-50 rounded-lg border border-gray-100">
+                      {disciplinasLote.map(d => {
+                        const sel = atribDiscIds.includes(d.id);
+                        return (
+                          <label
+                            key={`lote-disc-${d.id}`}
+                            className={`flex items-center space-x-2 p-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
+                              sel ? 'bg-indigo-600 text-white border-indigo-700 font-bold' : 'bg-white text-gray-800 border-gray-200 hover:bg-indigo-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sel}
+                              onChange={(e) => {
+                                if (e.target.checked) setAtribDiscIds(prev => [...prev, d.id]);
+                                else setAtribDiscIds(prev => prev.filter(x => x !== d.id));
+                              }}
+                              className="rounded text-indigo-600"
+                            />
+                            <span className="truncate">{d.nome}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
-              <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAtribuicaoModal(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer"
-                >
-                  Confirmar Atribuição
-                </button>
-              </div>
-            </form>
+                {/* 6. COORDENAÇÕES EM LOTE */}
+                <div className="border border-amber-200 bg-amber-50/50 rounded-xl p-3 space-y-2">
+                  <label className="block text-xs font-black text-amber-950">
+                    {temIICicloSel ? '6.' : '5.'} Coordenações a Atribuir Simultaneamente (Opcional)
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <label className="flex items-center space-x-2 p-1.5 bg-white rounded-lg border border-amber-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={atribEhCoordenador}
+                        onChange={(e) => setAtribEhCoordenador(e.target.checked)}
+                        className="rounded text-amber-600"
+                      />
+                      <span className="font-bold text-gray-800">Coordenador de Turma ({atribTurmasSel.length})</span>
+                    </label>
+                    <label className="flex items-center space-x-2 p-1.5 bg-white rounded-lg border border-amber-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={atribCoordClasse}
+                        onChange={(e) => setAtribCoordClasse(e.target.checked)}
+                        className="rounded text-amber-600"
+                      />
+                      <span className="font-bold text-gray-800">Coordenador de Classe ({atribClassesSel.length})</span>
+                    </label>
+                    <label className="flex items-center space-x-2 p-1.5 bg-white rounded-lg border border-amber-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={atribCoordDisciplina}
+                        onChange={(e) => setAtribCoordDisciplina(e.target.checked)}
+                        className="rounded text-amber-600"
+                      />
+                      <span className="font-bold text-gray-800">Coordenador de Disciplina ({atribDiscIds.length})</span>
+                    </label>
+                    {temIICicloSel && (
+                      <label className="flex items-center space-x-2 p-1.5 bg-white rounded-lg border border-purple-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={atribCoordCurso}
+                          onChange={(e) => setAtribCoordCurso(e.target.checked)}
+                          className="rounded text-purple-600"
+                        />
+                        <span className="font-bold text-purple-900">Coordenador de Curso ({atribCursosSel.length})</span>
+                      </label>
+                    )}
+                    <div className="flex items-center justify-between space-x-2 p-1.5 bg-white rounded-lg border border-amber-200">
+                      <label className="flex items-center space-x-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={atribCoordTurno}
+                          onChange={(e) => setAtribCoordTurno(e.target.checked)}
+                          className="rounded text-amber-600"
+                        />
+                        <span className="font-bold text-gray-800">Coord. de Turno</span>
+                      </label>
+                      {atribCoordTurno && (
+                        <select
+                          value={atribCoordTurnoNome}
+                          onChange={(e) => setAtribCoordTurnoNome(e.target.value)}
+                          className="text-[11px] px-1.5 py-0.5 border border-gray-300 rounded bg-white font-bold"
+                        >
+                          {turnosDisponiveisEscola.map(tr => (
+                            <option key={`lote-tr-${tr}`} value={tr}>{tr}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <label className="flex items-center space-x-2 p-1.5 bg-white rounded-lg border border-amber-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={atribCoordPedagogico}
+                        onChange={(e) => setAtribCoordPedagogico(e.target.checked)}
+                        className="rounded text-amber-600"
+                      />
+                      <span className="font-bold text-gray-800">Coordenador Pedagógico</span>
+                    </label>
+                  </div>
+                  {tiposCustomAtivos.length > 0 && (
+                    <div className="pt-1">
+                      <select
+                        value={atribCoordCustomTipo}
+                        onChange={(e) => setAtribCoordCustomTipo(e.target.value)}
+                        className="w-full text-[11px] px-2.5 py-1.5 border border-amber-200 rounded-lg bg-white font-semibold"
+                      >
+                        <option value="">+ Outra Coordenação Personalizada (Opcional)...</option>
+                        {tiposCustomAtivos.map(tc => (
+                          <option key={tc.id} value={tc.tipo}>{tc.tipo} ({tc.nivelEnsino})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAtribuicaoModal(false)}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!atribProfId}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg text-xs font-bold cursor-pointer"
+                  >
+                    Confirmar Atribuição em Lote ({atribTurmasSel.length} Turma(s) • {atribDiscIds.length} Disc.)
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL NOVA ÁREA DE FORMAÇÃO */}
       {showNovaAreaModal && (
@@ -3329,9 +4704,6 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   >
                     <option value="IIº Ciclo">IIº Ciclo (10ª à 12ª/13ª)</option>
                     <option value="Ensino Técnico">Ensino Técnico-Profissional (10ª à 13ª)</option>
-                    <option value="Iº Ciclo">Iº Ciclo (7ª à 9ª)</option>
-                    <option value="Ensino Primário">Ensino Primário (Iniciação à 6ª)</option>
-                    <option value="Todos os Ciclos">Todos os Ciclos</option>
                   </select>
                 </div>
 
@@ -3435,9 +4807,6 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   >
                     <option value="IIº Ciclo">IIº Ciclo (10ª à 12ª/13ª)</option>
                     <option value="Ensino Técnico">Ensino Técnico-Profissional (10ª à 13ª)</option>
-                    <option value="Iº Ciclo">Iº Ciclo (7ª à 9ª)</option>
-                    <option value="Ensino Primário">Ensino Primário (Iniciação à 6ª)</option>
-                    <option value="Todos os Ciclos">Todos os Ciclos</option>
                   </select>
                 </div>
                 <div>
@@ -3635,40 +5004,47 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               </div>
 
-              {/* SELEÇÃO DE CURSOS ASSOCIADOS À DISCIPLINA */}
-              <div className="border border-purple-200 bg-purple-50/40 p-3 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-purple-950">
-                    Cursos Associados ({novaDiscCursos.length === 0 ? 'Tronco Comum / Todos' : `${novaDiscCursos.length} selecionado(s)`})
-                  </label>
-                  {novaDiscCursos.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setNovaDiscCursos([])}
-                      className="text-[10px] font-bold text-purple-700 hover:underline cursor-pointer"
-                    >
-                      Aplicar a Todos (Tronco Comum)
-                    </button>
+              {/* SELEÇÃO DE CURSOS ASSOCIADOS À DISCIPLINA (Exclusivo e obrigatório por Classe+Curso no IIº Ciclo) */}
+              {novaDiscClasses.some(c => isSegundoCiclo(c)) && (
+                <div className="border border-purple-200 bg-purple-50/40 p-3 rounded-xl space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-purple-950">
+                      Cursos Associados no IIº Ciclo ({novaDiscTroncoComum ? 'Tronco Comum (Todos)' : `${novaDiscCursos.length} selecionado(s)`}) *
+                    </label>
+                    <label className="flex items-center space-x-1.5 text-[10px] font-bold text-purple-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={novaDiscTroncoComum}
+                        onChange={(e) => {
+                          setNovaDiscTroncoComum(e.target.checked);
+                          if (e.target.checked) setNovaDiscCursos([]);
+                        }}
+                        className="rounded text-purple-600"
+                      />
+                      <span>Tronco Comum (Todos os Cursos)</span>
+                    </label>
+                  </div>
+                  {!novaDiscTroncoComum && (
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {cursosDisponiveisEscola.map(c => {
+                        const sel = novaDiscCursos.includes(c);
+                        return (
+                          <button
+                            key={`nd-c-${c}`}
+                            type="button"
+                            onClick={() => setNovaDiscCursos(prev => sel ? prev.filter(x => x !== c) : [...prev, c])}
+                            className={`text-[10px] px-2 py-1 rounded-lg border font-bold cursor-pointer transition-colors ${
+                              sel ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50'
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                  {cursosDisponiveisEscola.map(c => {
-                    const sel = novaDiscCursos.includes(c);
-                    return (
-                      <button
-                        key={`nd-c-${c}`}
-                        type="button"
-                        onClick={() => setNovaDiscCursos(prev => sel ? prev.filter(x => x !== c) : [...prev, c])}
-                        className={`text-[10px] px-2 py-1 rounded-lg border font-bold cursor-pointer transition-colors ${
-                          sel ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50'
-                        }`}
-                      >
-                        {c}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              )}
 
               <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
                 <button
@@ -4102,7 +5478,17 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   <label className="block text-xs font-bold text-gray-700 mb-1">Classe</label>
                   <select
                     value={editTurmaClasse}
-                    onChange={(e) => setEditTurmaClasse(e.target.value)}
+                    onChange={(e) => {
+                      const cls = e.target.value;
+                      setEditTurmaClasse(cls);
+                      if (isSegundoCiclo(cls)) {
+                        if (!editTurmaCurso && cursosDisponiveisEscola.length > 0) {
+                          setEditTurmaCurso(cursosDisponiveisEscola[0]);
+                        }
+                      } else {
+                        setEditTurmaCurso('');
+                      }
+                    }}
                     className="w-full text-xs px-3 py-2 border border-gray-300 rounded-lg bg-white"
                   >
                     {(classesConfigs.length > 0
@@ -4129,22 +5515,23 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               </div>
 
-              {/* Curso / Especialidade (Obrigatório no 2º Ciclo, opcional nos demais) */}
-              <div className={isSegundoCiclo(editTurmaClasse) ? 'bg-purple-50 p-3 rounded-lg border border-purple-200' : 'bg-gray-50 p-3 rounded-lg border border-gray-200'}>
-                <label className={`block text-xs font-bold mb-1 ${isSegundoCiclo(editTurmaClasse) ? 'text-purple-900' : 'text-gray-700'}`}>
-                  {isSegundoCiclo(editTurmaClasse) ? 'Curso Curricular (2º Ciclo) *' : 'Curso / Plano Curricular (Opcional)'}
-                </label>
-                <select
-                  value={editTurmaCurso}
-                  onChange={(e) => setEditTurmaCurso(e.target.value)}
-                  className="w-full text-xs px-3 py-2 border border-purple-300 rounded-lg bg-white font-bold text-gray-900"
-                >
-                  {!isSegundoCiclo(editTurmaClasse) && <option value="">Padrão do Ciclo ({formatarCicloPorClasse(editTurmaClasse)})</option>}
-                  {Array.from(new Set([...cursosDisponiveisEscola, editTurmaCurso].filter(Boolean))).map(c => (
-                    <option key={`edit-c-${c}`} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
+              {/* Curso / Especialidade (Exclusivo para o IIº Ciclo) */}
+              {isSegundoCiclo(editTurmaClasse) && (
+                <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                  <label className="block text-xs font-bold mb-1 text-purple-900">
+                    Curso Curricular (2º Ciclo) *
+                  </label>
+                  <select
+                    value={editTurmaCurso}
+                    onChange={(e) => setEditTurmaCurso(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-purple-300 rounded-lg bg-white font-bold text-gray-900"
+                  >
+                    {Array.from(new Set([...cursosDisponiveisEscola, editTurmaCurso].filter(Boolean))).map(c => (
+                      <option key={`edit-c-${c}`} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -4317,39 +5704,46 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </div>
               </div>
 
-              <div className="border border-purple-200 bg-purple-50/40 p-2.5 rounded-lg space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-purple-950">
-                    Cursos Associados ({editDiscCursos.length === 0 ? 'Tronco Comum' : `${editDiscCursos.length}`})
-                  </label>
-                  {editDiscCursos.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setEditDiscCursos([])}
-                      className="text-[10px] font-bold text-purple-700 hover:underline cursor-pointer"
-                    >
-                      Limpar (Todos os Cursos)
-                    </button>
+              {editDiscClasses.some(c => isSegundoCiclo(c)) && (
+                <div className="border border-purple-200 bg-purple-50/40 p-2.5 rounded-lg space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-purple-950">
+                      Cursos Associados no IIº Ciclo ({editDiscTroncoComum ? 'Tronco Comum' : `${editDiscCursos.length} selecionado(s)`}) *
+                    </label>
+                    <label className="flex items-center space-x-1.5 text-[10px] font-bold text-purple-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editDiscTroncoComum}
+                        onChange={(e) => {
+                          setEditDiscTroncoComum(e.target.checked);
+                          if (e.target.checked) setEditDiscCursos([]);
+                        }}
+                        className="rounded text-purple-600"
+                      />
+                      <span>Tronco Comum (Todos)</span>
+                    </label>
+                  </div>
+                  {!editDiscTroncoComum && (
+                    <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                      {Array.from(new Set([...cursosDisponiveisEscola, ...editDiscCursos])).map(c => {
+                        const sel = editDiscCursos.includes(c);
+                        return (
+                          <button
+                            key={`ed-c-${c}`}
+                            type="button"
+                            onClick={() => setEditDiscCursos(prev => sel ? prev.filter(x => x !== c) : [...prev, c])}
+                            className={`text-[10px] px-2 py-0.5 rounded border font-bold cursor-pointer ${
+                              sel ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50'
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-                  {Array.from(new Set([...cursosDisponiveisEscola, ...editDiscCursos])).map(c => {
-                    const sel = editDiscCursos.includes(c);
-                    return (
-                      <button
-                        key={`ed-c-${c}`}
-                        type="button"
-                        onClick={() => setEditDiscCursos(prev => sel ? prev.filter(x => x !== c) : [...prev, c])}
-                        className={`text-[10px] px-2 py-0.5 rounded border font-bold cursor-pointer ${
-                          sel ? 'bg-purple-600 text-white border-purple-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50'
-                        }`}
-                      >
-                        {c}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              )}
 
               <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
                 <button
@@ -4517,13 +5911,27 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : (() => {
+              const anoAlvoRotulo = anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo;
+              const statsCascata = dbService.contarDadosDoAnoLectivo(escola.id, anoAlvoRotulo);
+              return (
               <div className="space-y-4">
-                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs leading-relaxed space-y-1.5">
-                  <p className="font-bold">Aviso Crítico de Segurança:</p>
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs leading-relaxed space-y-2">
+                  <p className="font-bold">Aviso Crítico — Eliminação em Cascata:</p>
                   <p>
-                    A eliminação do ano letivo <strong>{anoParaEliminarSeguro.ano || anoParaEliminarSeguro.rotulo}</strong> removerá este período do histórico da instituição. Esta ação não poderá ser desfeita.
+                    Ao eliminar o ano letivo <strong>{anoAlvoRotulo}</strong>, serão apagados definitivamente <strong>todos os dados</strong> deste período (classes, turmas, turnos, disciplinas, alunos, notas, pautas, boletins, documentos, relatórios, planos e provas):
                   </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1 text-[11px] font-semibold">
+                    <span>Alunos: <strong>{statsCascata.alunos}</strong></span>
+                    <span>Turmas: <strong>{statsCascata.turmas}</strong></span>
+                    <span>Classes/Turnos: <strong>{statsCascata.classes + statsCascata.turnos}</strong></span>
+                    <span>Disciplinas: <strong>{statsCascata.disciplinas}</strong></span>
+                    <span>Notas/Pautas: <strong>{statsCascata.notas}</strong></span>
+                    <span>Relatórios/Planos: <strong>{statsCascata.relatorios + statsCascata.planos}</strong></span>
+                    <span>Provas/Atas: <strong>{statsCascata.provas}</strong></span>
+                    <span>Finanças/Recibos: <strong>{statsCascata.financeiro}</strong></span>
+                    <span>Júris/Termos: <strong>{statsCascata.juris}</strong></span>
+                  </div>
                 </div>
 
                 <div>
@@ -4561,7 +5969,8 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                   </button>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
@@ -4636,6 +6045,397 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ATRIBUIR COORDENAÇÃO POR NÍVEL DE ENSINO */}
+      {showNovaCoordenacaoModal && (() => {
+        const defsDoNivel = tiposCoordenacaoPorNivelCombinados[coordNivel];
+        const defAtual = defsDoNivel.find(d => d.tipo === coordTipo) || defsDoNivel[0];
+        const classesDoNivel = getClassesPorNivelCoordenacao(coordNivel);
+        const turmasDoNivel = turmasDoAnoActivo.filter(t => {
+          if (coordNivel === 'Primario') return isEnsinoPrimario(t.classe);
+          if (coordNivel === 'ICiclo') return isPrimeiroCiclo(t.classe);
+          return isSegundoCiclo(t.classe);
+        });
+        const discsDoNivel = disciplinas.filter(d => {
+          const cls = d.classes && d.classes.length > 0 ? d.classes : (d.classe ? [d.classe] : []);
+          if (cls.length === 0) return true;
+          if (coordNivel === 'Primario') return cls.some(c => isEnsinoPrimario(c));
+          if (coordNivel === 'ICiclo') return cls.some(c => isPrimeiroCiclo(c));
+          return cls.some(c => isSegundoCiclo(c));
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 my-6">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Atribuir Coordenação Pedagógica</h3>
+                  <p className="text-[11px] text-gray-500">Ano Letivo: <strong>{escola.anoLectivoActivo || 'Atual'}</strong></p>
+                </div>
+                <button type="button" onClick={() => setShowNovaCoordenacaoModal(false)} className="text-gray-400 hover:text-gray-600 font-bold">✕</button>
+              </div>
+
+              <form onSubmit={handleCriarCoordenacao} className="space-y-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">1. Nível de Ensino *</label>
+                    <select
+                      value={coordNivel}
+                      onChange={(e) => {
+                        const niv = e.target.value as NivelCoordenacaoEnsino;
+                        const novasDefs = tiposCoordenacaoPorNivelCombinados[niv];
+                        const novasClasses = getClassesPorNivelCoordenacao(niv);
+                        setCoordNivel(niv);
+                        setCoordTipo(novasDefs[0]?.tipo || TIPOS_COORDENACAO_POR_NIVEL[niv][0].tipo);
+                        setCoordClasse(novasClasses[0] || '');
+                        setCoordTurmaId('');
+                        setCoordDisciplinaId('');
+                        setCoordCurso(niv === 'IICiclo' ? (cursosDisponiveisEscola[0] || '') : '');
+                      }}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      <option value="Primario">Ensino Primário (Iniciação à 6ª)</option>
+                      <option value="ICiclo">Iº Ciclo (7ª à 9ª Classe)</option>
+                      <option value="IICiclo">IIº Ciclo / Técnico (10ª à 13ª)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">2. Tipo de Coordenação *</label>
+                    <select
+                      value={coordTipo}
+                      onChange={(e) => setCoordTipo(e.target.value)}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      {defsDoNivel.map(d => (
+                        <option key={d.tipo} value={d.tipo}>{d.tipo}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {defAtual && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-950">
+                    {defAtual.descricao}
+                  </div>
+                )}
+
+                {defAtual?.requerClasse && !defAtual?.requerTurma && (
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Classe Coordenada *</label>
+                    <select
+                      value={coordClasse}
+                      onChange={(e) => setCoordClasse(e.target.value)}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      {classesDoNivel.map(c => (
+                        <option key={`cc-${c}`} value={c}>{c === 'Iniciação' ? c : `${c} Classe`}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {defAtual?.requerTurma && (
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Turma Coordenada *</label>
+                    <select
+                      value={coordTurmaId}
+                      onChange={(e) => setCoordTurmaId(e.target.value)}
+                      required
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      <option value="">Selecione a Turma...</option>
+                      {turmasDoNivel.map(t => (
+                        <option key={`ct-${t.id}`} value={t.id}>
+                          {t.classe} • {t.nome} ({t.turno}){coordNivel === 'IICiclo' && t.curso ? ` — ${t.curso}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {defAtual?.requerDisciplina && (
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Disciplina Coordenada *</label>
+                    <select
+                      value={coordDisciplinaId}
+                      onChange={(e) => setCoordDisciplinaId(e.target.value)}
+                      required
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      <option value="">Selecione a Disciplina...</option>
+                      {discsDoNivel.map(d => (
+                        <option key={`cd-${d.id}`} value={d.id}>{d.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {coordNivel === 'IICiclo' && defAtual?.requerCurso && (
+                  <div>
+                    <label className="block font-bold text-purple-900 mb-1">Curso / Área de Formação (IIº Ciclo) *</label>
+                    <select
+                      value={coordCurso}
+                      onChange={(e) => setCoordCurso(e.target.value)}
+                      required
+                      className="w-full p-2.5 border border-purple-300 rounded-lg bg-purple-50/40 font-bold"
+                    >
+                      <option value="">Selecione o Curso...</option>
+                      {cursosDisponiveisEscola.map(cur => (
+                        <option key={`ccur-${cur}`} value={cur}>{cur}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {defAtual?.requerTurno && (
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Turno Coordenado *</label>
+                    <select
+                      value={coordTurno}
+                      onChange={(e) => setCoordTurno(e.target.value)}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      {turnosDisponiveisEscola.map(tr => (
+                        <option key={`cturno-${tr}`} value={tr}>{tr}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {defAtual?.requerAreaDisciplinar && (
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Área Disciplinar (Ensino Primário) *</label>
+                    <select
+                      value={coordAreaDisciplinar}
+                      onChange={(e) => setCoordAreaDisciplinar(e.target.value)}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      <option value="Língua Portuguesa">Língua Portuguesa</option>
+                      <option value="Matemática">Matemática</option>
+                      <option value="Estudo do Meio / Ciências">Estudo do Meio / Ciências</option>
+                      <option value="Educação Artística e Expressões">Educação Artística e Expressões</option>
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Responsável Designado (Docente / Funcionário) *</label>
+                  <select
+                    value={coordFuncionarioId}
+                    onChange={(e) => setCoordFuncionarioId(e.target.value)}
+                    required
+                    className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                  >
+                    <option value="">Selecione o Responsável...</option>
+                    {funcionarios
+                      .filter(f => !escola.id || escola.id === 'todas' || f.escolaId === escola.id)
+                      .map(f => (
+                        <option key={`cf-${f.id}`} value={f.id}>
+                          {f.nomeCompleto} — {f.cargo}{f.ehProfessor ? ' (Docente)' : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Observações (Opcional)</label>
+                  <input
+                    type="text"
+                    value={coordObservacoes}
+                    onChange={(e) => setCoordObservacoes(e.target.value)}
+                    placeholder="Despacho, atribuição específica..."
+                    className="w-full p-2.5 border border-gray-300 rounded-lg"
+                  />
+                </div>
+
+                <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
+                  <button type="button" onClick={() => setShowNovaCoordenacaoModal(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold cursor-pointer">
+                    Cancelar
+                  </button>
+                  <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black cursor-pointer">
+                    Gravar Coordenação
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL CRIAR NOVA COORDENAÇÃO PERSONALIZADA PELA DIREÇÃO */}
+      {showCriarTipoCoordenacaoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 my-6">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Criar Nova Coordenação Personalizada</h3>
+                <p className="text-[11px] text-gray-500">
+                  Adicione um novo cargo de coordenação que ainda não existe na estrutura padrão da escola.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCriarTipoCoordenacaoModal(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCriarTipoCoordenacaoPersonalizada} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Nível de Ensino *</label>
+                <select
+                  value={novoTipoCoordNivel}
+                  onChange={(e) => {
+                    const niv = e.target.value as NivelCoordenacaoEnsino;
+                    setNovoTipoCoordNivel(niv);
+                    if (niv !== 'IICiclo') {
+                      setNovoTipoCoordReqCurso(false);
+                    }
+                  }}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg bg-white font-bold"
+                >
+                  <option value="Primario">Ensino Primário (Iniciação à 6ª Classe)</option>
+                  <option value="ICiclo">Iº Ciclo (7ª à 9ª Classe)</option>
+                  <option value="IICiclo">IIº Ciclo / Técnico (10ª à 13ª Classe)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Nome da Coordenação *</label>
+                <input
+                  type="text"
+                  required
+                  value={novoTipoCoordNome}
+                  onChange={(e) => setNovoTipoCoordNome(e.target.value)}
+                  placeholder="Ex: Coordenador de Laboratórios, Coordenador de Desporto Escolar..."
+                  className="w-full p-2.5 border border-gray-300 rounded-lg font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-gray-700 mb-1">Descrição / Competências</label>
+                <textarea
+                  rows={2}
+                  value={novoTipoCoordDesc}
+                  onChange={(e) => setNovoTipoCoordDesc(e.target.value)}
+                  placeholder="Atribuições e responsabilidades deste coordenador nesta escola..."
+                  className="w-full p-2.5 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <p className="text-[11px] font-black text-slate-700 uppercase">
+                  Campos de Vínculo Académico ao Atribuir:
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={novoTipoCoordReqClasse}
+                      onChange={(e) => setNovoTipoCoordReqClasse(e.target.checked)}
+                    />
+                    <span className="font-semibold text-gray-700">Vincular a uma Classe</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={novoTipoCoordReqTurma}
+                      onChange={(e) => setNovoTipoCoordReqTurma(e.target.checked)}
+                    />
+                    <span className="font-semibold text-gray-700">Vincular a uma Turma</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={novoTipoCoordReqDisciplina}
+                      onChange={(e) => setNovoTipoCoordReqDisciplina(e.target.checked)}
+                    />
+                    <span className="font-semibold text-gray-700">Vincular a Disciplina</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={novoTipoCoordReqTurno}
+                      onChange={(e) => setNovoTipoCoordReqTurno(e.target.checked)}
+                    />
+                    <span className="font-semibold text-gray-700">Vincular a um Turno</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={novoTipoCoordReqArea}
+                      onChange={(e) => setNovoTipoCoordReqArea(e.target.checked)}
+                    />
+                    <span className="font-semibold text-gray-700">Área Disciplinar</span>
+                  </label>
+                  {novoTipoCoordNivel === 'IICiclo' && (
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={novoTipoCoordReqCurso}
+                        onChange={(e) => setNovoTipoCoordReqCurso(e.target.checked)}
+                      />
+                      <span className="font-semibold text-purple-800">Vincular a Curso (IIº Ciclo)</span>
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCriarTipoCoordenacaoModal(false)}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black cursor-pointer"
+                >
+                  Guardar Nova Coordenação
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMAÇÃO INLINE */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center space-x-2 text-amber-600 border-b border-gray-100 pb-3">
+              <AlertTriangle className="w-5 h-5" />
+              <h3 className="text-base font-bold text-gray-900">{confirmModal.titulo}</h3>
+            </div>
+            <p className="text-xs text-gray-700 leading-relaxed">{confirmModal.mensagem}</p>
+            <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const fn = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  fn();
+                }}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Confirmar
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -66,7 +66,17 @@ import {
   ConfiguracaoCamposDocumento,
   RegraVisibilidadeDadosSensiveis,
   RegraVisibilidadePorCargo,
-  ConfiguracaoVisibilidadeEmpregados
+  ConfiguracaoVisibilidadeEmpregados,
+  RelatorioFinalInterinidade,
+  OcorrenciaHistoricoAluno,
+  CoordenacaoEscolar,
+  TipoCoordenacaoPersonalizada,
+  RelatorioPedagogicoFormal,
+  AtividadePlanoEscolar,
+  DadosFinancasPessoaisUsuario,
+  HorarioProvaItem,
+  MapaFiscalizacaoProva,
+  AtaProvaRegistro
 } from '../types';
 import { isClasseFinal } from './macEngine';
 import {
@@ -128,6 +138,14 @@ const STORAGE_KEYS = {
   EMOLUMENTOS_CONFIG: 'sge_emolumentos_config',
   SESSOES_ATIVAS: 'sge_sessoes_ativas',
   RELATORIOS_ACONTECIMENTOS: 'sge_relatorios_acontecimentos',
+  COORDENACOES: 'sge_coordenacoes',
+  TIPOS_COORDENACAO: 'sge_tipos_coordenacao',
+  RELATORIOS_PEDAGOGICOS: 'sge_relatorios_pedagogicos',
+  PLANOS_ATIVIDADES: 'sge_planos_atividades',
+  FINANCAS_PESSOAIS: 'sge_financas_pessoais',
+  HORARIOS_PROVAS: 'sge_horarios_provas',
+  MAPAS_FISCALIZACAO: 'sge_mapas_fiscalizacao',
+  ATAS_PROVAS: 'sge_atas_provas',
 };
 
 export const DEFAULT_CURSOS: CursoConfig[] = [
@@ -1100,7 +1118,11 @@ const COLECOES_BACKUP_INCREMENTAL_META: Array<{
   { colecao: 'salasAulas', rotulo: 'Salas de Aula', storageKey: STORAGE_KEYS.SALAS_AULAS },
   { colecao: 'solicitacoesApoio', rotulo: 'Apoio Técnico', storageKey: STORAGE_KEYS.SOLICITACOES_APOIO },
   { colecao: 'alertasSeguranca', rotulo: 'Alertas de Segurança', storageKey: STORAGE_KEYS.ALERTAS_SEGURANCA },
-  { colecao: 'relatoriosAcontecimentos', rotulo: 'Relatórios de Acontecimentos', storageKey: STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS }
+  { colecao: 'relatoriosAcontecimentos', rotulo: 'Relatórios de Acontecimentos', storageKey: STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS },
+  { colecao: 'coordenacoes', rotulo: 'Coordenações Escolares', storageKey: STORAGE_KEYS.COORDENACOES },
+  { colecao: 'tiposCoordenacaoPersonalizados', rotulo: 'Tipos de Coordenação Personalizados', storageKey: STORAGE_KEYS.TIPOS_COORDENACAO },
+  { colecao: 'relatoriosPedagogicos', rotulo: 'Relatórios Pedagógicos Formais', storageKey: STORAGE_KEYS.RELATORIOS_PEDAGOGICOS },
+  { colecao: 'planosAtividades', rotulo: 'Planos de Atividades e Eventos', storageKey: STORAGE_KEYS.PLANOS_ATIVIDADES }
 ];
 
 function hashDeterministicoSge(valor: unknown): string {
@@ -1169,7 +1191,15 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     horarios: getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS),
     presencas: dbService.getPresencas(),
     presencasAlunos: getLocal<any[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
-    auditoria: dbService.getAuditoria().filter(l => !nonAdmin || !isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes)),
+    auditoria: dbService.getAuditoriaBruta().filter(l => {
+      if (nonAdmin && (isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes) || l.escolaId === 'ADMIN_GLOBAL' || l.escolaId === 'SISTEMA')) {
+        return false;
+      }
+      if (isEscolaEspecifica) {
+        return l.escolaId === effectiveEscolaId;
+      }
+      return true;
+    }),
     mensagens: dbService.getMensagens(),
     biblioteca: dbService.getBiblioteca(),
     bibliotecaAcessos: isEscolaEspecifica ? dbService.getAcessosBiblioteca(effectiveEscolaId) : dbService.getAcessosBiblioteca(),
@@ -1189,13 +1219,19 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     salasAulas: dbService.getSalasAulas(),
     solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
     alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
-    relatoriosAcontecimentos: getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, [])
+    relatoriosAcontecimentos: getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, []),
+    coordenacoes: getLocal<CoordenacaoEscolar[]>(STORAGE_KEYS.COORDENACOES, []),
+    tiposCoordenacaoPersonalizados: getLocal<TipoCoordenacaoPersonalizada[]>(STORAGE_KEYS.TIPOS_COORDENACAO, []),
+    relatoriosPedagogicos: getLocal<RelatorioPedagogicoFormal[]>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, [])
   };
 
   const colecoesFiltradasPorEscola = new Set([
     'alunos',
     'turmas',
     'atribuicoes',
+    'coordenacoes',
+    'tiposCoordenacaoPersonalizados',
+    'relatoriosPedagogicos',
     'funcionarios',
     'avaliacoes',
     'notasConsolidadas',
@@ -1222,7 +1258,9 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     if (isEscolaEspecifica) {
       if (def.colecao === 'escolas') {
         list = list.filter((e: any) => e?.id === effectiveEscolaId);
-      } else if (def.colecao === 'disciplinas' || def.colecao === 'notas' || def.colecao === 'auditoria') {
+      } else if (def.colecao === 'auditoria') {
+        list = list.filter((item: any) => item?.escolaId === effectiveEscolaId);
+      } else if (def.colecao === 'disciplinas' || def.colecao === 'notas') {
         list = list.filter((item: any) => !item?.escolaId || item.escolaId === effectiveEscolaId);
       } else if (colecoesFiltradasPorEscola.has(def.colecao)) {
         list = list.filter((item: any) => item?.escolaId === effectiveEscolaId);
@@ -1528,6 +1566,9 @@ export const dbService = {
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
     offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
     firebaseSyncEngine.salvarEscola(escolaFinal);
+    try {
+      dbService.garantirDiretorNosFuncionarios(escolaFinal);
+    } catch {}
     dbService.registarLog('Atualização da Instituição', `Dados da escola ${escola.nomeOficial} atualizados.`);
   },
   salvarEscolas: (escolas: Escola[]) => {
@@ -2283,6 +2324,47 @@ export const dbService = {
       dbService.salvarAnoLectivoConfig(target);
     }
   },
+  contarDadosDoAnoLectivo: (escolaId: string, anoRotulo: string): Record<string, number> => {
+    const matchAnoEsc = (esc?: string, ano?: string) => (!escolaId || escolaId === 'todas' || esc === escolaId) && ano === anoRotulo;
+    const turmas = dbService.getTurmas().filter(t => matchAnoEsc(t.escolaId, t.anoLectivo));
+    const turmasIds = new Set(turmas.map(t => t.id));
+    const alunos = dbService.getAlunos(escolaId).filter(a => (a.anoLectivo || a.anoMatricula) === anoRotulo);
+    const alunosIds = new Set(alunos.map(a => a.id));
+    const avaliacoes = dbService.getAvaliacoes().filter(a => matchAnoEsc(a.escolaId, a.anoLectivo));
+    const avIds = new Set(avaliacoes.map(a => a.id));
+    const notas = dbService.getNotas().filter(n => n.anoLectivo === anoRotulo || avIds.has(n.avaliacaoId) || alunosIds.has(n.alunoId));
+    const notasCons = dbService.getNotasConsolidadas().filter(nc => ((nc as any).escolaId ? (nc as any).escolaId === escolaId : true) && (nc.anoLectivo === anoRotulo || alunosIds.has(nc.alunoId)));
+    const classes = dbService.getClassesConfigs(escolaId, anoRotulo).filter(c => c.anoLectivo === anoRotulo);
+    const turnos = dbService.getTurnosConfigs(escolaId, anoRotulo).filter(t => t.anoLectivo === anoRotulo);
+    const disciplinas = dbService.getDisciplinas(escolaId, anoRotulo).filter(d => d.anoLectivo === anoRotulo);
+    const atribuicoes = dbService.getAtribuicoes(escolaId, anoRotulo);
+    const coordenacoes = dbService.getCoordenacoes(escolaId, anoRotulo);
+    const relatorios = [
+      ...dbService.getRelatoriosAcontecimentos(escolaId).filter(r => r.anoLectivo === anoRotulo),
+      ...dbService.getRelatoriosPedagogicos(escolaId).filter(r => r.anoLectivo === anoRotulo)
+    ];
+    const planos = dbService.getAtividadesPlano(escolaId, anoRotulo).filter(p => p.anoLectivo === anoRotulo);
+    const provas = dbService.getHorariosProvas(escolaId, anoRotulo).length + dbService.getMapasFiscalizacao(escolaId, anoRotulo).length + dbService.getAtasProvas(escolaId, anoRotulo).length;
+    const financeiro = dbService.getTransacoesFinanceiras(escolaId, anoRotulo).length + dbService.getDespesasEscolares(escolaId, anoRotulo).length + dbService.getRecibos().filter(r => r.escolaId === escolaId && (r.anoLectivo === anoRotulo || alunosIds.has(r.alunoId))).length;
+    const juris = dbService.getJuris().filter(j => j.escolaId === escolaId && j.anoLectivo === anoRotulo).length + dbService.getTermosExame(escolaId).filter(t => t.anoLectivo === anoRotulo).length;
+    return {
+      turmas: turmas.length,
+      alunos: alunos.length,
+      classes: classes.length,
+      turnos: turnos.length,
+      disciplinas: disciplinas.length,
+      atribuicoes: atribuicoes.length,
+      coordenacoes: coordenacoes.length,
+      avaliacoes: avaliacoes.length,
+      notas: notas.length + notasCons.length,
+      relatorios: relatorios.length,
+      planos: planos.length,
+      provas,
+      financeiro,
+      juris,
+      turmasCountFallback: turmasIds.size
+    };
+  },
   eliminarAnoLectivoConfig: (idOuRotulo: string, escolaId?: string): boolean => {
     let configs = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
     const escolaAtiva = dbService.getEscolaAtiva();
@@ -2302,9 +2384,233 @@ export const dbService = {
       return false;
     }
 
+    const escAlvoId = target.escolaId || targetEscolaId || '';
+    const anoRotulo = target.rotulo || target.ano || '';
+    const matchEscola = (eId?: string) => !escAlvoId || escAlvoId === 'todas' || eId === escAlvoId;
+    const colecoesCascataFirestore: Array<{ colecao: string; ids: string[]; extraColecoes?: string[] }> = [];
+
+    // 1. Remover Alunos do Ano Letivo e limpar entradas históricas desse ano nos restantes alunos
+    const todosAlunos = getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, DEFAULT_ALUNOS);
+    const alunosRemovidosIds = new Set<string>();
+    const alunosRestantes: Aluno[] = [];
+    for (const a of todosAlunos) {
+      if (matchEscola(a.escolaId) && (a.anoLectivo || a.anoMatricula) === anoRotulo) {
+        alunosRemovidosIds.add(a.id);
+      } else if (matchEscola(a.escolaId)) {
+        const histLimpo = Array.isArray(a.historicoAnterior)
+          ? a.historicoAnterior.filter(h => h.anoLectivo !== anoRotulo)
+          : a.historicoAnterior;
+        const ocorrLimpo = Array.isArray(a.ocorrencias)
+          ? a.ocorrencias.filter((o: any) => !o?.anoLectivo || o.anoLectivo !== anoRotulo)
+          : a.ocorrencias;
+        alunosRestantes.push({ ...a, historicoAnterior: histLimpo, ocorrencias: ocorrLimpo });
+      } else {
+        alunosRestantes.push(a);
+      }
+    }
+    setLocal(STORAGE_KEYS.ALUNOS, alunosRestantes);
+    if (alunosRemovidosIds.size > 0) {
+      colecoesCascataFirestore.push({ colecao: 'alunos', ids: Array.from(alunosRemovidosIds), extraColecoes: ['students'] });
+    }
+
+    // 2. Remover Turmas do Ano Letivo
+    const todasTurmas = getLocal<Turma[]>(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS);
+    const turmasRemovidasIds = new Set<string>();
+    const turmasRestantes = todasTurmas.filter(t => {
+      if (matchEscola(t.escolaId) && t.anoLectivo === anoRotulo) {
+        turmasRemovidasIds.add(t.id);
+        return false;
+      }
+      return true;
+    });
+    setLocal(STORAGE_KEYS.TURMAS, turmasRestantes);
+    if (turmasRemovidasIds.size > 0) {
+      colecoesCascataFirestore.push({ colecao: 'turmas', ids: Array.from(turmasRemovidasIds) });
+    }
+
+    // Helper genérico para remover registos de arrays por escola + anoLectivo
+    const removerPorAnoEsc = <T extends { id?: string; escolaId?: string; anoLectivo?: string }>(
+      storageKey: string,
+      colecaoFirestore: string,
+      extraMatch?: (item: T) => boolean
+    ) => {
+      const lista = getLocal<T[]>(storageKey, []);
+      const idsRem: string[] = [];
+      const filtrada = lista.filter(item => {
+        const ehAlvo = matchEscola(item?.escolaId) && (item?.anoLectivo === anoRotulo || Boolean(extraMatch && extraMatch(item)));
+        if (ehAlvo) {
+          if (item?.id) idsRem.push(item.id);
+          return false;
+        }
+        return true;
+      });
+      if (idsRem.length > 0 || filtrada.length !== lista.length) {
+        setLocal(storageKey, filtrada);
+      }
+      if (idsRem.length > 0) {
+        colecoesCascataFirestore.push({ colecao: colecaoFirestore, ids: idsRem });
+      }
+      return new Set(idsRem);
+    };
+
+    removerPorAnoEsc<ClasseEscolar>(STORAGE_KEYS.CLASSES_CONFIGS, 'classes_configs');
+    removerPorAnoEsc<TurnoConfig>(STORAGE_KEYS.TURNOS_CONFIGS, 'turnos_configs');
+    removerPorAnoEsc<Disciplina>(STORAGE_KEYS.DISCIPLINAS, 'disciplinas');
+    removerPorAnoEsc<AtribuicaoDocente>(STORAGE_KEYS.ATRIBUICOES, 'atribuicoes', (a) => turmasRemovidasIds.has(a.turmaId));
+    removerPorAnoEsc<CoordenacaoEscolar>(STORAGE_KEYS.COORDENACOES, 'coordenacoes', (c) => Boolean(c.turmaId && turmasRemovidasIds.has(c.turmaId)));
+    const avRemovidasIds = removerPorAnoEsc<AvaliacaoCriada>(STORAGE_KEYS.AVALIACOES, 'avaliacoes', (av) => turmasRemovidasIds.has(av.turmaId));
+
+    // Notas individuais
+    const todasNotas = getLocal<NotaEstudante[]>(STORAGE_KEYS.NOTAS, DEFAULT_NOTAS);
+    const notasRemIds: string[] = [];
+    const notasRest = todasNotas.filter(n => {
+      const ehDoAno =
+        n.anoLectivo === anoRotulo ||
+        avRemovidasIds.has(n.avaliacaoId) ||
+        alunosRemovidosIds.has(n.alunoId);
+      if (ehDoAno && (!n.escolaId || matchEscola(n.escolaId) || alunosRemovidosIds.has(n.alunoId) || avRemovidasIds.has(n.avaliacaoId))) {
+        notasRemIds.push(n.id || `${n.avaliacaoId}_${n.alunoId}`);
+        return false;
+      }
+      return true;
+    });
+    setLocal(STORAGE_KEYS.NOTAS, notasRest);
+    if (notasRemIds.length > 0) {
+      colecoesCascataFirestore.push({ colecao: 'notas_estudantes', ids: notasRemIds });
+    }
+
+    // Notas consolidadas (Pautas / Mini-Pautas / Boletins)
+    const todasCons = getLocal<NotaTrimestralConsolidada[]>(STORAGE_KEYS.NOTAS_CONSOLIDADAS, DEFAULT_NOTAS_CONSOLIDADAS);
+    const consRemIds: string[] = [];
+    const consRest = todasCons.filter(nc => {
+      const mesmoAno = nc.anoLectivo === anoRotulo || alunosRemovidosIds.has(nc.alunoId) || turmasRemovidasIds.has(nc.turmaId);
+      const mesmaEsc = !(nc as any).escolaId || matchEscola((nc as any).escolaId) || alunosRemovidosIds.has(nc.alunoId);
+      if (mesmoAno && mesmaEsc) {
+        consRemIds.push(nc.id || `${nc.alunoId}_${nc.disciplinaId}_${nc.trimestre}_${nc.anoLectivo || 'padrao'}`);
+        return false;
+      }
+      return true;
+    });
+    setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, consRest);
+    if (consRemIds.length > 0) {
+      colecoesCascataFirestore.push({ colecao: 'notas', ids: consRemIds });
+    }
+
+    removerPorAnoEsc<SolicitacaoAlteracaoNota>(STORAGE_KEYS.SOLICITACOES_NOTA, 'solicitacoes_nota', (s) => alunosRemovidosIds.has(s.alunoId));
+    removerPorAnoEsc<RegistroAlteracaoNotaDirecao>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, 'alteracoes_notas_direcao', (r) => turmasRemovidasIds.has(r.turmaId) || alunosRemovidosIds.has(r.alunoId));
+    removerPorAnoEsc<ComissaoJuri>(STORAGE_KEYS.JURIS, 'juris', (j) => Boolean(j.turmaId && turmasRemovidasIds.has(j.turmaId)) || Boolean(j.turmasIds?.some(tid => turmasRemovidasIds.has(tid))));
+    removerPorAnoEsc<TermoExame>(STORAGE_KEYS.TERMOS_EXAME, 'termos_exame', (t) => turmasRemovidasIds.has(t.turmaId));
+    removerPorAnoEsc<HorarioAulaItem>(STORAGE_KEYS.HORARIOS, 'horarios', (h) => turmasRemovidasIds.has(h.turmaId));
+    removerPorAnoEsc<PresencaFuncionario>(STORAGE_KEYS.PRESENCAS, 'presencas');
+
+    // Presenças de alunos
+    const todasPresAlunos = getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
+    const presAlRemIds: string[] = [];
+    const presAlRest = todasPresAlunos.filter(pa => {
+      if (matchEscola(pa.escolaId) && (pa.anoLectivo === anoRotulo || turmasRemovidasIds.has(pa.turmaId) || alunosRemovidosIds.has(pa.alunoId))) {
+        presAlRemIds.push(pa.id || `${pa.alunoId}_${pa.data}_${pa.tempoLectivo}`);
+        return false;
+      }
+      return true;
+    });
+    setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, presAlRest);
+    if (presAlRemIds.length > 0) {
+      colecoesCascataFirestore.push({ colecao: 'presencas_alunos', ids: presAlRemIds });
+    }
+
+    removerPorAnoEsc<ReciboPagamento>(STORAGE_KEYS.RECIBOS, 'recibos', (r) => alunosRemovidosIds.has(r.alunoId));
+    removerPorAnoEsc<TransacaoFinanceira>(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, 'transacoes_financeiras', (t) => Boolean(t.alunoId && alunosRemovidosIds.has(t.alunoId)));
+    removerPorAnoEsc<DespesaEscolar>(STORAGE_KEYS.DESPESAS_ESCOLARES, 'despesas_escolares');
+    removerPorAnoEsc<RelatorioAcontecimento>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, 'relatorios_acontecimentos');
+    removerPorAnoEsc<RelatorioPedagogicoFormal>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, 'relatorios_pedagogicos');
+    removerPorAnoEsc<AtividadePlanoEscolar>(STORAGE_KEYS.PLANOS_ATIVIDADES, 'planos_atividades');
+    removerPorAnoEsc<HorarioProvaItem>(STORAGE_KEYS.HORARIOS_PROVAS, 'horarios_provas', (h) => turmasRemovidasIds.has(h.turmaId));
+    removerPorAnoEsc<MapaFiscalizacaoProva>(STORAGE_KEYS.MAPAS_FISCALIZACAO, 'mapas_fiscalizacao', (m) => turmasRemovidasIds.has(m.turmaId));
+    removerPorAnoEsc<AtaProvaRegistro>(STORAGE_KEYS.ATAS_PROVAS, 'atas_provas', (a) => turmasRemovidasIds.has(a.turmaId));
+
+    // Limpar Histórico Completo dos alunos removidos e entradas do ano nos restantes
+    const histMap = getLocal<Record<string, HistoricoEscolarCompleto>>(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO);
+    const histRemIds: string[] = [];
+    Object.keys(histMap).forEach(alId => {
+      if (alunosRemovidosIds.has(alId)) {
+        delete histMap[alId];
+        histRemIds.push(alId);
+      } else if (histMap[alId]) {
+        const reg = histMap[alId];
+        let alterado = false;
+        const classesFiltradas = (reg.classes || []).filter(c => c.anoLectivo !== anoRotulo);
+        if (classesFiltradas.length !== (reg.classes || []).length) alterado = true;
+        const ocorrFiltradas = (reg.ocorrenciasGerais || []).filter(o => o.anoLectivo !== anoRotulo);
+        if (ocorrFiltradas.length !== (reg.ocorrenciasGerais || []).length) alterado = true;
+        const faltasFiltradas = (reg.faltasHistoricas || []).filter(f => f.anoLectivo !== anoRotulo);
+        if (faltasFiltradas.length !== (reg.faltasHistoricas || []).length) alterado = true;
+        const dividasFiltradas = (reg.dividasHistoricas || []).filter(d => d.anoLectivo !== anoRotulo);
+        if (dividasFiltradas.length !== (reg.dividasHistoricas || []).length) alterado = true;
+        const anosLectivosLimpos = reg.anosLectivos ? { ...reg.anosLectivos } : undefined;
+        if (anosLectivosLimpos) {
+          Object.keys(anosLectivosLimpos).forEach(k => {
+            if (anosLectivosLimpos[k] === anoRotulo) {
+              delete anosLectivosLimpos[k];
+              alterado = true;
+            }
+          });
+        }
+        if (alterado) {
+          histMap[alId] = {
+            ...reg,
+            classes: classesFiltradas,
+            ocorrenciasGerais: ocorrFiltradas,
+            faltasHistoricas: faltasFiltradas,
+            dividasHistoricas: dividasFiltradas,
+            anosLectivos: anosLectivosLimpos,
+            atualizadoEm: new Date().toISOString()
+          };
+          firebaseSyncEngine.salvarHistoricoEscolarCompleto(histMap[alId]);
+        }
+      }
+    });
+    setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, histMap);
+    if (histRemIds.length > 0) {
+      colecoesCascataFirestore.push({ colecao: 'historico_completo', ids: histRemIds });
+    }
+
+    // Limpar Eventos Escolares e Calendário Escolar deste Ano Letivo
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const rawEv = localStorage.getItem('sge_eventos_escolares');
+        if (rawEv) {
+          const evts = JSON.parse(rawEv);
+          if (Array.isArray(evts)) {
+            const evtsFiltrados = evts.filter((ev: any) => !(matchEscola(ev?.escolaId) && ev?.anoLectivo === anoRotulo));
+            localStorage.setItem('sge_eventos_escolares', JSON.stringify(evtsFiltrados));
+          }
+        }
+        if (escAlvoId && escAlvoId !== 'todas') {
+          const calKey = `sge_calendario_${escAlvoId}`;
+          const rawCal = localStorage.getItem(calKey);
+          if (rawCal) {
+            const cal = JSON.parse(rawCal);
+            if (Array.isArray(cal)) {
+              const calFiltrado = cal.filter((ev: any) => {
+                if (ev?.anoLectivo) return ev.anoLectivo !== anoRotulo;
+                if (target.dataInicio && target.dataFim && ev?.dataInicio) {
+                  return !(ev.dataInicio >= target.dataInicio && ev.dataInicio <= target.dataFim);
+                }
+                return true;
+              });
+              const calJson = JSON.stringify(calFiltrado);
+              localStorage.setItem(calKey, calJson);
+              offlineStorage.gravarChaveNoIndexedDB(calKey, calJson);
+            }
+          }
+        }
+      } catch {}
+    }
+
     configs = configs.filter(c => c.id !== target.id);
     setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, configs);
     firebaseSyncEngine.eliminarAnoLectivoConfig(target.id);
+    firebaseSyncEngine.eliminarDadosAnoLectivoCascata(colecoesCascataFirestore);
 
     // Só remove da lista global de rótulos se nenhuma outra escola usar o mesmo rótulo
     const aindaUsado = configs.some(c => c.rotulo === target.rotulo);
@@ -2324,31 +2630,43 @@ export const dbService = {
       }
     }
 
-    dbService.registarLog('Exclusão de Ano Letivo', `Ano letivo ${target.rotulo} eliminado da instituição.`, target.escolaId);
+    dbService.registarLog(
+      'Exclusão Completa em Cascata de Ano Letivo',
+      `Ano letivo ${target.rotulo} e todos os dados associados (alunos: ${alunosRemovidosIds.size}, turmas: ${turmasRemovidasIds.size}, avaliações: ${avRemovidasIds.size}, notas: ${notasRemIds.length + consRemIds.length}) foram eliminados permanentemente.`,
+      target.escolaId
+    );
     return true;
   },
 
   // ==========================================
-  // TURNOS, CLASSES E CURSOS ESCOLARES (ISOLADOS POR ESCOLA)
+  // TURNOS, CLASSES E CURSOS ESCOLARES (ISOLADOS POR ESCOLA E ANO LETIVO)
   // ==========================================
-  getTurnosConfigs: (escolaId?: string): TurnoConfig[] => {
+  getTurnosConfigs: (escolaId?: string, anoLectivo?: string): TurnoConfig[] => {
     const list = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
-    if (escolaId && escolaId !== 'todas') {
-      return list.filter(t => t.escolaId === escolaId);
-    }
-    return list;
+    return list.filter(t => {
+      if (escolaId && escolaId !== 'todas' && t.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && t.anoLectivo && t.anoLectivo !== anoLectivo) return false;
+      return true;
+    });
   },
   salvarTurnoConfig: (turno: TurnoConfig) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const targetEscolaId = turno.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
-    const turnoFinal: TurnoConfig = { ...turno, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
+    const escRef = targetEscolaId ? dbService.getEscolaPorId(targetEscolaId) : escolaAtiva;
+    const anoRef = turno.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined;
+    const turnoFinal: TurnoConfig = {
+      ...turno,
+      escolaId: targetEscolaId,
+      anoLectivo: anoRef,
+      atualizadoEm: new Date().toISOString()
+    };
     const turnos = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
     const idx = turnos.findIndex(t => t.id === turnoFinal.id);
     if (idx >= 0) turnos[idx] = turnoFinal;
     else turnos.push(turnoFinal);
     setLocal(STORAGE_KEYS.TURNOS_CONFIGS, turnos);
     firebaseSyncEngine.salvarTurnoConfig(turnoFinal);
-    dbService.registarLog('Turno Escolar', `Horário de funcionamento do turno ${turnoFinal.nome} atualizado.`, targetEscolaId);
+    dbService.registarLog('Turno Escolar', `Horário de funcionamento do turno ${turnoFinal.nome} (${anoRef || 'Geral'}) atualizado.`, targetEscolaId);
   },
   eliminarTurnoConfig: (id: string): boolean => {
     const turnos = getLocal<TurnoConfig[]>(STORAGE_KEYS.TURNOS_CONFIGS, []);
@@ -2361,24 +2679,32 @@ export const dbService = {
     return true;
   },
 
-  getClassesConfigs: (escolaId?: string): ClasseEscolar[] => {
+  getClassesConfigs: (escolaId?: string, anoLectivo?: string): ClasseEscolar[] => {
     const list = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
-    if (escolaId && escolaId !== 'todas') {
-      return list.filter(c => c.escolaId === escolaId);
-    }
-    return list;
+    return list.filter(c => {
+      if (escolaId && escolaId !== 'todas' && c.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && c.anoLectivo && c.anoLectivo !== anoLectivo) return false;
+      return true;
+    });
   },
   salvarClasseConfig: (classe: ClasseEscolar) => {
     const escolaAtiva = dbService.getEscolaAtiva();
     const targetEscolaId = classe.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
-    const classeFinal: ClasseEscolar = { ...classe, escolaId: targetEscolaId, atualizadoEm: new Date().toISOString() };
+    const escRef = targetEscolaId ? dbService.getEscolaPorId(targetEscolaId) : escolaAtiva;
+    const anoRef = classe.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined;
+    const classeFinal: ClasseEscolar = {
+      ...classe,
+      escolaId: targetEscolaId,
+      anoLectivo: anoRef,
+      atualizadoEm: new Date().toISOString()
+    };
     const classes = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
     const idx = classes.findIndex(c => c.id === classeFinal.id);
     if (idx >= 0) classes[idx] = classeFinal;
     else classes.push(classeFinal);
     setLocal(STORAGE_KEYS.CLASSES_CONFIGS, classes);
     firebaseSyncEngine.salvarClasseConfig(classeFinal);
-    dbService.registarLog('Classe Escolar', `Nível de escolaridade ${classeFinal.nome} atualizado.`, targetEscolaId);
+    dbService.registarLog('Classe Escolar', `Nível de escolaridade ${classeFinal.nome} (${anoRef || 'Geral'}) atualizado.`, targetEscolaId);
   },
   eliminarClasseConfig: (id: string): boolean => {
     const classes = getLocal<ClasseEscolar[]>(STORAGE_KEYS.CLASSES_CONFIGS, []);
@@ -2898,6 +3224,7 @@ export const dbService = {
     const rawFotoInput: unknown = (dados as any).fotoBlob ?? dados.fotoUrl;
     if (dados.nomeCompleto) func.nomeCompleto = dados.nomeCompleto.trim();
     if (dados.telefone !== undefined) func.telefone = dados.telefone.trim();
+    if (dados.telefoneAlternativo !== undefined) func.telefoneAlternativo = dados.telefoneAlternativo.trim();
     if (dados.email !== undefined) func.email = dados.email.trim();
     if (rawFotoInput !== undefined) {
       if (typeof Blob !== 'undefined' && rawFotoInput instanceof Blob) {
@@ -2914,7 +3241,94 @@ export const dbService = {
       }
     }
     if (dados.habilitacoes !== undefined) func.habilitacoes = dados.habilitacoes;
+    if (dados.grauAcademico !== undefined) func.grauAcademico = dados.grauAcademico;
+    if (dados.instituicaoAcademica !== undefined) func.instituicaoAcademica = dados.instituicaoAcademica;
+    if (dados.anoConclusaoFormacao !== undefined) func.anoConclusaoFormacao = dados.anoConclusaoFormacao;
+    if (dados.outrasFormacoes !== undefined) func.outrasFormacoes = dados.outrasFormacoes;
+    if (dados.camposExtrasFormacao !== undefined) func.camposExtrasFormacao = dados.camposExtrasFormacao;
+    if (dados.especialidade !== undefined) func.especialidade = dados.especialidade;
     if (dados.genero) func.genero = dados.genero;
+    if (dados.cargo !== undefined && dados.cargo.trim()) func.cargo = dados.cargo.trim();
+    if (dados.tipoDocumento !== undefined) func.tipoDocumento = dados.tipoDocumento;
+    if (dados.numeroBI !== undefined) func.numeroBI = dados.numeroBI;
+    if (dados.bi !== undefined) func.bi = dados.bi;
+    if (dados.numeroDocumento !== undefined) func.numeroDocumento = dados.numeroDocumento;
+    if (dados.dataEmissaoBI !== undefined) {
+      func.dataEmissaoBI = dados.dataEmissaoBI;
+      func.dataEmissaoDocumento = dados.dataEmissaoBI;
+    }
+    if (dados.validadeBI !== undefined) {
+      func.validadeBI = dados.validadeBI;
+      func.dataValidadeBI = dados.validadeBI;
+      func.dataValidadeDocumento = dados.validadeBI;
+    }
+    if (dados.dataValidadeBI !== undefined) {
+      func.dataValidadeBI = dados.dataValidadeBI;
+      func.validadeBI = dados.dataValidadeBI;
+    }
+    if (dados.localEmissaoBI !== undefined) {
+      func.localEmissaoBI = dados.localEmissaoBI;
+      func.localEmissaoDocumento = dados.localEmissaoBI;
+      func.arquivoIdentificacao = dados.localEmissaoBI;
+    }
+    if (dados.dataEmissaoDocumento !== undefined) func.dataEmissaoDocumento = dados.dataEmissaoDocumento;
+    if (dados.dataValidadeDocumento !== undefined) func.dataValidadeDocumento = dados.dataValidadeDocumento;
+    if (dados.localEmissaoDocumento !== undefined) func.localEmissaoDocumento = dados.localEmissaoDocumento;
+    if (dados.dataNascimento !== undefined) func.dataNascimento = dados.dataNascimento;
+    if (dados.naturalidade !== undefined) func.naturalidade = dados.naturalidade;
+    if (dados.provincia !== undefined) {
+      func.provincia = dados.provincia;
+      func.provinciaOrigem = dados.provincia;
+    }
+    if (dados.provinciaOrigem !== undefined) {
+      func.provinciaOrigem = dados.provinciaOrigem;
+      if (!func.provincia) func.provincia = dados.provinciaOrigem;
+    }
+    if (dados.municipio !== undefined) {
+      func.municipio = dados.municipio;
+      func.municipioResidencia = dados.municipio;
+    }
+    if (dados.municipioResidencia !== undefined) {
+      func.municipioResidencia = dados.municipioResidencia;
+      func.municipio = dados.municipioResidencia;
+    }
+    if (dados.pais !== undefined) func.pais = dados.pais;
+    if (dados.nacionalidade !== undefined) func.nacionalidade = dados.nacionalidade;
+    if (dados.estadoCivil !== undefined) func.estadoCivil = dados.estadoCivil;
+    if (dados.nomePai !== undefined) func.nomePai = dados.nomePai;
+    if (dados.nomeMae !== undefined) func.nomeMae = dados.nomeMae;
+    if (dados.residencia !== undefined) {
+      func.residencia = dados.residencia;
+      func.residenciaAtual = dados.residencia;
+    }
+    if (dados.residenciaAtual !== undefined) {
+      func.residenciaAtual = dados.residenciaAtual;
+      func.residencia = dados.residenciaAtual;
+    }
+    if (dados.categoriaProfissional !== undefined) func.categoriaProfissional = dados.categoriaProfissional;
+    if (dados.numeroAgente !== undefined) func.numeroAgente = dados.numeroAgente;
+    if (dados.nif !== undefined) func.nif = dados.nif;
+    if (dados.tipoContrato !== undefined) func.tipoContrato = dados.tipoContrato;
+    if (dados.situacaoFuncional !== undefined) func.situacaoFuncional = dados.situacaoFuncional;
+    if (dados.dataAdmissao !== undefined) func.dataAdmissao = dados.dataAdmissao;
+    if (dados.cargaHorariaSemanal !== undefined) func.cargaHorariaSemanal = dados.cargaHorariaSemanal;
+    if (dados.disciplinaEspecialidade !== undefined) func.disciplinaEspecialidade = dados.disciplinaEspecialidade;
+    if (dados.banco !== undefined) func.banco = dados.banco;
+    if (dados.iban !== undefined) func.iban = dados.iban;
+    if (dados.numeroSegurancaSocial !== undefined) {
+      func.numeroSegurancaSocial = dados.numeroSegurancaSocial;
+      func.numeroINSS = dados.numeroSegurancaSocial;
+    }
+    if (dados.numeroINSS !== undefined) {
+      func.numeroINSS = dados.numeroINSS;
+      func.numeroSegurancaSocial = dados.numeroINSS;
+    }
+    if (dados.grupoSanguineo !== undefined) func.grupoSanguineo = dados.grupoSanguineo;
+    if (dados.alergias !== undefined) func.alergias = dados.alergias;
+    if (dados.doencasCronicas !== undefined) func.doencasCronicas = dados.doencasCronicas;
+    if (dados.contactoEmergenciaNome !== undefined) func.contactoEmergenciaNome = dados.contactoEmergenciaNome;
+    if (dados.contactoEmergenciaTelefone !== undefined) func.contactoEmergenciaTelefone = dados.contactoEmergenciaTelefone;
+    if (dados.departamento !== undefined) func.departamento = dados.departamento;
     func.atualizadoEm = new Date().toISOString();
 
     funcs[idx] = func;
@@ -2929,6 +3343,27 @@ export const dbService = {
       ['users'],
       func.role
     );
+
+    // Se for DiretorGeral, refletir dados oficiais também no registo da Escola correspondente
+    if (func.role === 'DiretorGeral' && func.escolaId) {
+      const escolas = dbService.getEscolasBrutas();
+      const escIdx = escolas.findIndex(e => e.id === func.escolaId);
+      if (escIdx >= 0) {
+        const escAtualizada: Escola = {
+          ...escolas[escIdx],
+          diretorGeralId: func.id,
+          diretorGeralNome: func.nomeCompleto,
+          diretorGeralGenero: func.genero || escolas[escIdx].diretorGeralGenero,
+          diretorGeralEmail: func.email || escolas[escIdx].diretorGeralEmail,
+          diretorGeralTelefone: func.telefone || escolas[escIdx].diretorGeralTelefone,
+          atualizadoEm: new Date().toISOString()
+        };
+        escolas[escIdx] = escAtualizada;
+        setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+        offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
+        firebaseSyncEngine.salvarEscola(escAtualizada);
+      }
+    }
 
     // Se for o utilizador atualmente autenticado, atualizar sessão ativa
     const current = dbService.getCurrentUser();
@@ -3451,12 +3886,14 @@ export const dbService = {
     return true;
   },
 
-  // Disciplinas (estritamente isoladas por escola)
-  getDisciplinas: (escolaId?: string): Disciplina[] => {
+  // Disciplinas (estritamente isoladas por escola e ano letivo)
+  getDisciplinas: (escolaId?: string, anoLectivo?: string): Disciplina[] => {
     const raw = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
-    const list = (escolaId && escolaId !== 'todas')
-      ? raw.filter(d => d.escolaId === escolaId)
-      : raw;
+    const list = raw.filter(d => {
+      if (escolaId && escolaId !== 'todas' && d.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && d.anoLectivo && d.anoLectivo !== anoLectivo) return false;
+      return true;
+    });
     return [...list].sort((a, b) => {
       const ordemA = typeof a.ordem === 'number' && !isNaN(a.ordem) ? a.ordem : 999;
       const ordemB = typeof b.ordem === 'number' && !isNaN(b.ordem) ? b.ordem : 999;
@@ -3466,18 +3903,26 @@ export const dbService = {
   },
   salvarDisciplina: (disc: Disciplina) => {
     const escolaAtiva = dbService.getEscolaAtiva();
+    const escId = disc.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined);
+    const escRef = escId ? dbService.getEscolaPorId(escId) : escolaAtiva;
+    const anoRef = disc.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined;
+    const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    const idx = discs.findIndex(d => d.id === disc.id);
+    const maxOrdem = discs
+      .filter(d => (!escId || d.escolaId === escId) && (!anoRef || !d.anoLectivo || d.anoLectivo === anoRef))
+      .reduce((max, d) => Math.max(max, typeof d.ordem === 'number' && !isNaN(d.ordem) ? d.ordem : 0), 0);
     const discFinal: Disciplina = {
       ...disc,
-      escolaId: disc.escolaId || (escolaAtiva?.id && escolaAtiva.id !== 'todas' ? escolaAtiva.id : undefined),
+      escolaId: escId,
+      anoLectivo: anoRef,
+      ordem: typeof disc.ordem === 'number' && !isNaN(disc.ordem) ? disc.ordem : (idx >= 0 ? discs[idx].ordem : maxOrdem + 1),
       atualizadoEm: new Date().toISOString()
     };
-    const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
-    const idx = discs.findIndex(d => d.id === discFinal.id);
     if (idx >= 0) discs[idx] = discFinal;
     else discs.push(discFinal);
     setLocal(STORAGE_KEYS.DISCIPLINAS, discs);
     firebaseSyncEngine.salvarDisciplina(discFinal);
-    dbService.registarLog('Disciplina', `Disciplina "${discFinal.nome}" (${discFinal.codigo}) guardada.`, discFinal.escolaId);
+    dbService.registarLog('Disciplina', `Disciplina "${discFinal.nome}" (${discFinal.codigo}) guardada (${anoRef || 'Geral'}).`, discFinal.escolaId);
   },
   salvarDisciplinas: (disciplinas: Disciplina[]) => {
     const agora = new Date().toISOString();
@@ -3495,11 +3940,12 @@ export const dbService = {
     dbService.registarLog('Exclusão de Disciplina', `Disciplina "${target.nome}" (${target.codigo}) eliminada da grelha curricular.`, target.escolaId);
     return true;
   },
-  limparTodasDisciplinas: (escolaId?: string) => {
+  limparTodasDisciplinas: (escolaId?: string, anoLectivo?: string) => {
     const todas = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
     if (escolaId && escolaId !== 'todas') {
-      const removidas = todas.filter(d => d.escolaId === escolaId);
-      const restantes = todas.filter(d => d.escolaId !== escolaId);
+      const removidas = todas.filter(d => d.escolaId === escolaId && (!anoLectivo || !d.anoLectivo || d.anoLectivo === anoLectivo));
+      const idsRem = new Set(removidas.map(r => r.id));
+      const restantes = todas.filter(d => !idsRem.has(d.id));
       setLocal(STORAGE_KEYS.DISCIPLINAS, restantes);
       removidas.forEach(d => {
         if (d?.id) {
@@ -3538,8 +3984,41 @@ export const dbService = {
     const turmasAnoActivo = turmas.filter(t => t.anoLectivo === anoActivo);
     const turmasAnoAnterior = turmas.filter(t => t.anoLectivo === anoAnterior);
 
-    if (atribuicoesPassadas.length === 0 && turmasAnoAnterior.length === 0) {
-      return { sucesso: false, totalReplicadas: 0, novasAtribuicoes: [], novasTurmas: [], mensagem: 'Nenhuma turma ou atribuição docente encontrada em anos letivos anteriores para replicar.' };
+    // Replicar Classes, Turnos e Disciplinas do ano anterior (caso ainda não existam no ano ativo)
+    let countEstruturas = 0;
+    const classesAnt = dbService.getClassesConfigs(escolaId, anoAnterior).filter(c => c.anoLectivo === anoAnterior);
+    const classesAtv = dbService.getClassesConfigs(escolaId, anoActivo).filter(c => c.anoLectivo === anoActivo);
+    classesAnt.forEach(c => {
+      if (!classesAtv.some(ca => ca.nome === c.nome)) {
+        dbService.salvarClasseConfig({ ...c, id: `cls-${escolaId}-${anoActivo.replace(/[^0-9a-zA-Z]/g, '')}-${c.nome}`, anoLectivo: anoActivo });
+        countEstruturas++;
+      }
+    });
+    const turnosAnt = dbService.getTurnosConfigs(escolaId, anoAnterior).filter(t => t.anoLectivo === anoAnterior);
+    const turnosAtv = dbService.getTurnosConfigs(escolaId, anoActivo).filter(t => t.anoLectivo === anoActivo);
+    turnosAnt.forEach(t => {
+      if (!turnosAtv.some(ta => ta.nome === t.nome)) {
+        dbService.salvarTurnoConfig({ ...t, id: `turno-${escolaId}-${anoActivo.replace(/[^0-9a-zA-Z]/g, '')}-${t.nome}`, anoLectivo: anoActivo });
+        countEstruturas++;
+      }
+    });
+    const discsAnt = dbService.getDisciplinas(escolaId, anoAnterior).filter(d => d.anoLectivo === anoAnterior);
+    const discsAtv = dbService.getDisciplinas(escolaId, anoActivo).filter(d => d.anoLectivo === anoActivo);
+    const mapaDiscId = new Map<string, string>();
+    discsAnt.forEach(d => {
+      const equiv = discsAtv.find(da => da.nome.toLowerCase() === d.nome.toLowerCase() && (da.classe || '') === (d.classe || ''));
+      if (equiv) {
+        mapaDiscId.set(d.id, equiv.id);
+      } else {
+        const novoId = `disc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        dbService.salvarDisciplina({ ...d, id: novoId, anoLectivo: anoActivo });
+        mapaDiscId.set(d.id, novoId);
+        countEstruturas++;
+      }
+    });
+
+    if (atribuicoesPassadas.length === 0 && turmasAnoAnterior.length === 0 && countEstruturas === 0) {
+      return { sucesso: false, totalReplicadas: 0, novasAtribuicoes: [], novasTurmas: [], mensagem: 'Nenhuma turma, disciplina ou atribuição docente encontrada em anos letivos anteriores para replicar.' };
     }
 
     let count = 0;
@@ -3574,12 +4053,13 @@ export const dbService = {
     // 2. Replicar Atribuições Docentes e Coordenações para as turmas do novo ano
     atribuicoesPassadas.forEach(atrib => {
       const turmaDestinoId = mapaTurmaIdAntigoParaNovo.get(atrib.turmaId) || atrib.turmaId;
+      const discDestinoId = mapaDiscId.get(atrib.disciplinaId) || atrib.disciplinaId;
 
       const jaExiste = novasAtribs.some(a => 
         a.escolaId === escolaId &&
         a.professorId === atrib.professorId &&
         a.turmaId === turmaDestinoId &&
-        a.disciplinaId === atrib.disciplinaId &&
+        a.disciplinaId === discDestinoId &&
         a.anoLectivo === anoActivo
       );
 
@@ -3589,6 +4069,7 @@ export const dbService = {
           id: `atrib-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           escolaId,
           turmaId: turmaDestinoId,
+          disciplinaId: discDestinoId,
           anoLectivo: anoActivo
         };
         novasAtribs.push(novaAtrib);
@@ -3602,13 +4083,31 @@ export const dbService = {
       firebaseSyncEngine.salvarAtribuicoesLote(recemCriadas);
     }
 
-    dbService.registarLog('Gestão Académica', `${recemCriadasTurmas.length} turmas e ${count} atribuições docentes replicadas para o ano lectivo ${anoActivo}.`, escolaId);
+    // Replicar Coordenações
+    const coordsAnt = dbService.getCoordenacoes(escolaId, anoAnterior).filter(c => c.anoLectivo === anoAnterior);
+    const coordsAtv = dbService.getCoordenacoes(escolaId, anoActivo).filter(c => c.anoLectivo === anoActivo);
+    coordsAnt.forEach(c => {
+      const turmaNova = c.turmaId ? (mapaTurmaIdAntigoParaNovo.get(c.turmaId) || c.turmaId) : undefined;
+      const discNova = c.disciplinaId ? (mapaDiscId.get(c.disciplinaId) || c.disciplinaId) : undefined;
+      const dup = coordsAtv.some(ca => ca.tipoCoordenacao === c.tipoCoordenacao && ca.funcionarioId === c.funcionarioId && (ca.classe || '') === (c.classe || '') && (ca.turmaId || '') === (turmaNova || ''));
+      if (!dup) {
+        dbService.salvarCoordenacao({
+          ...c,
+          id: `coord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          turmaId: turmaNova,
+          disciplinaId: discNova,
+          anoLectivo: anoActivo
+        });
+      }
+    });
+
+    dbService.registarLog('Gestão Académica', `${recemCriadasTurmas.length} turmas, ${countEstruturas} configurações curriculares e ${count} atribuições replicadas para ${anoActivo}.`, escolaId);
     return {
       sucesso: true,
       totalReplicadas: count,
       novasAtribuicoes: recemCriadas,
       novasTurmas: recemCriadasTurmas,
-      mensagem: `${recemCriadasTurmas.length} turmas e ${count} atribuições e coordenações transferidas do ano ${anoAnterior || 'anterior'} para ${anoActivo}`
+      mensagem: `${recemCriadasTurmas.length} turmas, ${countEstruturas} itens curriculares e ${count} atribuições transferidas do ano ${anoAnterior || 'anterior'} para ${anoActivo}`
     };
   },
 
@@ -3632,13 +4131,37 @@ export const dbService = {
     if (!atrib.anoLectivo) {
       atrib.anoLectivo = escolaAtiva?.anoLectivoActivo || '';
     }
-    const atribComTs: AtribuicaoDocente = { ...atrib, atualizadoEm: new Date().toISOString() };
+    const discs = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    const turmasAll = getLocal<Turma[]>(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS);
+    const funcsAll = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    const discObj = discs.find(d => d.id === atrib.disciplinaId);
+    const turmaObj = turmasAll.find(t => t.id === atrib.turmaId);
+    const profObj = funcsAll.find(f => f.id === atrib.professorId);
+
+    const atribComTs: AtribuicaoDocente = {
+      ...atrib,
+      disciplinaNome: discObj?.nome || atrib.disciplinaNome || undefined,
+      turmaNome: turmaObj?.nome || atrib.turmaNome || undefined,
+      classe: turmaObj?.classe || atrib.classe || undefined,
+      professorNome: profObj?.nomeCompleto || atrib.professorNome || undefined,
+      atualizadoEm: new Date().toISOString()
+    };
     const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES);
     const idx = list.findIndex(a => a.id === atribComTs.id);
     if (idx >= 0) list[idx] = atribComTs;
     else list.push(atribComTs);
     setLocal(STORAGE_KEYS.ATRIBUICOES, list);
     firebaseSyncEngine.salvarAtribuicao(atribComTs);
+
+    if (atribComTs.ehCoordenadorTurma && turmaObj && turmaObj.coordenadorId !== atribComTs.professorId) {
+      const turmaAtualizada = { ...turmaObj, coordenadorId: atribComTs.professorId, atualizadoEm: new Date().toISOString() };
+      const tIdx = turmasAll.findIndex(t => t.id === turmaObj.id);
+      if (tIdx >= 0) {
+        turmasAll[tIdx] = turmaAtualizada;
+        setLocal(STORAGE_KEYS.TURMAS, turmasAll);
+        firebaseSyncEngine.salvarTurma(turmaAtualizada);
+      }
+    }
   },
   removerAtribuicao: (id: string) => {
     const list = getLocal<AtribuicaoDocente[]>(STORAGE_KEYS.ATRIBUICOES, DEFAULT_ATRIBUICOES).filter(a => a.id !== id);
@@ -3646,7 +4169,155 @@ export const dbService = {
     firebaseSyncEngine.removerAtribuicao(id);
   },
 
+  // Coordenações Escolares por Nível de Ensino (Ensino Primário, Iº Ciclo, IIº Ciclo)
+  getCoordenacoes: (escolaId?: string, anoLectivo?: string): CoordenacaoEscolar[] => {
+    const list = getLocal<CoordenacaoEscolar[]>(STORAGE_KEYS.COORDENACOES, []);
+    return list.filter(c => {
+      if (escolaId && escolaId !== 'todas' && c.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && c.anoLectivo && c.anoLectivo !== anoLectivo) return false;
+      return true;
+    });
+  },
+  salvarCoordenacao: (coord: CoordenacaoEscolar): CoordenacaoEscolar => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const respId = coord.funcionarioId || coord.professorId || '';
+    const respNome = coord.funcionarioNome || coord.professorNome || '';
+    const coordFinal: CoordenacaoEscolar = {
+      ...coord,
+      escolaId: coord.escolaId || escolaAtiva?.id || '',
+      anoLectivo: coord.anoLectivo || escolaAtiva?.anoLectivoActivo || '',
+      funcionarioId: respId,
+      funcionarioNome: respNome,
+      professorId: respId,
+      professorNome: respNome,
+      curso: coord.nivelEnsino === 'IICiclo' ? coord.curso : undefined,
+      ativo: coord.ativo !== false,
+      criadoEm: coord.criadoEm || new Date().toISOString(),
+      atualizadoEm: new Date().toISOString()
+    };
+    const list = getLocal<CoordenacaoEscolar[]>(STORAGE_KEYS.COORDENACOES, []);
+    const idx = list.findIndex(c => c.id === coordFinal.id);
+    if (idx >= 0) list[idx] = coordFinal;
+    else list.unshift(coordFinal);
+    setLocal(STORAGE_KEYS.COORDENACOES, list);
+    firebaseSyncEngine.salvarCoordenacao(coordFinal);
+
+    // Sincronizar automaticamente com Turma.coordenadorId quando for Coordenador de Turma
+    if (coordFinal.tipoCoordenacao === 'Coordenador de Turma' && coordFinal.turmaId && respId) {
+      const turmas = getLocal<Turma[]>(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS);
+      const tIdx = turmas.findIndex(t => t.id === coordFinal.turmaId);
+      if (tIdx >= 0 && turmas[tIdx].coordenadorId !== respId) {
+        turmas[tIdx] = { ...turmas[tIdx], coordenadorId: respId, atualizadoEm: new Date().toISOString() };
+        setLocal(STORAGE_KEYS.TURMAS, turmas);
+        firebaseSyncEngine.salvarTurma(turmas[tIdx]);
+      }
+    }
+
+    dbService.registarLog(
+      'Gestão de Coordenações',
+      `${coordFinal.tipoCoordenacao} (${coordFinal.nivelEnsino}) atribuída a ${respNome}.`,
+      coordFinal.escolaId
+    );
+    return coordFinal;
+  },
+  removerCoordenacao: (id: string): boolean => {
+    const list = getLocal<CoordenacaoEscolar[]>(STORAGE_KEYS.COORDENACOES, []);
+    const alvo = list.find(c => c.id === id);
+    if (!alvo) return false;
+    const respId = alvo.funcionarioId || alvo.professorId;
+    const respNome = alvo.funcionarioNome || alvo.professorNome || '';
+    const restantes = list.filter(c => c.id !== id);
+    setLocal(STORAGE_KEYS.COORDENACOES, restantes);
+    firebaseSyncEngine.removerCoordenacao(id);
+
+    if (alvo.tipoCoordenacao === 'Coordenador de Turma' && alvo.turmaId) {
+      const turmas = getLocal<Turma[]>(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS);
+      const tIdx = turmas.findIndex(t => t.id === alvo.turmaId && t.coordenadorId === respId);
+      if (tIdx >= 0) {
+        turmas[tIdx] = { ...turmas[tIdx], coordenadorId: undefined, atualizadoEm: new Date().toISOString() };
+        setLocal(STORAGE_KEYS.TURMAS, turmas);
+        firebaseSyncEngine.salvarTurma(turmas[tIdx]);
+      }
+    }
+
+    dbService.registarLog(
+      'Exclusão de Coordenação',
+      `${alvo.tipoCoordenacao} de ${respNome} removida.`,
+      alvo.escolaId
+    );
+    return true;
+  },
+
+  garantirDiretorNosFuncionarios: (escolaOverride?: Escola): void => {
+    const rawList = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+    const escolas = escolaOverride ? [escolaOverride] : dbService.getEscolasBrutas();
+    const placeholders = new Set(['não atribuído', 'nao atribuido', 'pendente', 'pendente de nomeação', 'a designar', 'diretor geral', 'director geral', '']);
+    let alterado = false;
+    const novaLista = [...rawList];
+
+    escolas.forEach(esc => {
+      if (!esc?.id) return;
+      const existentePorId = esc.diretorGeralId ? novaLista.findIndex(f => f.id === esc.diretorGeralId) : -1;
+      const existentePorRole = novaLista.findIndex(f => f.escolaId === esc.id && f.role === 'DiretorGeral');
+
+      if (existentePorId >= 0) {
+        if (!novaLista[existentePorId].escolaId) {
+          novaLista[existentePorId] = { ...novaLista[existentePorId], escolaId: esc.id };
+          alterado = true;
+        }
+        return;
+      }
+
+      if (existentePorRole >= 0) {
+        if (!novaLista[existentePorRole].escolaId) {
+          novaLista[existentePorRole] = { ...novaLista[existentePorRole], escolaId: esc.id };
+          alterado = true;
+        }
+        return;
+      }
+
+      const nomeLimpo = (esc.diretorGeralNome || '').trim();
+      if (!nomeLimpo || placeholders.has(nomeLimpo.toLowerCase())) return;
+
+      const novoDir: Funcionario = {
+        id: esc.diretorGeralId || `dir-${esc.id}`,
+        escolaId: esc.id,
+        nomeCompleto: nomeLimpo,
+        numeroBI: '',
+        role: 'DiretorGeral',
+        cargo: esc.diretorGeralGenero === 'F' ? 'Directora Geral' : 'Director Geral',
+        genero: esc.diretorGeralGenero || 'M',
+        email: esc.diretorGeralEmail || esc.email || '',
+        telefone: esc.diretorGeralTelefone || esc.telefone || '',
+        ehProfessor: false,
+        ehAdministrativoQueLeciona: true,
+        fotoUrl: '',
+        dataAdmissao: new Date().toISOString().split('T')[0],
+        ativo: true,
+        situacaoFuncional: 'Activo',
+        regimeDocencia: 'Tempo Integral',
+        habilitacoes: 'Licenciatura em Gestão Escolar',
+        tipoContrato: 'Função Pública (MED)',
+        atualizadoEm: new Date().toISOString()
+      };
+      novaLista.push(novoDir);
+      alterado = true;
+    });
+
+    const cur = dbService.getCurrentUser();
+    if (cur && cur.role === 'DiretorGeral' && cur.id && !novaLista.some(f => f.id === cur.id)) {
+      novaLista.push({ ...cur, ativo: cur.ativo !== false, situacaoFuncional: cur.situacaoFuncional || 'Activo' });
+      alterado = true;
+    }
+
+    if (alterado) {
+      setLocal(STORAGE_KEYS.FUNCIONARIOS, novaLista);
+    }
+  },
   getFuncionarios: (escolaId?: string): Funcionario[] => {
+    try {
+      dbService.garantirDiretorNosFuncionarios();
+    } catch {}
     const list = dbService.getFuncionariosBruto();
     const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
     const filtrada = ocultarAdmin ? list.filter(f => !isAdminGeralUserObj(f)) : list;
@@ -3894,7 +4565,14 @@ export const dbService = {
   // Avaliações do Professor
   getAvaliacoes: (): AvaliacaoCriada[] => getLocal(STORAGE_KEYS.AVALIACOES, DEFAULT_AVALIACOES),
   salvarAvaliacao: (av: AvaliacaoCriada) => {
-    const avComTs: AvaliacaoCriada = { ...av, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = av.escolaId ? dbService.getEscolaPorId(av.escolaId) : escolaAtiva;
+    const avComTs: AvaliacaoCriada = {
+      ...av,
+      escolaId: av.escolaId || escolaAtiva?.id || '',
+      anoLectivo: av.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '',
+      atualizadoEm: new Date().toISOString()
+    };
     const avs = dbService.getAvaliacoes();
     const idx = avs.findIndex(a => a.id === avComTs.id);
     if (idx >= 0) avs[idx] = avComTs;
@@ -3921,7 +4599,14 @@ export const dbService = {
   // Notas
   getNotas: (): NotaEstudante[] => getLocal(STORAGE_KEYS.NOTAS, DEFAULT_NOTAS),
   salvarNota: (nota: NotaEstudante) => {
-    const notaComTs: NotaEstudante = { ...nota, atualizadoEm: new Date().toISOString() };
+    const avObj = dbService.getAvaliacoes().find(a => a.id === nota.avaliacaoId);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const notaComTs: NotaEstudante = {
+      ...nota,
+      escolaId: nota.escolaId || avObj?.escolaId || escolaAtiva?.id || undefined,
+      anoLectivo: nota.anoLectivo || avObj?.anoLectivo || escolaAtiva?.anoLectivoActivo || undefined,
+      atualizadoEm: new Date().toISOString()
+    };
     const notas = dbService.getNotas();
     const idx = notas.findIndex(n => n.avaliacaoId === notaComTs.avaliacaoId && n.alunoId === notaComTs.alunoId);
     if (idx >= 0) notas[idx] = notaComTs;
@@ -3939,9 +4624,20 @@ export const dbService = {
   // Notas Consolidadas / Pautas
   getNotasConsolidadas: (): NotaTrimestralConsolidada[] => getLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, DEFAULT_NOTAS_CONSOLIDADAS),
   salvarNotaConsolidada: (cons: NotaTrimestralConsolidada) => {
-    const consComTs: NotaTrimestralConsolidada = { ...cons, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const consComTs: NotaTrimestralConsolidada = {
+      ...cons,
+      escolaId: cons.escolaId || escolaAtiva?.id || undefined,
+      anoLectivo: cons.anoLectivo || escolaAtiva?.anoLectivoActivo || '',
+      atualizadoEm: new Date().toISOString()
+    };
     const lista = dbService.getNotasConsolidadas();
-    const idx = lista.findIndex(c => c.alunoId === consComTs.alunoId && c.disciplinaId === consComTs.disciplinaId && c.trimestre === consComTs.trimestre);
+    const idx = lista.findIndex(
+      c => c.alunoId === consComTs.alunoId &&
+           c.disciplinaId === consComTs.disciplinaId &&
+           c.trimestre === consComTs.trimestre &&
+           (!consComTs.anoLectivo || !c.anoLectivo || c.anoLectivo === consComTs.anoLectivo)
+    );
     if (idx >= 0) lista[idx] = consComTs;
     else lista.push(consComTs);
     setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, lista);
@@ -3957,7 +4653,13 @@ export const dbService = {
   // Solicitações de Nota
   getSolicitacoesNota: (): SolicitacaoAlteracaoNota[] => getLocal(STORAGE_KEYS.SOLICITACOES_NOTA, DEFAULT_SOLICITACOES_NOTA),
   salvarSolicitacaoNota: (sol: SolicitacaoAlteracaoNota) => {
-    const solComTs: SolicitacaoAlteracaoNota = { ...sol, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const solComTs: SolicitacaoAlteracaoNota = {
+      ...sol,
+      escolaId: sol.escolaId || escolaAtiva?.id || '',
+      anoLectivo: sol.anoLectivo || escolaAtiva?.anoLectivoActivo || '',
+      atualizadoEm: new Date().toISOString()
+    };
     const sols = dbService.getSolicitacoesNota();
     const idx = sols.findIndex(s => s.id === solComTs.id);
     if (idx >= 0) sols[idx] = solComTs;
@@ -4080,15 +4782,19 @@ export const dbService = {
   },
 
   // Gestão de Termos de Exame Oficiais MED
-  getTermosExame: (escolaId?: string): TermoExame[] => {
+  getTermosExame: (escolaId?: string, anoLectivo?: string): TermoExame[] => {
     const todos = getLocal<TermoExame[]>(STORAGE_KEYS.TERMOS_EXAME, []);
-    if (escolaId) {
-      return todos.filter(t => t.escolaId === escolaId);
-    }
-    return todos;
+    return todos.filter(t => {
+      if (escolaId && escolaId !== 'todas' && t.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && t.anoLectivo && t.anoLectivo !== anoLectivo) return false;
+      return true;
+    });
   },
   salvarTermoExame: (termo: TermoExame) => {
-    const termoComTs: TermoExame = { ...termo, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = termo.escolaId ? dbService.getEscolaPorId(termo.escolaId) : escolaAtiva;
+    const anoRef = termo.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '';
+    const termoComTs: TermoExame = { ...termo, anoLectivo: anoRef, atualizadoEm: new Date().toISOString() };
     const termos = dbService.getTermosExame();
     const idx = termos.findIndex(t => t.id === termoComTs.id);
     if (idx >= 0) termos[idx] = termoComTs;
@@ -4131,9 +4837,23 @@ export const dbService = {
   },
   salvarDisciplinasOrdenadas: (disciplinasOrdenadas: Disciplina[]) => {
     const agora = new Date().toISOString();
-    const comOrdem = disciplinasOrdenadas.map((d, idx) => ({ ...d, ordem: idx, atualizadoEm: agora }));
-    setLocal(STORAGE_KEYS.DISCIPLINAS, comOrdem);
-    firebaseSyncEngine.salvarDisciplinasLote(comOrdem);
+    const todas = getLocal<Disciplina[]>(STORAGE_KEYS.DISCIPLINAS, DEFAULT_DISCIPLINAS);
+    const atualizadasMap = new Map<string, Disciplina>();
+    disciplinasOrdenadas.forEach((d, idx) => {
+      atualizadasMap.set(d.id, {
+        ...d,
+        ordem: typeof d.ordem === 'number' && !isNaN(d.ordem) ? d.ordem : idx + 1,
+        atualizadoEm: agora
+      });
+    });
+
+    const merged = todas.map(d => atualizadasMap.get(d.id) || d);
+    atualizadasMap.forEach((d, id) => {
+      if (!merged.some(m => m.id === id)) merged.push(d);
+    });
+
+    setLocal(STORAGE_KEYS.DISCIPLINAS, merged);
+    firebaseSyncEngine.salvarDisciplinasLote(Array.from(atualizadasMap.values()));
     dbService.registarLog('Gestão Académica', 'Ordem de disciplinas curriculares atualizada.');
   },
   salvarClassesOrdenadas: (classesOrdenadas: ClasseConfig[]) => {
@@ -4147,7 +4867,13 @@ export const dbService = {
   // Presenças
   getPresencas: (): PresencaFuncionario[] => getLocal(STORAGE_KEYS.PRESENCAS, DEFAULT_PRESENCAS),
   salvarPresenca: (p: PresencaFuncionario) => {
-    const pComTs: PresencaFuncionario = { ...p, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = p.escolaId ? dbService.getEscolaPorId(p.escolaId) : escolaAtiva;
+    const pComTs: PresencaFuncionario = {
+      ...p,
+      anoLectivo: p.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined,
+      atualizadoEm: new Date().toISOString()
+    };
     const pres = dbService.getPresencas();
     const idx = pres.findIndex(item => item.funcionarioId === pComTs.funcionarioId && item.data === pComTs.data);
     if (idx >= 0) pres[idx] = pComTs;
@@ -4177,14 +4903,30 @@ export const dbService = {
     dbService.registarLog('Assiduidade', `Registo de ponto do funcionário ${funcionarioId} na data ${data} removido por retificação.`);
   },
 
-  // Auditoria
-  getAuditoria: (): LogAuditoria[] => {
+  // Auditoria (Isolada por escola para utilizadores escolares; visão global completa para AdminGeral)
+  getAuditoria: (escolaIdOverride?: string): LogAuditoria[] => {
     const logs = dbService.getAuditoriaBruta();
-    if (!isSessaoAutenticadaNaoAdminGeral()) {
+    const isNonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    if (!isNonAdmin) {
+      if (escolaIdOverride && escolaIdOverride !== 'todas' && escolaIdOverride !== 'TODAS') {
+        return logs.filter(l => l.escolaId === escolaIdOverride);
+      }
       return logs;
     }
     const { ids, nomes } = getAdminGeralIdsAndNomes();
-    return logs.filter(l => !isLogOuAcaoDoAdminGeral(l, ids, nomes));
+    const activeId = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
+    const user = getAuthenticatedUserFromStorage();
+    const targetEscolaId =
+      (escolaIdOverride && escolaIdOverride !== 'todas' && escolaIdOverride !== 'TODAS' ? escolaIdOverride : '') ||
+      activeId ||
+      user?.escolaId ||
+      '';
+    return logs.filter(l => {
+      if (isLogOuAcaoDoAdminGeral(l, ids, nomes)) return false;
+      if (l.escolaId === 'ADMIN_GLOBAL' || l.escolaId === 'SISTEMA') return false;
+      if (targetEscolaId) return l.escolaId === targetEscolaId;
+      return true;
+    });
   },
   registarLog: (acao: string, detalhe: string, escolaIdOverride?: string) => {
     const logs = dbService.getAuditoriaBruta();
@@ -4196,6 +4938,27 @@ export const dbService = {
     const ehAdminGeral = user.role === 'AdminGeral';
     let detalheFinal = detalhe;
     let papelFinal = user.cargo || user.role;
+    const emApoioNaEscola = Boolean(ehAdminGeral && idAtivo && idAtivo !== 'todas' && escolaAtiva.sessaoApoioTecnicoAtiva);
+    const targetEscolaId = escolaIdOverride
+      ? escolaIdOverride
+      : (ehAdminGeral && !emApoioNaEscola)
+        ? 'ADMIN_GLOBAL'
+        : ((idAtivo && idAtivo !== 'todas' ? idAtivo : '') || (!ehAdminGeral ? user.escolaId : '') || escolaAtiva.id || 'ADMIN_GLOBAL');
+
+    // Verificar se o utilizador atual está a atuar sob regime de Interinidade ativa
+    const todasDelegacoes = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    const interinidadeAtiva = todasDelegacoes.find(d =>
+      d.tipo === 'Interinidade' &&
+      d.ativo &&
+      !d.revogadoEm &&
+      d.funcionarioId === user.id &&
+      (!targetEscolaId || d.escolaId === targetEscolaId)
+    );
+    if (interinidadeAtiva && !ehAdminGeral) {
+      const tituloCargo = interinidadeAtiva.cargoDelegadoTitulo || interinidadeAtiva.cargoDelegadoRole || 'Titular';
+      detalheFinal = `[EM INTERINIDADE: ${tituloCargo} (Titular: ${interinidadeAtiva.delegadoPorNome})] ${detalhe}`;
+      papelFinal = `${papelFinal} (Interino: ${tituloCargo})`;
+    }
 
     // Se o Admin Geral estiver a atuar sob sessão de apoio técnico autorizada pelo Diretor
     if (ehAdminGeral && escolaAtiva.sessaoApoioTecnicoAtiva) {
@@ -4205,11 +4968,11 @@ export const dbService = {
 
     const newLog: LogAuditoria = {
       id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      escolaId: escolaIdOverride || escolaAtiva.id,
+      escolaId: targetEscolaId,
       utilizadorId: user.id,
       utilizadorNome: user.nomeCompleto,
       papel: papelFinal,
-      usuarioRole: user.role,
+      usuarioRole: interinidadeAtiva?.cargoDelegadoRole || user.role,
       origemAdminGeral: ehAdminGeral,
       acao,
       detalhe: detalheFinal,
@@ -4350,7 +5113,13 @@ export const dbService = {
   // Recibos Térmicos
   getRecibos: (): ReciboPagamento[] => getLocal(STORAGE_KEYS.RECIBOS, DEFAULT_RECIBOS),
   salvarRecibo: (rec: ReciboPagamento) => {
-    const recComTs: ReciboPagamento = { ...rec, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = rec.escolaId ? dbService.getEscolaPorId(rec.escolaId) : escolaAtiva;
+    const recComTs: ReciboPagamento = {
+      ...rec,
+      anoLectivo: rec.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined,
+      atualizadoEm: new Date().toISOString()
+    };
     const recs = dbService.getRecibos();
     recs.unshift(recComTs);
     setLocal(STORAGE_KEYS.RECIBOS, recs);
@@ -4676,21 +5445,53 @@ export const dbService = {
     const wsTurmas = XLSX.utils.json_to_sheet(turmasFormatadas);
     XLSX.utils.book_append_sheet(wb, wsTurmas, 'Turmas Homologadas');
 
-    // 5. Funcionários & Professores
-    const wsFuncs = XLSX.utils.json_to_sheet(funcs.map(f => ({
-      'Instituição Escolar': escola.nomeOficial,
-      'ID': f.id,
-      'Nome Completo': f.nomeCompleto,
-      'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
-      'Bilhete de Identidade': f.numeroBI,
-      'Cargo / Função': f.cargo,
-      'Papel no Sistema': f.role,
-      'Telefone': f.telefone,
-      'Email': f.email,
-      'Professor': f.ehProfessor ? 'Sim' : 'Não',
-      'Habilitações Literárias': f.habilitacoes || 'Licenciatura',
-      'Especialidade': f.especialidade || 'Pedagogia'
-    })));
+    // 5. Funcionários & Professores (Completo com Formação Académica, Contratos e Dados Financeiros)
+    const operadorAtual = dbService.getCurrentUser();
+    const visGeral = dbService.getVisibilidadeEfetivaUsuario(operadorAtual, escola);
+    const podeSensiveisGeral = (f: Funcionario) =>
+      visGeral.irrestrito || visGeral.dadosSensiveis.verDadosSensiveisFuncionarios || f.id === operadorAtual?.id;
+    const formatOutrasFormacoes = (f: Funcionario) =>
+      Array.isArray(f.outrasFormacoes) && f.outrasFormacoes.length > 0
+        ? f.outrasFormacoes
+            .map(of => `${of.nivelFormacao}: ${of.cursoOuArea || '—'} — ${of.instituicaoAcademica || '—'} (${of.anoConclusao || '—'})${of.observacoes ? ` [${of.observacoes}]` : ''}`)
+            .join(' | ')
+        : '—';
+    const formatCamposExtras = (f: Funcionario) =>
+      Array.isArray(f.camposExtrasFormacao) && f.camposExtrasFormacao.length > 0
+        ? f.camposExtrasFormacao.map(c => `${c.rotulo}: ${c.valor}`).join(' | ')
+        : '—';
+
+    const wsFuncs = XLSX.utils.json_to_sheet(funcs.map(f => {
+      const ver = podeSensiveisGeral(f);
+      return {
+        'Instituição Escolar': escola.nomeOficial,
+        'ID': f.id,
+        'Nome Completo': f.nomeCompleto,
+        'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
+        'Bilhete de Identidade': ver ? f.numeroBI : '*** Protegido ***',
+        'Cargo / Função': f.cargo,
+        'Papel no Sistema': f.role,
+        'Categoria Profissional MED': f.categoriaProfissional || '—',
+        'Nº de Agente': f.numeroAgente || '—',
+        'Tipo de Contrato': f.tipoContrato || 'Efetivo',
+        'Situação Funcional': f.situacaoFuncional || 'Ativo',
+        'Data de Admissão': f.dataAdmissao || '—',
+        'Carga Horária Semanal': f.cargaHorariaSemanal ? `${f.cargaHorariaSemanal} h/sem` : '—',
+        'Formação Académica Principal': f.grauAcademico || f.habilitacoes || 'Licenciatura',
+        'Especialidade / Curso': f.especialidade || '—',
+        'Instituição Académica': f.instituicaoAcademica || f.habilitacoes || '—',
+        'Ano de Conclusão': f.anoConclusaoFormacao || '—',
+        'Outras Formações': formatOutrasFormacoes(f),
+        'Campos Adicionais (Formação/RH)': formatCamposExtras(f),
+        'NIF': ver ? (f.nif || f.numeroBI || '—') : '*** Protegido ***',
+        'Banco': ver ? (f.banco || '—') : '*** Protegido ***',
+        'IBAN': ver ? (f.iban || '—') : '*** Protegido ***',
+        'Nº Segurança Social (INSS)': ver ? (f.numeroSegurancaSocial || f.numeroINSS || '—') : '*** Protegido ***',
+        'Telefone': ver ? f.telefone : '*** Protegido ***',
+        'Email': ver ? f.email : '*** Protegido ***',
+        'Professor': f.ehProfessor ? 'Sim' : 'Não'
+      };
+    }));
     XLSX.utils.book_append_sheet(wb, wsFuncs, 'Quadro de Funcionários');
 
     // 6. Auditoria
@@ -4897,13 +5698,44 @@ export const dbService = {
     const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
     const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
-    const funcs = isEscolaEspecifica 
-      ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId) 
+    const funcs = isEscolaEspecifica
+      ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId || (escola?.diretorGeralId && f.id === escola.diretorGeralId))
       : dbService.getFuncionarios();
 
+    const operadorAtual = dbService.getCurrentUser();
+    const vis = dbService.getVisibilidadeEfetivaUsuario(operadorAtual, escola);
+    const podeVer = (f: Funcionario) =>
+      vis.irrestrito || vis.dadosSensiveis.verDadosSensiveisFuncionarios || f.id === operadorAtual?.id;
+
+    const linhasFormacoesExtras: any[] = [];
     const linhas = funcs.map(f => {
       const esc = todasEscolas.find(e => e.id === f.escolaId) || escola;
-      return {
+      const ver = podeVer(f);
+      const outrasTxt = Array.isArray(f.outrasFormacoes) && f.outrasFormacoes.length > 0
+        ? f.outrasFormacoes
+            .map(of => `${of.nivelFormacao}: ${of.cursoOuArea || '—'} — ${of.instituicaoAcademica || '—'} (${of.anoConclusao || '—'})${of.observacoes ? ` [${of.observacoes}]` : ''}`)
+            .join(' | ')
+        : '—';
+      const camposExtrasTxt = Array.isArray(f.camposExtrasFormacao) && f.camposExtrasFormacao.length > 0
+        ? f.camposExtrasFormacao.map(c => `${c.rotulo}: ${c.valor}`).join(' | ')
+        : '—';
+
+      if (Array.isArray(f.outrasFormacoes)) {
+        f.outrasFormacoes.forEach(of => {
+          linhasFormacoesExtras.push({
+            'Instituição Escolar': esc?.nomeOficial || 'SGE-NG Central',
+            'Funcionário': f.nomeCompleto,
+            'Cargo / Função': f.cargo,
+            'Nível de Formação': of.nivelFormacao || '—',
+            'Curso / Área': of.cursoOuArea || '—',
+            'Instituição Académica': of.instituicaoAcademica || '—',
+            'Ano de Conclusão': of.anoConclusao || '—',
+            'Observações': of.observacoes || '—'
+          });
+        });
+      }
+
+      const row: Record<string, any> = {
         'Instituição Escolar': esc?.nomeOficial || 'SGE-NG Central',
         'Código SIGE Escola': esc?.codigoSIGE || esc?.codigoMEC || '',
         'ID Funcionário': f.id,
@@ -4912,39 +5744,64 @@ export const dbService = {
         'Data de Nascimento': f.dataNascimento || '—',
         'Estado Civil': f.estadoCivil || '—',
         'Nacionalidade': f.nacionalidade || 'Angolana',
-        'Nº Bilhete de Identidade (BI)': f.numeroBI,
-        'Data Emissão BI': f.dataEmissaoBI || '—',
-        'Validade BI': f.dataValidadeBI || '—',
-        'NIF': f.nif || '—',
+        'Naturalidade': f.naturalidade || f.naturalidadeMunicipio || '—',
+        'Filiação (Pai)': f.nomePai || '—',
+        'Filiação (Mãe)': f.nomeMae || '—',
+        'Nº Bilhete de Identidade (BI)': ver ? f.numeroBI : '*** Protegido ***',
+        'Data Emissão BI': ver ? (f.dataEmissaoBI || '—') : '***',
+        'Validade BI': ver ? (f.dataValidadeBI || f.validadeBI || '—') : '***',
+        'Local Emissão BI': ver ? (f.localEmissaoBI || f.arquivoIdentificacao || '—') : '***',
+        'NIF': ver ? (f.nif || f.numeroBI || '—') : '*** Protegido ***',
         'Cargo / Função': f.cargo,
+        'Departamento / Setor': f.departamento || '—',
         'Categoria Profissional': f.categoriaProfissional || 'Técnico Pedagógico',
         'Nº de Agente do Estado': f.numeroAgente || '—',
-        'Regime Contratual': f.tipoContrato || 'Quadro Efetivo',
+        'Tipo de Contrato': f.tipoContrato || 'Efetivo',
+        'Situação Funcional': f.situacaoFuncional || 'Ativo',
         'Data de Admissão': f.dataAdmissao || '—',
+        'Carga Horária Semanal': f.cargaHorariaSemanal ? `${f.cargaHorariaSemanal} h/sem` : '—',
         'Papel no Sistema (Role)': f.role,
         'Status da Conta': f.statusConta || 'Ativa',
         'É Professor': f.ehProfessor ? 'Sim' : 'Não',
-        'Especialidade / Formação': f.especialidade || '—',
-        'Habilitações Literárias': f.habilitacoes || 'Licenciatura',
-        'Instituição de Graduação': (f as any).instituicaoFormacao || '—',
-        'Telefone Principal': f.telefone,
-        'Telefone Alternativo': f.telefoneAlternativo || '—',
-        'Email Institucional': f.email,
-        'Email Pessoal': (f as any).emailPessoal || '—',
-        'Província Residência': f.provincia || esc?.provincia || '—',
-        'Município Residência': f.municipio || esc?.municipio || '—',
-        'Bairro / Morada': f.residencia || f.bairro || '—',
-        'Banco': f.banco || '—',
-        'IBAN / Conta Bancária': f.iban || '—',
+        'Formação Académica Principal': f.grauAcademico || f.habilitacoes || 'Licenciatura',
+        'Especialidade / Curso': f.especialidade || '—',
+        'Instituição Académica': f.instituicaoAcademica || (f as any).instituicaoFormacao || f.habilitacoes || '—',
+        'Ano de Conclusão': f.anoConclusaoFormacao || '—',
+        'Outras Formações': outrasTxt,
+        'Campos Extras (Formação & RH)': camposExtrasTxt,
+        'Telefone Principal': ver ? f.telefone : '*** Protegido ***',
+        'Telefone Alternativo': ver ? (f.telefoneAlternativo || '—') : '***',
+        'Email Institucional': ver ? f.email : '*** Protegido ***',
+        'Província Residência': f.provincia || f.provinciaOrigem || esc?.provincia || '—',
+        'Município Residência': f.municipio || f.municipioResidencia || esc?.municipio || '—',
+        'Bairro / Morada': ver ? (f.residencia || f.residenciaAtual || f.bairro || '—') : '*** Protegido ***',
+        'Banco': ver ? (f.banco || '—') : '*** Protegido ***',
+        'IBAN / Conta Bancária': ver ? (f.iban || '—') : '*** Protegido ***',
+        'Nº Segurança Social (INSS)': ver ? (f.numeroSegurancaSocial || f.numeroINSS || '—') : '*** Protegido ***',
         'Grupo Sanguíneo': f.grupoSanguineo || '—',
+        'Alergias': f.alergias || '—',
+        'Doenças Crónicas': f.doencasCronicas || '—',
         'Contacto Emergência (Nome)': f.contactoEmergenciaNome || '—',
-        'Contacto Emergência (Telefone)': f.contactoEmergenciaTelefone || '—'
+        'Contacto Emergência (Telefone)': ver ? (f.contactoEmergenciaTelefone || '—') : '*** Protegido ***'
       };
+
+      if (Array.isArray(f.camposExtrasFormacao)) {
+        f.camposExtrasFormacao.forEach(c => {
+          if (c.rotulo && !Object.prototype.hasOwnProperty.call(row, c.rotulo)) {
+            row[c.rotulo] = c.valor || '—';
+          }
+        });
+      }
+
+      return row;
     });
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(linhas.length > 0 ? linhas : [{ 'Informação': 'Nenhum funcionário encontrado.' }]);
     XLSX.utils.book_append_sheet(wb, ws, 'Quadro de Funcionários');
+    if (linhasFormacoesExtras.length > 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhasFormacoesExtras), 'Outras Formações Académicas');
+    }
 
     const dataHoje = new Date().toISOString().split('T')[0];
     const sigla = escola?.sigla || (isEscolaEspecifica ? 'Escola' : 'Rede_Nacional');
@@ -5101,20 +5958,60 @@ export const dbService = {
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pautaDetalhada.length > 0 ? pautaDetalhada : [{ 'Info': 'Sem notas lançadas' }]), 'Pauta Geral de Notas');
 
-    // Folha 4: Quadro de Funcionários
-    const funcsRows = funcs.map(f => ({
-      'ID': f.id,
-      'Nome Completo': f.nomeCompleto,
-      'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
-      'BI': f.numeroBI,
-      'Cargo': f.cargo,
-      'Papel no Sistema': f.role,
-      'Professor': f.ehProfessor ? 'Sim' : 'Não',
-      'Habilitações': f.habilitacoes || 'Licenciatura',
-      'Especialidade': f.especialidade || '—',
-      'Telefone': f.telefone,
-      'Email': f.email
-    }));
+    // Folha 4: Quadro de Funcionários (Completo com Formação, Instituição, Ano, Contratos e Dados Financeiros)
+    const operadorEscola = dbService.getCurrentUser();
+    const visEscola = dbService.getVisibilidadeEfetivaUsuario(operadorEscola, escola);
+    const podeVerFuncEsc = (f: Funcionario) =>
+      visEscola.irrestrito || visEscola.dadosSensiveis.verDadosSensiveisFuncionarios || f.id === operadorEscola?.id;
+    const funcsRows = funcs.map(f => {
+      const ver = podeVerFuncEsc(f);
+      const outrasTxt = Array.isArray(f.outrasFormacoes) && f.outrasFormacoes.length > 0
+        ? f.outrasFormacoes
+            .map(of => `${of.nivelFormacao}: ${of.cursoOuArea || '—'} — ${of.instituicaoAcademica || '—'} (${of.anoConclusao || '—'})`)
+            .join(' | ')
+        : '—';
+      const camposExtrasTxt = Array.isArray(f.camposExtrasFormacao) && f.camposExtrasFormacao.length > 0
+        ? f.camposExtrasFormacao.map(c => `${c.rotulo}: ${c.valor}`).join(' | ')
+        : '—';
+      const row: Record<string, any> = {
+        'ID': f.id,
+        'Nome Completo': f.nomeCompleto,
+        'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
+        'BI': ver ? f.numeroBI : '*** Protegido ***',
+        'Data Nascimento': f.dataNascimento || '—',
+        'Cargo': f.cargo,
+        'Papel no Sistema': f.role,
+        'Categoria Profissional MED': f.categoriaProfissional || '—',
+        'Nº de Agente': f.numeroAgente || '—',
+        'Tipo de Contrato': f.tipoContrato || 'Efetivo',
+        'Situação Funcional': f.situacaoFuncional || 'Ativo',
+        'Data de Admissão': f.dataAdmissao || '—',
+        'Carga Horária Semanal': f.cargaHorariaSemanal ? `${f.cargaHorariaSemanal} h/sem` : '—',
+        'Professor': f.ehProfessor ? 'Sim' : 'Não',
+        'Formação Académica': f.grauAcademico || f.habilitacoes || 'Licenciatura',
+        'Especialidade / Curso': f.especialidade || '—',
+        'Instituição Académica': f.instituicaoAcademica || (f as any).instituicaoFormacao || f.habilitacoes || '—',
+        'Ano de Conclusão': f.anoConclusaoFormacao || '—',
+        'Outras Formações': outrasTxt,
+        'Campos Adicionais (RH/Formação)': camposExtrasTxt,
+        'NIF': ver ? (f.nif || f.numeroBI || '—') : '*** Protegido ***',
+        'Banco': ver ? (f.banco || '—') : '*** Protegido ***',
+        'IBAN': ver ? (f.iban || '—') : '*** Protegido ***',
+        'Nº Segurança Social (INSS)': ver ? (f.numeroSegurancaSocial || f.numeroINSS || '—') : '*** Protegido ***',
+        'Telefone': ver ? f.telefone : '*** Protegido ***',
+        'Email': ver ? f.email : '*** Protegido ***',
+        'Província / Município': `${f.provincia || f.provinciaOrigem || '—'} / ${f.municipio || f.municipioResidencia || '—'}`,
+        'Residência': ver ? (f.residencia || f.residenciaAtual || f.bairro || '—') : '*** Protegido ***'
+      };
+      if (Array.isArray(f.camposExtrasFormacao)) {
+        f.camposExtrasFormacao.forEach(c => {
+          if (c.rotulo && !Object.prototype.hasOwnProperty.call(row, c.rotulo)) {
+            row[c.rotulo] = c.valor || '—';
+          }
+        });
+      }
+      return row;
+    });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(funcsRows.length > 0 ? funcsRows : [{ 'Info': 'Sem funcionários' }]), 'Quadro de Funcionários');
 
     // Folha 5: Turmas
@@ -5152,6 +6049,25 @@ export const dbService = {
       'Estado de Conservação': p.estadoConservacao || 'Bom'
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(patRows.length > 0 ? patRows : [{ 'Info': 'Sem património registado' }]), 'Património Escolar');
+
+    // Folha 8: Plano de Atividades e Eventos da Escola
+    const planoAtividades = dbService.getAtividadesPlano(escola.id);
+    const planoRows = planoAtividades.map(a => ({
+      'Ano Lectivo': a.anoLectivo,
+      'Período / Trimestre': a.trimestre === 'Anual' ? 'Anual' : `${a.trimestre}º Trimestre`,
+      'Área de Origem': a.areaOrigem,
+      'Perfil / Responsável': a.perfilOrigemLabel || a.criadoPorNome,
+      'Título da Atividade / Evento': a.titulo,
+      'Categoria': a.categoria,
+      'Data Início': a.dataInicio,
+      'Data Fim': a.dataFim || '—',
+      'Local': a.local || '—',
+      'Público-Alvo': a.publicoAlvo,
+      'Estado de Execução': a.estadoExecucao,
+      'Cumprimento (%)': `${a.percentualCumprimento}%`,
+      'No Plano Geral do Diretor': a.excluidaDoPlanoGeralPorDiretor ? `Excluída (${a.motivoExclusaoDiretor || 'Sem motivo'})` : 'Incluída'
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(planoRows.length > 0 ? planoRows : [{ 'Info': 'Sem atividades no plano' }]), 'Plano de Atividades e Eventos');
 
     const dataHoje = new Date().toISOString().split('T')[0];
     const sigla = escola.sigla || 'Escola';
@@ -5233,15 +6149,33 @@ export const dbService = {
     // 4. Funcionários
     const funcsData = funcs.map(f => {
       const e = escolas.find(esc => esc.id === f.escolaId);
+      const outrasTxt = Array.isArray(f.outrasFormacoes) && f.outrasFormacoes.length > 0
+        ? f.outrasFormacoes.map(of => `${of.nivelFormacao}: ${of.cursoOuArea || '—'} (${of.instituicaoAcademica || '—'}, ${of.anoConclusao || '—'})`).join(' | ')
+        : '—';
+      const extrasTxt = Array.isArray(f.camposExtrasFormacao) && f.camposExtrasFormacao.length > 0
+        ? f.camposExtrasFormacao.map(c => `${c.rotulo}: ${c.valor}`).join(' | ')
+        : '—';
       return {
         'Escola': e?.nomeOficial || f.escolaId || 'Central',
         'Nome Completo': f.nomeCompleto,
         'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
         'BI': f.numeroBI,
+        'NIF': f.nif || f.numeroBI || '—',
         'Cargo': f.cargo,
         'Papel no Sistema': f.role,
+        'Tipo de Contrato': f.tipoContrato || 'Efetivo',
+        'Situação Funcional': f.situacaoFuncional || 'Ativo',
+        'Nº de Agente': f.numeroAgente || '—',
         'Professor': f.ehProfessor ? 'Sim' : 'Não',
-        'Habilitações': f.habilitacoes || 'Licenciatura',
+        'Formação Académica': f.grauAcademico || f.habilitacoes || 'Licenciatura',
+        'Especialidade': f.especialidade || '—',
+        'Instituição Académica': f.instituicaoAcademica || f.habilitacoes || '—',
+        'Ano de Conclusão': f.anoConclusaoFormacao || '—',
+        'Outras Formações': outrasTxt,
+        'Campos Adicionais': extrasTxt,
+        'Banco': f.banco || '—',
+        'IBAN': f.iban || '—',
+        'INSS': f.numeroSegurancaSocial || f.numeroINSS || '—',
         'Telefone': f.telefone,
         'Email': f.email,
         'Status Conta': f.statusConta || 'Ativa'
@@ -5371,7 +6305,7 @@ export const dbService = {
     }
   },
 
-  // Backup Completo JSON (Todas as coleções e dados com suporte a isolamento por escola)
+  // Backup Completo JSON (100% dos dados com isolamento por escola para Diretor e integral para AdminGeral)
   gerarBackupJSON: (escolaId?: string) => {
     const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
     const effectiveEscolaId = nonAdmin
@@ -5381,72 +6315,16 @@ export const dbService = {
     const todasEscolas = dbService.getEscolas();
     const escolaAlvo = isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : null;
 
-    const funcsVisiveis = dbService.getFuncionarios().filter(f => !isAdminGeralUserObj(f));
-    const logsVisiveis = dbService.getAuditoria();
-
-    const backupData = {
-      versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Enterprise Cloud/Local)',
-      tipoBackup: 'COMPLETO',
-      dataExportacao: new Date().toISOString(),
-      escolaIdAlvo: effectiveEscolaId || 'todas',
-      escolas: isEscolaEspecifica && escolaAlvo ? [escolaAlvo] : todasEscolas,
-      alunos: isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAlunos(),
-      turmas: isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas(),
-      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas(effectiveEscolaId) : dbService.getDisciplinas(),
-      atribuicoes: isEscolaEspecifica ? dbService.getAtribuicoes().filter(at => at.escolaId === effectiveEscolaId) : dbService.getAtribuicoes(),
-      funcionarios: isEscolaEspecifica ? funcsVisiveis.filter(f => f.escolaId === effectiveEscolaId) : (nonAdmin ? funcsVisiveis : dbService.getFuncionarios()),
-      tiposAvaliacao: dbService.getTiposAvaliacao(),
-      regrasMAC: dbService.getRegrasMAC(),
-      avaliacoes: isEscolaEspecifica ? dbService.getAvaliacoes().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAvaliacoes(),
-      notas: isEscolaEspecifica ? dbService.getNotas().filter(n => (n as any).escolaId === effectiveEscolaId) : dbService.getNotas(),
-      notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => (nc as any).escolaId === effectiveEscolaId) : dbService.getNotasConsolidadas(),
-      solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === effectiveEscolaId) : dbService.getSolicitacoesNota(),
-      juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === effectiveEscolaId) : dbService.getJuris(),
-      termosExame: isEscolaEspecifica ? dbService.getTermosExame().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTermosExame(),
-      horarios: isEscolaEspecifica
-        ? getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS).filter(h => h.escolaId === effectiveEscolaId)
-        : getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS),
-      presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPresencas(),
-      auditoria: isEscolaEspecifica ? logsVisiveis.filter(a => a.escolaId === effectiveEscolaId) : logsVisiveis,
-      mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === effectiveEscolaId) : dbService.getMensagens(),
-      biblioteca: isEscolaEspecifica ? dbService.getBiblioteca().filter(b => b.escolaId === effectiveEscolaId) : dbService.getBiblioteca(),
-      bibliotecaAcessos: isEscolaEspecifica ? dbService.getAcessosBiblioteca(effectiveEscolaId) : dbService.getAcessosBiblioteca(),
-      recibos: isEscolaEspecifica ? dbService.getRecibos().filter(r => r.escolaId === effectiveEscolaId) : dbService.getRecibos(),
-      configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
-      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras(effectiveEscolaId) : dbService.getTransacoesFinanceiras(),
-      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares(effectiveEscolaId) : dbService.getDespesasEscolares(),
-      patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPatrimonio(),
-      delegacoesPoderes: getLocal(STORAGE_KEYS.DELEGACOES_PODERES, []),
-      acoesDelegadasLogs: getLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []),
-      configuracoesDocumentos: getLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, {}),
-      configuracoesPasses: getLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, {}),
-      historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
-      configuracaoSistema: nonAdmin ? undefined : dbService.getConfiguracaoSistema(),
-      anosLectivos: isEscolaEspecifica ? dbService.getAnosLectivos(effectiveEscolaId) : dbService.getAnosLectivos(),
-      anosLectivosConfigs: isEscolaEspecifica ? dbService.getAnosLectivosConfigs(effectiveEscolaId) : dbService.getAnosLectivosConfigs(),
-      turnosConfigs: isEscolaEspecifica ? dbService.getTurnosConfigs(effectiveEscolaId) : dbService.getTurnosConfigs(),
-      classesConfigs: isEscolaEspecifica ? dbService.getClassesConfigs(effectiveEscolaId) : dbService.getClassesConfigs(),
-      cursos: isEscolaEspecifica ? dbService.getCursos(effectiveEscolaId) : dbService.getCursos(),
-      areasFormacao: isEscolaEspecifica ? dbService.getAreasFormacao(effectiveEscolaId) : dbService.getAreasFormacao(),
-      salasAulas: isEscolaEspecifica ? dbService.getSalasAulas(effectiveEscolaId) : dbService.getSalasAulas(),
-      emolumentosPersonalizados: getLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
-      delegacoesCobranca: getLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, []),
-      presencasAlunos: getLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
-      solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
-      alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
-      relatoriosAcontecimentos: isEscolaEspecifica ? dbService.getRelatoriosAcontecimentos(effectiveEscolaId) : dbService.getRelatoriosAcontecimentos()
-    };
-
+    const jsonString = dbService.criarBackupJSON(effectiveEscolaId);
     const nomeSufixo = escolaAlvo?.sigla || (isEscolaEspecifica ? 'Instituicao' : 'Rede_Nacional');
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `SGE_NG_Backup_${nomeSufixo}_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    dbService.registarLog('Backup Integral do Sistema', `Cópia de segurança (${nomeSufixo}) exportada com sucesso.`);
-    // Registar linha de base para próximos backups incrementais
+    dbService.registarLog('Backup Integral do Sistema', `Cópia de segurança completa (${nomeSufixo}) exportada com sucesso.`);
     try {
       dbService.salvarCheckpointBackupIncremental(effectiveEscolaId || 'todas', 'COMPLETO');
     } catch {}
@@ -5683,7 +6561,6 @@ export const dbService = {
       `Delta #${novaSequencia} (${nomeSufixo}) exportado: ${totalAlterados} registo(s) novo(s)/alterado(s), ${totalEliminados} eliminado(s).`
     );
 
-    // Atualizar checkpoint incluindo o log recém-criado para zerar pendências imediatamente
     dbService.salvarCheckpointBackupIncremental(scope.effectiveEscolaId, 'INCREMENTAL');
 
     return {
@@ -5695,7 +6572,7 @@ export const dbService = {
     };
   },
 
-  // Restaurar Backup JSON (Suporte Automático a Snapshot Completo e Backup Incremental)
+  // Restaurar Backup JSON (Suporte Automático a Snapshot Completo da Escola/Sistema e Backup Incremental)
   restaurarBackupJSON: (jsonString: string): boolean => {
     try {
       const data = JSON.parse(jsonString);
@@ -5704,6 +6581,10 @@ export const dbService = {
       const { ids: adminIds, nomes: adminNomes } = getAdminGeralIdsAndNomes();
       const logsAdminExistentes = dbService.getAuditoriaBruta().filter(l => isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes));
       const escolasBrutasExistentes = dbService.getEscolasBrutas();
+      const escolaAlvo = typeof data?.escolaIdAlvo === 'string' && data.escolaIdAlvo !== 'todas'
+        ? data.escolaIdAlvo
+        : (nonAdmin ? dbService.getEscolaAtiva().id : undefined);
+      const modoMergeEscola = Boolean(escolaAlvo && escolaAlvo !== 'todas');
 
       // ============================================================
       // MODO 1: RESTAURAÇÃO INCREMENTAL (MERGE POR ID + ELIMINADOS)
@@ -5729,7 +6610,6 @@ export const dbService = {
             mapa.set(k, item);
           }
 
-          // Aplicar eliminações respeitando proteção RBAC do Admin Geral
           for (const remId of removals) {
             const existente = mapa.get(remId);
             if (nonAdmin && existente) {
@@ -5739,7 +6619,6 @@ export const dbService = {
             mapa.delete(remId);
           }
 
-          // Aplicar adições/atualizações respeitando proteção RBAC do Admin Geral
           for (let i = 0; i < upserts.length; i++) {
             const item = upserts[i];
             if (nonAdmin) {
@@ -5756,22 +6635,16 @@ export const dbService = {
             mapa.set(k, item);
           }
 
-          // Preservar contas Admin Geral caso algum edge case tente removê-las
           if (nonAdmin && def.colecao === 'funcionarios') {
-            for (const adm of adminsExistentes) {
-              mapa.set(adm.id, adm);
-            }
+            for (const adm of adminsExistentes) mapa.set(adm.id, adm);
           }
           if (nonAdmin && def.colecao === 'auditoria') {
-            for (const admLog of logsAdminExistentes) {
-              mapa.set(admLog.id, admLog);
-            }
+            for (const admLog of logsAdminExistentes) mapa.set(admLog.id, admLog);
           }
 
           setLocal(def.storageKey, Array.from(mapa.values()));
         }
 
-        // Aplicar configurações alteradas
         if (configsAlteradas.configuracoesFinanceiras) {
           setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, configsAlteradas.configuracoesFinanceiras);
         }
@@ -5803,10 +6676,43 @@ export const dbService = {
       }
 
       // ============================================================
-      // MODO 2: RESTAURAÇÃO COMPLETA (SNAPSHOT INTEGRAL)
+      // MODO 2: RESTAURAÇÃO COMPLETA (SCHOOL-SAFE MERGE OU INTEGRAL)
       // ============================================================
+      const mergeColecaoPorEscolaOuIntegral = (
+        storageKey: string,
+        novosItens: any[] | undefined,
+        keyName: string = 'id'
+      ) => {
+        if (!Array.isArray(novosItens)) return;
+        if (!modoMergeEscola || !escolaAlvo) {
+          setLocal(storageKey, novosItens);
+          return;
+        }
+        const atuais = getLocal<any[]>(storageKey, []);
+        const preservadosOutras = atuais.filter(item => item?.escolaId && item.escolaId !== escolaAlvo);
+        const idsNovos = new Set(novosItens.map(it => it?.[keyName]).filter(Boolean));
+        const globaisSemConflito = atuais.filter(item => !item?.escolaId && !idsNovos.has(item?.[keyName]));
+        setLocal(storageKey, [...preservadosOutras, ...globaisSemConflito, ...novosItens]);
+      };
+
+      const mergeMapaEscolar = (storageKey: string, novoMapa: Record<string, any> | undefined, filterKeyFn?: (k: string, v: any) => boolean) => {
+        if (!novoMapa || typeof novoMapa !== 'object') return;
+        if (!modoMergeEscola || !escolaAlvo) {
+          setLocal(storageKey, novoMapa);
+          return;
+        }
+        const atual = getLocal<Record<string, any>>(storageKey, {});
+        const mesclado = { ...atual };
+        Object.entries(novoMapa).forEach(([k, v]) => {
+          if (!filterKeyFn || filterKeyFn(k, v)) {
+            mesclado[k] = v;
+          }
+        });
+        setLocal(storageKey, mesclado);
+      };
+
       if (data.escolas) {
-        if (nonAdmin && Array.isArray(data.escolas)) {
+        if (modoMergeEscola || (nonAdmin && Array.isArray(data.escolas))) {
           const mapaSessoesApoio = new Map(
             escolasBrutasExistentes
               .filter(e => e.sessaoApoioTecnicoAtiva)
@@ -5816,7 +6722,7 @@ export const dbService = {
           const preservadasOutras = escolasBrutasExistentes.filter(e => !restauradasIds.has(e.id));
           const restauradasComProtecao = data.escolas.map((e: Escola) => ({
             ...e,
-            sessaoApoioTecnicoAtiva: mapaSessoesApoio.get(e.id)
+            sessaoApoioTecnicoAtiva: nonAdmin ? mapaSessoesApoio.get(e.id) : (e.sessaoApoioTecnicoAtiva ?? mapaSessoesApoio.get(e.id))
           }));
           setLocal(STORAGE_KEYS.ESCOLAS, [...preservadasOutras, ...restauradasComProtecao]);
         } else {
@@ -5826,68 +6732,158 @@ export const dbService = {
         setLocal(STORAGE_KEYS.ESCOLAS, [data.escola]);
       }
 
-      if (data.alunos) setLocal(STORAGE_KEYS.ALUNOS, data.alunos);
-      if (data.turmas) setLocal(STORAGE_KEYS.TURMAS, data.turmas);
-      if (data.disciplinas) setLocal(STORAGE_KEYS.DISCIPLINAS, data.disciplinas);
-      if (data.atribuicoes) setLocal(STORAGE_KEYS.ATRIBUICOES, data.atribuicoes);
-      if (data.funcionarios) {
-        if (nonAdmin && Array.isArray(data.funcionarios)) {
-          const semAdmin = data.funcionarios.filter((f: Funcionario) => !isAdminGeralUserObj(f));
-          setLocal(STORAGE_KEYS.FUNCIONARIOS, [...adminsExistentes, ...semAdmin]);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ALUNOS, data.alunos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.TURMAS, data.turmas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.DISCIPLINAS, data.disciplinas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ATRIBUICOES, data.atribuicoes);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.COORDENACOES, data.coordenacoes);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.TIPOS_COORDENACAO, data.tiposCoordenacaoPersonalizados);
+
+      if (Array.isArray(data.funcionarios)) {
+        const funcsIncoming = nonAdmin
+          ? data.funcionarios.filter((f: Funcionario) => !isAdminGeralUserObj(f))
+          : data.funcionarios;
+        if (modoMergeEscola && escolaAlvo) {
+          const atuaisFuncs = dbService.getFuncionariosBruto();
+          const preservados = atuaisFuncs.filter(f => (isAdminGeralUserObj(f) || (f.escolaId && f.escolaId !== escolaAlvo)));
+          const idsIn = new Set(funcsIncoming.map((f: Funcionario) => f.id));
+          const extrasPreservados = preservados.filter(p => !idsIn.has(p.id));
+          setLocal(STORAGE_KEYS.FUNCIONARIOS, [...extrasPreservados, ...funcsIncoming]);
+        } else if (nonAdmin) {
+          const idsIn = new Set(funcsIncoming.map((f: Funcionario) => f.id));
+          const admPres = adminsExistentes.filter(a => !idsIn.has(a.id));
+          setLocal(STORAGE_KEYS.FUNCIONARIOS, [...admPres, ...funcsIncoming]);
         } else {
           setLocal(STORAGE_KEYS.FUNCIONARIOS, data.funcionarios);
         }
       }
+
       if (data.tiposAvaliacao) setLocal(STORAGE_KEYS.TIPOS_AVALIACAO, data.tiposAvaliacao);
       if (data.regrasMAC) setLocal(STORAGE_KEYS.REGRAS_MAC, data.regrasMAC);
-      if (data.avaliacoes) setLocal(STORAGE_KEYS.AVALIACOES, data.avaliacoes);
-      if (data.notas) setLocal(STORAGE_KEYS.NOTAS, data.notas);
-      if (data.notasConsolidadas) setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, data.notasConsolidadas);
-      if (data.solicitacoesNota) setLocal(STORAGE_KEYS.SOLICITACOES_NOTA, data.solicitacoesNota);
-      if (data.juris) setLocal(STORAGE_KEYS.JURIS, data.juris);
-      if (data.termosExame) setLocal(STORAGE_KEYS.TERMOS_EXAME, data.termosExame);
-      if (data.horarios) setLocal(STORAGE_KEYS.HORARIOS, data.horarios);
-      if (data.presencas) setLocal(STORAGE_KEYS.PRESENCAS, data.presencas);
-      if (data.auditoria) {
-        if (nonAdmin && Array.isArray(data.auditoria)) {
-          const logsSemAdmin = data.auditoria.filter((l: LogAuditoria) => !isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes));
-          setLocal(STORAGE_KEYS.AUDITORIA, [...logsAdminExistentes, ...logsSemAdmin]);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.AVALIACOES, data.avaliacoes);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.NOTAS, data.notas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.NOTAS_CONSOLIDADAS, data.notasConsolidadas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.SOLICITACOES_NOTA, data.solicitacoesNota);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.JURIS, data.juris);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.TERMOS_EXAME, data.termosExame);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.HORARIOS, data.horarios);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.PRESENCAS, data.presencas);
+      if (Array.isArray(data.auditoria)) {
+        const logsIncoming = nonAdmin
+          ? data.auditoria.filter((l: LogAuditoria) => !isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes))
+          : data.auditoria;
+        if (modoMergeEscola && escolaAlvo) {
+          const atuaisLogs = dbService.getAuditoriaBruta();
+          const outros = atuaisLogs.filter(l => (nonAdmin && isLogOuAcaoDoAdminGeral(l, adminIds, adminNomes)) || (l.escolaId && l.escolaId !== escolaAlvo));
+          setLocal(STORAGE_KEYS.AUDITORIA, [...outros, ...logsIncoming]);
+        } else if (nonAdmin) {
+          setLocal(STORAGE_KEYS.AUDITORIA, [...logsAdminExistentes, ...logsIncoming]);
         } else {
           setLocal(STORAGE_KEYS.AUDITORIA, data.auditoria);
         }
       }
-      if (data.mensagens) setLocal(STORAGE_KEYS.MENSAGENS, data.mensagens);
-      if (data.biblioteca) setLocal(STORAGE_KEYS.BIBLIOTECA, data.biblioteca);
-      if (data.bibliotecaAcessos) setLocal(STORAGE_KEYS.BIBLIOTECA_ACESSOS, data.bibliotecaAcessos);
-      if (data.recibos) setLocal(STORAGE_KEYS.RECIBOS, data.recibos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.MENSAGENS, data.mensagens);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.BIBLIOTECA, data.biblioteca);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.BIBLIOTECA_ACESSOS, data.bibliotecaAcessos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.RECIBOS, data.recibos);
 
-      if (data.configuracoesFinanceiras) setLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, data.configuracoesFinanceiras);
-      if (data.transacoesFinanceiras) setLocal(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, data.transacoesFinanceiras);
-      if (data.despesasEscolares) setLocal(STORAGE_KEYS.DESPESAS_ESCOLARES, data.despesasEscolares);
-      if (data.patrimonio) setLocal(STORAGE_KEYS.PATRIMONIO, data.patrimonio);
-      if (data.delegacoesPoderes) setLocal(STORAGE_KEYS.DELEGACOES_PODERES, data.delegacoesPoderes);
-      if (data.acoesDelegadasLogs) setLocal(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, data.acoesDelegadasLogs);
-      if (data.configuracoesDocumentos) setLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, data.configuracoesDocumentos);
-      if (data.configuracoesPasses) setLocal(STORAGE_KEYS.CONFIGURACOES_PASSES, data.configuracoesPasses);
-      if (data.historicoCompleto) setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, data.historicoCompleto);
+      mergeMapaEscolar(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, data.configuracoesFinanceiras, (k) => !escolaAlvo || k === escolaAlvo);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, data.transacoesFinanceiras);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.DESPESAS_ESCOLARES, data.despesasEscolares);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.PATRIMONIO, data.patrimonio);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.DELEGACOES_PODERES, data.delegacoesPoderes);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, data.acoesDelegadasLogs);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, data.alteracoesNotasDirecao);
+      mergeMapaEscolar(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, data.configuracoesDocumentos, (k, v) => !escolaAlvo || k.startsWith(`${escolaAlvo}_`) || v?.escolaId === escolaAlvo);
+      mergeMapaEscolar(STORAGE_KEYS.CONFIGURACOES_PASSES, data.configuracoesPasses, (k) => !escolaAlvo || k === escolaAlvo);
+      mergeMapaEscolar(STORAGE_KEYS.HISTORICO_COMPLETO, data.historicoCompleto);
+
       if (data.configuracaoSistema && !nonAdmin) setLocal(STORAGE_KEYS.CONFIGURACAO_SISTEMA, data.configuracaoSistema);
-      if (data.anosLectivos) setLocal(STORAGE_KEYS.ANOS_LECTIVOS, data.anosLectivos);
-      if (data.anosLectivosConfigs) setLocal(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, data.anosLectivosConfigs);
-      if (data.turnosConfigs) setLocal(STORAGE_KEYS.TURNOS_CONFIGS, data.turnosConfigs);
-      if (data.classesConfigs) setLocal(STORAGE_KEYS.CLASSES_CONFIGS, data.classesConfigs);
-      if (data.cursos) setLocal(STORAGE_KEYS.CURSOS, data.cursos);
-      if (data.areasFormacao) setLocal(STORAGE_KEYS.AREAS_FORMACAO, data.areasFormacao);
-      if (data.salasAulas) setLocal(STORAGE_KEYS.SALAS_AULAS, data.salasAulas);
-      if (data.emolumentosPersonalizados) setLocal(STORAGE_KEYS.EMOLUMENTOS_CONFIG, data.emolumentosPersonalizados);
-      if (data.delegacoesCobranca) setLocal(STORAGE_KEYS.DELEGACOES_COBRANCA, data.delegacoesCobranca);
-      if (data.presencasAlunos) setLocal(STORAGE_KEYS.PRESENCAS_ALUNOS, data.presencasAlunos);
-      if (data.solicitacoesApoio && !nonAdmin) setLocal(STORAGE_KEYS.SOLICITACOES_APOIO, data.solicitacoesApoio);
+      if (data.anosLectivos && !modoMergeEscola) setLocal(STORAGE_KEYS.ANOS_LECTIVOS, data.anosLectivos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, data.anosLectivosConfigs);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.TURNOS_CONFIGS, data.turnosConfigs);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.CLASSES_CONFIGS, data.classesConfigs);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.CURSOS, data.cursos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.AREAS_FORMACAO, data.areasFormacao);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.SALAS_AULAS, data.salasAulas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.EMOLUMENTOS_CONFIG, data.emolumentosPersonalizados);
+      if (data.delegacoesCobranca) {
+        if (Array.isArray(data.delegacoesCobranca)) {
+          mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.DELEGACOES_COBRANCA, data.delegacoesCobranca);
+        } else if (typeof data.delegacoesCobranca === 'object') {
+          mergeMapaEscolar(STORAGE_KEYS.DELEGACOES_COBRANCA, data.delegacoesCobranca, (k) => !escolaAlvo || k === escolaAlvo);
+        }
+      }
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.PRESENCAS_ALUNOS, data.presencasAlunos);
+      if (data.solicitacoesApoio && (!nonAdmin || modoMergeEscola)) {
+        mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.SOLICITACOES_APOIO, data.solicitacoesApoio);
+      }
       if (data.alertasSeguranca && !nonAdmin) setLocal(STORAGE_KEYS.ALERTAS_SEGURANCA, data.alertasSeguranca);
-      if (data.relatoriosAcontecimentos) setLocal(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, data.relatoriosAcontecimentos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, data.relatoriosAcontecimentos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, data.relatoriosPedagogicos);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.PLANOS_ATIVIDADES, data.planosAtividades);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.HORARIOS_PROVAS, data.horariosProvas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.MAPAS_FISCALIZACAO, data.mapasFiscalizacao);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ATAS_PROVAS, data.atasProvas);
+      if (data.financasPessoais && typeof data.financasPessoais === 'object' && !modoMergeEscola) {
+        mergeMapaEscolar(STORAGE_KEYS.FINANCAS_PESSOAIS, data.financasPessoais);
+      }
 
-      dbService.registarLog('Restauração de Backup Integral', 'Sistema restaurado a partir de ficheiro de segurança.');
+      // Restaurar Calendários Escolares, Tipos Personalizados, Eventos Escolares, Localidades Personalizadas e Sessões (Admin)
+      if (typeof localStorage !== 'undefined') {
+        try {
+          if (Array.isArray(data.calendarioEscolar) && escolaAlvo) {
+            const calJson = JSON.stringify(data.calendarioEscolar);
+            localStorage.setItem(`sge_calendario_${escolaAlvo}`, calJson);
+            offlineStorage.gravarChaveNoIndexedDB(`sge_calendario_${escolaAlvo}`, calJson);
+          }
+          if (data.calendariosPorEscola && typeof data.calendariosPorEscola === 'object') {
+            Object.entries(data.calendariosPorEscola).forEach(([escKey, evts]) => {
+              if ((!escolaAlvo || escKey === escolaAlvo) && Array.isArray(evts)) {
+                const calJson = JSON.stringify(evts);
+                localStorage.setItem(`sge_calendario_${escKey}`, calJson);
+                offlineStorage.gravarChaveNoIndexedDB(`sge_calendario_${escKey}`, calJson);
+              }
+            });
+          }
+          if (Array.isArray(data.calendarioTiposEscolar) && escolaAlvo) {
+            const tiposJson = JSON.stringify(data.calendarioTiposEscolar);
+            localStorage.setItem(`sge_calendario_tipos_${escolaAlvo}`, tiposJson);
+            offlineStorage.gravarChaveNoIndexedDB(`sge_calendario_tipos_${escolaAlvo}`, tiposJson);
+          }
+          if (data.calendarioTiposPorEscola && typeof data.calendarioTiposPorEscola === 'object') {
+            Object.entries(data.calendarioTiposPorEscola).forEach(([escKey, tipos]) => {
+              if ((!escolaAlvo || escKey === escolaAlvo) && Array.isArray(tipos)) {
+                const tiposJson = JSON.stringify(tipos);
+                localStorage.setItem(`sge_calendario_tipos_${escKey}`, tiposJson);
+                offlineStorage.gravarChaveNoIndexedDB(`sge_calendario_tipos_${escKey}`, tiposJson);
+              }
+            });
+          }
+          if (Array.isArray(data.eventosEscolares)) {
+            if (modoMergeEscola && escolaAlvo) {
+              const rawEv = localStorage.getItem('sge_eventos_escolares');
+              const atuaisEv: any[] = rawEv ? JSON.parse(rawEv) : [];
+              const outrosEv = Array.isArray(atuaisEv) ? atuaisEv.filter(ev => ev?.escolaId && ev.escolaId !== escolaAlvo) : [];
+              localStorage.setItem('sge_eventos_escolares', JSON.stringify([...outrosEv, ...data.eventosEscolares]));
+            } else {
+              localStorage.setItem('sge_eventos_escolares', JSON.stringify(data.eventosEscolares));
+            }
+          }
+          if (data.localidadesPersonalizadas && typeof data.localidadesPersonalizadas === 'object') {
+            const loc = data.localidadesPersonalizadas;
+            if (loc.provincias) localStorage.setItem('sgeng_provincias_personalizadas', JSON.stringify(loc.provincias));
+            if (loc.municipios) localStorage.setItem('sgeng_municipios_personalizados', JSON.stringify(loc.municipios));
+            if (loc.naturalidades) localStorage.setItem('sgeng_naturalidades_personalizadas', JSON.stringify(loc.naturalidades));
+            if (loc.paises) localStorage.setItem('sgeng_paises_personalizados', JSON.stringify(loc.paises));
+            if (loc.nacionalidades) localStorage.setItem('sgeng_nacionalidades_personalizadas', JSON.stringify(loc.nacionalidades));
+          }
+        } catch {}
+      }
+
+      dbService.registarLog('Restauração de Backup Integral', `Cópia de segurança (${modoMergeEscola ? `Escola ${escolaAlvo}` : 'Sistema Completo'}) restaurada com sucesso.`);
       try {
-        dbService.salvarCheckpointBackupIncremental(data.escolaIdAlvo || 'todas', 'COMPLETO');
+        dbService.salvarCheckpointBackupIncremental(escolaAlvo || 'todas', 'COMPLETO');
       } catch {}
       firebaseSyncEngine.sincronizarTudoImediato();
       return true;
@@ -5912,7 +6908,7 @@ export const dbService = {
   obterAssiduidade: () => dbService.getPresencas(),
   obterMensagens: () => dbService.getMensagens(),
   obterLivros: () => dbService.getBiblioteca(),
-  obterLogs: () => dbService.getAuditoria(),
+  obterLogs: (escolaId?: string) => dbService.getAuditoria(escolaId),
   obterJuris: () => dbService.getJuris(),
   obterAtribuicoes: () => dbService.getAtribuicoes(),
   salvarSolicitacao: (sol: SolicitacaoAlteracaoNota) => dbService.salvarSolicitacaoNota(sol),
@@ -5931,47 +6927,175 @@ export const dbService = {
   salvarLivro: (livro: any) => dbService.salvarDocumento(livro),
   excluirLivro: (id: string) => dbService.excluirDocumento(id),
   limparLogs: () => dbService.limparLogsAntigos(),
-  criarBackupJSON: () => {
+  criarBackupJSON: (escolaId?: string) => {
     const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escolaAlvo = isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : null;
     const funcsVisiveis = dbService.getFuncionarios().filter(f => !isAdminGeralUserObj(f));
+    const logsVisiveis = dbService.getAuditoria(isEscolaEspecifica ? effectiveEscolaId : undefined);
+
+    const alunosFiltrados = isEscolaEspecifica
+      ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId)
+      : dbService.getAlunos();
+    const alunosIdsSet = new Set(alunosFiltrados.map(a => a.id));
+
+    const allFinConfigs = getLocal<Record<string, any>>(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS);
+    const allDocConfigs = getLocal<Record<string, any>>(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, {});
+    const allPassesConfigs = getLocal<Record<string, any>>(STORAGE_KEYS.CONFIGURACOES_PASSES, {});
+    const allHistorico = getLocal<Record<string, any>>(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO);
+    const allDelCobranca = getLocal<any>(STORAGE_KEYS.DELEGACOES_COBRANCA, {});
+
+    const finFiltered = isEscolaEspecifica && effectiveEscolaId
+      ? (allFinConfigs[effectiveEscolaId] ? { [effectiveEscolaId]: allFinConfigs[effectiveEscolaId] } : {})
+      : allFinConfigs;
+    const docsFiltered = isEscolaEspecifica && effectiveEscolaId
+      ? Object.fromEntries(Object.entries(allDocConfigs).filter(([k, v]) => k.startsWith(`${effectiveEscolaId}_`) || v?.escolaId === effectiveEscolaId))
+      : allDocConfigs;
+    const passesFiltered = isEscolaEspecifica && effectiveEscolaId
+      ? (allPassesConfigs[effectiveEscolaId] ? { [effectiveEscolaId]: allPassesConfigs[effectiveEscolaId] } : {})
+      : allPassesConfigs;
+    const historicoFiltered = isEscolaEspecifica
+      ? Object.fromEntries(Object.entries(allHistorico).filter(([k]) => alunosIdsSet.has(k)))
+      : allHistorico;
+    const delCobrancaFiltered = isEscolaEspecifica && effectiveEscolaId
+      ? (Array.isArray(allDelCobranca)
+          ? allDelCobranca.filter((d: any) => d?.escolaId === effectiveEscolaId)
+          : (allDelCobranca[effectiveEscolaId] ? { [effectiveEscolaId]: allDelCobranca[effectiveEscolaId] } : {}))
+      : allDelCobranca;
+
+    let calendarioEscolar: any[] | undefined;
+    let calendariosPorEscola: Record<string, any[]> | undefined;
+    let calendarioTiposEscolar: any[] | undefined;
+    let calendarioTiposPorEscola: Record<string, any[]> | undefined;
+    let eventosEscolares: any[] = [];
+    let localidadesPersonalizadas: Record<string, any> | undefined;
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        if (isEscolaEspecifica && effectiveEscolaId) {
+          const rawCal = localStorage.getItem(`sge_calendario_${effectiveEscolaId}`);
+          calendarioEscolar = rawCal ? JSON.parse(rawCal) : [];
+          const rawTipos = localStorage.getItem(`sge_calendario_tipos_${effectiveEscolaId}`);
+          calendarioTiposEscolar = rawTipos ? JSON.parse(rawTipos) : [];
+        } else {
+          calendariosPorEscola = {};
+          calendarioTiposPorEscola = {};
+          todasEscolas.forEach(esc => {
+            if (!esc?.id) return;
+            const rawCal = localStorage.getItem(`sge_calendario_${esc.id}`);
+            if (rawCal) {
+              calendariosPorEscola![esc.id] = JSON.parse(rawCal);
+            }
+            const rawTipos = localStorage.getItem(`sge_calendario_tipos_${esc.id}`);
+            if (rawTipos) {
+              calendarioTiposPorEscola![esc.id] = JSON.parse(rawTipos);
+            }
+          });
+        }
+        const rawEventos = localStorage.getItem('sge_eventos_escolares');
+        const allEventos: any[] = rawEventos ? JSON.parse(rawEventos) : [];
+        eventosEscolares = isEscolaEspecifica
+          ? allEventos.filter(ev => ev?.escolaId === effectiveEscolaId)
+          : allEventos;
+
+        localidadesPersonalizadas = {
+          provincias: JSON.parse(localStorage.getItem('sgeng_provincias_personalizadas') || 'null'),
+          municipios: JSON.parse(localStorage.getItem('sgeng_municipios_personalizados') || 'null'),
+          naturalidades: JSON.parse(localStorage.getItem('sgeng_naturalidades_personalizadas') || 'null'),
+          paises: JSON.parse(localStorage.getItem('sgeng_paises_personalizados') || 'null'),
+          nacionalidades: JSON.parse(localStorage.getItem('sgeng_nacionalidades_personalizadas') || 'null')
+        };
+      } catch {}
+    }
+
     return JSON.stringify({
-      versaoSGE: 'SGE-NG 2.5 (Angola MED Edition - Enterprise Cloud/Local)',
+      versaoSGE: 'SGE-NG 2.6 (Angola MED Edition - Complete Backup)',
+      tipoBackup: 'COMPLETO',
+      escopoBackup: isEscolaEspecifica ? 'ESCOLA' : 'SISTEMA_COMPLETO',
       dataExportacao: new Date().toISOString(),
-      escolas: dbService.getEscolas(),
-      alunos: dbService.getAlunos(),
-      turmas: dbService.getTurmas(),
-      disciplinas: dbService.getDisciplinas(),
-      atribuicoes: dbService.getAtribuicoes(),
-      funcionarios: nonAdmin ? funcsVisiveis : dbService.getFuncionarios(),
+      escolaIdAlvo: effectiveEscolaId || 'todas',
+      escolas: isEscolaEspecifica && escolaAlvo ? [escolaAlvo] : todasEscolas,
+      alunos: alunosFiltrados,
+      turmas: isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas(),
+      disciplinas: isEscolaEspecifica ? dbService.getDisciplinas(effectiveEscolaId) : dbService.getDisciplinas(),
+      atribuicoes: isEscolaEspecifica ? dbService.getAtribuicoes(effectiveEscolaId) : dbService.getAtribuicoes(),
+      coordenacoes: isEscolaEspecifica ? dbService.getCoordenacoes(effectiveEscolaId) : dbService.getCoordenacoes(),
+      tiposCoordenacaoPersonalizados: isEscolaEspecifica ? dbService.getTiposCoordenacaoPersonalizados(effectiveEscolaId) : dbService.getTiposCoordenacaoPersonalizados(),
+      funcionarios: isEscolaEspecifica ? funcsVisiveis.filter(f => f.escolaId === effectiveEscolaId) : (nonAdmin ? funcsVisiveis : dbService.getFuncionarios()),
       tiposAvaliacao: dbService.getTiposAvaliacao(),
       regrasMAC: dbService.getRegrasMAC(),
-      avaliacoes: dbService.getAvaliacoes(),
-      notas: dbService.getNotas(),
-      notasConsolidadas: dbService.getNotasConsolidadas(),
-      solicitacoesNota: dbService.getSolicitacoesNota(),
-      juris: dbService.getJuris(),
-      presencas: dbService.getPresencas(),
-      auditoria: dbService.getAuditoria(),
-      mensagens: dbService.getMensagens(),
-      biblioteca: dbService.getBiblioteca(),
-      bibliotecaAcessos: dbService.getAcessosBiblioteca(),
-      recibos: dbService.getRecibos(),
-      configuracoesFinanceiras: getLocal(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, DEFAULT_CONFIGURACOES_FINANCEIRAS),
-      transacoesFinanceiras: dbService.getTransacoesFinanceiras(),
-      despesasEscolares: dbService.getDespesasEscolares(),
-      patrimonio: dbService.getPatrimonio(),
-      historicoCompleto: getLocal(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO),
+      avaliacoes: (() => {
+        const avs = isEscolaEspecifica ? dbService.getAvaliacoes().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAvaliacoes();
+        return avs;
+      })(),
+      notas: (() => {
+        if (!isEscolaEspecifica) return dbService.getNotas();
+        const avaliacoesIdsSet = new Set(dbService.getAvaliacoes().filter(a => a.escolaId === effectiveEscolaId).map(a => a.id));
+        return dbService.getNotas().filter(n => avaliacoesIdsSet.has(n.avaliacaoId) || alunosIdsSet.has(n.alunoId));
+      })(),
+      notasConsolidadas: isEscolaEspecifica ? dbService.getNotasConsolidadas().filter(nc => !(nc as any).escolaId || (nc as any).escolaId === effectiveEscolaId || alunosIdsSet.has(nc.alunoId)) : dbService.getNotasConsolidadas(),
+      alteracoesNotasDirecao: isEscolaEspecifica
+        ? getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []).filter(r => r.escolaId === effectiveEscolaId)
+        : getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []),
+      solicitacoesNota: isEscolaEspecifica ? dbService.getSolicitacoesNota().filter(s => s.escolaId === effectiveEscolaId) : dbService.getSolicitacoesNota(),
+      juris: isEscolaEspecifica ? dbService.getJuris().filter(j => j.escolaId === effectiveEscolaId) : dbService.getJuris(),
+      termosExame: isEscolaEspecifica ? dbService.getTermosExame().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTermosExame(),
+      horarios: isEscolaEspecifica
+        ? getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS).filter(h => h.escolaId === effectiveEscolaId)
+        : getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS),
+      presencas: isEscolaEspecifica ? dbService.getPresencas().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPresencas(),
+      presencasAlunos: isEscolaEspecifica
+        ? getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, []).filter(pa => !pa.escolaId || pa.escolaId === effectiveEscolaId || alunosIdsSet.has(pa.alunoId))
+        : getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, []),
+      auditoria: isEscolaEspecifica ? logsVisiveis.filter(a => a.escolaId === effectiveEscolaId) : logsVisiveis,
+      mensagens: isEscolaEspecifica ? dbService.getMensagens().filter(m => m.escolaId === effectiveEscolaId) : dbService.getMensagens(),
+      biblioteca: isEscolaEspecifica ? dbService.getBiblioteca().filter(b => b.escolaId === effectiveEscolaId) : dbService.getBiblioteca(),
+      bibliotecaAcessos: isEscolaEspecifica ? dbService.getAcessosBiblioteca(effectiveEscolaId) : dbService.getAcessosBiblioteca(),
+      recibos: isEscolaEspecifica ? dbService.getRecibos().filter(r => r.escolaId === effectiveEscolaId) : dbService.getRecibos(),
+      configuracoesFinanceiras: finFiltered,
+      transacoesFinanceiras: isEscolaEspecifica ? dbService.getTransacoesFinanceiras(effectiveEscolaId) : dbService.getTransacoesFinanceiras(),
+      despesasEscolares: isEscolaEspecifica ? dbService.getDespesasEscolares(effectiveEscolaId) : dbService.getDespesasEscolares(),
+      patrimonio: isEscolaEspecifica ? dbService.getPatrimonio().filter(p => p.escolaId === effectiveEscolaId) : dbService.getPatrimonio(),
+      emolumentosPersonalizados: isEscolaEspecifica
+        ? getLocal<any[]>(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []).filter(e => !e?.escolaId || e.escolaId === effectiveEscolaId)
+        : getLocal<any[]>(STORAGE_KEYS.EMOLUMENTOS_CONFIG, []),
+      delegacoesCobranca: delCobrancaFiltered,
+      delegacoesPoderes: isEscolaEspecifica
+        ? getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []).filter(d => d.escolaId === effectiveEscolaId)
+        : getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []),
+      acoesDelegadasLogs: isEscolaEspecifica
+        ? getLocal<AcaoDelegadaLog[]>(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []).filter(l => l.escolaId === effectiveEscolaId)
+        : getLocal<AcaoDelegadaLog[]>(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, []),
+      configuracoesDocumentos: docsFiltered,
+      configuracoesPasses: passesFiltered,
+      historicoCompleto: historicoFiltered,
       configuracaoSistema: nonAdmin ? undefined : dbService.getConfiguracaoSistema(),
-      anosLectivos: dbService.getAnosLectivos(),
-      anosLectivosConfigs: dbService.getAnosLectivosConfigs(),
-      turnosConfigs: dbService.getTurnosConfigs(),
-      classesConfigs: dbService.getClassesConfigs(),
-      cursos: dbService.getCursos(),
-      areasFormacao: dbService.getAreasFormacao(),
-      salasAulas: dbService.getSalasAulas(),
-      solicitacoesApoio: dbService.getSolicitacoesApoioTecnico(),
+      anosLectivos: isEscolaEspecifica ? dbService.getAnosLectivos(effectiveEscolaId) : dbService.getAnosLectivos(),
+      anosLectivosConfigs: isEscolaEspecifica ? dbService.getAnosLectivosConfigs(effectiveEscolaId) : dbService.getAnosLectivosConfigs(),
+      turnosConfigs: isEscolaEspecifica ? dbService.getTurnosConfigs(effectiveEscolaId) : dbService.getTurnosConfigs(),
+      classesConfigs: isEscolaEspecifica ? dbService.getClassesConfigs(effectiveEscolaId) : dbService.getClassesConfigs(),
+      cursos: isEscolaEspecifica ? dbService.getCursos(effectiveEscolaId) : dbService.getCursos(),
+      areasFormacao: isEscolaEspecifica ? dbService.getAreasFormacao(effectiveEscolaId) : dbService.getAreasFormacao(),
+      salasAulas: isEscolaEspecifica ? dbService.getSalasAulas(effectiveEscolaId) : dbService.getSalasAulas(),
+      solicitacoesApoio: isEscolaEspecifica ? dbService.getSolicitacoesApoioTecnico(effectiveEscolaId) : dbService.getSolicitacoesApoioTecnico(),
       alertasSeguranca: nonAdmin ? [] : dbService.getAlertasSeguranca(),
-      relatoriosAcontecimentos: dbService.getRelatoriosAcontecimentos()
+      relatoriosAcontecimentos: isEscolaEspecifica ? dbService.getRelatoriosAcontecimentos(effectiveEscolaId) : dbService.getRelatoriosAcontecimentos(),
+      relatoriosPedagogicos: isEscolaEspecifica ? dbService.getRelatoriosPedagogicos(effectiveEscolaId) : dbService.getRelatoriosPedagogicos(),
+      planosAtividades: isEscolaEspecifica ? dbService.getAtividadesPlano(effectiveEscolaId) : dbService.getAtividadesPlano(),
+      horariosProvas: isEscolaEspecifica ? dbService.getHorariosProvas(effectiveEscolaId) : dbService.getHorariosProvas(),
+      mapasFiscalizacao: isEscolaEspecifica ? dbService.getMapasFiscalizacao(effectiveEscolaId) : dbService.getMapasFiscalizacao(),
+      atasProvas: isEscolaEspecifica ? dbService.getAtasProvas(effectiveEscolaId) : dbService.getAtasProvas(),
+      financasPessoais: !isEscolaEspecifica && !nonAdmin ? getLocal<Record<string, any>>(STORAGE_KEYS.FINANCAS_PESSOAIS, {}) : undefined,
+      calendarioEscolar,
+      calendariosPorEscola,
+      calendarioTiposEscolar,
+      calendarioTiposPorEscola,
+      eventosEscolares,
+      localidadesPersonalizadas
     }, null, 2);
   },
   exportarParaExcel: async () => dbService.exportarExcelCompleto(),
@@ -6482,20 +7606,99 @@ export const dbService = {
   // ==========================================
   // HORÁRIOS ESCOLARES SEM COINCIDÊNCIA DE TEMPO
   // ==========================================
-  obterHorarios: (escolaId?: string): HorarioAulaItem[] => {
-    const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
-    if (!escolaId || escolaId === 'todas') return horarios;
-    return horarios.filter(h => h.escolaId === escolaId);
+  getTemposHorarios: (escolaId?: string): Array<{ numero: number; inicio: string; fim: string; rotulo: string }> => {
+    const padrao = [
+      { numero: 1, inicio: '07:15', fim: '08:00', rotulo: '1º Tempo (07:15 - 08:00)' },
+      { numero: 2, inicio: '08:05', fim: '08:50', rotulo: '2º Tempo (08:05 - 08:50)' },
+      { numero: 3, inicio: '09:10', fim: '09:55', rotulo: '3º Tempo (09:10 - 09:55)' },
+      { numero: 4, inicio: '10:00', fim: '10:45', rotulo: '4º Tempo (10:00 - 10:45)' },
+      { numero: 5, inicio: '10:50', fim: '11:35', rotulo: '5º Tempo (10:50 - 11:35)' },
+      { numero: 6, inicio: '11:40', fim: '12:25', rotulo: '6º Tempo (11:40 - 12:25)' }
+    ];
+    const escolas = dbService.getEscolas();
+    const esc = escolas.find(e => e.id === escolaId) || dbService.getEscolaAtiva();
+    const salvos = esc?.temposHorarios;
+    if (salvos && salvos.length > 0) {
+      return [...salvos]
+        .sort((a, b) => a.numero - b.numero)
+        .map(t => ({
+          numero: t.numero,
+          inicio: t.inicio,
+          fim: t.fim,
+          rotulo: t.rotulo && t.rotulo.trim() ? t.rotulo : `${t.numero}º Tempo (${t.inicio} - ${t.fim})`
+        }));
+    }
+    return padrao;
   },
 
-  obterHorarioDaTurma: (turmaId: string): HorarioAulaItem[] => {
-    const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
-    return horarios.filter(h => h.turmaId === turmaId).sort((a, b) => a.numeroTempo - b.numeroTempo);
+  salvarTemposHorarios: (
+    escolaId: string,
+    tempos: Array<{ numero: number; inicio: string; fim: string; rotulo?: string }>,
+    atualizarHorariosExistentes: boolean = true
+  ): void => {
+    const normalizados = [...tempos]
+      .sort((a, b) => a.numero - b.numero)
+      .map(t => ({
+        numero: Number(t.numero),
+        inicio: t.inicio,
+        fim: t.fim,
+        rotulo: `${t.numero}º Tempo (${t.inicio} - ${t.fim})`
+      }));
+
+    const escolas = dbService.getEscolas();
+    const esc = escolas.find(e => e.id === escolaId);
+    if (esc) {
+      dbService.salvarEscola({
+        ...esc,
+        temposHorarios: normalizados,
+        atualizadoEm: new Date().toISOString()
+      });
+    }
+
+    if (atualizarHorariosExistentes) {
+      const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
+      let alterados = 0;
+      const atualizados = horarios.map(h => {
+        if (h.escolaId !== escolaId) return h;
+        const match = normalizados.find(t => t.numero === h.numeroTempo);
+        if (!match) return h;
+        if (h.horaInicio !== match.inicio || h.horaFim !== match.fim) {
+          alterados++;
+          const atualizado = { ...h, horaInicio: match.inicio, horaFim: match.fim, atualizadoEm: new Date().toISOString() };
+          firebaseSyncEngine.salvarHorario(atualizado);
+          return atualizado;
+        }
+        return h;
+      });
+      if (alterados > 0) {
+        setLocal(STORAGE_KEYS.HORARIOS, atualizados);
+      }
+    }
+
+    dbService.registarLog('Horários Escolares', `Tempos letivos e horários (${normalizados.length} tempos) atualizados na instituição.`, escolaId);
   },
 
-  obterHorarioDoProfessor: (professorId: string): HorarioAulaItem[] => {
+  obterHorarios: (escolaId?: string, anoLectivo?: string): HorarioAulaItem[] => {
     const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
-    return horarios.filter(h => h.professorId === professorId).sort((a, b) => a.numeroTempo - b.numeroTempo);
+    return horarios.filter(h => {
+      if (escolaId && escolaId !== 'todas' && h.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && h.anoLectivo && h.anoLectivo !== anoLectivo) return false;
+      return true;
+    });
+  },
+
+  obterHorarioDaTurma: (turmaId: string, anoLectivo?: string): HorarioAulaItem[] => {
+    const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
+    return horarios
+      .filter(h => h.turmaId === turmaId && (!anoLectivo || anoLectivo === 'todos' || !h.anoLectivo || h.anoLectivo === anoLectivo))
+      .sort((a, b) => a.numeroTempo - b.numeroTempo);
+  },
+
+  obterHorarioDoProfessor: (professorId: string, anoLectivo?: string): HorarioAulaItem[] => {
+    const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
+    return horarios
+      .filter(h => h.professorId === professorId && (!anoLectivo || anoLectivo === 'todos' || !h.anoLectivo || h.anoLectivo === anoLectivo))
+      .sort((a, b) => a.numeroTempo - b.numeroTempo);
   },
 
   validarConflitoHorario: (
@@ -6503,9 +7706,13 @@ export const dbService = {
     idIgnorar?: string
   ): { temConflito: boolean; motivo?: string } => {
     const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = item.escolaId ? dbService.getEscolaPorId(item.escolaId) : escolaAtiva;
+    const anoItem = item.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '';
     
     for (const h of horarios) {
       if (idIgnorar && h.id === idIgnorar) continue;
+      if (anoItem && h.anoLectivo && h.anoLectivo !== anoItem) continue;
 
       // 1. Conflito do mesmo professor na mesma hora em turmas distintas
       if (
@@ -6513,9 +7720,11 @@ export const dbService = {
         h.numeroTempo === item.numeroTempo &&
         h.professorId === item.professorId
       ) {
+        const profConflito = dbService.getFuncionarios(item.escolaId).find(f => f.id === item.professorId);
+        const tituloProf = profConflito?.genero === 'F' ? 'A Professora' : 'O Professor';
         return {
           temConflito: true,
-          motivo: `O(A) Professor(a) ${h.professorNome} já tem aula atribuída na ${h.classe} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
+          motivo: `${tituloProf} ${h.professorNome} já tem aula atribuída na ${h.classe} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
         };
       }
 
@@ -6550,12 +7759,16 @@ export const dbService = {
   },
 
   salvarHorario: (item: HorarioAulaItem): { sucesso: boolean; erro?: string } => {
-    const validacao = dbService.validarConflitoHorario(item, item.id);
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = item.escolaId ? dbService.getEscolaPorId(item.escolaId) : escolaAtiva;
+    const anoRef = item.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '';
+    const itemNormalizado: HorarioAulaItem = { ...item, anoLectivo: anoRef };
+    const validacao = dbService.validarConflitoHorario(itemNormalizado, item.id);
     if (validacao.temConflito) {
       return { sucesso: false, erro: validacao.motivo };
     }
 
-    const itemComTs: HorarioAulaItem = { ...item, atualizadoEm: new Date().toISOString() };
+    const itemComTs: HorarioAulaItem = { ...itemNormalizado, atualizadoEm: new Date().toISOString() };
     const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
     const index = horarios.findIndex(h => h.id === itemComTs.id);
     if (index >= 0) {
@@ -6585,8 +7798,14 @@ export const dbService = {
   },
 
   salvarPresencaAluno: (item: PresencaAlunoItem): void => {
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = item.escolaId ? dbService.getEscolaPorId(item.escolaId) : escolaAtiva;
     const presencas = getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
-    const itemComTimestamp = { ...item, atualizadoEm: new Date().toISOString() };
+    const itemComTimestamp: PresencaAlunoItem = {
+      ...item,
+      anoLectivo: item.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined,
+      atualizadoEm: new Date().toISOString()
+    };
     const index = presencas.findIndex(p => p.id === itemComTimestamp.id || (p.alunoId === itemComTimestamp.alunoId && p.data === itemComTimestamp.data && p.tempoLectivo === itemComTimestamp.tempoLectivo));
     if (index >= 0) {
       presencas[index] = itemComTimestamp;
@@ -6598,9 +7817,17 @@ export const dbService = {
   },
 
   salvarPresencasAlunosLote: (items: PresencaAlunoItem[]): void => {
+    const escolaAtiva = dbService.getEscolaAtiva();
     const presencas = getLocal<PresencaAlunoItem[]>(STORAGE_KEYS.PRESENCAS_ALUNOS, DEFAULT_PRESENCAS_ALUNOS);
     const agora = new Date().toISOString();
-    const normalizados = items.map(item => ({ ...item, atualizadoEm: agora }));
+    const normalizados = items.map(item => {
+      const escRef = item.escolaId ? dbService.getEscolaPorId(item.escolaId) : escolaAtiva;
+      return {
+        ...item,
+        anoLectivo: item.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || undefined,
+        atualizadoEm: agora
+      };
+    });
     for (const item of normalizados) {
       const index = presencas.findIndex(p => p.id === item.id || (p.alunoId === item.alunoId && p.data === item.data && p.tempoLectivo === item.tempoLectivo));
       if (index >= 0) {
@@ -6817,7 +8044,7 @@ export const dbService = {
   // ==========================================
   // REGISTOS DE ALTERAÇÃO DE NOTAS PELA DIREÇÃO (LOG NO PROFESSOR)
   // ==========================================
-  getRegistosAlteracoesNotas: (professorId?: string, escolaId?: string): RegistroAlteracaoNotaDirecao[] => {
+  getRegistosAlteracoesNotas: (professorId?: string, escolaId?: string, anoLectivo?: string): RegistroAlteracaoNotaDirecao[] => {
     const todos = getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []);
     const ocultarAdmin = isSessaoAutenticadaNaoAdminGeral();
     const { ids } = getAdminGeralIdsAndNomes();
@@ -6825,12 +8052,16 @@ export const dbService = {
       if (ocultarAdmin && (r.alteradoPorRole === 'AdminGeral' || (r.alteradoPorId && ids.has(r.alteradoPorId)))) return false;
       if (professorId && r.professorId !== professorId) return false;
       if (escolaId && escolaId !== 'todas' && r.escolaId !== escolaId) return false;
+      if (anoLectivo && anoLectivo !== 'todos' && r.anoLectivo && r.anoLectivo !== anoLectivo) return false;
       return true;
     });
   },
 
   salvarRegistoAlteracaoNotaDirecao: (reg: RegistroAlteracaoNotaDirecao): void => {
-    const regComTs: RegistroAlteracaoNotaDirecao = { ...reg, atualizadoEm: new Date().toISOString() };
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const escRef = reg.escolaId ? dbService.getEscolaPorId(reg.escolaId) : escolaAtiva;
+    const anoRef = reg.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '';
+    const regComTs: RegistroAlteracaoNotaDirecao = { ...reg, anoLectivo: anoRef, atualizadoEm: new Date().toISOString() };
     const todos = getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []);
     todos.unshift(regComTs);
     if (todos.length > 300) todos.length = 300;
@@ -6846,6 +8077,10 @@ export const dbService = {
     // 2. Notificar automaticamente o professor titular apenas quando não for intervenção silenciosa do AdminGeral
     if (regComTs.alteradoPorRole !== 'AdminGeral') {
       try {
+        const profNotif = dbService.getFuncionarios(regComTs.escolaId).find(f => f.id === regComTs.professorId);
+        const alunoNotif = dbService.getAlunos(regComTs.escolaId).find(a => a.id === regComTs.alunoId);
+        const saudacaoProf = profNotif?.genero === 'F' ? 'Estimada Colega' : 'Estimado Colega';
+        const artigoEstudante = alunoNotif?.genero === 'F' ? 'da estudante' : 'do estudante';
         dbService.enviarMensagem({
           id: `msg-retif-${Date.now()}`,
           escolaId: regComTs.escolaId,
@@ -6859,7 +8094,7 @@ export const dbService = {
           destinatarioNome: regComTs.professorNome,
           titulo: `Aviso de Retificação de Nota: ${regComTs.alunoNome} (${regComTs.disciplinaNome} - ${regComTs.turmaNome})`,
           assunto: 'Retificação Executiva de Nota',
-          conteudo: `Estimado(a) Colega ${regComTs.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${regComTs.tipoNota} do(a) estudante ${regComTs.alunoNome} na turma ${regComTs.turmaNome} (${regComTs.classe}${regComTs.curso ? ' - ' + regComTs.curso : ''}) na disciplina de ${regComTs.disciplinaNome} (${regComTs.trimestre}º Trimestre).\n\n• Nota Anterior: ${regComTs.notaAnterior}\n• Nova Nota Homologada: ${regComTs.novaNota}\n• Justificativa: ${regComTs.motivoJustificativa}\n• Autorizado por: ${regComTs.alteradoPorNome} (${regComTs.alteradoPorRole})\n• Data/Hora: ${regComTs.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
+          conteudo: `${saudacaoProf} ${regComTs.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${regComTs.tipoNota} ${artigoEstudante} ${regComTs.alunoNome} na turma ${regComTs.turmaNome} (${regComTs.classe}${regComTs.curso ? ' - ' + regComTs.curso : ''}) na disciplina de ${regComTs.disciplinaNome} (${regComTs.trimestre}º Trimestre).\n\n• Nota Anterior: ${regComTs.notaAnterior}\n• Nova Nota Homologada: ${regComTs.novaNota}\n• Justificativa: ${regComTs.motivoJustificativa}\n• Autorizado por: ${regComTs.alteradoPorNome} (${regComTs.alteradoPorRole})\n• Data/Hora: ${regComTs.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
           dataHora: new Date().toISOString()
         });
       } catch {
@@ -7331,46 +8566,151 @@ export const dbService = {
     setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
     firebaseSyncEngine.salvarDelegacaoPoderes(registroFinal);
 
+    const descTipo =
+      delegacao.tipo === 'Interinidade'
+        ? `Interinidade Total (${delegacao.cargoDelegadoTitulo || delegacao.cargoDelegadoRole || delegacao.delegadoPorCargo})`
+        : delegacao.tipo === 'Matriculas'
+          ? 'Matrículas & Confirmações'
+          : 'Cobrança de Emolumentos';
+
     dbService.registarLog(
-      'Delegação de Competências',
-      `${delegacao.delegadoPorCargo === 'DiretorGeral' ? 'O Diretor Geral' : 'O Subdiretor Administrativo'} (${delegacao.delegadoPorNome}) delegou poderes de ${delegacao.tipo === 'Matriculas' ? 'Matrículas & Confirmações' : 'Cobrança de Emolumentos'} a "${delegacao.funcionarioNome}" (${delegacao.funcionarioCargo}).`
+      delegacao.tipo === 'Interinidade' ? 'Delegação de Interinidade' : 'Delegação de Competências',
+      `${delegacao.delegadoPorNome} (${delegacao.delegadoPorCargo}) delegou ${descTipo} a "${delegacao.funcionarioNome}" (${delegacao.funcionarioCargo}).`
     );
   },
 
-  revogarDelegacaoPoderes: (delegacaoId: string, revogadoPorNome: string): void => {
+  revogarDelegacaoPoderes: (
+    delegacaoId: string,
+    revogadoPorNome: string,
+    revogadoPorId?: string
+  ): { delegacaoRevogada?: DelegacaoPoderes; relatorio?: RelatorioFinalInterinidade } => {
     const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
     const alvo = todas.find(d => d.id === delegacaoId);
-    if (alvo) {
-      alvo.ativo = false;
-      alvo.atualizadoEm = new Date().toISOString();
-      setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
-      firebaseSyncEngine.salvarDelegacaoPoderes(alvo);
+    if (!alvo) return {};
 
-      dbService.registarLog(
-        'Revogação de Delegação',
-        `Delegação de ${alvo.tipo === 'Matriculas' ? 'Matrículas' : 'Cobrança de Emolumentos'} de "${alvo.funcionarioNome}" foi revogada por ${revogadoPorNome}.`
-      );
+    const agoraIso = new Date().toISOString();
+    alvo.ativo = false;
+    alvo.atualizadoEm = agoraIso;
+    alvo.revogadoPorNome = revogadoPorNome;
+    alvo.revogadoPorId = revogadoPorId;
+    alvo.revogadoEm = agoraIso;
+
+    let relatorioGerado: RelatorioFinalInterinidade | undefined;
+
+    if (alvo.tipo === 'Interinidade') {
+      const inicioIso = alvo.criadoEm || `${alvo.dataInicio}T00:00:00.000Z`;
+      const inicioMs = new Date(inicioIso).getTime();
+      const todosLogs = dbService.getAuditoriaBruta().filter(l => {
+        if (l.escolaId && alvo.escolaId && l.escolaId !== alvo.escolaId) return false;
+        if (l.utilizadorId !== alvo.funcionarioId) return false;
+        const lTime = new Date(l.dataHora.replace(' ', 'T')).getTime();
+        if (!isNaN(inicioMs) && !isNaN(lTime) && lTime < inicioMs - 60000) return false;
+        return true;
+      });
+
+      const mapaModulos = new Map<string, number>();
+      todosLogs.forEach(l => {
+        const modNome = l.acao || 'Operação de Sistema';
+        mapaModulos.set(modNome, (mapaModulos.get(modNome) || 0) + 1);
+      });
+
+      const acoesPorModulo = Array.from(mapaModulos.entries())
+        .map(([acao, quantidade]) => ({ acao, quantidade }))
+        .sort((a, b) => b.quantidade - a.quantidade);
+
+      const cargoTitulo = alvo.cargoDelegadoTitulo || String(alvo.cargoDelegadoRole || alvo.delegadoPorCargo);
+
+      relatorioGerado = {
+        delegacaoId: alvo.id,
+        escolaId: alvo.escolaId,
+        titularId: alvo.delegadoPorId,
+        titularNome: alvo.delegadoPorNome,
+        titularCargo: String(alvo.delegadoPorCargo),
+        interinoId: alvo.funcionarioId,
+        interinoNome: alvo.funcionarioNome,
+        interinoCargoOriginal: alvo.funcionarioCargo,
+        cargoExercidoRole: alvo.cargoDelegadoRole || alvo.delegadoPorRole || 'DiretorGeral',
+        cargoExercidoTitulo: cargoTitulo,
+        dataInicio: alvo.dataInicio,
+        dataFimRevogacao: agoraIso,
+        revogadoPorId,
+        revogadoPorNome,
+        totalAcoesAuditadas: todosLogs.length,
+        acoesPorModulo,
+        ultimosRegistos: todosLogs.slice(0, 60).map(l => ({
+          id: l.id,
+          dataHora: l.dataHora,
+          acao: l.acao,
+          detalhe: l.detalhe
+        })),
+        resumoExecutivo: `Mandato de interinidade no cargo de ${cargoTitulo} exercido por ${alvo.funcionarioNome} (${alvo.funcionarioCargo}) entre ${alvo.dataInicio} e ${agoraIso.slice(0, 10)}, encerrado formalmente por revogação de ${revogadoPorNome} com ${todosLogs.length} operação(ões) registada(s) em auditoria.`,
+        geradoEm: agoraIso
+      };
+
+      alvo.relatorioRevogacao = relatorioGerado;
+
+      dbService.registarAcaoDelegada({
+        escolaId: alvo.escolaId,
+        delegacaoId: alvo.id,
+        funcionarioId: alvo.funcionarioId,
+        funcionarioNome: alvo.funcionarioNome,
+        tipo: 'Interinidade',
+        acao: 'Interinidade',
+        detalhes: relatorioGerado.resumoExecutivo
+      });
     }
+
+    setLocal(STORAGE_KEYS.DELEGACOES_PODERES, todas);
+    firebaseSyncEngine.salvarDelegacaoPoderes(alvo);
+
+    dbService.registarLog(
+      alvo.tipo === 'Interinidade' ? 'Revogação de Interinidade & Relatório Final' : 'Revogação de Delegação',
+      `Delegação de ${alvo.tipo === 'Interinidade' ? `Interinidade Total (${alvo.cargoDelegadoTitulo || alvo.delegadoPorCargo})` : alvo.tipo === 'Matriculas' ? 'Matrículas' : 'Cobrança de Emolumentos'} de "${alvo.funcionarioNome}" foi revogada por ${revogadoPorNome}.`
+    );
+
+    return { delegacaoRevogada: alvo, relatorio: relatorioGerado };
   },
 
-  verificarPoderesDelegados: (funcionarioId: string, escolaId: string): { podeMatricular: boolean; podeCobrarEmolumentos: boolean; podeCobrar?: boolean; delegacoesAtivas: DelegacaoPoderes[] } => {
-    if (!funcionarioId) return { podeMatricular: false, podeCobrarEmolumentos: false, podeCobrar: false, delegacoesAtivas: [] };
+  getInterinidadeAtivaUsuario: (funcionarioId?: string | null, escolaId?: string | null): DelegacaoPoderes | null => {
+    if (!funcionarioId) return null;
+    const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
+    // Interinidade permanece ativa exclusivamente até revogação explícita pelo titular
+    const encontrada = todas.find(d =>
+      d.tipo === 'Interinidade' &&
+      d.ativo === true &&
+      !d.revogadoEm &&
+      d.funcionarioId === funcionarioId &&
+      (!escolaId || d.escolaId === escolaId)
+    );
+    return encontrada || null;
+  },
+
+  obterOcorrenciasAprovadasDossie: (ocorrencias?: OcorrenciaHistoricoAluno[]): OcorrenciaHistoricoAluno[] => {
+    if (!Array.isArray(ocorrencias)) return [];
+    // Registo legado sem statusAprovacao mantém-se visível; novos registos só entram após aprovação final do Subdiretor Pedagógico
+    return ocorrencias.filter(o => !o.statusAprovacao || o.statusAprovacao === 'Aprovado_Pedagogico');
+  },
+
+  verificarPoderesDelegados: (funcionarioId: string, escolaId: string): { podeMatricular: boolean; podeCobrarEmolumentos: boolean; podeCobrar?: boolean; interinidadeAtiva: DelegacaoPoderes | null; delegacoesAtivas: DelegacaoPoderes[] } => {
+    if (!funcionarioId) return { podeMatricular: false, podeCobrarEmolumentos: false, podeCobrar: false, interinidadeAtiva: null, delegacoesAtivas: [] };
     const hoje = new Date().toISOString().split('T')[0];
     const todas = getLocal<DelegacaoPoderes[]>(STORAGE_KEYS.DELEGACOES_PODERES, []);
     
-    const ativas = todas.filter(d => 
-      d.funcionarioId === funcionarioId &&
-      (!escolaId || d.escolaId === escolaId) &&
-      d.ativo &&
-      (!d.dataFim || d.dataFim >= hoje) &&
-      d.dataInicio <= hoje
-    );
+    const ativas = todas.filter(d => {
+      if (d.funcionarioId !== funcionarioId) return false;
+      if (escolaId && d.escolaId !== escolaId) return false;
+      if (!d.ativo || d.revogadoEm) return false;
+      if (d.tipo === 'Interinidade') return true;
+      return (!d.dataFim || d.dataFim >= hoje) && d.dataInicio <= hoje;
+    });
 
+    const interinidadeAtiva = ativas.find(d => d.tipo === 'Interinidade') || null;
     const temCobranca = ativas.some(d => d.tipo === 'CobrancaEmolumentos');
     return {
       podeMatricular: ativas.some(d => d.tipo === 'Matriculas'),
       podeCobrarEmolumentos: temCobranca,
       podeCobrar: temCobranca,
+      interinidadeAtiva,
       delegacoesAtivas: ativas
     };
   },
@@ -7566,6 +8906,112 @@ export const dbService = {
   },
 
   // ============================================================================
+  // TIPOS DE COORDENAÇÃO PERSONALIZADOS PELA DIREÇÃO
+  // ============================================================================
+  getTiposCoordenacaoPersonalizados: (escolaId?: string): TipoCoordenacaoPersonalizada[] => {
+    const lista = getLocal<TipoCoordenacaoPersonalizada[]>(STORAGE_KEYS.TIPOS_COORDENACAO, []);
+    const ativos = lista.filter(t => t && t.ativo !== false);
+    if (!escolaId || escolaId === 'TODAS' || escolaId === 'todas') {
+      return ativos;
+    }
+    return ativos.filter(t => t.escolaId === escolaId);
+  },
+
+  salvarTipoCoordenacaoPersonalizada: (item: TipoCoordenacaoPersonalizada): TipoCoordenacaoPersonalizada => {
+    const lista = getLocal<TipoCoordenacaoPersonalizada[]>(STORAGE_KEYS.TIPOS_COORDENACAO, []);
+    const agora = new Date().toISOString();
+    const itemFinal: TipoCoordenacaoPersonalizada = {
+      ...item,
+      requerCurso: item.nivelEnsino === 'IICiclo' ? Boolean(item.requerCurso) : false,
+      ativo: true,
+      atualizadoEm: agora,
+      criadoEm: item.criadoEm || agora
+    };
+    const idx = lista.findIndex(t => t.id === itemFinal.id);
+    if (idx >= 0) {
+      lista[idx] = itemFinal;
+    } else {
+      lista.unshift(itemFinal);
+    }
+    setLocal(STORAGE_KEYS.TIPOS_COORDENACAO, lista);
+    firebaseSyncEngine.salvarTipoCoordenacao(itemFinal);
+    dbService.registarLog(
+      'Coordenação Personalizada',
+      `Nova coordenação "${itemFinal.tipo}" (${itemFinal.nivelEnsino}) adicionada pela Direção.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  removerTipoCoordenacaoPersonalizada: (id: string): boolean => {
+    const lista = getLocal<TipoCoordenacaoPersonalizada[]>(STORAGE_KEYS.TIPOS_COORDENACAO, []);
+    const alvo = lista.find(t => t.id === id);
+    if (!alvo) return false;
+    const filtrados = lista.filter(t => t.id !== id);
+    setLocal(STORAGE_KEYS.TIPOS_COORDENACAO, filtrados);
+    firebaseSyncEngine.removerTipoCoordenacao(id);
+    dbService.registarLog(
+      'Coordenação Personalizada',
+      `Removida a coordenação personalizada "${alvo.tipo}" (${alvo.nivelEnsino}).`,
+      alvo.escolaId
+    );
+    return true;
+  },
+
+  // ============================================================================
+  // RELATÓRIOS PEDAGÓGICOS FORMAIS (COORDENAÇÃO FINAL DE ANO & DOCENTE TRIMESTRAL/ANUAL)
+  // ============================================================================
+  getRelatoriosPedagogicos: (escolaId?: string): RelatorioPedagogicoFormal[] => {
+    const lista = getLocal<RelatorioPedagogicoFormal[]>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, []);
+    const ordenados = [...lista].sort((a, b) =>
+      (b.atualizadoEm || b.criadoEm || '').localeCompare(a.atualizadoEm || a.criadoEm || '')
+    );
+    if (!escolaId || escolaId === 'TODAS' || escolaId === 'todas') {
+      return ordenados;
+    }
+    return ordenados.filter(r => r.escolaId === escolaId);
+  },
+
+  salvarRelatorioPedagogico: (rel: RelatorioPedagogicoFormal): RelatorioPedagogicoFormal => {
+    const lista = getLocal<RelatorioPedagogicoFormal[]>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, []);
+    const agora = new Date().toISOString();
+    const itemFinal: RelatorioPedagogicoFormal = {
+      ...rel,
+      atualizadoEm: agora,
+      criadoEm: rel.criadoEm || agora
+    };
+    const idx = lista.findIndex(r => r.id === itemFinal.id);
+    if (idx >= 0) {
+      lista[idx] = itemFinal;
+    } else {
+      lista.unshift(itemFinal);
+    }
+    setLocal(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, lista);
+    firebaseSyncEngine.salvarRelatorioPedagogico(itemFinal);
+    dbService.registarLog(
+      'Relatório Pedagógico',
+      `${itemFinal.tipoRelatorio === 'COORDENACAO_FINAL_ANO' ? 'Relatório Anual de Coordenação' : 'Relatório Pedagógico Docente'}: "${itemFinal.tituloDocumento}" (${itemFinal.periodoReferencia === 'Anual' ? 'Anual' : `${itemFinal.periodoReferencia}º Trimestre`}) — Estado: ${itemFinal.estado}.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  removerRelatorioPedagogico: (id: string): boolean => {
+    const lista = getLocal<RelatorioPedagogicoFormal[]>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, []);
+    const alvo = lista.find(r => r.id === id);
+    if (!alvo) return false;
+    const filtrados = lista.filter(r => r.id !== id);
+    setLocal(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, filtrados);
+    firebaseSyncEngine.removerRelatorioPedagogico(id);
+    dbService.registarLog(
+      'Relatório Pedagógico',
+      `Removido o relatório "${alvo.tituloDocumento}".`,
+      alvo.escolaId
+    );
+    return true;
+  },
+
+  // ============================================================================
   // VISIBILIDADE DE MÓDULOS E DADOS SENSÍVEIS DOS EMPREGADOS (DIREÇÃO GERAL)
   // ============================================================================
   getVisibilidadeEmpregados: (escolaId?: string): ConfiguracaoVisibilidadeEmpregados => {
@@ -7656,8 +9102,11 @@ export const dbService = {
     modulosExtrasPermitidos: Set<string>;
     dadosSensiveis: RegraVisibilidadeDadosSensiveis;
   } => {
-    const usuario = user || dbService.getCurrentUser();
-    if (!usuario || usuario.role === 'AdminGeral' || usuario.role === 'DiretorGeral') {
+    const usuarioBase = user || dbService.getCurrentUser();
+    const escInterin = escola || (usuarioBase?.escolaId ? dbService.getEscolaPorId(usuarioBase.escolaId) : undefined);
+    const interinidade = dbService.getInterinidadeAtivaUsuario(usuarioBase?.id, escInterin?.id);
+    const roleEfetiva = interinidade?.cargoDelegadoRole || usuarioBase?.role;
+    if (!usuarioBase || roleEfetiva === 'AdminGeral' || roleEfetiva === 'DiretorGeral') {
       return {
         irrestrito: true,
         modulosBloqueados: new Set<string>(),
@@ -7665,6 +9114,7 @@ export const dbService = {
         dadosSensiveis: { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS }
       };
     }
+    const usuario = { ...usuarioBase, role: roleEfetiva };
 
     const escAlvo = escola || (usuario.escolaId ? dbService.getEscolaPorId(usuario.escolaId) : undefined) || dbService.getEscolaAtiva();
     const cfg = dbService.getVisibilidadeEmpregados(escAlvo?.id);
@@ -7713,8 +9163,247 @@ export const dbService = {
       modulosExtrasPermitidos: extras,
       dadosSensiveis: dados
     };
+  },
+
+  // ============================================================================
+  // PLANO DE ATIVIDADES E EVENTOS (COORDINADORES -> SUBDIRETORES -> DIRETOR GERAL)
+  // ============================================================================
+  getAtividadesPlano: (escolaId?: string, anoLectivo?: string): AtividadePlanoEscolar[] => {
+    const lista = getLocal<AtividadePlanoEscolar[]>(STORAGE_KEYS.PLANOS_ATIVIDADES, []);
+    const ordenados = [...lista].sort((a, b) =>
+      (a.dataInicio || '').localeCompare(b.dataInicio || '') ||
+      (b.atualizadoEm || b.criadoEm || '').localeCompare(a.atualizadoEm || a.criadoEm || '')
+    );
+    return ordenados.filter(item => {
+      if (escolaId && escolaId !== 'todas' && escolaId !== 'TODAS' && item.escolaId !== escolaId) {
+        return false;
+      }
+      if (anoLectivo && anoLectivo !== 'TODOS' && item.anoLectivo && item.anoLectivo !== anoLectivo) {
+        return false;
+      }
+      return true;
+    });
+  },
+
+  salvarAtividadePlano: (atv: AtividadePlanoEscolar): AtividadePlanoEscolar => {
+    const lista = getLocal<AtividadePlanoEscolar[]>(STORAGE_KEYS.PLANOS_ATIVIDADES, []);
+    const agora = new Date().toISOString();
+    const itemFinal: AtividadePlanoEscolar = {
+      ...atv,
+      percentualCumprimento: Math.max(0, Math.min(100, Number(atv.percentualCumprimento ?? (atv.estadoExecucao === 'Realizada' ? 100 : atv.estadoExecucao === 'Em_Curso' ? 50 : 0)))),
+      atualizadoEm: agora,
+      criadoEm: atv.criadoEm || agora
+    };
+    const idx = lista.findIndex(a => a.id === itemFinal.id);
+    if (idx >= 0) {
+      lista[idx] = itemFinal;
+    } else {
+      lista.unshift(itemFinal);
+    }
+    setLocal(STORAGE_KEYS.PLANOS_ATIVIDADES, lista);
+    firebaseSyncEngine.salvarAtividadePlano(itemFinal);
+    dbService.registarLog(
+      'Plano de Atividades e Eventos',
+      `Atividade "${itemFinal.titulo}" (${itemFinal.areaOrigem} • ${itemFinal.trimestre === 'Anual' ? 'Anual' : `${itemFinal.trimestre}º Trimestre`}) — Estado: ${itemFinal.estadoExecucao} (${itemFinal.percentualCumprimento}%)${itemFinal.excluidaDoPlanoGeralPorDiretor ? ' [Excluída do Plano Geral pelo Diretor]' : ''}.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  removerAtividadePlano: (id: string): boolean => {
+    const lista = getLocal<AtividadePlanoEscolar[]>(STORAGE_KEYS.PLANOS_ATIVIDADES, []);
+    const alvo = lista.find(a => a.id === id);
+    if (!alvo) return false;
+    const filtrados = lista.filter(a => a.id !== id);
+    setLocal(STORAGE_KEYS.PLANOS_ATIVIDADES, filtrados);
+    firebaseSyncEngine.removerAtividadePlano(id);
+    dbService.registarLog(
+      'Plano de Atividades e Eventos',
+      `Eliminada a atividade "${alvo.titulo}" (${alvo.areaOrigem}).`,
+      alvo.escolaId
+    );
+    return true;
+  },
+
+  // ============================================================================
+  // FINANÇAS PESSOAIS DO UTILIZADOR ("MINHAS FINANÇAS" - ESTRITAMENTE ISOLADO)
+  // ============================================================================
+  getFinancasPessoaisUsuario: (userId: string): DadosFinancasPessoaisUsuario => {
+    const mapa = getLocal<Record<string, DadosFinancasPessoaisUsuario>>(STORAGE_KEYS.FINANCAS_PESSOAIS, {});
+    const existente = mapa[userId];
+    if (existente) {
+      return {
+        ...existente,
+        id: userId,
+        userId,
+        transacoes: Array.isArray(existente.transacoes) ? existente.transacoes : [],
+        orcamentosPorMes: existente.orcamentosPorMes && typeof existente.orcamentosPorMes === 'object' ? existente.orcamentosPorMes : {},
+        metasPoupanca: Array.isArray(existente.metasPoupanca) ? existente.metasPoupanca : [],
+        dividas: Array.isArray(existente.dividas) ? existente.dividas : []
+      };
+    }
+    return {
+      id: userId,
+      userId,
+      transacoes: [],
+      orcamentosPorMes: {},
+      metasPoupanca: [],
+      dividas: [],
+      atualizadoEm: new Date().toISOString()
+    };
+  },
+
+  salvarFinancasPessoaisUsuario: (dados: DadosFinancasPessoaisUsuario): DadosFinancasPessoaisUsuario => {
+    const mapa = getLocal<Record<string, DadosFinancasPessoaisUsuario>>(STORAGE_KEYS.FINANCAS_PESSOAIS, {});
+    const itemFinal: DadosFinancasPessoaisUsuario = {
+      ...dados,
+      id: dados.userId,
+      atualizadoEm: new Date().toISOString()
+    };
+    mapa[dados.userId] = itemFinal;
+    setLocal(STORAGE_KEYS.FINANCAS_PESSOAIS, mapa);
+    firebaseSyncEngine.salvarFinancasPessoais(itemFinal);
+    return itemFinal;
+  },
+
+  // ============================================================================
+  // HORÁRIOS DE PROVAS, MAPAS DE FISCALIZAÇÃO (1-4 PROFS/TURMA) & ATAS DE PROVAS
+  // ============================================================================
+  getHorariosProvas: (escolaId?: string, anoLectivo?: string): HorarioProvaItem[] => {
+    const lista = getLocal<HorarioProvaItem[]>(STORAGE_KEYS.HORARIOS_PROVAS, []);
+    return [...lista]
+      .filter(h => {
+        if (escolaId && escolaId !== 'todas' && escolaId !== 'TODAS' && h.escolaId !== escolaId) return false;
+        if (anoLectivo && anoLectivo !== 'todos' && anoLectivo !== 'TODOS' && h.anoLectivo !== anoLectivo) return false;
+        return true;
+      })
+      .sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.horaInicio || '').localeCompare(b.horaInicio || ''));
+  },
+
+  salvarHorarioProva: (item: HorarioProvaItem): HorarioProvaItem => {
+    const lista = getLocal<HorarioProvaItem[]>(STORAGE_KEYS.HORARIOS_PROVAS, []);
+    const agora = new Date().toISOString();
+    const itemFinal: HorarioProvaItem = {
+      ...item,
+      criadoEm: item.criadoEm || agora,
+      atualizadoEm: agora
+    };
+    const idx = lista.findIndex(h => h.id === itemFinal.id);
+    if (idx >= 0) lista[idx] = itemFinal;
+    else lista.push(itemFinal);
+    setLocal(STORAGE_KEYS.HORARIOS_PROVAS, lista);
+    firebaseSyncEngine.salvarHorarioProva(itemFinal);
+    dbService.registarLog(
+      'Horário de Provas',
+      `${itemFinal.tipoProva}: ${itemFinal.disciplinaNome} (${itemFinal.turmaNome}, ${itemFinal.data} ${itemFinal.horaInicio}-${itemFinal.horaFim}) — Ano ${itemFinal.anoLectivo}.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  eliminarHorarioProva: (id: string): boolean => {
+    const lista = getLocal<HorarioProvaItem[]>(STORAGE_KEYS.HORARIOS_PROVAS, []);
+    const alvo = lista.find(h => h.id === id);
+    if (!alvo) return false;
+    setLocal(STORAGE_KEYS.HORARIOS_PROVAS, lista.filter(h => h.id !== id));
+    firebaseSyncEngine.eliminarHorarioProva(id);
+    // Eliminar mapas e atas ligados a este horário de prova
+    const mapas = getLocal<MapaFiscalizacaoProva[]>(STORAGE_KEYS.MAPAS_FISCALIZACAO, []);
+    mapas.filter(m => m.horarioProvaId === id).forEach(m => firebaseSyncEngine.eliminarMapaFiscalizacao(m.id));
+    setLocal(STORAGE_KEYS.MAPAS_FISCALIZACAO, mapas.filter(m => m.horarioProvaId !== id));
+    const atas = getLocal<AtaProvaRegistro[]>(STORAGE_KEYS.ATAS_PROVAS, []);
+    atas.filter(a => a.horarioProvaId === id).forEach(a => firebaseSyncEngine.eliminarAtaProva(a.id));
+    setLocal(STORAGE_KEYS.ATAS_PROVAS, atas.filter(a => a.horarioProvaId !== id));
+    dbService.registarLog('Horário de Provas', `Horário de prova removido (${alvo.disciplinaNome} - ${alvo.turmaNome}).`, alvo.escolaId);
+    return true;
+  },
+
+  getMapasFiscalizacao: (escolaId?: string, anoLectivo?: string): MapaFiscalizacaoProva[] => {
+    const lista = getLocal<MapaFiscalizacaoProva[]>(STORAGE_KEYS.MAPAS_FISCALIZACAO, []);
+    return [...lista]
+      .filter(m => {
+        if (escolaId && escolaId !== 'todas' && escolaId !== 'TODAS' && m.escolaId !== escolaId) return false;
+        if (anoLectivo && anoLectivo !== 'todos' && anoLectivo !== 'TODOS' && m.anoLectivo !== anoLectivo) return false;
+        return true;
+      })
+      .sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.horaInicio || '').localeCompare(b.horaInicio || ''));
+  },
+
+  salvarMapaFiscalizacao: (mapa: MapaFiscalizacaoProva): MapaFiscalizacaoProva => {
+    const lista = getLocal<MapaFiscalizacaoProva[]>(STORAGE_KEYS.MAPAS_FISCALIZACAO, []);
+    const agora = new Date().toISOString();
+    const itemFinal: MapaFiscalizacaoProva = {
+      ...mapa,
+      fiscais: (mapa.fiscais || []).slice(0, 4),
+      criadoEm: mapa.criadoEm || agora,
+      atualizadoEm: agora
+    };
+    const idx = lista.findIndex(m => m.id === itemFinal.id || m.horarioProvaId === itemFinal.horarioProvaId);
+    if (idx >= 0) lista[idx] = itemFinal;
+    else lista.push(itemFinal);
+    setLocal(STORAGE_KEYS.MAPAS_FISCALIZACAO, lista);
+    firebaseSyncEngine.salvarMapaFiscalizacao(itemFinal);
+    dbService.registarLog(
+      'Mapa de Fiscalização de Provas',
+      `${itemFinal.turmaNome} (${itemFinal.disciplinaNome}, ${itemFinal.data}): ${itemFinal.fiscais.map(f => f.professorNome).join(', ')}.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  eliminarMapaFiscalizacao: (id: string): boolean => {
+    const lista = getLocal<MapaFiscalizacaoProva[]>(STORAGE_KEYS.MAPAS_FISCALIZACAO, []);
+    const alvo = lista.find(m => m.id === id);
+    if (!alvo) return false;
+    setLocal(STORAGE_KEYS.MAPAS_FISCALIZACAO, lista.filter(m => m.id !== id));
+    firebaseSyncEngine.eliminarMapaFiscalizacao(id);
+    dbService.registarLog('Mapa de Fiscalização de Provas', `Mapa de fiscalização removido (${alvo.turmaNome} - ${alvo.disciplinaNome}).`, alvo.escolaId);
+    return true;
+  },
+
+  getAtasProvas: (escolaId?: string, anoLectivo?: string): AtaProvaRegistro[] => {
+    const lista = getLocal<AtaProvaRegistro[]>(STORAGE_KEYS.ATAS_PROVAS, []);
+    return [...lista]
+      .filter(a => {
+        if (escolaId && escolaId !== 'todas' && escolaId !== 'TODAS' && a.escolaId !== escolaId) return false;
+        if (anoLectivo && anoLectivo !== 'todos' && anoLectivo !== 'TODOS' && a.anoLectivo !== anoLectivo) return false;
+        return true;
+      })
+      .sort((a, b) => (b.dataProva || '').localeCompare(a.dataProva || '') || (b.atualizadoEm || '').localeCompare(a.atualizadoEm || ''));
+  },
+
+  salvarAtaProva: (ata: AtaProvaRegistro): AtaProvaRegistro => {
+    const lista = getLocal<AtaProvaRegistro[]>(STORAGE_KEYS.ATAS_PROVAS, []);
+    const agora = new Date().toISOString();
+    const itemFinal: AtaProvaRegistro = {
+      ...ata,
+      criadoEm: ata.criadoEm || agora,
+      atualizadoEm: agora
+    };
+    const idx = lista.findIndex(a => a.id === itemFinal.id);
+    if (idx >= 0) lista[idx] = itemFinal;
+    else lista.unshift(itemFinal);
+    setLocal(STORAGE_KEYS.ATAS_PROVAS, lista);
+    firebaseSyncEngine.salvarAtaProva(itemFinal);
+    dbService.registarLog(
+      'Ata de Prova',
+      `Ata da prova de ${itemFinal.disciplinaNome} (${itemFinal.turmaNome}, ${itemFinal.dataProva}) — Estado: ${itemFinal.estado} (${itemFinal.ocorrencias.length} ocorrências).`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  eliminarAtaProva: (id: string): boolean => {
+    const lista = getLocal<AtaProvaRegistro[]>(STORAGE_KEYS.ATAS_PROVAS, []);
+    const alvo = lista.find(a => a.id === id);
+    if (!alvo) return false;
+    setLocal(STORAGE_KEYS.ATAS_PROVAS, lista.filter(a => a.id !== id));
+    firebaseSyncEngine.eliminarAtaProva(id);
+    dbService.registarLog('Ata de Prova', `Ata removida (${alvo.turmaNome} - ${alvo.disciplinaNome}).`, alvo.escolaId);
+    return true;
   }
 };
+
 
 
 

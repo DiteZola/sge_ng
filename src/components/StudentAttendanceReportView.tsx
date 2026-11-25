@@ -40,8 +40,16 @@ import {
   CLASSES_SEGUNDO_CICLO,
   getSalaDaTurma,
   getCursoDaTurma,
-  getDisciplinasDaTurma
+  getDisciplinasDaTurma,
+  getDisciplinasPermitidasProfessor
 } from '../services/academicHierarchyService';
+import {
+  obterTituloDirectorTurma,
+  obterTituloSubdiretorPedagogico,
+  obterNomeSubdiretorPedagogico,
+  obterTituloDiretorSimples,
+  obterNomeDiretorGeral
+} from '../utils/directorHelper';
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { ModalJustificarFaltaAluno } from './ModalJustificarFaltaAluno';
 import { ModalJustificarFaltaFuncionario } from './ModalJustificarFaltaFuncionario';
@@ -222,28 +230,29 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
   const turmaSelecionada = turmasDisponiveis.find(t => t.id === selectedTurmaId) || turmasDaClasse[0] || turmasDisponiveis[0];
 
   // Disciplinas filtradas estritamente para a classe/curso da turma selecionada e atribuições do Professor
+  const horariosEscola = useMemo(() => dbService.obterHorarios(escola.id), [escola.id]);
+
   const disciplinasDaClasse = useMemo(() => {
-    const base = getDisciplinasDaTurma(disciplinas, turmaSelecionada);
-    if (!isProfessor) return base;
+    if (!isProfessor) {
+      return getDisciplinasDaTurma(disciplinas, turmaSelecionada);
+    }
     if (!turmaSelecionada) return [];
-    const atribsNaTurma = atribuicoesProfessor.filter(a => a.turmaId === turmaSelecionada.id);
-    if (atribsNaTurma.length === 0) return [];
-    const idsAtribuidos = new Set(atribsNaTurma.map(a => a.disciplinaId).filter(Boolean));
-    const nomesAtribuidos = new Set(
-      atribsNaTurma.map(a => String((a as any).disciplinaNome || '').trim().toLowerCase()).filter(Boolean)
+    return getDisciplinasPermitidasProfessor(
+      disciplinas,
+      turmaSelecionada,
+      atribuicoes,
+      currentUser.id,
+      horariosEscola
     );
-    return base.filter(
-      d => idsAtribuidos.has(d.id) || nomesAtribuidos.has((d.nome || '').trim().toLowerCase())
-    );
-  }, [disciplinas, turmaSelecionada, isProfessor, atribuicoesProfessor]);
+  }, [disciplinas, turmaSelecionada, isProfessor, currentUser.id, atribuicoes, horariosEscola]);
 
   // Manter a disciplina selecionada coerente com as atribuições do professor
   useEffect(() => {
     if (!isProfessor) return;
     if (disciplinasDaClasse.length > 0) {
       if (
-        (selectedDisciplinaId === 'todas' && disciplinasDaClasse.length === 1) ||
-        (selectedDisciplinaId !== 'todas' && !disciplinasDaClasse.some(d => d.id === selectedDisciplinaId))
+        selectedDisciplinaId === 'todas' ||
+        !disciplinasDaClasse.some(d => d.id === selectedDisciplinaId)
       ) {
         setSelectedDisciplinaId(disciplinasDaClasse[0].id);
       }
@@ -973,7 +982,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   )}
                   {disciplinasDaClasse.map(d => (
                     <option key={d.id} value={d.id}>
-                      {d.nome} ({d.sigla})
+                      {d.nome}
                     </option>
                   ))}
                 </select>
@@ -1081,7 +1090,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   <tr>
                     <th className="p-3 w-12 text-center">Nº</th>
                     <th className="p-3 w-32">Processo / Matrícula</th>
-                    <th className="p-3">Nome Completo do(a) Aluno(a)</th>
+                    <th className="p-3">Nome Completo do Estudante</th>
                     <th className="p-3 w-40">Estado em {dataChamadaManual.split('-').reverse().join('/')}</th>
                     <th className="p-3 text-right">Marcar Presença / Falta Manualmente</th>
                   </tr>
@@ -1335,7 +1344,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   )}
                   {disciplinasDaClasse.map(d => (
                     <option key={d.id} value={d.id}>
-                      {d.nome} ({d.sigla})
+                      {d.nome}
                     </option>
                   ))}
                 </select>
@@ -1427,7 +1436,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   <tr className="bg-gray-100 font-extrabold border-b-2 border-black">
                     <th className="p-1 border-r border-black w-7">Nº</th>
                     <th className="p-1 border-r border-black w-20">PROCESSO</th>
-                    <th className="p-1 border-r border-black text-left w-48">NOME COMPLETO DO(A) ALUNO(A)</th>
+                    <th className="p-1 border-r border-black text-left w-48">NOME COMPLETO DO ESTUDANTE</th>
 
                     {diasLetivos.map(d => (
                       <th key={d.dataStr} className="p-0.5 border-r border-black w-6 text-[9px] font-mono">
@@ -1521,20 +1530,20 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
 
             <div className="grid grid-cols-4 gap-4 items-end pt-8 text-center text-xs mt-6 border-t border-black">
               <div className="flex flex-col items-center justify-end">
-                <p className="font-bold text-gray-900">O(A) Director(a) de Turma</p>
+                <p className="font-bold text-gray-900">{obterTituloDirectorTurma(turmaSelecionada, funcionarios)}</p>
                 <div className="h-8" />
                 <div className="w-40 border-b border-black mx-auto my-1" />
                 <p className="text-gray-800 font-semibold text-[11px]">{turmaSelecionada?.coordenadorNome || 'Director de Turma'}</p>
               </div>
               <div className="flex flex-col items-center justify-end">
-                <p className="font-bold text-gray-900">O Subdirector Pedagógico</p>
+                <p className="font-bold text-gray-900">{obterTituloSubdiretorPedagogico(escola, funcionarios)}</p>
                 <div className="h-8" />
                 <div className="w-40 border-b border-black mx-auto my-1" />
-                <p className="text-gray-800 font-semibold text-[11px]">{escola.subdiretorPedagogicoNome || 'Subdirecção Pedagógica'}</p>
+                <p className="text-gray-800 font-semibold text-[11px]">{obterNomeSubdiretorPedagogico(escola, funcionarios)}</p>
               </div>
               <div className="flex flex-col items-center justify-end">
                 <p className="font-bold text-gray-900">
-                  {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
+                  {obterTituloDiretorSimples(escola, funcionarios)}
                 </p>
                 {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                   <div className="h-9 flex items-center justify-center -mb-1">
@@ -1548,7 +1557,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                   <div className="h-8" />
                 )}
                 <div className="w-40 border-b border-black mx-auto my-1" />
-                <p className="text-gray-800 font-semibold text-[11px]">{escola.diretorGeralNome || 'Direcção da Instituição'}</p>
+                <p className="text-gray-800 font-semibold text-[11px]">{obterNomeDiretorGeral(escola, funcionarios)}</p>
               </div>
               <div className="flex flex-col items-center justify-center">
                 <OfficialQrCode

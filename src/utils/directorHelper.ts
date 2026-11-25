@@ -47,6 +47,99 @@ export const isPlaceholderInvalido = (valor?: string | null): boolean => {
   return invalidos.includes(limpo);
 };
 
+const NOMES_FEMININOS_COMUNS = [
+  'maria', 'ana', 'isabel', 'teresa', 'helena', 'fatima', 'fátima', 'esperança', 'esperanca',
+  'joana', 'madalena', 'rosa', 'marta', 'claudia', 'cláudia', 'carla', 'lucia', 'lúcia',
+  'antonia', 'antónia', 'albertina', 'beatriz', 'catarina', 'dulce', 'eugenia', 'eugénia',
+  'filomena', 'graca', 'graça', 'inacia', 'inácia', 'juliana', 'laura', 'luisa', 'luísa',
+  'manuela', 'nadia', 'nádia', 'olivia', 'olívio', 'paula', 'regina', 'sara', 'tatiana',
+  'vanessa', 'zita', 'cecilia', 'cecília', 'cristina', 'dianira', 'domingas', 'elda',
+  'elena', 'elisa', 'elsa', 'esmeralda', 'estrela', 'eva', 'fernanda', 'flora',
+  'francisca', 'gloria', 'glória', 'graciete', 'ines', 'inês', 'irene', 'jacinta',
+  'jessica', 'jéssica', 'joaquina', 'josefa', 'judite', 'julia', 'júlia', 'laurinda',
+  'leonor', 'lidia', 'lídia', 'lilian', 'liliana', 'luciana', 'luzia', 'margarida',
+  'marcela', 'marcia', 'márcia', 'marlene', 'matilde', 'miriam', 'monica', 'mónica',
+  'natalia', 'natália', 'neusa', 'nilza', 'noemia', 'noémia', 'odete', 'olga',
+  'patricia', 'patrícia', 'paulino', 'rachel', 'raquel', 'rita', 'rosalina', 'rosario',
+  'rosário', 'ruth', 'salome', 'salomé', 'sandra', 'silvia', 'sílvia', 'sofia',
+  'sonia', 'sónia', 'susana', 'suzana', 'telma', 'veronica', 'verónica', 'vitória', 'vitoria'
+];
+
+export const flexionarGenero = (
+  genero: 'M' | 'F' | string | undefined | null,
+  masculino: string,
+  feminino: string
+): string => {
+  return String(genero || '').toUpperCase() === 'F' ? feminino : masculino;
+};
+
+export const inferirGeneroPorNomeOuParentesco = (
+  nome?: string | null,
+  parentesco?: string | null,
+  generoExplicito?: 'M' | 'F' | string | null,
+  funcionariosLista?: Funcionario[]
+): 'M' | 'F' => {
+  const genExp = String(generoExplicito || '').trim().toUpperCase();
+  if (genExp === 'F' || genExp === 'M') return genExp;
+
+  const par = (parentesco || '').trim().toLowerCase();
+  if (par) {
+    if (
+      par.includes('mãe') ||
+      par.includes('mae') ||
+      par.includes('tia') ||
+      par.includes('avó') ||
+      par.includes('avoa') ||
+      par.includes('irmã') ||
+      par.includes('irma') ||
+      par.includes('madrasta') ||
+      par.includes('encarregada') ||
+      par.includes('tutora') ||
+      par.includes('esposa')
+    ) {
+      return 'F';
+    }
+    if (
+      par === 'pai' ||
+      par.includes('tio') ||
+      par.includes('avô') ||
+      par.includes('irmão') ||
+      par.includes('irmao') ||
+      par.includes('padrasto') ||
+      par.includes('encarregado') ||
+      par.includes('tutor')
+    ) {
+      return 'M';
+    }
+  }
+
+  const nomeLimpo = (nome || '').trim();
+  if (nomeLimpo && funcionariosLista && funcionariosLista.length > 0) {
+    const matchFunc = funcionariosLista.find(
+      f => (f.nomeCompleto || '').trim().toLowerCase() === nomeLimpo.toLowerCase()
+    );
+    if (matchFunc?.genero === 'F' || matchFunc?.genero === 'M') {
+      return matchFunc.genero;
+    }
+  }
+
+  const partes = nomeLimpo.toLowerCase().split(/\s+/).filter(Boolean);
+  // Ignorar títulos como Dra., Sra., Prof., Sr., Dr.
+  const primeira = partes.find(p => !['dr.', 'dr', 'dra.', 'dra', 'prof.', 'prof', 'profa.', 'sr.', 'sr', 'sra.', 'sra', 'eng.', 'eng'].includes(p)) || partes[0] || '';
+  if (!primeira) return 'M';
+  if (partes[0] === 'dra.' || partes[0] === 'dra' || partes[0] === 'sra.' || partes[0] === 'sra' || partes[0] === 'profa.') {
+    return 'F';
+  }
+  const excecoesMasculinasEmA = ['garcia', 'sousa', 'silva', 'costa', 'batista', 'mota', 'luca', 'joshua', 'issa', 'mustafa'];
+  if (
+    NOMES_FEMININOS_COMUNS.some(n => primeira === n || primeira.startsWith(n)) ||
+    (primeira.endsWith('a') && !excecoesMasculinasEmA.includes(primeira))
+  ) {
+    return 'F';
+  }
+  return 'M';
+};
+
 // =========================================================================
 // 1. DIRETOR(A) GERAL DA INSTITUIÇÃO
 // =========================================================================
@@ -337,7 +430,21 @@ export const obterNomeCoordenadorTurma = (
     return primeiroDocente.nomeCompleto.trim();
   }
 
-  return 'Coordenador(a) de Turma';
+  return 'Coordenador de Turma';
+};
+
+export const obterGeneroCoordenadorTurma = (
+  turma?: Turma | null,
+  funcionariosLista?: Funcionario[],
+  atribuicoes?: AtribuicaoDocente[]
+): 'M' | 'F' => {
+  const funcs = funcionariosLista || (turma ? dbService.getFuncionarios(turma.escolaId) : dbService.getFuncionarios()) || [];
+  if (turma?.coordenadorId) {
+    const f = funcs.find(fn => fn.id === turma.coordenadorId);
+    if (f?.genero === 'F' || f?.genero === 'M') return f.genero;
+  }
+  const nome = obterNomeCoordenadorTurma(turma, funcs, atribuicoes);
+  return inferirGeneroPorNomeOuParentesco(nome, undefined, undefined, funcs);
 };
 
 export const obterTituloCoordenadorTurma = (
@@ -345,13 +452,17 @@ export const obterTituloCoordenadorTurma = (
   funcionariosLista?: Funcionario[],
   atribuicoes?: AtribuicaoDocente[]
 ): string => {
-  const nome = obterNomeCoordenadorTurma(turma, funcionariosLista, atribuicoes).toLowerCase();
-  const primeiroNome = nome.split(' ')[0] || '';
-  const nomesFemininos = ['maria', 'ana', 'isabel', 'teresa', 'helena', 'fatima', 'esperança', 'esperanca', 'joana', 'madalena', 'rosa', 'marta', 'claudia', 'carla', 'lucia', 'antonia', 'albertina', 'beatriz', 'catarina', 'dulce', 'eugenia', 'filomena', 'graca', 'graça', 'inacia', 'juliana', 'laura', 'luisa', 'manuela', 'nadia', 'olivia', 'paula', 'regina', 'sara', 'tatiana', 'vanessa', 'zita'];
-  if (nomesFemininos.some(n => primeiroNome === n || primeiroNome.startsWith(n)) || (primeiroNome.endsWith('a') && !['garcia', 'sousa', 'silva', 'costa'].includes(primeiroNome))) {
-    return 'A Coordenadora de Turma';
-  }
-  return 'O Coordenador de Turma';
+  const gen = obterGeneroCoordenadorTurma(turma, funcionariosLista, atribuicoes);
+  return gen === 'F' ? 'A Coordenadora de Turma' : 'O Coordenador de Turma';
+};
+
+export const obterTituloDirectorTurma = (
+  turma?: Turma | null,
+  funcionariosLista?: Funcionario[],
+  atribuicoes?: AtribuicaoDocente[]
+): string => {
+  const gen = obterGeneroCoordenadorTurma(turma, funcionariosLista, atribuicoes);
+  return gen === 'F' ? 'A Directora de Turma' : 'O Director de Turma';
 };
 
 // =========================================================================
@@ -437,13 +548,10 @@ export const obterTituloCoordenadorDisciplina = (
   funcionariosLista?: Funcionario[],
   disciplinaNome?: string
 ): string => {
-  const nome = obterNomeCoordenadorDisciplina(disciplinaId, turmaId, atribuicoes, funcionariosLista, disciplinaNome).toLowerCase();
-  const primeiroNome = nome.split(' ')[0] || '';
-  const nomesFemininos = ['maria', 'ana', 'isabel', 'teresa', 'helena', 'fatima', 'esperança', 'esperanca', 'joana', 'madalena', 'rosa', 'marta', 'claudia', 'carla', 'lucia', 'antonia', 'albertina', 'beatriz', 'catarina', 'dulce', 'eugenia', 'filomena', 'graca', 'graça', 'inacia', 'juliana', 'laura', 'luisa', 'manuela', 'nadia', 'olivia', 'paula', 'regina', 'sara', 'tatiana', 'vanessa', 'zita'];
-  if (nomesFemininos.some(n => primeiroNome === n || primeiroNome.startsWith(n)) || (primeiroNome.endsWith('a') && !['garcia', 'sousa', 'silva', 'costa'].includes(primeiroNome))) {
-    return 'A Coordenadora de Disciplina';
-  }
-  return 'O Coordenador de Disciplina';
+  const funcs = funcionariosLista || dbService.getFuncionarios() || [];
+  const nome = obterNomeCoordenadorDisciplina(disciplinaId, turmaId, atribuicoes, funcs, disciplinaNome);
+  const gen = inferirGeneroPorNomeOuParentesco(nome, undefined, undefined, funcs);
+  return gen === 'F' ? 'A Coordenadora de Disciplina' : 'O Coordenador de Disciplina';
 };
 
 // =========================================================================
@@ -476,7 +584,7 @@ export const obterPresidenteJuri = (comissao?: ComissaoJuri | null, funcionarios
 };
 
 export const obterSecretarioJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
-  if (!comissao) return 'Secretário(a) do Júri';
+  if (!comissao) return 'Secretário do Júri';
 
   const funcs = funcionariosLista || dbService.getFuncionarios(comissao.escolaId) || [];
 
@@ -564,5 +672,123 @@ export const obterPrimeiroVogalJuri = (comissao?: ComissaoJuri | null, funcionar
 export const obterSegundoVogalJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
   return obterVogaisJuri(comissao, funcionariosLista).segundoVogal;
 };
+
+export const obterTituloPresidenteJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
+  const funcs = funcionariosLista || (comissao ? dbService.getFuncionarios(comissao.escolaId) : dbService.getFuncionarios()) || [];
+  const presId = comissao?.presidenteId || comissao?.presidenteJuriId || comissao?.membros?.find(m => m.funcao === 'Presidente')?.usuarioId;
+  const func = presId ? funcs.find(f => f.id === presId) : undefined;
+  const nome = obterPresidenteJuri(comissao, funcs);
+  const gen = inferirGeneroPorNomeOuParentesco(nome, undefined, func?.genero, funcs);
+  return gen === 'F' ? 'A Presidente do Júri' : 'O Presidente do Júri';
+};
+
+export const obterTituloSecretarioJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
+  const funcs = funcionariosLista || (comissao ? dbService.getFuncionarios(comissao.escolaId) : dbService.getFuncionarios()) || [];
+  const secId = comissao?.secretarioId || comissao?.membros?.find(m => (m.funcao as string) === 'Secretario' || (m.funcao as string) === 'Secretário')?.usuarioId;
+  const func = secId ? funcs.find(f => f.id === secId) : undefined;
+  const nome = obterSecretarioJuri(comissao, funcs);
+  const gen = inferirGeneroPorNomeOuParentesco(nome, undefined, func?.genero, funcs);
+  return gen === 'F' ? 'A Secretária do Júri' : 'O Secretário do Júri';
+};
+
+export const obterTituloPrimeiroVogalJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
+  const funcs = funcionariosLista || (comissao ? dbService.getFuncionarios(comissao.escolaId) : dbService.getFuncionarios()) || [];
+  const v1Id = comissao?.vogal1Id || comissao?.membros?.find(m => (m.funcao as string) === '1º Vogal' || (m.funcao as string) === '1° Vogal')?.usuarioId;
+  const func = v1Id ? funcs.find(f => f.id === v1Id) : undefined;
+  const nome = obterPrimeiroVogalJuri(comissao, funcs);
+  const gen = inferirGeneroPorNomeOuParentesco(nome, undefined, func?.genero, funcs);
+  return gen === 'F' ? 'A 1ª Vogal do Júri' : 'O 1º Vogal do Júri';
+};
+
+export const obterTituloSegundoVogalJuri = (comissao?: ComissaoJuri | null, funcionariosLista?: Funcionario[]): string => {
+  const funcs = funcionariosLista || (comissao ? dbService.getFuncionarios(comissao.escolaId) : dbService.getFuncionarios()) || [];
+  const v2Id = comissao?.vogal2Id || comissao?.membros?.find(m => (m.funcao as string) === '2º Vogal' || (m.funcao as string) === '2° Vogal')?.usuarioId;
+  const func = v2Id ? funcs.find(f => f.id === v2Id) : undefined;
+  const nome = obterSegundoVogalJuri(comissao, funcs);
+  const gen = inferirGeneroPorNomeOuParentesco(nome, undefined, func?.genero, funcs);
+  return gen === 'F' ? 'A 2ª Vogal do Júri' : 'O 2º Vogal do Júri';
+};
+
+// =========================================================================
+// 7. SUBDIRETOR ADMINISTRATIVO, PROFESSORES, FUNCIONÁRIOS, ENCARREGADOS & ALUNOS
+// =========================================================================
+
+export const obterNomeSubdiretorAdministrativo = (escola?: Escola | null, funcionariosLista?: Funcionario[]): string => {
+  if (!escola) return 'Subdirecção Administrativa';
+  if ((escola as any).subdiretorAdministrativoNome && !isPlaceholderInvalido((escola as any).subdiretorAdministrativoNome)) {
+    return (escola as any).subdiretorAdministrativoNome.trim();
+  }
+  const funcs = funcionariosLista || dbService.getFuncionarios(escola.id) || [];
+  const subAdmin = funcs.find(f =>
+    (f.escolaId === escola.id || escola.id === 'todas') &&
+    (f.role === 'SubdiretorAdministrativo' ||
+      f.role === 'SubdirectorAdministrativo' ||
+      (f.cargo && (f.cargo.toLowerCase().includes('administrativ') && (f.cargo.toLowerCase().includes('subdire') || f.cargo.toLowerCase().includes('coord')))))
+  );
+  if (subAdmin?.nomeCompleto && !isPlaceholderInvalido(subAdmin.nomeCompleto)) {
+    return subAdmin.nomeCompleto.trim();
+  }
+  return 'Responsável Administrativo';
+};
+
+export const obterTituloSubdiretorAdministrativo = (escola?: Escola | null, funcionariosLista?: Funcionario[]): string => {
+  const funcs = funcionariosLista || (escola ? dbService.getFuncionarios(escola.id) : dbService.getFuncionarios()) || [];
+  const subAdmin = funcs.find(f =>
+    (!escola || f.escolaId === escola.id || escola.id === 'todas') &&
+    (f.role === 'SubdiretorAdministrativo' || f.role === 'SubdirectorAdministrativo')
+  );
+  const nome = obterNomeSubdiretorAdministrativo(escola, funcs);
+  const gen = inferirGeneroPorNomeOuParentesco(nome, undefined, subAdmin?.genero, funcs);
+  return gen === 'F' ? 'A Subdirectora Administrativa' : 'O Subdirector Administrativo';
+};
+
+export const obterTituloCoordenadorTurno = (
+  turno?: string,
+  funcionariosLista?: Funcionario[],
+  escola?: Escola | null
+): string => {
+  const funcs = funcionariosLista || (escola ? dbService.getFuncionarios(escola.id) : dbService.getFuncionarios()) || [];
+  const coordTurno = funcs.find(f =>
+    f.role === 'CoordenadorTurno' &&
+    (!turno || (f.cargo || '').toLowerCase().includes(turno.toLowerCase()))
+  ) || funcs.find(f => f.role === 'CoordenadorTurno');
+  const gen = coordTurno
+    ? inferirGeneroPorNomeOuParentesco(coordTurno.nomeCompleto, undefined, coordTurno.genero, funcs)
+    : 'M';
+  return gen === 'F' ? 'A Coordenadora de Turno' : 'O Coordenador de Turno';
+};
+
+export const obterTituloFuncionario = (func?: Partial<Funcionario> | null, funcionariosLista?: Funcionario[]): string => {
+  const gen = inferirGeneroPorNomeOuParentesco(func?.nomeCompleto, undefined, func?.genero, funcionariosLista);
+  return gen === 'F' ? 'A Funcionária' : 'O Funcionário';
+};
+
+export const obterTituloProfessor = (func?: Partial<Funcionario> | null, nomeFallback?: string, funcionariosLista?: Funcionario[]): string => {
+  const gen = inferirGeneroPorNomeOuParentesco(func?.nomeCompleto || nomeFallback, undefined, func?.genero, funcionariosLista);
+  return gen === 'F' ? 'A Professora' : 'O Professor';
+};
+
+export const obterTituloEncarregado = (parentesco?: string | null, nomeEncarregado?: string | null): string => {
+  const gen = inferirGeneroPorNomeOuParentesco(nomeEncarregado, parentesco);
+  return gen === 'F' ? 'A Encarregada de Educação' : 'O Encarregado de Educação';
+};
+
+export const obterSituacaoTextoPorGenero = (
+  textoBase: string,
+  genero?: 'M' | 'F' | string | null
+): string => {
+  const ehFem = String(genero || '').toUpperCase() === 'F';
+  if (!ehFem || !textoBase) return textoBase;
+  return textoBase
+    .replace(/\bAprovado Directo\b/g, 'Aprovada Directa')
+    .replace(/\bAprovado Direto\b/g, 'Aprovada Direta')
+    .replace(/\bNão Aprovado\b/g, 'Não Aprovada')
+    .replace(/\bAprovado\b/g, 'Aprovada')
+    .replace(/\bReprovado\b/g, 'Reprovada')
+    .replace(/\bApto a Recurso\b/g, 'Apta a Recurso')
+    .replace(/\bTransferido\b/g, 'Transferida')
+    .replace(/\bMatriculado\b/g, 'Matriculada');
+};
+
 
 

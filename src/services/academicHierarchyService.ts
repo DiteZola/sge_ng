@@ -70,6 +70,21 @@ export function normalizarClasse(classe: string | undefined | null): string {
 }
 
 /**
+ * Ordena classes escolares segundo a hierarquia oficial MED (Iniciação -> 1ª ... -> 13ª)
+ */
+export function ordenarClassesMED(classes: string[]): string[] {
+  const unicas = Array.from(new Set(classes.map(c => normalizarClasse(c)).filter(Boolean)));
+  return unicas.sort((a, b) => {
+    const idxA = TODAS_CLASSES_OFICIAIS_MED.indexOf(a);
+    const idxB = TODAS_CLASSES_OFICIAIS_MED.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b, 'pt');
+  });
+}
+
+/**
  * Verifica se a classe pertence ao 2º Ciclo do Ensino Secundário (10ª a 13ª classe)
  */
 export function isSegundoCiclo(classe: string | undefined | null): boolean {
@@ -285,13 +300,51 @@ export function getCursoDaTurma(turma?: Turma | null): string {
 }
 
 /**
- * Ordena disciplinas rigorosamente de acordo com a ordem estabelecida na gestão de disciplinas
- * (ordem ascendente e alfabética como desempate natural)
+ * Gera uma chave normalizada de contexto para ordenação específica de disciplinas por Classe e (no IIº Ciclo) Curso.
  */
-export function ordenarDisciplinas(disciplinas: Disciplina[]): Disciplina[] {
+export function gerarChaveOrdemDisciplina(classe?: string | null, curso?: string | null): string {
+  const cNorm = normalizarClasse(classe);
+  if (!cNorm || cNorm === 'todas') return 'GLOBAL';
+  const cursoClean = isSegundoCiclo(cNorm) && curso && curso !== 'TODOS' && curso !== 'Geral'
+    ? curso.trim().toLowerCase()
+    : '';
+  return cursoClean ? `${cNorm}::${cursoClean}` : cNorm;
+}
+
+/**
+ * Obtém o índice numérico de ordenação de uma disciplina dentro do contexto Classe/Curso.
+ */
+export function getOrdemDisciplinaNoContexto(
+  d: Disciplina,
+  classe?: string | null,
+  curso?: string | null
+): number {
+  const mapa = d.ordemPorClasseCurso;
+  if (mapa && typeof mapa === 'object') {
+    const chaveExata = gerarChaveOrdemDisciplina(classe, curso);
+    if (typeof mapa[chaveExata] === 'number' && !isNaN(mapa[chaveExata])) {
+      return mapa[chaveExata];
+    }
+    const cNorm = normalizarClasse(classe);
+    if (cNorm && cNorm !== 'todas' && typeof mapa[cNorm] === 'number' && !isNaN(mapa[cNorm])) {
+      return mapa[cNorm];
+    }
+  }
+  return typeof d.ordem === 'number' && !isNaN(d.ordem) ? d.ordem : 9999;
+}
+
+/**
+ * Ordena disciplinas rigorosamente de acordo com a ordem estabelecida na gestão de disciplinas
+ * (priorizando a ordem contextual da classe/curso e recorrendo à ordem global e alfabética)
+ */
+export function ordenarDisciplinas(
+  disciplinas: Disciplina[],
+  classe?: string | null,
+  curso?: string | null
+): Disciplina[] {
   return [...disciplinas].sort((a, b) => {
-    const ordemA = typeof a.ordem === 'number' && !isNaN(a.ordem) ? a.ordem : 999;
-    const ordemB = typeof b.ordem === 'number' && !isNaN(b.ordem) ? b.ordem : 999;
+    const ordemA = getOrdemDisciplinaNoContexto(a, classe, curso);
+    const ordemB = getOrdemDisciplinaNoContexto(b, classe, curso);
     if (ordemA !== ordemB) return ordemA - ordemB;
     return a.nome.localeCompare(b.nome, 'pt-AO', { sensitivity: 'base' });
   });
@@ -342,9 +395,7 @@ export function validarCriacaoTurma(dados: {
   const cursoInformado = dados.curso && dados.curso.trim() && dados.curso !== 'Geral' ? dados.curso.trim() : '';
   const cursoAjustado = isSegundoCiclo(dados.classe)
     ? (cursoInformado || 'Ciências Físicas e Biológicas (PUNIV)')
-    : cursoInformado || (isPrimeiroCiclo(dados.classe)
-      ? 'Iº Ciclo do Ensino Secundário Geral'
-      : 'Ensino Primário Geral');
+    : '';
 
   return { valida: true, cursoAjustado, salaAjustada };
 }
@@ -422,7 +473,7 @@ export function getDisciplinasPorClasseECiclo(
     });
   }
 
-  return ordenarDisciplinas(base);
+  return ordenarDisciplinas(base, undefined, cuSel || undefined);
 }
 
 export function disciplinaPertenceAoCurso(d: Disciplina, cursoNorm: string): boolean {
@@ -463,7 +514,7 @@ export function filtrarDisciplinasDaClasse(
     return ordenarDisciplinas(disciplinas);
   }
   const normClasse = normalizarClasse(classe);
-  const cursoClean = (curso && curso !== 'TODOS' && curso !== 'Geral') ? curso.trim() : '';
+  const cursoClean = isSegundoCiclo(classe) && curso && curso !== 'TODOS' && curso !== 'Geral' ? curso.trim() : '';
   const cursoNorm = cursoClean.toLowerCase();
 
   // 1. Prioridade Absoluta: Disciplinas cadastradas especificamente para esta classe
@@ -478,13 +529,29 @@ export function filtrarDisciplinasDaClasse(
   });
 
   if (disciplinasEspecificasClasse.length > 0) {
+    if (isSegundoCiclo(normClasse) && cursoNorm) {
+      // No IIº Ciclo / Ensino Médio, as disciplinas são estritamente por Classe e Curso:
+      // nunca retornar disciplinas exclusivas de outro curso diferente do selecionado.
+      const porCurso = disciplinasEspecificasClasse.filter(d => disciplinaPertenceAoCurso(d, cursoNorm));
+      if (porCurso.length > 0) {
+        return ordenarDisciplinas(porCurso, normClasse, cursoClean);
+      }
+      // Se nenhuma explícita da classe corresponder ao curso, tenta catálogo compatível com matriz do curso
+      const matrizCurso = getDisciplinasMatrizOficial(classe, cursoClean);
+      const compatCatalogo = disciplinas.filter(d => {
+        if (!disciplinaPertenceAoCurso(d, cursoNorm)) return false;
+        const nomeNorm = d.nome.toLowerCase().trim();
+        return matrizCurso.some(m => m.toLowerCase().trim() === nomeNorm);
+      });
+      return ordenarDisciplinas(compatCatalogo, normClasse, cursoClean);
+    }
     if (cursoNorm) {
       const porCurso = disciplinasEspecificasClasse.filter(d => disciplinaPertenceAoCurso(d, cursoNorm));
       if (porCurso.length > 0) {
-        return ordenarDisciplinas(porCurso);
+        return ordenarDisciplinas(porCurso, normClasse, cursoClean);
       }
     }
-    return ordenarDisciplinas(disciplinasEspecificasClasse);
+    return ordenarDisciplinas(disciplinasEspecificasClasse, normClasse, cursoClean);
   }
 
   // 2. Se nenhuma disciplina tiver classe explicitamente atribuída no cadastro,
@@ -519,11 +586,12 @@ export function filtrarDisciplinasDaClasse(
   });
 
   const resultadoFinal = filtradas.length > 0 ? filtradas : disciplinas.filter(d => {
+    if (isSegundoCiclo(normClasse) && cursoNorm && !disciplinaPertenceAoCurso(d, cursoNorm)) return false;
     const nomeNorm = d.nome.toLowerCase().trim();
     return matrizOficial.some(m => m.toLowerCase().trim() === nomeNorm);
   });
 
-  return ordenarDisciplinas(resultadoFinal);
+  return ordenarDisciplinas(resultadoFinal, normClasse, cursoClean);
 }
 
 /**
@@ -535,12 +603,299 @@ export function resolverNomesDisciplinasPorClasseECurso(
   classe: string,
   curso?: string | null
 ): string[] {
-  const filtradas = filtrarDisciplinasDaClasse(disciplinas, classe, curso);
+  const cursoValido = isSegundoCiclo(classe) ? curso : undefined;
+  const filtradas = filtrarDisciplinasDaClasse(disciplinas, classe, cursoValido);
   if (filtradas.length > 0) {
     return filtradas.map(d => d.nome);
   }
-  return getDisciplinasMatrizOficial(classe, curso || undefined);
+  return getDisciplinasMatrizOficial(classe, cursoValido || undefined);
 }
+
+/**
+ * Ordena notas históricas de disciplinas (usadas em Certificados, Declarações e Histórico Escolar)
+ * seguindo rigorosamente a ordem configurada no menu Disciplinas para a Classe e Curso.
+ */
+export function ordenarNotasHistoricoPorDisciplinas<T extends { disciplinaId?: string; disciplinaNome: string }>(
+  notasDisciplinas: T[],
+  disciplinas: Disciplina[],
+  classe?: string | null,
+  curso?: string | null
+): T[] {
+  if (!notasDisciplinas || notasDisciplinas.length <= 1) return notasDisciplinas;
+  const cursoValido = isSegundoCiclo(classe) ? curso : undefined;
+  const ordenadasClasse = filtrarDisciplinasDaClasse(disciplinas, classe, cursoValido);
+  const todasOrdenadas = ordenarDisciplinas(disciplinas, classe, cursoValido);
+
+  const normNome = (s?: string) =>
+    (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+  const indexPorId = new Map<string, number>();
+  const indexPorNome = new Map<string, number>();
+
+  ordenadasClasse.forEach((d, idx) => {
+    indexPorId.set(d.id, idx);
+    indexPorNome.set(normNome(d.nome), idx);
+  });
+  todasOrdenadas.forEach((d, idx) => {
+    if (!indexPorId.has(d.id)) indexPorId.set(d.id, 1000 + idx);
+    const n = normNome(d.nome);
+    if (!indexPorNome.has(n)) indexPorNome.set(n, 1000 + idx);
+  });
+
+  return [...notasDisciplinas].sort((a, b) => {
+    const posA = (a.disciplinaId ? indexPorId.get(a.disciplinaId) : undefined) ?? indexPorNome.get(normNome(a.disciplinaNome)) ?? 9999;
+    const posB = (b.disciplinaId ? indexPorId.get(b.disciplinaId) : undefined) ?? indexPorNome.get(normNome(b.disciplinaNome)) ?? 9999;
+    if (posA !== posB) return posA - posB;
+    return a.disciplinaNome.localeCompare(b.disciplinaNome, 'pt-AO', { sensitivity: 'base' });
+  });
+}
+
+/**
+ * Verifica se o utilizador é o Coordenador de Turma (Director de Turma) designado para esta turma.
+ */
+export function isProfessorCoordenadorTurma(
+  turma: Turma | null | undefined,
+  userId?: string | null
+): boolean {
+  if (!turma || !userId) return false;
+  return Boolean(turma.coordenadorId && turma.coordenadorId === userId);
+}
+
+/**
+ * Resolve de forma infalível TODAS as disciplinas atribuídas a um professor (seja em Atribuições Docentes ou Horários),
+ * garantindo que o docente consegue sempre selecionar as suas disciplinas mesmo quando há divergências menores de cadastro/curso.
+ */
+export function getDisciplinasPermitidasProfessor(
+  disciplinas: Disciplina[],
+  turma: Turma | null | undefined,
+  atribuicoes: Array<{
+    professorId: string;
+    turmaId?: string;
+    disciplinaId?: string;
+    disciplinaNome?: string;
+    classe?: string;
+  }>,
+  professorId?: string | null,
+  horarios?: Array<{
+    professorId?: string;
+    turmaId?: string;
+    disciplinaId?: string;
+    disciplinaNome?: string;
+  }>
+): Disciplina[] {
+  if (!professorId) return [];
+
+  const atribsProf = atribuicoes.filter(a => {
+    if (a.professorId !== professorId) return false;
+    if (!turma) return true;
+    if (a.turmaId) return a.turmaId === turma.id;
+    if (a.classe && turma.classe) {
+      return normalizarClasse(a.classe) === normalizarClasse(turma.classe);
+    }
+    return false;
+  });
+
+  const horariosProf = (horarios || []).filter(h => {
+    if (h.professorId !== professorId) return false;
+    if (!turma) return true;
+    return h.turmaId === turma.id;
+  });
+
+  const normalizarNomeSimples = (v?: string): string =>
+    (v || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[.\-_()]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const idsPermitidos = new Set<string>();
+  const nomesNormPermitidos = new Set<string>();
+  const nomesBrutos = new Map<string, { id: string; nome: string }>();
+
+  const registrar = (discId?: string, discNome?: string) => {
+    const idClean = (discId || '').trim();
+    // Resolver nome real do catálogo sempre que o ID existir no catálogo da escola
+    const discCatalogo = idClean ? disciplinas.find(d => (d.id || '').trim() === idClean) : undefined;
+    const nomeReal = (discCatalogo?.nome || discNome || '').trim();
+    const nomeNorm = normalizarNomeSimples(nomeReal);
+    if (idClean) idsPermitidos.add(idClean);
+    if (nomeNorm) nomesNormPermitidos.add(nomeNorm);
+    const chave = idClean || nomeNorm;
+    if (chave && !nomesBrutos.has(chave)) {
+      nomesBrutos.set(chave, {
+        id: idClean || `disc-prof-${nomeNorm.replace(/\s+/g, '-')}`,
+        nome: nomeReal || idClean
+      });
+    }
+  };
+
+  atribsProf.forEach(a => registrar(a.disciplinaId, a.disciplinaNome));
+  horariosProf.forEach(h => registrar(h.disciplinaId, h.disciplinaNome));
+
+  if (idsPermitidos.size === 0 && nomesNormPermitidos.size === 0) {
+    return [];
+  }
+
+  // Primeiro tenta cruzar com todas as disciplinas da turma e depois com o catálogo completo da escola
+  const baseDaTurma = turma ? getDisciplinasDaTurma(disciplinas, turma) : ordenarDisciplinas(disciplinas);
+  const encontradas = new Map<string, Disciplina>();
+
+  const tentarAdicionar = (d: Disciplina) => {
+    const dId = (d.id || '').trim();
+    const dNome = normalizarNomeSimples(d.nome);
+    if (idsPermitidos.has(dId) || (dNome && nomesNormPermitidos.has(dNome))) {
+      if (!encontradas.has(dId)) {
+        encontradas.set(dId, d);
+      }
+    }
+  };
+
+  baseDaTurma.forEach(tentarAdicionar);
+  disciplinas.forEach(tentarAdicionar);
+
+  // Fallback seguro: se uma atribuição aponta para um ID/nome que ainda não existe no catálogo da turma, sintetizar item selecionável
+  nomesBrutos.forEach((info) => {
+    const jaExiste = Array.from(encontradas.values()).some(
+      d => d.id === info.id || (info.nome && normalizarNomeSimples(d.nome) === normalizarNomeSimples(info.nome))
+    );
+    if (!jaExiste && info.nome) {
+      encontradas.set(info.id, {
+        id: info.id,
+        escolaId: turma?.escolaId || '',
+        nome: info.nome,
+        sigla: info.nome.replace(/[^A-Za-zÀ-ÿ]/g, '').slice(0, 4).toUpperCase() || 'DISC',
+        nivelEnsino: turma?.nivelEnsino || getNivelEnsinoPorClasse(turma?.classe),
+        classe: turma?.classe || '',
+        classes: turma?.classe ? [turma.classe] : [],
+        curso: isSegundoCiclo(turma?.classe) ? turma?.curso : '',
+        cargaHorariaSemanal: 4,
+        componente: 'Geral'
+      });
+    }
+  });
+
+  return ordenarDisciplinas(Array.from(encontradas.values()));
+}
+
+export interface DefinicaoTipoCoordenacao {
+  tipo: string;
+  descricao: string;
+  requerTurno?: boolean;
+  requerClasse?: boolean;
+  requerTurma?: boolean;
+  requerDisciplina?: boolean;
+  requerCurso?: boolean; // Exclusivo IIº Ciclo
+  requerAreaDisciplinar?: boolean;
+}
+
+export const TIPOS_COORDENACAO_POR_NIVEL: Record<'Primario' | 'ICiclo' | 'IICiclo', DefinicaoTipoCoordenacao[]> = {
+  Primario: [
+    {
+      tipo: 'Coordenador Pedagógico',
+      descricao: 'Supervisão pedagógica geral do Ensino Primário (Iniciação à 6ª Classe).'
+    },
+    {
+      tipo: 'Coordenador da Iniciação',
+      descricao: 'Coordenação específica das salas de Educação Pré-Escolar / Iniciação.',
+      requerClasse: false
+    },
+    {
+      tipo: 'Coordenador de Classe',
+      descricao: 'Acompanhamento de planos de aula e pautas de uma classe do Primário (1ª à 6ª).',
+      requerClasse: true
+    },
+    {
+      tipo: 'Coordenador de Turma',
+      descricao: 'Professor titular / diretor responsável pelo acompanhamento diário da turma.',
+      requerClasse: true,
+      requerTurma: true
+    },
+    {
+      tipo: 'Coordenador de Turno',
+      descricao: 'Gestão disciplinar, pontualidade e chamadas por turno no Ensino Primário.',
+      requerTurno: true
+    },
+    {
+      tipo: 'Coordenador de Área Disciplinar',
+      descricao: 'Orientação didática nas áreas de Língua Portuguesa, Matemática ou Estudo do Meio.',
+      requerAreaDisciplinar: true
+    }
+  ],
+  ICiclo: [
+    {
+      tipo: 'Coordenador Pedagógico',
+      descricao: 'Coordenação pedagógica do Iº Ciclo do Ensino Secundário (7ª à 9ª Classe).'
+    },
+    {
+      tipo: 'Coordenador de Classe',
+      descricao: 'Supervisão das turmas, pautas e aproveitamento da 7ª, 8ª ou 9ª Classe.',
+      requerClasse: true
+    },
+    {
+      tipo: 'Coordenador de Turma',
+      descricao: 'Diretor de Turma responsável pelos boletins, assiduidade e ocorrências.',
+      requerClasse: true,
+      requerTurma: true
+    },
+    {
+      tipo: 'Coordenador de Disciplina',
+      descricao: 'Articulação dos conteúdos programáticos e provas de uma disciplina (7ª–9ª).',
+      requerDisciplina: true
+    },
+    {
+      tipo: 'Coordenador de Turno',
+      descricao: 'Gestão de horários, aulas e chamadas por turno no Iº Ciclo.',
+      requerTurno: true
+    }
+  ],
+  IICiclo: [
+    {
+      tipo: 'Coordenador Pedagógico',
+      descricao: 'Coordenação pedagógica geral do IIº Ciclo / Ensino Técnico-Profissional (10ª à 13ª).'
+    },
+    {
+      tipo: 'Coordenador de Curso / Área de Formação',
+      descricao: 'Coordenação científica e curricular exclusiva de um Curso do IIº Ciclo.',
+      requerCurso: true
+    },
+    {
+      tipo: 'Coordenador de Classe',
+      descricao: 'Supervisão pedagógica das turmas da 10ª, 11ª, 12ª ou 13ª Classe.',
+      requerClasse: true
+    },
+    {
+      tipo: 'Coordenador de Turma',
+      descricao: 'Diretor de Turma responsável pelo dossiê, boletins e disciplina da turma.',
+      requerClasse: true,
+      requerTurma: true
+    },
+    {
+      tipo: 'Coordenador de Disciplina',
+      descricao: 'Coordenação de área disciplinar e dosificação no IIº Ciclo.',
+      requerDisciplina: true
+    },
+    {
+      tipo: 'Coordenador de Turno',
+      descricao: 'Gestão de turnos, horários e presenças no IIº Ciclo.',
+      requerTurno: true
+    },
+    {
+      tipo: 'Coordenador de Estágio / PAP',
+      descricao: 'Orientação de estágios curriculares e Prova de Aptidão Profissional (Técnico).',
+      requerCurso: true
+    }
+  ]
+};
+
+export function getClassesPorNivelCoordenacao(nivel: 'Primario' | 'ICiclo' | 'IICiclo'): string[] {
+  if (nivel === 'Primario') return ['Iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª'];
+  if (nivel === 'ICiclo') return ['7ª', '8ª', '9ª'];
+  return ['10ª', '11ª', '12ª', '13ª'];
+}
+
+
 
 
 

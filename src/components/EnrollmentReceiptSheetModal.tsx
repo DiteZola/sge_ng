@@ -25,7 +25,7 @@ import {
   normalizarClasse
 } from '../services/academicHierarchyService';
 import { dbService } from '../services/storage';
-import { obterNomeDiretorGeral } from '../utils/directorHelper';
+import { obterNomeDiretorGeral, inferirGeneroPorNomeOuParentesco, obterTituloEncarregado } from '../utils/directorHelper';
 import { safeSearchMatch } from '../utils/securitySanitizer';
 
 export interface ReciboMatriculaSlot {
@@ -644,7 +644,9 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                             <strong className="font-mono">{slot.documentoId || '—'}</strong>
                           </p>
                           <p className="whitespace-normal break-words">
-                            <span className="text-gray-600 font-semibold">Encarregado(a): </span>
+                            <span className="text-gray-600 font-semibold">
+                              {inferirGeneroPorNomeOuParentesco(slot.encarregadoNome) === 'F' ? 'Encarregada: ' : 'Encarregado: '}
+                            </span>
                             <strong>{slot.encarregadoNome || '—'}</strong>
                             {slot.encarregadoTelefone && slot.encarregadoTelefone !== '—'
                               ? ` (${slot.encarregadoTelefone})`
@@ -704,7 +706,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                       <div className="border-t border-gray-300 pt-1.5">
                         <div className="grid grid-cols-3 gap-3 items-end text-center text-[9.5px]">
                           <div className="min-w-0">
-                            <p className="font-bold text-gray-800">O(A) Encarregado(a) de Educação</p>
+                            <p className="font-bold text-gray-800">{obterTituloEncarregado(undefined, slot.encarregadoNome)}</p>
                             <div className="w-full max-w-[160px] border-b border-black mx-auto mt-5 mb-0.5" />
                             <p className="text-[9px] font-semibold text-gray-800 whitespace-normal break-words">
                               {slot.encarregadoNome && slot.encarregadoNome !== '—'

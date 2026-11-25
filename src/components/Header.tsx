@@ -42,6 +42,7 @@ interface HeaderProps {
   onLogout?: () => void;
   onOpenSecurityEngine?: () => void;
   onOpenTour?: () => void;
+  parentReadOnly?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -59,7 +60,8 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigateToTab,
   onLogout,
   onOpenSecurityEngine,
-  onOpenTour
+  onOpenTour,
+  parentReadOnly = false
 }) => {
   const { isDark, toggleDarkMode } = useTheme();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -107,14 +109,16 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between gap-2 sm:gap-4 h-16 min-w-0">
           {/* Zona 1: Menu Mobile + Logótipo & Instituição (flexível sem estourar largura) */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 xl:flex-initial">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-lg text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 cursor-pointer shrink-0 transition-colors"
-              aria-label={mobileMenuOpen ? 'Fechar Menu' : 'Abrir Menu'}
-            >
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+            {!parentReadOnly && (
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="lg:hidden p-2 rounded-lg text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 cursor-pointer shrink-0 transition-colors"
+                aria-label={mobileMenuOpen ? 'Fechar Menu' : 'Abrir Menu'}
+              >
+                {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
+            )}
 
             <div className="flex items-center gap-2.5 min-w-0">
               <div
@@ -179,8 +183,8 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Zona 2: Ano Lectivo & Trimestre (visível em desktop amplo xl+, acessível no menu de perfil em telas menores) */}
-          {!isAdminGeral && (
+          {/* Zona 2: Ano Lectivo & Trimestre (oculto ou apenas informativo para Encarregado) */}
+          {!isAdminGeral && !parentReadOnly && (
             <div className="hidden xl:flex items-center gap-2.5 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0">
               <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
                 <Calendar className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
@@ -226,35 +230,46 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
+          {parentReadOnly && (
+            <div className="hidden md:flex items-center gap-2 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shrink-0 text-slate-700 dark:text-slate-200">
+              <Calendar className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span className="font-bold">{escola.anoLectivoActivo || 'Ano Ativo'}</span>
+              <span className="text-slate-300 dark:text-slate-600">|</span>
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">{escola.trimestreActivo || '1'}º Trimestre</span>
+            </div>
+          )}
+
           {/* Zona 3: Ações compactas + Notificações + Foto de Perfil com Menu (Inclui Tema e Terminar Sessão) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Botão de Instalação PWA (compacto em ecrãs pequenos) */}
-            <PWAInstallButton />
+            {!parentReadOnly && <PWAInstallButton />}
 
             {/* Widget de Estado Offline e Sincronização */}
             <OfflineStatusWidget />
 
             {/* Sino de Alertas e Mensagens Internas */}
-            <div className="flex items-center gap-1 sm:gap-1.5">
-              <PeriodNotificationBell escola={escola} currentUser={currentUser} onNavigate={onNavigateToTab} />
+            {!parentReadOnly && (
+              <div className="flex items-center gap-1 sm:gap-1.5">
+                <PeriodNotificationBell escola={escola} currentUser={currentUser} onNavigate={onNavigateToTab} />
 
-              {onNavigateToComunicacao && (
-                <button
-                  type="button"
-                  onClick={onNavigateToComunicacao}
-                  className="relative p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 transition-colors cursor-pointer shrink-0"
-                  title="Comunicação e Mensagens Internas da Escola"
-                  aria-label="Comunicação e Mensagens Internas"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  {msgsVisiveisCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs">
-                      {msgsVisiveisCount > 9 ? '9+' : msgsVisiveisCount}
-                    </span>
-                  )}
-                </button>
-              )}
-            </div>
+                {onNavigateToComunicacao && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToComunicacao}
+                    className="relative p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 transition-colors cursor-pointer shrink-0"
+                    title="Comunicação e Mensagens Internas da Escola"
+                    aria-label="Comunicação e Mensagens Internas"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    {msgsVisiveisCount > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-red-600 text-[9px] font-black text-white shadow-xs">
+                        {msgsVisiveisCount > 9 ? '9+' : msgsVisiveisCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Motor de Segurança & Criptografia AES-256 (Exclusivo Admin Geral em desktop) */}
             {isAdminGeral && onOpenSecurityEngine && (
@@ -345,7 +360,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
 
                   {/* Seletor rápido Ano / Trimestre para ecrãs < xl */}
-                  {!isAdminGeral && (
+                  {!isAdminGeral && !parentReadOnly && (
                     <div className="xl:hidden px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900 space-y-2">
                       <div className="flex items-center justify-between gap-2 text-xs">
                         <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ano Letivo:</span>
@@ -379,18 +394,20 @@ export const Header: React.FC<HeaderProps> = ({
 
                   {/* Ações da Conta */}
                   <div className="p-1.5 space-y-0.5">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setProfileMenuOpen(false);
-                        onNavigateToPerfil();
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
-                    >
-                      <User className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                      <span>Meu Perfil &amp; Palavra-passe</span>
-                    </button>
+                    {!parentReadOnly && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          onNavigateToPerfil();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-left"
+                      >
+                        <User className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>Meu Perfil &amp; Palavra-passe</span>
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -413,7 +430,7 @@ export const Header: React.FC<HeaderProps> = ({
                       </span>
                     </button>
 
-                    {onOpenTour && (
+                    {!parentReadOnly && onOpenTour && (
                       <button
                         type="button"
                         role="menuitem"

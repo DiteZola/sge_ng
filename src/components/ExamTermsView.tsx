@@ -60,6 +60,7 @@ import {
 import { sanitizeSearchInput, safeSearchMatch } from '../utils/securitySanitizer';
 import { calcularNotasAdministrativasProporcionais } from '../services/administrativeGradeService';
 import { DEFAULT_REGRAS_MAC } from '../services/storage';
+import { inferirGeneroPorNomeOuParentesco, obterSituacaoTextoPorGenero, obterTituloDiretorSimples, obterNomeDiretorGeral } from '../utils/directorHelper';
 
 interface ExamTermsViewProps {
   escola: Escola;
@@ -105,6 +106,12 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
 
   // Notificações
   const [sucessoMsg, setSucessoMsg] = useState<string | null>(null);
+  const [erroMsg, setErroMsg] = useState<string | null>(null);
+  const [termoParaExcluirId, setTermoParaExcluirId] = useState<string | null>(null);
+  const notificarErro = (msg: string) => {
+    setErroMsg(msg);
+    setTimeout(() => setErroMsg(null), 5000);
+  };
 
   // Estados do Formulário de Novo/Edição de Termo de Exame com Hierarquia Acadêmica
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -230,7 +237,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
 
   const handleSalvarConfiguracoes = () => {
     if (!podeConfigurar) {
-      alert('Apenas o Administrador Geral ou a Direção da Escola têm permissão para alterar as normas de cálculo de exame.');
+      notificarErro('Apenas o Administrador Geral ou a Direção da Escola têm permissão para alterar as normas de cálculo de exame.');
       return;
     }
 
@@ -362,7 +369,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
   const handleSalvarTermo = (e: React.FormEvent) => {
     e.preventDefault();
     if (Object.keys(notasInvalidasExame).length > 0) {
-      alert(`Não é possível guardar o Termo de Exame! Existem ${Object.keys(notasInvalidasExame).length} nota(s) com valor fora do intervalo oficial. Corrija os campos assinalados a vermelho escuro.`);
+      notificarErro(`Não é possível guardar o Termo de Exame! Existem ${Object.keys(notasInvalidasExame).length} nota(s) com valor fora do intervalo oficial. Corrija os campos assinalados a vermelho escuro.`);
       return;
     }
     const pres = funcionarios.find(f => f.id === formPresidenteId);
@@ -420,13 +427,18 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
   };
 
   const handleEliminarTermo = (id: string) => {
-    if (!window.confirm('Tem a certeza que deseja eliminar este Termo Oficial de Exame?')) return;
-    dbService.excluirTermoExame(id);
+    setTermoParaExcluirId(id);
+  };
+
+  const confirmarEliminarTermo = () => {
+    if (!termoParaExcluirId) return;
+    dbService.excluirTermoExame(termoParaExcluirId);
     const atualizados = dbService.getTermosExame(escola.id);
     setTermos(atualizados);
-    if (termoVisualizacao?.id === id) {
+    if (termoVisualizacao?.id === termoParaExcluirId) {
       setTermoVisualizacao(atualizados[0] || null);
     }
+    setTermoParaExcluirId(null);
     setSucessoMsg('Termo de Exame removido.');
     setTimeout(() => setSucessoMsg(null), 3000);
   };
@@ -483,6 +495,15 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
         <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold flex items-center space-x-2 animate-in fade-in duration-200">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{sucessoMsg}</span>
+        </div>
+      )}
+      {erroMsg && (
+        <div className="p-3 bg-red-50 border border-red-300 text-red-800 rounded-xl text-xs font-bold flex items-center justify-between animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{erroMsg}</span>
+          </div>
+          <button type="button" onClick={() => setErroMsg(null)} className="text-red-700 hover:text-red-900 text-xs font-black">✕</button>
         </div>
       )}
 
@@ -837,15 +858,20 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                           <td className="p-1.5 border-r border-black text-center font-mono font-bold">{item.notaExameEscrito}</td>
                           <td className="p-1.5 border-r border-black text-center font-mono font-black bg-gray-50">{item.mediaFinal}</td>
                           <td className="p-1.5 text-center font-bold">
-                            <span className={`px-2 py-0.5 rounded text-[10px] ${
-                              item.resultado === 'Aprovado' 
-                                ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
-                                : item.resultado === 'Recurso' 
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-300' 
-                                  : 'bg-red-100 text-red-900 border border-red-300'
-                            }`}>
-                              {item.resultado}
-                            </span>
+                            {(() => {
+                              const alunoMatch = alunos.find(al => al.id === item.alunoId);
+                              return (
+                                <span className={`px-2 py-0.5 rounded text-[10px] ${
+                                  item.resultado === 'Aprovado' 
+                                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
+                                    : item.resultado === 'Recurso' 
+                                      ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                                      : 'bg-red-100 text-red-900 border border-red-300'
+                                }`}>
+                                  {obterSituacaoTextoPorGenero(item.resultado, alunoMatch?.genero)}
+                                </span>
+                              );
+                            })()}
                           </td>
                         </tr>
                       ))}
@@ -875,7 +901,9 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                 <div className="pt-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs border-t-2 border-black items-end">
                   {/* Secretário do Júri */}
                   <div className="space-y-1 flex flex-col items-center justify-end">
-                    <p className="font-bold text-gray-900 uppercase text-[11px]">O Secretário do Júri</p>
+                    <p className="font-bold text-gray-900 uppercase text-[11px]">
+                      {inferirGeneroPorNomeOuParentesco(termoVisualizacao.secretarioJuriNome, undefined, undefined, funcionarios) === 'F' ? 'A Secretária do Júri' : 'O Secretário do Júri'}
+                    </p>
                     <div className="h-10" />
                     <div className="w-44 border-b border-black mx-auto my-1" />
                     <p className="font-semibold text-gray-800">{termoVisualizacao.secretarioJuriNome}</p>
@@ -883,7 +911,9 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
 
                   {/* Presidente do Júri */}
                   <div className="space-y-1 flex flex-col items-center justify-end">
-                    <p className="font-bold text-gray-900 uppercase text-[11px]">O Presidente do Júri</p>
+                    <p className="font-bold text-gray-900 uppercase text-[11px]">
+                      {inferirGeneroPorNomeOuParentesco(termoVisualizacao.presidenteJuriNome, undefined, undefined, funcionarios) === 'F' ? 'A Presidente do Júri' : 'O Presidente do Júri'}
+                    </p>
                     <div className="h-10" />
                     <div className="w-44 border-b border-black mx-auto my-1" />
                     <p className="font-semibold text-gray-800">{termoVisualizacao.presidenteJuriNome}</p>
@@ -892,7 +922,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                   {/* Director Geral da Instituição */}
                   <div className="space-y-1 flex flex-col items-center justify-end">
                     <p className="font-bold text-gray-900 uppercase text-[11px]">
-                      {escola.diretorGeralGenero === 'F' ? 'A Directora Geral' : 'O Director Geral'}
+                      {obterTituloDiretorSimples(escola, funcionarios)}
                     </p>
                     <div className="h-10 flex items-center justify-center -mb-1">
                       {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
@@ -904,7 +934,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                       ) : null}
                     </div>
                     <div className="w-44 border-b border-black mx-auto my-1" />
-                    <p className="font-semibold text-gray-800">{escola.diretorGeralNome || 'Não Atribuído'}</p>
+                    <p className="font-semibold text-gray-800">{obterNomeDiretorGeral(escola, funcionarios)}</p>
                   </div>
                 </div>
 
@@ -1035,7 +1065,7 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
                 className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-800 focus:ring-2 focus:ring-indigo-600 focus:outline-none"
               >
                 {disciplinasDoForm.map(d => (
-                  <option key={d.id} value={d.id}>{d.nome} ({d.sigla})</option>
+                  <option key={d.id} value={d.id}>{d.nome}</option>
                 ))}
               </select>
             </div>
@@ -1756,6 +1786,36 @@ export const ExamTermsView: React.FC<ExamTermsViewProps> = ({
             <p className="text-amber-900 text-[11px] leading-relaxed">
               Em conformidade com a regulamentação do Ministério da Educação da República de Angola, as provas de exame final são aplicadas nas classes terminais de nível (6ª, 9ª, 12ª e 13ª Classes). As pautas oficiais homologadas pelo Presidente do Júri, Secretário e Director Geral da Instituição são os únicos documentos que conferem valor jurídico às classificações finais para emissão de Certificados de Habilitações.
             </p>
+          </div>
+        </div>
+      )}
+
+      {termoParaExcluirId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 no-print">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-700 space-y-4">
+            <div className="flex items-center space-x-2 text-rose-600">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">Confirmar Eliminação do Termo</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300">
+              Tem a certeza que deseja eliminar este Termo Oficial de Exame? Esta operação não pode ser desfeita.
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setTermoParaExcluirId(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminarTermo}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Eliminar Termo
+              </button>
+            </div>
           </div>
         </div>
       )}

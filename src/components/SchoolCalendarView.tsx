@@ -17,19 +17,24 @@ import {
   X, 
   Sparkles,
   Layers,
-  MapPin
+  MapPin,
+  Edit2,
+  Trash2,
+  RotateCcw,
+  Tag
 } from 'lucide-react';
-import { Escola, Funcionario } from '../types';
+import { Escola, Funcionario, TipoEventoCalendarioCor, TipoEventoCalendarioCustom } from '../types';
 import { InsigniaAngola, DEFAULT_INSIGNIA_SVG_DATA_URL } from '../constants/insignia';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { formatarDataAngolana } from '../utils/dateFormat';
 import { dbService } from '../services/storage';
+import { offlineStorage } from '../services/offlineStorage';
 
 export interface EventoCalendarioEscolar {
   id: string;
   titulo: string;
-  tipo: 'Avaliação' | 'Feriado' | 'Pausa Pedagógica' | 'Conselho' | 'Matrícula' | 'Institucional';
+  tipo: string;
   trimestre: '1' | '2' | '3' | 'Geral';
   dataInicio: string;
   dataFim?: string;
@@ -37,6 +42,92 @@ export interface EventoCalendarioEscolar {
   obrigatorioMED: boolean;
   publicoAlvo: 'Geral' | 'Professores' | 'Alunos' | 'Encarregados';
 }
+
+interface TipoEventoDefinicao {
+  id: string;
+  nome: string;
+  cor: TipoEventoCalendarioCor;
+  padrao?: boolean;
+}
+
+const TIPOS_EVENTO_PADRAO: TipoEventoDefinicao[] = [
+  { id: 'padrao-avaliacao', nome: 'Avaliação', cor: 'blue', padrao: true },
+  { id: 'padrao-feriado', nome: 'Feriado', cor: 'red', padrao: true },
+  { id: 'padrao-pausa', nome: 'Pausa Pedagógica', cor: 'amber', padrao: true },
+  { id: 'padrao-conselho', nome: 'Conselho', cor: 'indigo', padrao: true },
+  { id: 'padrao-matricula', nome: 'Matrícula', cor: 'emerald', padrao: true },
+  { id: 'padrao-institucional', nome: 'Institucional', cor: 'purple', padrao: true }
+];
+
+const CORES_EVENTO_MAP: Record<
+  TipoEventoCalendarioCor,
+  { label: string; iconWrap: string; badge: string; swatch: string; htmlBg: string; htmlText: string }
+> = {
+  blue: {
+    label: 'Azul',
+    iconWrap: 'bg-blue-100 text-blue-800',
+    badge: 'bg-blue-50 text-blue-700 border border-blue-200',
+    swatch: 'bg-blue-600',
+    htmlBg: '#dbeafe',
+    htmlText: '#1e40af'
+  },
+  red: {
+    label: 'Vermelho',
+    iconWrap: 'bg-red-100 text-red-800',
+    badge: 'bg-red-50 text-red-700 border border-red-200',
+    swatch: 'bg-red-600',
+    htmlBg: '#fee2e2',
+    htmlText: '#991b1b'
+  },
+  amber: {
+    label: 'Âmbar',
+    iconWrap: 'bg-amber-100 text-amber-800',
+    badge: 'bg-amber-50 text-amber-700 border border-amber-200',
+    swatch: 'bg-amber-500',
+    htmlBg: '#fef3c7',
+    htmlText: '#92400e'
+  },
+  emerald: {
+    label: 'Esmeralda',
+    iconWrap: 'bg-emerald-100 text-emerald-800',
+    badge: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    swatch: 'bg-emerald-600',
+    htmlBg: '#d1fae5',
+    htmlText: '#065f46'
+  },
+  indigo: {
+    label: 'Índigo',
+    iconWrap: 'bg-indigo-100 text-indigo-800',
+    badge: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+    swatch: 'bg-indigo-600',
+    htmlBg: '#e0e7ff',
+    htmlText: '#3730a3'
+  },
+  purple: {
+    label: 'Roxo',
+    iconWrap: 'bg-purple-100 text-purple-800',
+    badge: 'bg-purple-50 text-purple-700 border border-purple-200',
+    swatch: 'bg-purple-600',
+    htmlBg: '#f3e8ff',
+    htmlText: '#6b21a8'
+  },
+  teal: {
+    label: 'Turquesa',
+    iconWrap: 'bg-teal-100 text-teal-800',
+    badge: 'bg-teal-50 text-teal-700 border border-teal-200',
+    swatch: 'bg-teal-600',
+    htmlBg: '#ccfbf1',
+    htmlText: '#115e59'
+  },
+  rose: {
+    label: 'Rosa',
+    iconWrap: 'bg-rose-100 text-rose-800',
+    badge: 'bg-rose-50 text-rose-700 border border-rose-200',
+    swatch: 'bg-rose-600',
+    htmlBg: '#ffe4e6',
+    htmlText: '#9f1239'
+  }
+};
 
 interface SchoolCalendarViewProps {
   escola: Escola;
@@ -47,23 +138,34 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
   escola,
   currentUser
 }) => {
-  const [trimestreSelecionado, setTrimestreSelecionado] = useState<'TODOS' | '1' | '2' | '3'>('TODOS');
+  const [trimestreSelecionado, setTrimestreSelecionado] = useState<'TODOS' | '1' | '2' | '3' | 'Geral'>('TODOS');
   const [tipoFiltro, setTipoFiltro] = useState<string>('TODOS');
   const [termoBusca, setTermoBusca] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  const podeEditarCalendario = [
+    'AdminGeral',
+    'DiretorGeral',
+    'SubdiretorPedagogico',
+    'SubdiretorAdministrativo',
+    'SubdirectorAdministrativo',
+    'CoordenadorPedagogico',
+    'CoordenadorTurno',
+    'CoordenadorDisciplina',
+    'Secretaria',
+    'ChefeSecretaria',
+    'Secretario',
+    'SecretarioEscolar'
+  ].includes(currentUser.role);
 
   const notificar = (msg: string) => {
     setFeedback(msg);
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  const [eventos, setEventos] = useState<EventoCalendarioEscolar[]>(() => {
-    const salvos = localStorage.getItem(`sge_calendario_${escola.id}`);
-    if (salvos) {
-      try { return JSON.parse(salvos); } catch {}
-    }
-    const ano = escola.anoLectivoActivo.split('/')[0] || '2025';
-    const anoSeguinte = escola.anoLectivoActivo.split('/')[1] || '2026';
+  const gerarEventosPadraoMED = (anoLectivo: string): EventoCalendarioEscolar[] => {
+    const ano = (anoLectivo || '2025/2026').split('/')[0] || '2025';
+    const anoSeguinte = (anoLectivo || '2025/2026').split('/')[1] || '2026';
 
     return [
       // 1º Trimestre
@@ -279,45 +381,320 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
         publicoAlvo: 'Encarregados'
       }
     ];
-  });
+  };
 
-  // Modal Novo Evento
+  const carregarEventosEscola = (escolaObj: Escola): EventoCalendarioEscolar[] => {
+    const salvos = localStorage.getItem(`sge_calendario_${escolaObj.id}`);
+    if (salvos) {
+      try {
+        const parsed = JSON.parse(salvos);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return gerarEventosPadraoMED(escolaObj.anoLectivoActivo);
+  };
+
+  const carregarTiposCustomizadosEscola = (escolaId: string): TipoEventoCalendarioCustom[] => {
+    const salvos = localStorage.getItem(`sge_calendario_tipos_${escolaId}`);
+    if (salvos) {
+      try {
+        const parsed = JSON.parse(salvos);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+    return [];
+  };
+
+  const persistirEventos = (lista: EventoCalendarioEscolar[]) => {
+    const key = `sge_calendario_${escola.id}`;
+    const serialized = JSON.stringify(lista);
+    try {
+      localStorage.setItem(key, serialized);
+      window.dispatchEvent(new CustomEvent('sge_local_write', { detail: { key } }));
+    } catch {}
+    offlineStorage.gravarChaveNoIndexedDB(key, serialized).catch(() => {});
+  };
+
+  const persistirTiposCustom = (lista: TipoEventoCalendarioCustom[]) => {
+    const key = `sge_calendario_tipos_${escola.id}`;
+    const serialized = JSON.stringify(lista);
+    try {
+      localStorage.setItem(key, serialized);
+      window.dispatchEvent(new CustomEvent('sge_local_write', { detail: { key } }));
+    } catch {}
+    offlineStorage.gravarChaveNoIndexedDB(key, serialized).catch(() => {});
+  };
+
+  const [eventos, setEventos] = useState<EventoCalendarioEscolar[]>(() => carregarEventosEscola(escola));
+  const [tiposCustom, setTiposCustom] = useState<TipoEventoCalendarioCustom[]>(() =>
+    carregarTiposCustomizadosEscola(escola.id)
+  );
+
+  React.useEffect(() => {
+    const keyEventos = `sge_calendario_${escola.id}`;
+    const keyTipos = `sge_calendario_tipos_${escola.id}`;
+    setEventos(carregarEventosEscola(escola));
+    setTiposCustom(carregarTiposCustomizadosEscola(escola.id));
+
+    if (!localStorage.getItem(keyEventos)) {
+      offlineStorage.lerChaveNoIndexedDB(keyEventos).then((raw) => {
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(keyEventos, raw);
+              setEventos(parsed);
+            }
+          } catch {}
+        }
+      }).catch(() => {});
+    }
+
+    if (!localStorage.getItem(keyTipos)) {
+      offlineStorage.lerChaveNoIndexedDB(keyTipos).then((raw) => {
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(keyTipos, raw);
+              setTiposCustom(parsed);
+            }
+          } catch {}
+        }
+      }).catch(() => {});
+    }
+  }, [escola.id]);
+
+  const todosTiposEventos: TipoEventoDefinicao[] = React.useMemo(() => {
+    const customMapped: TipoEventoDefinicao[] = tiposCustom.map((t) => ({
+      id: t.id,
+      nome: t.nome,
+      cor: t.cor,
+      padrao: false
+    }));
+    return [...TIPOS_EVENTO_PADRAO, ...customMapped];
+  }, [tiposCustom]);
+
+  const obterEstiloTipo = (nomeTipo: string) => {
+    const def = todosTiposEventos.find(
+      (t) => t.nome.toLowerCase() === (nomeTipo || '').toLowerCase()
+    );
+    const cor: TipoEventoCalendarioCor = def?.cor || 'indigo';
+    return CORES_EVENTO_MAP[cor] || CORES_EVENTO_MAP.indigo;
+  };
+
+  // Modal Novo / Editar Evento
   const [showNovoEventoModal, setShowNovoEventoModal] = useState(false);
+  const [editingEventoId, setEditingEventoId] = useState<string | null>(null);
   const [novoTitulo, setNovoTitulo] = useState('');
-  const [novoTipo, setNovoTipo] = useState<EventoCalendarioEscolar['tipo']>('Avaliação');
+  const [novoTipo, setNovoTipo] = useState<string>('Avaliação');
   const [novoTrimestre, setNovoTrimestre] = useState<EventoCalendarioEscolar['trimestre']>('1');
   const [novaDataInicio, setNovaDataInicio] = useState(new Date().toISOString().split('T')[0]);
   const [novaDataFim, setNovaDataFim] = useState('');
   const [novaDescricao, setNovaDescricao] = useState('');
   const [novoPublico, setNovoPublico] = useState<EventoCalendarioEscolar['publicoAlvo']>('Geral');
+  const [erroModalEvento, setErroModalEvento] = useState<string | null>(null);
+  const [eventoParaEliminar, setEventoParaEliminar] = useState<EventoCalendarioEscolar | null>(null);
+  const [showConfirmRestaurarPadrao, setShowConfirmRestaurarPadrao] = useState(false);
 
-  const handleSalvarEvento = (e: React.FormEvent) => {
+  // Gestão de Tipos Personalizados de Eventos
+  const [showGerirTiposModal, setShowGerirTiposModal] = useState(false);
+  const [editingTipoId, setEditingTipoId] = useState<string | null>(null);
+  const [nomeTipoForm, setNomeTipoForm] = useState('');
+  const [corTipoForm, setCorTipoForm] = useState<TipoEventoCalendarioCor>('teal');
+  const [erroTipoForm, setErroTipoForm] = useState<string | null>(null);
+  const [tipoParaEliminarConfirmId, setTipoParaEliminarConfirmId] = useState<string | null>(null);
+
+  // Criação rápida inline de tipo dentro do modal de evento
+  const [mostrarCriacaoRapidaTipo, setMostrarCriacaoRapidaTipo] = useState(false);
+  const [nomeNovoTipoRapido, setNomeNovoTipoRapido] = useState('');
+  const [corNovoTipoRapido, setCorNovoTipoRapido] = useState<TipoEventoCalendarioCor>('teal');
+
+  const abrirModalNovoEvento = (trimestrePredefinido?: EventoCalendarioEscolar['trimestre']) => {
+    setEditingEventoId(null);
+    setErroModalEvento(null);
+    setMostrarCriacaoRapidaTipo(false);
+    setNovoTitulo('');
+    setNovoTipo('Avaliação');
+    setNovoTrimestre(trimestrePredefinido || (escola.trimestreActivo as any) || '1');
+    setNovaDataInicio(new Date().toISOString().split('T')[0]);
+    setNovaDataFim('');
+    setNovaDescricao('');
+    setNovoPublico('Geral');
+    setShowNovoEventoModal(true);
+  };
+
+  const abrirModalEditarEvento = (evt: EventoCalendarioEscolar) => {
+    setEditingEventoId(evt.id);
+    setErroModalEvento(null);
+    setMostrarCriacaoRapidaTipo(false);
+    setNovoTitulo(evt.titulo);
+    setNovoTipo(evt.tipo);
+    setNovoTrimestre(evt.trimestre);
+    setNovaDataInicio(evt.dataInicio);
+    setNovaDataFim(evt.dataFim || '');
+    setNovaDescricao(evt.descricao);
+    setNovoPublico(evt.publicoAlvo);
+    setShowNovoEventoModal(true);
+  };
+
+  const handleAdicionarTipoRapido = () => {
+    const limpo = nomeNovoTipoRapido.trim();
+    if (!limpo) {
+      setErroModalEvento('Indique o nome do novo tipo de evento.');
+      return;
+    }
+    const duplicado = todosTiposEventos.some((t) => t.nome.toLowerCase() === limpo.toLowerCase());
+    if (duplicado) {
+      setErroModalEvento(`O tipo "${limpo}" já existe no calendário.`);
+      return;
+    }
+    const novo: TipoEventoCalendarioCustom = {
+      id: `tipo-cal-${Date.now()}`,
+      nome: limpo,
+      cor: corNovoTipoRapido,
+      criadoPor: currentUser.nomeCompleto,
+      criadoEm: new Date().toISOString()
+    };
+    const atualizados = [...tiposCustom, novo];
+    setTiposCustom(atualizados);
+    persistirTiposCustom(atualizados);
+    setNovoTipo(novo.nome);
+    setNomeNovoTipoRapido('');
+    setMostrarCriacaoRapidaTipo(false);
+    setErroModalEvento(null);
+    dbService.registarLog('Calendário Escolar', `Novo tipo de evento criado: "${novo.nome}".`, escola.id);
+    notificar(`Tipo de evento "${novo.nome}" criado e selecionado.`);
+  };
+
+  const handleSalvarTipoModal = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!novoTitulo.trim() || !novaDataInicio) {
-      alert('Preencha o título e a data de início do evento.');
+    setErroTipoForm(null);
+    const limpo = nomeTipoForm.trim();
+    if (!limpo) {
+      setErroTipoForm('Preencha o nome do tipo de evento.');
+      return;
+    }
+    const existeOutro = todosTiposEventos.some(
+      (t) => t.nome.toLowerCase() === limpo.toLowerCase() && t.id !== editingTipoId
+    );
+    if (existeOutro) {
+      setErroTipoForm(`Já existe um tipo de evento designado "${limpo}".`);
       return;
     }
 
-    const novo: EventoCalendarioEscolar = {
-      id: `cal-evt-${Date.now()}`,
+    if (editingTipoId) {
+      const anterior = tiposCustom.find((t) => t.id === editingTipoId);
+      const atualizados = tiposCustom.map((t) =>
+        t.id === editingTipoId ? { ...t, nome: limpo, cor: corTipoForm } : t
+      );
+      setTiposCustom(atualizados);
+      persistirTiposCustom(atualizados);
+
+      if (anterior && anterior.nome !== limpo) {
+        const eventosRenomeados = eventos.map((ev) =>
+          ev.tipo === anterior.nome ? { ...ev, tipo: limpo } : ev
+        );
+        setEventos(eventosRenomeados);
+        persistirEventos(eventosRenomeados);
+        if (tipoFiltro === anterior.nome) setTipoFiltro(limpo);
+      }
+
+      dbService.registarLog('Calendário Escolar', `Tipo de evento editado para "${limpo}".`, escola.id);
+      notificar(`Tipo de evento "${limpo}" atualizado com sucesso.`);
+    } else {
+      const novo: TipoEventoCalendarioCustom = {
+        id: `tipo-cal-${Date.now()}`,
+        nome: limpo,
+        cor: corTipoForm,
+        criadoPor: currentUser.nomeCompleto,
+        criadoEm: new Date().toISOString()
+      };
+      const atualizados = [...tiposCustom, novo];
+      setTiposCustom(atualizados);
+      persistirTiposCustom(atualizados);
+      dbService.registarLog('Calendário Escolar', `Novo tipo de evento adicionado: "${limpo}".`, escola.id);
+      notificar(`Tipo de evento "${limpo}" adicionado ao calendário.`);
+    }
+
+    setEditingTipoId(null);
+    setNomeTipoForm('');
+    setCorTipoForm('teal');
+  };
+
+  const handleConfirmarEliminarTipo = (tipoObj: TipoEventoCalendarioCustom) => {
+    const atualizados = tiposCustom.filter((t) => t.id !== tipoObj.id);
+    setTiposCustom(atualizados);
+    persistirTiposCustom(atualizados);
+    if (tipoFiltro === tipoObj.nome) setTipoFiltro('TODOS');
+    setTipoParaEliminarConfirmId(null);
+    dbService.registarLog('Calendário Escolar', `Tipo de evento "${tipoObj.nome}" eliminado.`, escola.id);
+    notificar(`Tipo de evento "${tipoObj.nome}" removido.`);
+  };
+
+  const handleSalvarEvento = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErroModalEvento(null);
+    if (!novoTitulo.trim() || !novaDataInicio) {
+      setErroModalEvento('Preencha o título e a data de início do evento.');
+      return;
+    }
+    if (novaDataFim && novaDataFim < novaDataInicio) {
+      setErroModalEvento('A data de término não pode ser anterior à data de início.');
+      return;
+    }
+
+    const existente = editingEventoId ? eventos.find(x => x.id === editingEventoId) : undefined;
+    const registro: EventoCalendarioEscolar = {
+      id: editingEventoId || `cal-evt-${Date.now()}`,
       titulo: novoTitulo.trim(),
       tipo: novoTipo,
       trimestre: novoTrimestre,
       dataInicio: novaDataInicio,
       dataFim: novaDataFim || undefined,
       descricao: novaDescricao.trim() || 'Evento agendado no calendário institucional da escola.',
-      obrigatorioMED: false,
+      obrigatorioMED: existente ? existente.obrigatorioMED : false,
       publicoAlvo: novoPublico
     };
 
-    const atualizados = [...eventos, novo].sort((a, b) => a.dataInicio.localeCompare(b.dataInicio));
+    const listaBase = editingEventoId
+      ? eventos.map(x => (x.id === editingEventoId ? registro : x))
+      : [...eventos, registro];
+
+    const atualizados = [...listaBase].sort((a, b) => a.dataInicio.localeCompare(b.dataInicio));
     setEventos(atualizados);
-    localStorage.setItem(`sge_calendario_${escola.id}`, JSON.stringify(atualizados));
-    dbService.registarLog('Calendário Escolar', `Novo evento agendado: "${novo.titulo}" para ${novo.dataInicio}.`);
+    persistirEventos(atualizados);
+    dbService.registarLog(
+      'Calendário Escolar',
+      editingEventoId
+        ? `Atividade do calendário editada (${registro.trimestre === 'Geral' ? 'Geral' : `${registro.trimestre}º Trim.` }): "${registro.titulo}".`
+        : `Novo evento agendado (${registro.trimestre === 'Geral' ? 'Geral' : `${registro.trimestre}º Trim.` }): "${registro.titulo}" para ${registro.dataInicio}.`,
+      escola.id
+    );
     setShowNovoEventoModal(false);
+    setEditingEventoId(null);
     setNovoTitulo('');
     setNovaDescricao('');
-    notificar(`Evento "${novo.titulo}" averbado no calendário oficial.`);
+    notificar(editingEventoId ? `Atividade "${registro.titulo}" atualizada no calendário oficial.` : `Evento "${registro.titulo}" averbado no calendário oficial.`);
+  };
+
+  const confirmarEliminarEvento = () => {
+    if (!eventoParaEliminar) return;
+    const atualizados = eventos.filter(e => e.id !== eventoParaEliminar.id);
+    setEventos(atualizados);
+    persistirEventos(atualizados);
+    dbService.registarLog('Calendário Escolar', `Atividade "${eventoParaEliminar.titulo}" removida do calendário escolar.`, escola.id);
+    notificar(`Atividade "${eventoParaEliminar.titulo}" removida do calendário.`);
+    setEventoParaEliminar(null);
+  };
+
+  const confirmarRestaurarPadraoMED = () => {
+    const padrao = gerarEventosPadraoMED(escola.anoLectivoActivo);
+    setEventos(padrao);
+    persistirEventos(padrao);
+    dbService.registarLog('Calendário Escolar', 'Calendário escolar restaurado para os marcos oficiais padrão do MED.', escola.id);
+    setShowConfirmRestaurarPadrao(false);
+    notificar('Calendário Escolar restaurado para o modelo oficial do MED.');
   };
 
   const [renderizarA4Offscreen, setRenderizarA4Offscreen] = useState(false);
@@ -406,24 +783,22 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
             </tr>
           </thead>
           <tbody>
-            ${eventos.map(e => `
+            ${eventos.map(e => {
+              const est = obterEstiloTipo(e.tipo);
+              return `
               <tr>
                 <td><strong>${formatarDataAngolana(e.dataInicio, 'curto')}</strong>${e.dataFim ? ` a ${formatarDataAngolana(e.dataFim, 'curto')}` : ''}</td>
                 <td>${e.trimestre === 'Geral' ? 'Ano Todo' : `${e.trimestre}º Trimestre`}</td>
                 <td>
-                  <span class="badge ${
-                    e.tipo === 'Avaliação' ? 'badge-av' :
-                    e.tipo === 'Feriado' ? 'badge-fer' :
-                    e.tipo === 'Pausa Pedagógica' ? 'badge-pausa' :
-                    e.tipo === 'Matrícula' ? 'badge-mat' : 'badge-inst'
-                  }">
+                  <span class="badge" style="background-color: ${est.htmlBg}; color: ${est.htmlText};">
                     ${e.tipo}
                   </span>
                 </td>
                 <td><strong>${e.titulo}</strong></td>
                 <td>${e.descricao}</td>
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
 
@@ -496,13 +871,43 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              onClick={() => setShowNovoEventoModal(true)}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center space-x-2 shadow-lg transition-all cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Adicionar Marco Escolar</span>
-            </button>
+            {podeEditarCalendario && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => abrirModalNovoEvento()}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center space-x-2 shadow-lg transition-all cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Adicionar Marco Escolar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingTipoId(null);
+                    setNomeTipoForm('');
+                    setCorTipoForm('teal');
+                    setErroTipoForm(null);
+                    setTipoParaEliminarConfirmId(null);
+                    setShowGerirTiposModal(true);
+                  }}
+                  className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-lg transition-all cursor-pointer"
+                  title="Adicionar, editar ou eliminar tipos de eventos do calendário"
+                >
+                  <Tag className="h-3.5 w-3.5" />
+                  <span>Tipos de Eventos ({todosTiposEventos.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmRestaurarPadrao(true)}
+                  className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer"
+                  title="Repor os feriados e marcos normativos padrão do MED"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Restaurar Padrão MED</span>
+                </button>
+              </>
+            )}
             <button
               onClick={handleBaixarCalendarioPDF}
               className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center space-x-2 shadow-lg transition-all cursor-pointer"
@@ -527,73 +932,94 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
         </div>
       </div>
 
-      {/* Cartões dos 3 Trimestres */}
+      {/* Cartões dos 3 Trimestres com Gestão Direta por Trimestre */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Iº Trimestre */}
-        <div className={`p-5 rounded-2xl border transition-all ${
-          escola.trimestreActivo === '1'
-            ? 'bg-blue-50/70 border-blue-400 shadow-sm ring-2 ring-blue-500/20'
-            : 'bg-white border-gray-200 shadow-xs'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-black uppercase text-blue-900 tracking-wider">Iº Trimestre Letivo</span>
-            {escola.trimestreActivo === '1' && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-700 text-white">
-                Em Curso
-              </span>
-            )}
-          </div>
-          <p className="text-sm font-bold text-gray-900">Setembro a Dezembro</p>
-          <ul className="text-xs text-gray-600 space-y-1 mt-3">
-            <li>• Provas do Professor (NPP1): Outubro</li>
-            <li>• Provas Trimestrais (NPT1): Dezembro</li>
-            <li>• Feriados: 17 Setembro & 11 Novembro</li>
-          </ul>
-        </div>
-
-        {/* IIº Trimestre */}
-        <div className={`p-5 rounded-2xl border transition-all ${
-          escola.trimestreActivo === '2'
-            ? 'bg-indigo-50/70 border-indigo-400 shadow-sm ring-2 ring-indigo-500/20'
-            : 'bg-white border-gray-200 shadow-xs'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-black uppercase text-indigo-900 tracking-wider">IIº Trimestre Letivo</span>
-            {escola.trimestreActivo === '2' && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-700 text-white">
-                Em Curso
-              </span>
-            )}
-          </div>
-          <p className="text-sm font-bold text-gray-900">Janeiro a Março</p>
-          <ul className="text-xs text-gray-600 space-y-1 mt-3">
-            <li>• Provas do Professor (NPP2): Fevereiro</li>
-            <li>• Provas Trimestrais (NPT2): Março</li>
-            <li>• Feriados: 4 Fevereiro & 8 Março</li>
-          </ul>
-        </div>
-
-        {/* IIIº Trimestre */}
-        <div className={`p-5 rounded-2xl border transition-all ${
-          escola.trimestreActivo === '3'
-            ? 'bg-amber-50/70 border-amber-400 shadow-sm ring-2 ring-amber-500/20'
-            : 'bg-white border-gray-200 shadow-xs'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-black uppercase text-amber-900 tracking-wider">IIIº Trimestre Letivo</span>
-            {escola.trimestreActivo === '3' && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-700 text-white">
-                Em Curso
-              </span>
-            )}
-          </div>
-          <p className="text-sm font-bold text-gray-900">Abril a Julho</p>
-          <ul className="text-xs text-gray-600 space-y-1 mt-3">
-            <li>• Provas Trimestrais (NPT3): Junho</li>
-            <li>• Exames de Ciclo & Júri: Junho/Julho</li>
-            <li>• Feriados: 4 Abril & 1 Maio</li>
-          </ul>
-        </div>
+        {[
+          {
+            trim: '1' as const,
+            titulo: 'Iº Trimestre Letivo',
+            periodo: 'Setembro a Dezembro',
+            corWrapAtivo: 'bg-blue-50/70 border-blue-400 shadow-sm ring-2 ring-blue-500/20',
+            corTitle: 'text-blue-900',
+            corBadge: 'bg-blue-700 text-white',
+            corBtn: 'bg-blue-100 hover:bg-blue-200 text-blue-900'
+          },
+          {
+            trim: '2' as const,
+            titulo: 'IIº Trimestre Letivo',
+            periodo: 'Janeiro a Março',
+            corWrapAtivo: 'bg-indigo-50/70 border-indigo-400 shadow-sm ring-2 ring-indigo-500/20',
+            corTitle: 'text-indigo-900',
+            corBadge: 'bg-indigo-700 text-white',
+            corBtn: 'bg-indigo-100 hover:bg-indigo-200 text-indigo-900'
+          },
+          {
+            trim: '3' as const,
+            titulo: 'IIIº Trimestre Letivo',
+            periodo: 'Abril a Julho',
+            corWrapAtivo: 'bg-amber-50/70 border-amber-400 shadow-sm ring-2 ring-amber-500/20',
+            corTitle: 'text-amber-900',
+            corBadge: 'bg-amber-700 text-white',
+            corBtn: 'bg-amber-100 hover:bg-amber-200 text-amber-900'
+          }
+        ].map(cfg => {
+          const evtsTrim = eventos.filter(e => e.trimestre === cfg.trim);
+          const isSelecionado = trimestreSelecionado === cfg.trim;
+          return (
+            <div
+              key={cfg.trim}
+              onClick={() => setTrimestreSelecionado(isSelecionado ? 'TODOS' : cfg.trim)}
+              className={`p-5 rounded-2xl border transition-all cursor-pointer ${
+                escola.trimestreActivo === cfg.trim || isSelecionado
+                  ? cfg.corWrapAtivo
+                  : 'bg-white border-gray-200 shadow-xs hover:border-blue-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-xs font-black uppercase ${cfg.corTitle} tracking-wider`}>{cfg.titulo}</span>
+                <div className="flex items-center space-x-1.5">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/80 text-gray-800 border border-gray-300">
+                    {evtsTrim.length} ativ.
+                  </span>
+                  {escola.trimestreActivo === cfg.trim && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${cfg.corBadge}`}>
+                      Em Curso
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className="text-sm font-bold text-gray-900">{cfg.periodo}</p>
+              <ul className="text-xs text-gray-600 space-y-1 mt-3 min-h-[54px]">
+                {evtsTrim.slice(0, 3).map(item => (
+                  <li key={item.id} className="truncate">
+                    • {item.titulo} ({formatarDataAngolana(item.dataInicio, 'curto')})
+                  </li>
+                ))}
+                {evtsTrim.length === 0 && (
+                  <li className="italic text-gray-400">Sem atividades registadas neste trimestre.</li>
+                )}
+              </ul>
+              {podeEditarCalendario && (
+                <div className="mt-3 pt-2.5 border-t border-gray-200/70 flex items-center justify-between">
+                  <span className="text-[11px] text-gray-500 font-semibold">
+                    {isSelecionado ? 'A filtrar este trimestre' : 'Clique para filtrar'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      abrirModalNovoEvento(cfg.trim);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center space-x-1 cursor-pointer ${cfg.corBtn}`}
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>+ {cfg.trim}º Trimestre</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Barra de Filtros e Busca */}
@@ -610,10 +1036,11 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
             />
           </div>
 
-          <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-xl">
-            {(['TODOS', '1', '2', '3'] as const).map((t) => (
+          <div className="flex flex-wrap items-center space-x-1 bg-gray-100 p-1 rounded-xl">
+            {(['TODOS', '1', '2', '3', 'Geral'] as const).map((t) => (
               <button
                 key={t}
+                type="button"
                 onClick={() => setTrimestreSelecionado(t)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   trimestreSelecionado === t
@@ -621,7 +1048,7 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                {t === 'TODOS' ? 'Todos Trimestres' : `${t}º Trim.`}
+                {t === 'TODOS' ? 'Todos Trimestres' : t === 'Geral' ? 'Ano Inteiro' : `${t}º Trim.`}
               </button>
             ))}
           </div>
@@ -632,12 +1059,11 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
             className="px-3 py-2 border border-gray-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
           >
             <option value="TODOS">Todos os Tipos</option>
-            <option value="Avaliação">Avaliações & Provas</option>
-            <option value="Feriado">Feriados Nacionais</option>
-            <option value="Pausa Pedagógica">Pausas Pedagógicas</option>
-            <option value="Conselho">Conselhos de Notas</option>
-            <option value="Matrícula">Matrículas</option>
-            <option value="Institucional">Institucional</option>
+            {todosTiposEventos.map((tp) => (
+              <option key={tp.id} value={tp.nome}>
+                {tp.nome}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -650,18 +1076,15 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
         </div>
 
         <div className="divide-y divide-gray-100">
-          {eventosFiltrados.map((evt) => (
+          {eventosFiltrados.map((evt) => {
+            const estiloTipo = obterEstiloTipo(evt.tipo);
+            return (
             <div
               key={evt.id}
               className="p-5 hover:bg-blue-50/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
             >
               <div className="flex items-start space-x-3.5">
-                <div className={`p-2.5 rounded-2xl shrink-0 ${
-                  evt.tipo === 'Avaliação' ? 'bg-blue-100 text-blue-800' :
-                  evt.tipo === 'Feriado' ? 'bg-red-100 text-red-800' :
-                  evt.tipo === 'Pausa Pedagógica' ? 'bg-amber-100 text-amber-800' :
-                  evt.tipo === 'Matrícula' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
-                }`}>
+                <div className={`p-2.5 rounded-2xl shrink-0 ${estiloTipo.iconWrap}`}>
                   {evt.tipo === 'Avaliação' ? <Award className="h-5 w-5" /> :
                    evt.tipo === 'Feriado' ? <Flag className="h-5 w-5" /> :
                    evt.tipo === 'Matrícula' ? <Users className="h-5 w-5" /> : <CalendarIcon className="h-5 w-5" />}
@@ -670,12 +1093,7 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-black text-gray-900">{evt.titulo}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      evt.tipo === 'Avaliação' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                      evt.tipo === 'Feriado' ? 'bg-red-50 text-red-700 border border-red-200' :
-                      evt.tipo === 'Pausa Pedagógica' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                      evt.tipo === 'Matrícula' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-700'
-                    }`}>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${estiloTipo.badge}`}>
                       {evt.tipo}
                     </span>
                     {evt.obrigatorioMED && (
@@ -697,18 +1115,43 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                 </div>
               </div>
 
-              <div className="sm:text-right shrink-0 bg-gray-50 sm:bg-transparent p-3 sm:p-0 rounded-xl">
-                <span className="text-xs font-black text-gray-900 block">
-                  {formatarDataAngolana(evt.dataInicio, 'extenso')}
-                </span>
-                {evt.dataFim && (
-                  <span className="text-[11px] text-gray-500 block">
-                    até {formatarDataAngolana(evt.dataFim, 'extenso')}
+              <div className="sm:text-right shrink-0 bg-gray-50 sm:bg-transparent p-3 sm:p-0 rounded-xl flex sm:flex-col items-center sm:items-end justify-between gap-2">
+                <div>
+                  <span className="text-xs font-black text-gray-900 block">
+                    {formatarDataAngolana(evt.dataInicio, 'extenso')}
                   </span>
+                  {evt.dataFim && evt.dataFim !== evt.dataInicio && (
+                    <span className="text-[11px] text-gray-500 block">
+                      até {formatarDataAngolana(evt.dataFim, 'extenso')}
+                    </span>
+                  )}
+                </div>
+                {podeEditarCalendario && (
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => abrirModalEditarEvento(evt)}
+                      className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center space-x-1 cursor-pointer"
+                      title="Editar atividade do calendário"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                      <span>Editar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEventoParaEliminar(evt)}
+                      className="px-2.5 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center space-x-1 cursor-pointer"
+                      title="Eliminar atividade do calendário"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      <span>Eliminar</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {eventosFiltrados.length === 0 && (
             <div className="p-12 text-center text-gray-500 space-y-2">
@@ -719,7 +1162,7 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL: NOVO EVENTO */}
+      {/* MODAL: NOVO / EDITAR EVENTO */}
       {showNovoEventoModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl p-6 space-y-5 animate-in zoom-in-95">
@@ -729,12 +1172,20 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                   <CalendarDays className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-gray-900">Novo Marco no Calendário Escolar</h3>
-                  <p className="text-xs text-gray-500">Agendar evento letivo, feriado ou semana de provas</p>
+                  <h3 className="text-base font-black text-gray-900">
+                    {editingEventoId ? 'Editar Atividade do Calendário Escolar' : 'Novo Marco no Calendário Escolar'}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {editingEventoId ? 'Atualizar datas, trimestre, público ou descrição da atividade' : 'Agendar evento letivo, feriado ou semana de provas'}
+                  </p>
                 </div>
               </div>
               <button 
-                onClick={() => setShowNovoEventoModal(false)}
+                type="button"
+                onClick={() => {
+                  setShowNovoEventoModal(false);
+                  setEditingEventoId(null);
+                }}
                 className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
               >
                 <X className="h-5 w-5" />
@@ -742,6 +1193,12 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
             </div>
 
             <form onSubmit={handleSalvarEvento} className="space-y-4 text-xs">
+              {erroModalEvento && (
+                <div className="p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-xl text-xs font-bold flex items-center justify-between">
+                  <span>{erroModalEvento}</span>
+                  <button type="button" onClick={() => setErroModalEvento(null)} className="text-red-600 hover:text-red-800"><X className="h-4 w-4" /></button>
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-gray-700 mb-1">Título do Evento / Atividade *</label>
                 <input
@@ -756,18 +1213,30 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Tipo de Evento *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-gray-700">Tipo de Evento *</label>
+                    <button
+                      type="button"
+                      onClick={() => setMostrarCriacaoRapidaTipo(!mostrarCriacaoRapidaTipo)}
+                      className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 flex items-center space-x-0.5 cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3" />
+                      <span>{mostrarCriacaoRapidaTipo ? 'Fechar' : 'Novo Tipo'}</span>
+                    </button>
+                  </div>
                   <select
                     value={novoTipo}
-                    onChange={(e) => setNovoTipo(e.target.value as any)}
+                    onChange={(e) => setNovoTipo(e.target.value)}
                     className="w-full p-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-none bg-white"
                   >
-                    <option value="Avaliação">Avaliação / Provas</option>
-                    <option value="Feriado">Feriado / Tolerância</option>
-                    <option value="Pausa Pedagógica">Pausa Pedagógica</option>
-                    <option value="Conselho">Conselho de Turma</option>
-                    <option value="Matrícula">Matrícula</option>
-                    <option value="Institucional">Institucional</option>
+                    {todosTiposEventos.map((tp) => (
+                      <option key={tp.id} value={tp.nome}>
+                        {tp.nome}
+                      </option>
+                    ))}
+                    {!todosTiposEventos.some((t) => t.nome === novoTipo) && novoTipo && (
+                      <option value={novoTipo}>{novoTipo}</option>
+                    )}
                   </select>
                 </div>
 
@@ -785,6 +1254,39 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                   </select>
                 </div>
               </div>
+
+              {mostrarCriacaoRapidaTipo && (
+                <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-indigo-950">Adicionar Novo Tipo de Evento</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: Olimpíada, Reunião de Pais..."
+                      value={nomeNovoTipoRapido}
+                      onChange={(e) => setNomeNovoTipoRapido(e.target.value)}
+                      className="flex-1 px-2.5 py-1.5 border border-indigo-300 rounded-lg bg-white text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    <select
+                      value={corNovoTipoRapido}
+                      onChange={(e) => setCorNovoTipoRapido(e.target.value as TipoEventoCalendarioCor)}
+                      className="px-2.5 py-1.5 border border-indigo-300 rounded-lg bg-white text-xs"
+                    >
+                      {(Object.keys(CORES_EVENTO_MAP) as TipoEventoCalendarioCor[]).map((c) => (
+                        <option key={c} value={c}>{CORES_EVENTO_MAP[c].label}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleAdicionarTipoRapido}
+                      className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      Criar Tipo
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -847,10 +1349,245 @@ export const SchoolCalendarView: React.FC<SchoolCalendarViewProps> = ({
                   className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>Averbar no Calendário</span>
+                  <span>{editingEventoId ? 'Guardar Alterações' : 'Averbar no Calendário'}</span>
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: GERIR TIPOS PERSONALIZADOS DE EVENTOS */}
+      {showGerirTiposModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-indigo-100 text-indigo-800 rounded-xl">
+                  <Tag className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-gray-900">Gerir Tipos de Eventos do Calendário</h3>
+                  <p className="text-xs text-gray-500">Crie, edite ou remova categorias próprias da instituição</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGerirTiposModal(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarTipoModal} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 text-xs">
+              <h4 className="font-black text-slate-900">
+                {editingTipoId ? 'Editar Tipo Personalizado' : 'Adicionar Novo Tipo Personalizado'}
+              </h4>
+              {erroTipoForm && (
+                <div className="p-2 bg-red-50 border border-red-300 text-red-800 rounded-lg font-bold">
+                  {erroTipoForm}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-gray-700 mb-1">Nome do Tipo *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Feira Científica, Desporto Escolar..."
+                    value={nomeTipoForm}
+                    onChange={(e) => setNomeTipoForm(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-indigo-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Cor da Etiqueta</label>
+                  <select
+                    value={corTipoForm}
+                    onChange={(e) => setCorTipoForm(e.target.value as TipoEventoCalendarioCor)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl bg-white"
+                  >
+                    {(Object.keys(CORES_EVENTO_MAP) as TipoEventoCalendarioCor[]).map((c) => (
+                      <option key={c} value={c}>{CORES_EVENTO_MAP[c].label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end space-x-2">
+                {editingTipoId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingTipoId(null);
+                      setNomeTipoForm('');
+                      setCorTipoForm('teal');
+                    }}
+                    className="px-3 py-1.5 border border-gray-300 rounded-xl font-bold text-gray-700 hover:bg-gray-100 cursor-pointer"
+                  >
+                    Cancelar Edição
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl font-bold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>{editingTipoId ? 'Atualizar Tipo' : 'Adicionar Tipo'}</span>
+                </button>
+              </div>
+            </form>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              <div className="text-[11px] font-bold uppercase text-gray-500">Tipos Personalizados ({tiposCustom.length})</div>
+              {tiposCustom.length === 0 ? (
+                <div className="p-4 text-center text-xs text-gray-500 border border-dashed border-gray-300 rounded-xl">
+                  Ainda não adicionou tipos personalizados além dos 6 padrões oficiais do MED.
+                </div>
+              ) : (
+                tiposCustom.map((tp) => {
+                  const est = CORES_EVENTO_MAP[tp.cor] || CORES_EVENTO_MAP.indigo;
+                  const emConfirm = tipoParaEliminarConfirmId === tp.id;
+                  return (
+                    <div key={tp.id} className="p-3 border border-gray-200 rounded-xl flex items-center justify-between gap-2 bg-white">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <span className={`h-3 w-3 rounded-full shrink-0 ${est.swatch}`} />
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold truncate ${est.badge}`}>
+                          {tp.nome}
+                        </span>
+                      </div>
+                      {emConfirm ? (
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <span className="text-[11px] text-rose-700 font-bold">Confirmar?</span>
+                          <button
+                            type="button"
+                            onClick={() => handleConfirmarEliminarTipo(tp)}
+                            className="px-2.5 py-1 bg-rose-600 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                          >
+                            Eliminar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTipoParaEliminarConfirmId(null)}
+                            className="px-2 py-1 bg-gray-100 text-gray-700 rounded-lg text-[11px] font-bold cursor-pointer"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTipoId(tp.id);
+                              setNomeTipoForm(tp.nome);
+                              setCorTipoForm(tp.cor);
+                              setErroTipoForm(null);
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                            <span>Editar</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTipoParaEliminarConfirmId(tp.id)}
+                            className="px-2.5 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Eliminar</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+
+              <div className="pt-2 text-[11px] font-bold uppercase text-gray-500">Tipos Padrão Oficiais (MED)</div>
+              <div className="flex flex-wrap gap-2">
+                {TIPOS_EVENTO_PADRAO.map((tp) => {
+                  const est = CORES_EVENTO_MAP[tp.cor];
+                  return (
+                    <span key={tp.id} className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${est.badge}`}>
+                      {tp.nome}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setShowGerirTiposModal(false)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Concluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR ELIMINAÇÃO DE ATIVIDADE */}
+      {eventoParaEliminar && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+            <div className="flex items-center space-x-2 text-rose-600">
+              <AlertTriangle className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900">Eliminar Atividade do Calendário</h3>
+            </div>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Tem a certeza de que pretende eliminar <strong>"{eventoParaEliminar.titulo}"</strong> do calendário escolar? Esta ação pode ser revertida mais tarde através de "Restaurar Padrão MED".
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setEventoParaEliminar(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarEliminarEvento}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+              >
+                Confirmar Eliminação
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR RESTAURO DO CALENDÁRIO MED */}
+      {showConfirmRestaurarPadrao && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+            <div className="flex items-center space-x-2 text-blue-700">
+              <RotateCcw className="h-6 w-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900">Restaurar Calendário Padrão MED</h3>
+            </div>
+            <p className="text-xs text-gray-600 leading-relaxed">
+              Esta operação irá repor os marcos normativos oficiais do Ministério da Educação para o ano letivo <strong>{escola.anoLectivoActivo}</strong>. Atividades personalizadas adicionadas serão substituídas pelo modelo oficial.
+            </p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setShowConfirmRestaurarPadrao(false)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarRestaurarPadraoMED}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl cursor-pointer"
+              >
+                Restaurar Agora
+              </button>
+            </div>
           </div>
         </div>
       )}

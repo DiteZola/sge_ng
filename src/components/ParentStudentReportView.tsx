@@ -1,25 +1,22 @@
 import React from 'react';
-import { 
-  GraduationCap, 
-  Calendar, 
-  Clock, 
-  AlertCircle, 
-  CheckCircle2, 
-  Download, 
-  FileText, 
-  DollarSign, 
-  BookOpen, 
-  User, 
-  Phone, 
-  ShieldCheck,
+import {
+  GraduationCap,
+  Clock,
+  AlertCircle,
+  CheckCircle2,
+  Download,
+  DollarSign,
+  BookOpen,
   Percent,
-  XCircle
+  XCircle,
+  Bell,
+  ShieldCheck
 } from 'lucide-react';
 import { Escola, Aluno, Turma, NotaTrimestralConsolidada } from '../types';
 import { dbService } from '../services/storage';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
 import { downloadElementAsPdf } from '../utils/pdfGenerator';
-import { isSegundoCiclo } from '../services/academicHierarchyService';
+import { isSegundoCiclo, normalizarClasse } from '../services/academicHierarchyService';
 import { formatarDataHoraAngolana } from '../utils/dateFormat';
 
 interface ParentStudentReportViewProps {
@@ -47,13 +44,15 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
   const turnoNome = turma?.turno || 'Manhã';
   const salaNome = turma?.sala || 'Sala 01';
 
-  // Obter notas consolidadas do aluno
+  const anoRef = aluno.anoLectivo || aluno.anoMatricula || turma?.anoLectivo || escola.anoLectivoActivo || '';
+
+  // Obter notas consolidadas do aluno no ano lectivo
   const todasNotas = propsNotas || dbService.getNotasConsolidadas();
-  const notasAluno = todasNotas.filter(n => n.alunoId === aluno.id);
-  const disciplinas = dbService.getDisciplinas(escola.id);
+  const notasAluno = todasNotas.filter(n => n.alunoId === aluno.id && (!anoRef || !n.anoLectivo || n.anoLectivo === anoRef));
+  const disciplinas = dbService.getDisciplinas(escola.id, anoRef);
 
   // Calcular assiduidade e faltas reais (priorizando chamadas diárias + notas consolidadas)
-  const presencasAluno = dbService.obterPresencasAlunos().filter(p => p.alunoId === aluno.id);
+  const presencasAluno = dbService.obterPresencasAlunos().filter(p => p.alunoId === aluno.id && (!anoRef || !p.anoLectivo || p.anoLectivo === anoRef));
   const faltasNotas = notasAluno.reduce((acc, n) => acc + (n.faltas || 0), 0);
   const faltasJustificadas = presencasAluno.length > 0
     ? presencasAluno.filter(p => p.estado === 'Falta_Justificada').length
@@ -72,25 +71,25 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
     ? Math.max(0, Math.min(100, Math.round((presentesCount / totalRegistosFrequencia) * 100)))
     : 100;
 
-  // Emolumentos e Propinas por Pagar
-  const transacoesEscola = dbService.getTransacoesFinanceiras(escola.id);
+  // Emolumentos e Propinas por Pagar (usando meses do ano letivo e valor configurados pela Direção)
+  const configFinanceira = dbService.getConfiguracaoFinanceira(escola.id);
+  const transacoesEscola = dbService.getTransacoesFinanceiras(escola.id, anoRef);
   const transacoesAluno = transacoesEscola.filter(t => t.alunoId === aluno.id && t.status === 'Confirmado');
-  const mesesLetivos = [
-    { id: 'Outubro', nome: 'Outubro', valor: 6500 },
-    { id: 'Novembro', nome: 'Novembro', valor: 6500 },
-    { id: 'Dezembro', nome: 'Dezembro', valor: 6500 },
-    { id: 'Janeiro', nome: 'Janeiro', valor: 6500 },
-    { id: 'Fevereiro', nome: 'Fevereiro', valor: 6500 },
-    { id: 'Março', nome: 'Março', valor: 6500 },
-    { id: 'Abril', nome: 'Abril', valor: 6500 },
-    { id: 'Maio', nome: 'Maio', valor: 6500 },
-    { id: 'Junho', nome: 'Junho', valor: 6500 }
-  ];
+  const classeNormPropina = normalizarClasse(classeNome);
+  const valorPropinaClasse =
+    configFinanceira.propinasPorClasse?.[classeNormPropina] ??
+    configFinanceira.propinasPorClasse?.[classeNome] ??
+    6500;
+  const mesesAtivosLista =
+    configFinanceira.mesesPropinasAtivos && configFinanceira.mesesPropinasAtivos.length > 0
+      ? configFinanceira.mesesPropinasAtivos
+      : ['Outubro', 'Novembro', 'Dezembro', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho'];
+  const mesesLetivos = mesesAtivosLista.map(nome => ({ id: nome, nome, valor: valorPropinaClasse }));
 
   // Verificar quais meses foram pagos pelas transações confirmadas ou se está regularizado
   const mesesPagosSet = new Set<string>();
   if (aluno.propinaStatus === 'Regularizada' || aluno.propinaStatus === 'Isento') {
-    mesesLetivos.slice(0, 6).forEach(m => mesesPagosSet.add(m.nome));
+    mesesLetivos.forEach(m => mesesPagosSet.add(m.nome));
   }
   transacoesAluno.forEach(t => {
     if (t.mesReferencia) {
@@ -102,16 +101,51 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
     }
   });
 
-  // Mês corrente para cálculo de pendências
-  const mesAtualNum = new Date().getMonth(); // 0 = Jan, 1 = Fev, 2 = Mar...
-  // Mapeamento meses escolares até o corrente (Out=9, Nov=10, Dez=11, Jan=0, Fev=1, Mar=2)
-  const mesesVencidos = mesesLetivos.filter((_, idx) => {
-    if (idx <= 5) return true; // até Março já venceu
-    return false;
-  });
+  // Ordem no ano letivo angolano (Set=0 ... Ago=11) para identificar meses já vencidos até ao mês atual
+  const ordemMesLetivo = (nomeMes: string): number => {
+    const mapa: Record<string, number> = {
+      setembro: 0, outubro: 1, novembro: 2, dezembro: 3,
+      janeiro: 4, fevereiro: 5, março: 6, marco: 6,
+      abril: 7, maio: 8, junho: 9, julho: 10, agosto: 11
+    };
+    return mapa[nomeMes.trim().toLowerCase()] ?? 0;
+  };
+  const ordemMesAtual = (new Date().getMonth() + 4) % 12;
+  const mesesVencidos = mesesLetivos.filter(m => ordemMesLetivo(m.nome) <= ordemMesAtual);
+  const mesesParaExibir = mesesLetivos;
 
   const emolumentosPendentes = mesesVencidos.filter(m => !mesesPagosSet.has(m.nome));
   const totalEmolumentosPorPagar = emolumentosPendentes.reduce((acc, m) => acc + m.valor, 0);
+
+  // Comunicados oficiais dirigidos ao Encarregado (Direção, Coordenador ou Professores)
+  const comunicadosParaEncarregado = dbService
+    .getMensagens()
+    .filter(m => {
+      if (m.escolaId !== escola.id) return false;
+      if (m.remetentePapel === 'AdminGeral' || m.destinatarioId === 'admin-geral') return false;
+      const dest = m.destinatarioTipo || (m.tipo === 'GERAL' ? 'Todos' : undefined);
+      if (dest !== 'Todos' && dest !== 'Encarregados') return false;
+      if (dest === 'Encarregados') {
+        if (m.classeDestino && normalizarClasse(m.classeDestino) !== normalizarClasse(classeNome)) {
+          return false;
+        }
+        if (m.turmaIdDestino && m.turmaIdDestino !== aluno.turmaId) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => new Date(b.criadaEm || b.dataHora || 0).getTime() - new Date(a.criadaEm || a.dataHora || 0).getTime())
+    .slice(0, 12);
+
+  // Ocorrências aprovadas no dossiê do aluno
+  const ocorrenciasAprovadas = (aluno.ocorrencias || []).filter(
+    (o: any) =>
+      o.statusAprovacao !== 'Pendente' &&
+      o.statusAprovacao !== 'Rejeitada' &&
+      o.aprovadoCoordenador !== false &&
+      o.aprovadoSubdiretor !== false
+  );
 
   // Verificação de autorização do Diretor para Boletim
   const boletimLiberado = escola.permitirBoletimNoPortalEncarregado === true;
@@ -142,7 +176,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
       <html lang="pt-AO">
       <head>
         <meta charset="utf-8">
-        <title>Ficha do Educando - ${aluno.nomeCompleto}</title>
+        <title>${aluno.genero === 'F' ? 'Ficha da Educanda' : 'Ficha do Educando'} - ${aluno.nomeCompleto}</title>
         <style>
           @page { size: A4 portrait; margin: 15mm; }
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; font-size: 11pt; line-height: 1.4; margin: 0; padding: 10px; }
@@ -183,7 +217,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           <div class="inst-sub">REPÚBLICA DE ANGOLA • MINISTÉRIO DA EDUCAÇÃO</div>
           <h1 class="inst-title">${escola.nomeOficial}</h1>
           <div class="inst-sub">${escola.municipio || 'Município'} • ${escola.provincia || 'Província'}</div>
-          <div class="doc-badge">Portal do Encarregado de Educação • Ficha Informativa do Estudante</div>
+          <div class="doc-badge">${aluno.genero === 'F' ? 'Portal dos Encarregados • Ficha Informativa da Educanda' : 'Portal dos Encarregados • Ficha Informativa do Educando'}</div>
         </div>
 
         <div class="meta-download">
@@ -192,7 +226,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
 
         <!-- 1. DADOS DO ESTUDANTE -->
         <div class="section">
-          <div class="section-title">1. Identificação do Discente</div>
+          <div class="section-title">${aluno.genero === 'F' ? '1. Identificação da Educanda' : '1. Identificação do Educando'}</div>
           <div class="grid-3">
             <div class="field">
               <span class="field-label">Nome Completo:</span>
@@ -292,7 +326,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
               </tr>
             </thead>
             <tbody>
-              ${mesesVencidos.map(m => {
+              ${mesesParaExibir.map(m => {
                 const pago = mesesPagosSet.has(m.nome);
                 return `
                   <tr>
@@ -332,7 +366,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
                       <td style="text-align: center;">${n.mac?.toFixed(1) || '—'}</td>
                       <td style="text-align: center;">${(n.npp ?? n.provaTrimestral)?.toFixed(1) || '—'}</td>
                       <td style="text-align: center; font-weight: bold; color: ${aprov ? '#166534' : '#dc2626'};">${n.mediaTrimestral?.toFixed(1)}</td>
-                      <td style="text-align: center;"><span class="${aprov ? 'badge-pago' : 'badge-pendente'}">${aprov ? 'Aprovado' : 'Não Aprovado'}</span></td>
+                      <td style="text-align: center;"><span class="${aprov ? 'badge-pago' : 'badge-pendente'}">${aprov ? (aluno.genero === 'F' ? 'Aprovada' : 'Aprovado') : (aluno.genero === 'F' ? 'Não Aprovada' : 'Não Aprovado')}</span></td>
                     </tr>
                   `;
                 }).join('') : `
@@ -351,6 +385,18 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
           `}
         </div>
 
+        ${comunicadosParaEncarregado.length > 0 ? `
+        <div class="section">
+          <div class="section-title">6. Comunicados da Direção, Coordenação &amp; Professores</div>
+          ${comunicadosParaEncarregado.map(msg => `
+            <div style="border-bottom: 1px solid #e2e8f0; padding: 6px 0;">
+              <div style="font-weight: 700; color: #0f172a;">${msg.assunto || msg.titulo}</div>
+              <div style="font-size: 9pt; color: #475569; margin: 2px 0;">${msg.conteudo}</div>
+              <div style="font-size: 8pt; color: #64748b;">Por: ${msg.remetenteNome} (${msg.remetenteCargo || msg.remetentePapel})</div>
+            </div>
+          `).join('')}
+        </div>` : ''}
+
         <div class="clean-footer">
           Documento emitido exclusivamente para consulta parental através do Portal dos Encarregados de Educação.<br/>
           <strong>${escola.nomeOficial}</strong> • Sem carimbo ou assinatura institucional obrigatória.
@@ -359,7 +405,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
       </html>
     `;
 
-    downloadHtmlDocument(`Ficha_Educando_${aluno.codigoMatricula}.html`, `Ficha do Educando - ${aluno.nomeCompleto}`, html);
+    downloadHtmlDocument(`${aluno.genero === 'F' ? 'Ficha_Educanda' : 'Ficha_Educando'}_${aluno.codigoMatricula}.html`, `${aluno.genero === 'F' ? 'Ficha da Educanda' : 'Ficha do Educando'} - ${aluno.nomeCompleto}`, html);
   };
 
   return (
@@ -456,7 +502,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider flex items-center space-x-1.5">
             <BookOpen className="h-4 w-4 text-blue-600" />
-            <span>Boletim de Notas do Educando</span>
+            <span>{aluno.genero === 'F' ? 'Boletim de Notas da Educanda' : 'Boletim de Notas do Educando'}</span>
           </h3>
 
           {boletimLiberado && (
@@ -497,7 +543,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
                           <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
                             aprovado ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                           }`}>
-                            {aprovado ? 'Aprovado' : 'Não Aprovado'}
+                            {aprovado ? (aluno.genero === 'F' ? 'Aprovada' : 'Aprovado') : (aluno.genero === 'F' ? 'Não Aprovada' : 'Não Aprovado')}
                           </span>
                         </td>
                       </tr>
@@ -601,7 +647,7 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-2">
-          {mesesVencidos.map(m => {
+          {mesesParaExibir.map(m => {
             const pago = mesesPagosSet.has(m.nome);
             return (
               <div
@@ -625,8 +671,72 @@ export const ParentStudentReportView: React.FC<ParentStudentReportViewProps> = (
         </div>
       </div>
 
+      {/* 5. Comunicados da Direção, Coordenação e Professores */}
+      <div className="space-y-2.5">
+        <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider flex items-center space-x-1.5">
+          <Bell className="h-4 w-4 text-blue-600" />
+          <span>Comunicados da Direção, Coordenação &amp; Docentes</span>
+        </h3>
+        {comunicadosParaEncarregado.length === 0 ? (
+          <div className="p-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl text-xs text-gray-500 text-center">
+            Sem comunicados recentes publicados para os encarregados de educação desta turma.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {comunicadosParaEncarregado.map(msg => (
+              <div key={msg.id} className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/40 space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                      {msg.escopoEnvioLabel || (msg.destinatarioTipo === 'Encarregados' ? 'Para Encarregados' : 'Comunicado Geral')}
+                    </span>
+                    {(msg.urgente || msg.prioridade === 'Urgente') && (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white">
+                        URGENTE
+                      </span>
+                    )}
+                    <h4 className="text-xs font-black text-gray-900">{msg.assunto || msg.titulo}</h4>
+                  </div>
+                  <span className="text-[10px] font-mono text-gray-500">
+                    {new Date(msg.criadaEm || msg.dataHora || Date.now()).toLocaleDateString('pt-AO')}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{msg.conteudo}</p>
+                <div className="text-[11px] text-gray-500 font-medium">
+                  Emitido por: <strong className="text-gray-800">{msg.remetenteNome}</strong> ({msg.remetenteCargo || msg.remetentePapel})
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 6. Ocorrências Aprovadas pela Coordenação e Subdireção Pedagógica */}
+      {ocorrenciasAprovadas.length > 0 && (
+        <div className="space-y-2.5">
+          <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider flex items-center space-x-1.5">
+            <ShieldCheck className="h-4 w-4 text-amber-600" />
+            <span>Ocorrências &amp; Registos Pedagógicos Homologados</span>
+          </h3>
+          <div className="space-y-2">
+            {ocorrenciasAprovadas.map((oc: any, idx: number) => (
+              <div key={oc.id || idx} className="p-3 rounded-xl border border-amber-200 bg-amber-50/40 text-xs space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-black text-amber-950">{oc.tipo || 'Registo'} • {oc.gravidade || 'Informativo'}</span>
+                  <span className="text-[10px] font-mono text-gray-500">{oc.data || ''}</span>
+                </div>
+                <p className="text-gray-800">{oc.descricao}</p>
+                {oc.registadoPor && (
+                  <p className="text-[10px] text-gray-500">Registado por: {oc.registadoPor}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Nota informativa de download */}
-      <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-[11px] text-blue-900 flex items-center justify-between">
+      <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-[11px] text-blue-900 flex items-center justify-between no-print">
         <span>
           O documento PDF baixado através deste portal contém apenas o nome oficial da escola e a data/hora da emissão, <strong>sem carimbo nem assinatura institucional</strong>, sendo exclusivo para acompanhamento familiar.
         </span>

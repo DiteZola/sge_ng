@@ -80,7 +80,15 @@ const STORAGE_KEYS = {
   DELEGACOES_PODERES: 'sge_delegacoes_poderes',
   ACOES_DELEGADAS_LOGS: 'sge_acoes_delegadas_logs',
   SESSOES_ATIVAS: 'sge_sessoes_ativas',
-  RELATORIOS_ACONTECIMENTOS: 'sge_relatorios_acontecimentos'
+  RELATORIOS_ACONTECIMENTOS: 'sge_relatorios_acontecimentos',
+  COORDENACOES: 'sge_coordenacoes',
+  TIPOS_COORDENACAO: 'sge_tipos_coordenacao',
+  RELATORIOS_PEDAGOGICOS: 'sge_relatorios_pedagogicos',
+  PLANOS_ATIVIDADES: 'sge_planos_atividades',
+  FINANCAS_PESSOAIS: 'sge_financas_pessoais',
+  HORARIOS_PROVAS: 'sge_horarios_provas',
+  MAPAS_FISCALIZACAO: 'sge_mapas_fiscalizacao',
+  ATAS_PROVAS: 'sge_atas_provas'
 };
 
 const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
@@ -1402,12 +1410,20 @@ class FirebaseSyncEngine {
     registrarEscutaArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, (s) => Boolean(s && s.id));
     registrarEscutaArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, (r) => Boolean(r && r.id));
     registrarEscutaArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, (r) => Boolean(r && r.id));
+    registrarEscutaArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, (c) => Boolean(c && c.id));
+    registrarEscutaArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, (t) => Boolean(t && t.id));
+    registrarEscutaArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, (r) => Boolean(r && r.id));
+    registrarEscutaArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, (a) => Boolean(a && a.id));
+    registrarEscutaArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, (h) => Boolean(h && h.id));
+    registrarEscutaArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, (m) => Boolean(m && m.id));
+    registrarEscutaArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, (a) => Boolean(a && a.id));
 
     registrarEscutaMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId);
     registrarEscutaMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId);
     registrarEscutaMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId);
     registrarEscutaMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId);
     registrarEscutaMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d);
+    registrarEscutaMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId);
 
     // Escuta em tempo real de configuração global (Insígnia Nacional + parâmetros)
     const aplicarConfigRemota = async (rawCfg: ConfiguracaoSistema) => {
@@ -2092,6 +2108,13 @@ class FirebaseSyncEngine {
           this.puxarColecaoArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, { filterValid: (p) => Boolean(p && p.id) }),
           this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
           this.puxarColecaoArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, { filterValid: (c) => Boolean(c && c.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, { filterValid: (h) => Boolean(h && h.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
           this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
           this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
@@ -2103,7 +2126,8 @@ class FirebaseSyncEngine {
           this.puxarColecaoMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId),
           this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId, undefined, (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
           this.puxarColecaoMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId),
-          this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista }))
+          this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista })),
+          this.puxarColecaoMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId)
         ]);
 
         this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
@@ -2235,6 +2259,10 @@ class FirebaseSyncEngine {
             uploadArray(STORAGE_KEYS.PATRIMONIO, "patrimonio"),
             uploadArray(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, "alteracoes_notas_direcao"),
             uploadArray(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, "relatorios_acontecimentos"),
+            uploadArray(STORAGE_KEYS.COORDENACOES, "coordenacoes"),
+            uploadArray(STORAGE_KEYS.TIPOS_COORDENACAO, "tipos_coordenacao"),
+            uploadArray(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, "relatorios_pedagogicos"),
+            uploadArray(STORAGE_KEYS.PLANOS_ATIVIDADES, "planos_atividades"),
             uploadArray(STORAGE_KEYS.DELEGACOES_PODERES, "delegacoes_poderes"),
             uploadArray(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, "acoes_delegadas_logs"),
             uploadArray(STORAGE_KEYS.AUDITORIA, "auditoria"),
@@ -2845,7 +2873,7 @@ class FirebaseSyncEngine {
           "biblioteca_acessos", "recibos", "delegacoes_poderes", "acoes_delegadas_logs",
           "alteracoes_notas_direcao", "anos_lectivos_configs", "turnos_configs",
           "classes_configs", "cursos", "regras_mac", "tipos_avaliacao",
-          "solicitacoes_nota", "solicitacoes_apoio", "relatorios_acontecimentos"
+          "solicitacoes_nota", "solicitacoes_apoio", "relatorios_acontecimentos", "coordenacoes"
         ];
 
         await Promise.allSettled([
@@ -2899,6 +2927,14 @@ class FirebaseSyncEngine {
 
   public async removerAtribuicao(id: string): Promise<boolean> {
     return this.eliminarDocumentoDireto("atribuicoes", id, undefined, `Remoção de atribuição ${id}`);
+  }
+
+  public async salvarCoordenacao(coord: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("coordenacoes", coord.id, coord, undefined, `Coordenação ${coord.tipoCoordenacao || coord.id}`);
+  }
+
+  public async removerCoordenacao(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("coordenacoes", id, undefined, `Remoção de coordenação ${id}`);
   }
 
   public async salvarJuri(juri: any): Promise<boolean> {
@@ -3114,8 +3150,8 @@ class FirebaseSyncEngine {
 
     // 2. Suporte a dataURL legado guardado diretamente no documento
     const rawUrl = docItem.arquivoUrl || docItem.url || '';
-    if (rawUrl.startsWith('data:')) {
-      const parsedBlob = base64ToBlob(rawUrl);
+    if (rawUrl.startsWith('data:') || (rawUrl.length > 100 && !rawUrl.startsWith('http') && rawUrl !== '__idb_pdf__')) {
+      const parsedBlob = base64ToBlob(rawUrl, docItem.arquivoMimeType || 'application/pdf');
       if (parsedBlob) {
         await offlineStorage.salvarPdfBiblioteca(docItem.id, parsedBlob, {
           nome: docItem.arquivoNome || `${docItem.titulo}.pdf`,
@@ -3159,7 +3195,7 @@ class FirebaseSyncEngine {
 
         if (chunksData.length > 0) {
           const fullBase64 = chunksData.join('');
-          const blob = base64ToBlob(fullBase64);
+          const blob = base64ToBlob(fullBase64, docItem.arquivoMimeType || 'application/pdf');
           if (blob) {
             await offlineStorage.salvarPdfBiblioteca(docItem.id, blob, {
               nome: docItem.arquivoNome || `${docItem.titulo}.pdf`,
@@ -3299,6 +3335,73 @@ class FirebaseSyncEngine {
 
   public async eliminarRelatorioAcontecimento(id: string): Promise<boolean> {
     return this.eliminarDocumentoDireto("relatorios_acontecimentos", id, undefined, `Eliminação de relatório ${id}`);
+  }
+
+  public async salvarTipoCoordenacao(tipo: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("tipos_coordenacao", tipo.id, tipo, undefined, `Tipo de Coordenação ${tipo.tipo || tipo.id}`);
+  }
+
+  public async removerTipoCoordenacao(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("tipos_coordenacao", id, undefined, `Eliminação de tipo de coordenação ${id}`);
+  }
+
+  public async salvarRelatorioPedagogico(rel: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("relatorios_pedagogicos", rel.id, rel, undefined, `Relatório Pedagógico ${rel.tituloDocumento || rel.id}`);
+  }
+
+  public async removerRelatorioPedagogico(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("relatorios_pedagogicos", id, undefined, `Eliminação de relatório pedagógico ${id}`);
+  }
+
+  public async salvarAtividadePlano(atv: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("planos_atividades", atv.id, atv, undefined, `Atividade do Plano ${atv.titulo || atv.id}`);
+  }
+
+  public async removerAtividadePlano(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("planos_atividades", id, undefined, `Eliminação de atividade do plano ${id}`);
+  }
+
+  public async salvarFinancasPessoais(dados: any): Promise<boolean> {
+    if (!dados?.userId) return false;
+    return this.gravarDocumentoDireto("financas_pessoais", dados.userId, { ...dados, id: dados.userId }, undefined, `Finanças pessoais ${dados.userId}`);
+  }
+
+  public async salvarHorarioProva(item: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("horarios_provas", item.id, item, undefined, `Horário de prova ${item.disciplinaNome || item.id}`);
+  }
+
+  public async eliminarHorarioProva(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("horarios_provas", id, undefined, `Eliminação de horário de prova ${id}`);
+  }
+
+  public async salvarMapaFiscalizacao(mapa: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("mapas_fiscalizacao", mapa.id, mapa, undefined, `Mapa de fiscalização ${mapa.turmaNome || mapa.id}`);
+  }
+
+  public async eliminarMapaFiscalizacao(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("mapas_fiscalizacao", id, undefined, `Eliminação de mapa de fiscalização ${id}`);
+  }
+
+  public async salvarAtaProva(ata: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("atas_provas", ata.id, ata, undefined, `Ata de prova ${ata.turmaNome || ata.id}`);
+  }
+
+  public async eliminarAtaProva(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("atas_provas", id, undefined, `Eliminação de ata de prova ${id}`);
+  }
+
+  public async eliminarDadosAnoLectivoCascata(
+    colecoesEIds: Array<{ colecao: string; ids: string[]; extraColecoes?: string[] }>
+  ): Promise<void> {
+    for (const item of colecoesEIds) {
+      if (!item.ids || item.ids.length === 0) continue;
+      for (const docId of item.ids) {
+        if (!docId) continue;
+        try {
+          await this.eliminarDocumentoDireto(item.colecao, docId, item.extraColecoes, `Cascata Ano Letivo (${item.colecao}/${docId})`);
+        } catch {}
+      }
+    }
   }
 
   public async salvarSessaoAtiva(sessao: any): Promise<boolean> {

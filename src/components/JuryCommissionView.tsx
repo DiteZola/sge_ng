@@ -59,8 +59,16 @@ import { obterInformacaoEscala } from '../services/macEngine';
 import { downloadExcelFile } from '../utils/curriculoAngola';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
-import { isSegundoCiclo } from '../services/academicHierarchyService';
+import { isSegundoCiclo, filtrarDisciplinasDaClasse } from '../services/academicHierarchyService';
 import { hojeAngolano, formatarDataHoraAngolana } from '../utils/dateFormat';
+import {
+  obterTituloPresidenteJuri,
+  obterTituloPrimeiroVogalJuri,
+  obterTituloSegundoVogalJuri,
+  obterTituloDiretorSimples,
+  obterNomeDiretorGeral,
+  obterSituacaoTextoPorGenero
+} from '../utils/directorHelper';
 
 interface JuryCommissionViewProps {
   escola: Escola;
@@ -256,9 +264,21 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
 
   // Notificação / Feedback
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
+  const [mensagemErro, setMensagemErro] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    titulo: string;
+    descricao: string;
+    acaoTexto: string;
+    perigoso?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
   const notificar = (msg: string) => {
     setMensagemSucesso(msg);
     setTimeout(() => setMensagemSucesso(null), 4500);
+  };
+  const notificarErro = (msg: string) => {
+    setMensagemErro(msg);
+    setTimeout(() => setMensagemErro(null), 5000);
   };
 
   // Motor Automático de Análise dos Alunos da Comissão
@@ -488,16 +508,22 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
   // Remover Critério
   const handleRemoverCriterio = (criterioId: string) => {
     if (!comissaoAtiva || !ehPresidente) return;
-    if (!confirm('Tem certeza de que deseja remover este critério da Comissão?')) return;
-
-    const comissaoAtualizada: ComissaoJuri = {
-      ...comissaoAtiva,
-      criterios: (comissaoAtiva.criterios || []).filter(c => c.id !== criterioId)
-    };
-
-    onSalvarComissao(comissaoAtualizada);
-    dbService.salvarJuri(comissaoAtualizada);
-    notificar('Critério removido com sucesso.');
+    setConfirmDialog({
+      titulo: 'Remover Critério Deliberativo',
+      descricao: 'Tem a certeza de que deseja remover este critério da Comissão de Júri?',
+      acaoTexto: 'Remover Critério',
+      perigoso: true,
+      onConfirm: () => {
+        const comissaoAtualizada: ComissaoJuri = {
+          ...comissaoAtiva,
+          criterios: (comissaoAtiva.criterios || []).filter(c => c.id !== criterioId)
+        };
+        onSalvarComissao(comissaoAtualizada);
+        dbService.salvarJuri(comissaoAtualizada);
+        setConfirmDialog(null);
+        notificar('Critério removido com sucesso.');
+      }
+    });
   };
 
   // Adicionar Critérios Predefinidos (Ex: menos de 3 negativas, positiva em português, etc.)
@@ -678,19 +704,25 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
 
   // Eliminar Comissão
   const handleEliminarComissaoLocal = (comissaoId: string, nome: string) => {
-    if (!confirm(`ATENÇÃO: Deseja realmente eliminar a comissão de júri "${nome}"? Esta operação excluirá permanentemente a comissão do sistema.`)) {
-      return;
-    }
-    if (onEliminarComissao) {
-      onEliminarComissao(comissaoId);
-    } else {
-      dbService.excluirJuri(comissaoId);
-    }
-    if (comissaoIdAtiva === comissaoId) {
-      const restantes = comissoes.filter(c => c.id !== comissaoId);
-      setComissaoIdAtiva(restantes[0]?.id || '');
-    }
-    notificar(`Comissão "${nome}" eliminada com sucesso.`);
+    setConfirmDialog({
+      titulo: 'Eliminar Comissão de Júri',
+      descricao: `ATENÇÃO: Deseja realmente eliminar a comissão de júri "${nome}"? Esta operação excluirá permanentemente a comissão do sistema.`,
+      acaoTexto: 'Eliminar Comissão',
+      perigoso: true,
+      onConfirm: () => {
+        if (onEliminarComissao) {
+          onEliminarComissao(comissaoId);
+        } else {
+          dbService.excluirJuri(comissaoId);
+        }
+        if (comissaoIdAtiva === comissaoId) {
+          const restantes = comissoes.filter(c => c.id !== comissaoId);
+          setComissaoIdAtiva(restantes[0]?.id || '');
+        }
+        setConfirmDialog(null);
+        notificar(`Comissão "${nome}" eliminada com sucesso.`);
+      }
+    });
   };
 
   // Abrir Modal de Alteração de Nota na Pauta
@@ -763,39 +795,43 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
   const handleValidarResultados = () => {
     if (!comissaoAtiva) return;
     if (!ehPresidente) {
-      alert('Apenas o Presidente da Comissão de Júri possui autorização para validar os resultados finais.');
+      notificarErro('Apenas o Presidente da Comissão de Júri possui autorização para validar os resultados finais.');
       return;
     }
 
     if (!checklistValidacao.podeValidar) {
-      alert(`Não é possível validar: Existem ${checklistValidacao.totalPendencias} pendências não resolvidas que impedem o encerramento.`);
+      notificarErro(`Não é possível validar: Existem ${checklistValidacao.totalPendencias} pendências não resolvidas que impedem o encerramento.`);
       return;
     }
 
-    if (!confirm('ATENÇÃO: A validação dos resultados homologa a Pauta Final de cada classe e turma, gera a Ata Oficial definitiva e bloqueia alterações comuns de notas no SGE. Deseja prosseguir?')) {
-      return;
-    }
+    setConfirmDialog({
+      titulo: 'Homologar e Encerrar Sessão de Júri',
+      descricao: 'ATENÇÃO: A validação dos resultados homologa a Pauta Final de cada classe e turma, gera a Ata Oficial definitiva e bloqueia alterações comuns de notas no SGE. Deseja prosseguir?',
+      acaoTexto: 'Homologar e Encerrar',
+      perigoso: false,
+      onConfirm: () => {
+        const ata = JuryEngine.gerarAtaOficial(comissaoAtiva, escola, analisesAlunos);
 
-    // Gerar Ata Oficial
-    const ata = JuryEngine.gerarAtaOficial(comissaoAtiva, escola, analisesAlunos);
+        const comissaoValidada: ComissaoJuri = {
+          ...comissaoAtiva,
+          estado: 'Validada',
+          validadaPor: `${currentUser.nomeCompleto} (${funcaoNaComissao})`,
+          validadaEm: new Date().toISOString(),
+          encerradaEm: new Date().toISOString(),
+          bloqueada: true,
+          pautaHomologada: true,
+          pautaHomologadaEm: new Date().toISOString(),
+          pautaHomologadaPor: `${currentUser.nomeCompleto} (${funcaoNaComissao})`,
+          ata
+        };
 
-    const comissaoValidada: ComissaoJuri = {
-      ...comissaoAtiva,
-      estado: 'Validada',
-      validadaPor: `${currentUser.nomeCompleto} (${funcaoNaComissao})`,
-      validadaEm: new Date().toISOString(),
-      encerradaEm: new Date().toISOString(),
-      bloqueada: true,
-      pautaHomologada: true,
-      pautaHomologadaEm: new Date().toISOString(),
-      pautaHomologadaPor: `${currentUser.nomeCompleto} (${funcaoNaComissao})`,
-      ata
-    };
-
-    onSalvarComissao(comissaoValidada);
-    dbService.validarEEncerrarSessaoJuri(comissaoAtiva.id, currentUser.nomeCompleto, ata);
-    setSubAba('ata');
-    notificar('Pauta Final Homologada com sucesso! A Ata Oficial foi lavrada e as notas homologadas passam a ser a referência oficial.');
+        onSalvarComissao(comissaoValidada);
+        dbService.validarEEncerrarSessaoJuri(comissaoAtiva.id, currentUser.nomeCompleto, ata);
+        setConfirmDialog(null);
+        setSubAba('ata');
+        notificar('Pauta Final Homologada com sucesso! A Ata Oficial foi lavrada e as notas homologadas passam a ser a referência oficial.');
+      }
+    });
   };
 
   // Criar Nova Comissão de Júri (Diretor / Admin)
@@ -1034,6 +1070,15 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
           <div className="mt-4 p-3 bg-emerald-500/90 text-white rounded-xl text-xs font-bold flex items-center space-x-2 animate-fade-in shadow-lg">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{mensagemSucesso}</span>
+          </div>
+        )}
+        {mensagemErro && (
+          <div className="mt-4 p-3 bg-rose-600 text-white rounded-xl text-xs font-bold flex items-center justify-between animate-fade-in shadow-lg">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{mensagemErro}</span>
+            </div>
+            <button type="button" onClick={() => setMensagemErro(null)} className="text-white/80 hover:text-white font-black">✕</button>
           </div>
         )}
       </div>
@@ -1849,7 +1894,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {disciplinas.map(disc => {
+                    {filtrarDisciplinasDaClasse(disciplinas, analiseSelecionada.turma?.classe, analiseSelecionada.turma?.curso).map(disc => {
                       const nota = notasConsolidadas.find(n => n.alunoId === analiseSelecionada.aluno.id && n.disciplinaId === disc.id);
                       const valorFinal = nota?.notaFinal || nota?.mac || 0;
                       const escala = obterInformacaoEscala(analiseSelecionada.turma?.classe);
@@ -2278,8 +2323,8 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                                 <td className="p-1 font-mono font-bold border-r border-slate-300">{item.aluno.numeroProcesso || item.aluno.codigoMatricula}</td>
                                 <td className="p-1 font-medium border-r border-slate-300">{item.aluno.nomeCompleto}</td>
                                 <td className="p-1 text-center border-r border-slate-300">{item.turma?.nome || 'Turma A'}</td>
-                                <td className="p-1 text-center font-bold border-r border-slate-300">{item.dados.mediaGeral.toFixed(1)} / {escala.escalaMaxima}</td>
-                                <td className="p-1 text-center font-bold text-emerald-800">Aprovado Directo</td>
+                                <td className="p-1 text-center font-bold border-r border-slate-300">{Math.round(item.dados.mediaGeral)} / {escala.escalaMaxima}</td>
+                                <td className="p-1 text-center font-bold text-emerald-800">{obterSituacaoTextoPorGenero('Aprovado Directo', item.aluno.genero)}</td>
                               </tr>
                             );
                           })}
@@ -2319,7 +2364,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                               <tr key={alunoId} className="hover:bg-slate-50">
                                 <td className="p-1 text-center font-mono border-r border-slate-300">{dIdx + 1}</td>
                                 <td className="p-1 font-bold border-r border-slate-300">{aluno?.nomeCompleto || alunoId}</td>
-                                <td className="p-1 text-center font-bold border-r border-slate-300">{delib.decisao}</td>
+                                <td className="p-1 text-center font-bold border-r border-slate-300">{obterSituacaoTextoPorGenero(delib.decisao, aluno?.genero)}</td>
                                 <td className="p-1 text-slate-700 border-r border-slate-300">{delib.justificativa || 'Critério regulamentar colegial'}</td>
                                 <td className="p-1 text-center font-mono">{delib.consensoPercentual}%</td>
                               </tr>
@@ -2349,7 +2394,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-xs">
                   {/* Presidente: Título -> Traço -> Nome */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O Presidente da Comissão de Júri</p>
+                    <p className="font-black text-slate-900 uppercase">{obterTituloPresidenteJuri(comissaoAtiva, funcionarios)}</p>
                     <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
                       {comissaoAtiva?.membros?.find(m => m.funcao === 'Presidente')?.nome || 'Presidente do Júri'}
@@ -2358,7 +2403,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
 
                   {/* 1º Vogal: Título -> Traço -> Nome */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O 1º Vogal do Júri</p>
+                    <p className="font-black text-slate-900 uppercase">{obterTituloPrimeiroVogalJuri(comissaoAtiva, funcionarios)}</p>
                     <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
                       {comissaoAtiva?.membros?.find(m => (m.funcao as string) === '1º Vogal' || (m.funcao as string) === '1° Vogal')?.nome || 
@@ -2368,7 +2413,7 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
 
                   {/* 2º Vogal: Título -> Traço -> Nome */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O 2º Vogal do Júri</p>
+                    <p className="font-black text-slate-900 uppercase">{obterTituloSegundoVogalJuri(comissaoAtiva, funcionarios)}</p>
                     <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
                       {comissaoAtiva?.membros?.find(m => (m.funcao as string) === '2º Vogal' || (m.funcao as string) === '2° Vogal')?.nome || 
@@ -2378,10 +2423,10 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
 
                   {/* Director Geral da Instituição (Homologação) */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">O Director Geral (Homologação)</p>
+                    <p className="font-black text-slate-900 uppercase">{obterTituloDiretorSimples(escola, funcionarios)} (Homologação)</p>
                     <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
-                      {escola.diretorGeralNome || 'Direcção da Escola'}
+                      {obterNomeDiretorGeral(escola, funcionarios)}
                     </p>
                   </div>
                 </div>
@@ -2540,8 +2585,9 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
             </div>
 
             <div className="space-y-2">
-              {dbService.getAuditoria()
+              {dbService.getAuditoria(escola.id)
                 .filter(l => {
+                  if (l.escolaId !== escola.id) return false;
                   if (currentUser.role !== 'AdminGeral') {
                     if (
                       l.origemAdminGeral ||
@@ -3051,8 +3097,12 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                   }}
                   className="w-full p-2 border rounded-lg font-bold bg-white text-gray-900"
                 >
-                  {disciplinas.map(d => (
-                    <option key={`opt-alter-disc-${d.id}`} value={d.id}>{d.nome} ({d.sigla})</option>
+                  {filtrarDisciplinasDaClasse(
+                    disciplinas,
+                    turmas.find(t => t.id === alunoParaAlterarNota.turmaId)?.classe || alunoParaAlterarNota.classeId,
+                    turmas.find(t => t.id === alunoParaAlterarNota.turmaId)?.curso || alunoParaAlterarNota.curso
+                  ).map(d => (
+                    <option key={`opt-alter-disc-${d.id}`} value={d.id}>{d.nome}</option>
                   ))}
                 </select>
               </div>
@@ -3116,6 +3166,36 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 dark:border-slate-700 space-y-4">
+            <div className={`flex items-center space-x-2 ${confirmDialog.perigoso ? 'text-rose-600' : 'text-indigo-700 dark:text-indigo-400'}`}>
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white">{confirmDialog.titulo}</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">{confirmDialog.descricao}</p>
+            <div className="flex justify-end space-x-2 pt-3 border-t border-gray-200 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="px-4 py-2 text-xs font-bold text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
+                className={`px-4 py-2 text-xs font-bold text-white rounded-xl cursor-pointer ${
+                  confirmDialog.perigoso ? 'bg-rose-600 hover:bg-rose-700' : 'bg-indigo-700 hover:bg-indigo-800'
+                }`}
+              >
+                {confirmDialog.acaoTexto}
+              </button>
+            </div>
           </div>
         </div>
       )}

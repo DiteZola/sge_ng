@@ -29,7 +29,8 @@ import {
   UserCog,
   FileCheck2,
   ClipboardList,
-  Send
+  Send,
+  CalendarCheck
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -244,6 +245,13 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
   onNavigate,
   onEnviarLembreteNotas
 }) => {
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModulo = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
+
   const solicitacoesPendentes = useMemo(
     () => dbService.getSolicitacoesNota().filter(s => s.escolaId === escola.id && s.estado === 'Pendente'),
     [escola.id]
@@ -265,38 +273,56 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
         escola={escola}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => onNavigate('coordenacao')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Award className="h-4 w-4 shrink-0" />
-              <span>Coordenação MAC</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('pautas')}
-              className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <FileText className="h-4 w-4 shrink-0" />
-              <span>Pautas Trimestrais</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('presencas')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Presenças</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('horarios')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              <span>Horários</span>
-            </button>
+            {podeVerModulo('coordenacao') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('coordenacao')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Award className="h-4 w-4 shrink-0" />
+                <span>Coordenação MAC</span>
+              </button>
+            )}
+            {podeVerModulo('pautas') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('pautas')}
+                className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileText className="h-4 w-4 shrink-0" />
+                <span>Pautas Trimestrais</span>
+              </button>
+            )}
+            {podeVerModulo('presencas') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('presencas')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Presenças</span>
+              </button>
+            )}
+            {podeVerModulo('horarios') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('horarios')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Horários</span>
+              </button>
+            )}
+            {podeVerModulo('plano_atividades') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('plano_atividades')}
+                className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+                <span>Plano de Atividades</span>
+              </button>
+            )}
           </>
         }
       />
@@ -633,11 +659,21 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
     [escola.id]
   );
 
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModulo = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
+  const podeVerPropinas = visibilidadeUsuario.dadosSensiveis.verSituacaoFinanceiraPropinasAlunos;
+
   const totalReceitas = transacoes.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
   const totalDespesas = despesas.reduce((acc, d) => acc + (d.valorKz || 0), 0);
   const saldoCaixa = totalReceitas - totalDespesas;
-  const alunosDevedores = alunos.filter(a => a.propinaStatus === 'Pendente');
-  const taxaAdimplencia = alunos.length > 0 ? Math.round(((alunos.length - alunosDevedores.length) / alunos.length) * 100) : 100;
+  const alunosDevedores = podeVerPropinas ? alunos.filter(a => a.propinaStatus === 'Pendente') : [];
+  const taxaAdimplencia = podeVerPropinas
+    ? (alunos.length > 0 ? Math.round(((alunos.length - alunosDevedores.length) / alunos.length) * 100) : 100)
+    : 0;
 
   const bensDanificados = patrimonio.filter(p =>
     ['Danificado', 'Em Reparação', 'Inoperante', 'Para Abate'].includes(p.estadoConservacao)
@@ -679,38 +715,56 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
         escola={escola}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => onNavigate('pagamentos')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <DollarSign className="h-4 w-4 shrink-0" />
-              <span>Pagamentos & Caixa</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('relatorios_financeiros')}
-              className="px-3.5 py-2 text-xs font-bold text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <TrendingUp className="h-4 w-4 shrink-0" />
-              <span>Relatórios Financeiros</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('patrimonio')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>Património</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('declaracoes')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              <span>Declarações</span>
-            </button>
+            {podeVerModulo('pagamentos') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('pagamentos')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <DollarSign className="h-4 w-4 shrink-0" />
+                <span>Pagamentos & Caixa</span>
+              </button>
+            )}
+            {podeVerModulo('relatorios_financeiros') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('relatorios_financeiros')}
+                className="px-3.5 py-2 text-xs font-bold text-blue-900 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <TrendingUp className="h-4 w-4 shrink-0" />
+                <span>Relatórios Financeiros</span>
+              </button>
+            )}
+            {podeVerModulo('patrimonio') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('patrimonio')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Património</span>
+              </button>
+            )}
+            {podeVerModulo('declaracoes') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('declaracoes')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>Declarações</span>
+              </button>
+            )}
+            {podeVerModulo('plano_atividades') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('plano_atividades')}
+                className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+                <span>Plano de Atividades</span>
+              </button>
+            )}
           </>
         }
       />
@@ -755,11 +809,19 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
             <span>Adimplência de Propinas</span>
             <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           </div>
-          <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-black text-amber-700 dark:text-amber-400 tabular-nums">{taxaAdimplencia}%</span>
-            <span className="text-xs font-semibold text-rose-700 dark:text-rose-400 tabular-nums">{alunosDevedores.length} pendentes</span>
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{alunos.length} estudantes no total</div>
+          {podeVerPropinas ? (
+            <>
+              <div className="mt-2 flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-amber-700 dark:text-amber-400 tabular-nums">{taxaAdimplencia}%</span>
+                <span className="text-xs font-semibold text-rose-700 dark:text-rose-400 tabular-nums">{alunosDevedores.length} pendentes</span>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{alunos.length} estudantes no total</div>
+            </>
+          ) : (
+            <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Restrito pela Direção Geral
+            </div>
+          )}
         </div>
       </div>
 
@@ -937,8 +999,8 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
     return [];
   }, [turmas, minhasTurmasIds]);
 
-  const disciplinas = useMemo(() => dbService.getDisciplinas(escola.id), [escola.id]);
-  const meuHorario = useMemo(() => dbService.obterHorarioDoProfessor(currentUser.id).filter(h => h.escolaId === escola.id), [currentUser.id, escola.id]);
+  const disciplinas = useMemo(() => dbService.getDisciplinas(escola.id, escola.anoLectivoActivo), [escola.id, escola.anoLectivoActivo]);
+  const meuHorario = useMemo(() => dbService.obterHorarioDoProfessor(currentUser.id, escola.anoLectivoActivo).filter(h => h.escolaId === escola.id), [currentUser.id, escola.id, escola.anoLectivoActivo]);
   const diaHoje = getDiaSemanaAtualPt();
   const aulasHoje = useMemo(
     () => meuHorario.filter(h => h.diaSemana === diaHoje).sort((a, b) => a.numeroTempo - b.numeroTempo),
@@ -947,12 +1009,12 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
 
   const presencasAlunos = useMemo(() => dbService.obterPresencasAlunos(), []);
   const minhaAssiduidadeRegistos = useMemo(
-    () => dbService.getPresencas().filter(p => p.funcionarioId === currentUser.id && p.escolaId === escola.id),
-    [currentUser.id, escola.id]
+    () => dbService.getPresencas().filter(p => p.funcionarioId === currentUser.id && p.escolaId === escola.id && (!escola.anoLectivoActivo || !p.anoLectivo || p.anoLectivo === escola.anoLectivoActivo)),
+    [currentUser.id, escola.id, escola.anoLectivoActivo]
   );
   const minhasAlteracoesDirecao = useMemo(
-    () => dbService.getRegistosAlteracoesNotas(currentUser.id, escola.id).filter(r => !r.lidoPeloProfessor),
-    [currentUser.id, escola.id]
+    () => dbService.getRegistosAlteracoesNotas(currentUser.id, escola.id, escola.anoLectivoActivo).filter(r => !r.lidoPeloProfessor),
+    [currentUser.id, escola.id, escola.anoLectivoActivo]
   );
 
   const totalAlunosLecionados = useMemo(() => {
@@ -1038,6 +1100,24 @@ export const ProfessorDashboard: React.FC<SharedRoleDashboardProps> = ({
               <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Pautas</span>
             </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('alunos')}
+              className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Users className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+              <span>Meus Alunos &amp; Ocorrências</span>
+            </button>
+            {(turmas.some(t => t.coordenadorId === currentUser.id) || minhasAtribuicoes.some(a => Boolean(a.ehCoordenadorTurma)) || dbService.getCoordenacoes(escola.id, escola.anoLectivoActivo).some(c => (c.funcionarioId === currentUser.id || c.professorId === currentUser.id) && c.ativo !== false)) && (
+              <button
+                type="button"
+                onClick={() => onNavigate('plano_atividades')}
+                className="px-3.5 py-2 text-xs font-bold text-purple-900 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarCheck className="h-4 w-4 text-purple-700 dark:text-purple-400 shrink-0" />
+                <span>Plano de Atividades</span>
+              </button>
+            )}
           </>
         }
       />
@@ -1252,7 +1332,17 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
   configSistema,
   onNavigate
 }) => {
-  const podeRelatoriosFinanceiros = currentUser.role === 'ChefeSecretaria' || currentUser.role === 'SecretarioEscolar';
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModulo = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
+  const podeVerPropinas = visibilidadeUsuario.dadosSensiveis.verSituacaoFinanceiraPropinasAlunos;
+
+  const podeRelatoriosFinanceiros =
+    (currentUser.role === 'ChefeSecretaria' || currentUser.role === 'SecretarioEscolar') &&
+    podeVerModulo('relatorios_financeiros');
   const transacoes = useMemo(() => dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo), [escola.id, escola.anoLectivoActivo]);
   const anoActivo = escola.anoLectivoActivo || '';
   const alunosAno = anoActivo ? alunos.filter(a => (a.anoLectivo || a.anoMatricula || '') === anoActivo) : alunos;
@@ -1261,8 +1351,10 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
     return c.includes('inicia') || c.startsWith('1ª') || c === '1';
   }).length;
   const transferidos = alunos.filter(a => a.estado === 'Transferido').length;
-  const propinasOk = alunos.filter(a => a.propinaStatus === 'Regularizada' || a.propinaStatus === 'Isento').length;
-  const pctPropinasOk = alunos.length > 0 ? Math.round((propinasOk / alunos.length) * 100) : 0;
+  const propinasOk = podeVerPropinas
+    ? alunos.filter(a => a.propinaStatus === 'Regularizada' || a.propinaStatus === 'Isento').length
+    : 0;
+  const pctPropinasOk = podeVerPropinas && alunos.length > 0 ? Math.round((propinasOk / alunos.length) * 100) : 0;
 
   // Distribuição real por ciclo/classe
   const resumoPorClasse = useMemo(() => {
@@ -1287,38 +1379,46 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
         escola={escola}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => onNavigate('alunos')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <PlusCircle className="h-4 w-4 shrink-0" />
-              <span>Matrículas & Alunos</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('declaracoes')}
-              className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <FileText className="h-4 w-4 shrink-0" />
-              <span>Emitir Declaração</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('passes_escolares')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <CreditCard className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              <span>Passes Escolares</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('pagamentos')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Pagamentos & Recibos</span>
-            </button>
+            {podeVerModulo('alunos') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('alunos')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <PlusCircle className="h-4 w-4 shrink-0" />
+                <span>Matrículas & Alunos</span>
+              </button>
+            )}
+            {podeVerModulo('declaracoes') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('declaracoes')}
+                className="px-3.5 py-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileText className="h-4 w-4 shrink-0" />
+                <span>Emitir Declaração</span>
+              </button>
+            )}
+            {podeVerModulo('passes_escolares') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('passes_escolares')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CreditCard className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Passes Escolares</span>
+              </button>
+            )}
+            {podeVerModulo('pagamentos') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('pagamentos')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Pagamentos & Recibos</span>
+              </button>
+            )}
             {podeRelatoriosFinanceiros && (
               <button
                 type="button"
@@ -1327,6 +1427,16 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
               >
                 <TrendingUp className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                 <span>Balanço Financeiro</span>
+              </button>
+            )}
+            {podeVerModulo('plano_atividades') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('plano_atividades')}
+                className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+                <span>Plano de Atividades</span>
               </button>
             )}
           </>
@@ -1354,8 +1464,16 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
         </div>
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Propinas Regularizadas</span>
-          <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">{pctPropinasOk}%</div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{propinasOk} de {alunos.length} estudantes</div>
+          {podeVerPropinas ? (
+            <>
+              <div className="text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1 tabular-nums">{pctPropinasOk}%</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{propinasOk} de {alunos.length} estudantes</div>
+            </>
+          ) : (
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-2">
+              Restrito pela Direção Geral
+            </div>
+          )}
         </div>
       </div>
 
@@ -1373,7 +1491,7 @@ export const SecretariaDashboard: React.FC<SharedRoleDashboardProps> = ({
             { tab: 'boletins', title: 'Boletins de Notas (4 por A4)', desc: 'Resumo trimestral por estudante', icon: BookOpen },
             { tab: 'pautas', title: 'Pautas & Listas Nominais', desc: 'Mapas por turma, classe e curso', icon: ClipboardList },
             { tab: 'termos_exame', title: 'Termos de Exame', desc: 'Registos de exame e júri', icon: Award }
-          ].map(item => {
+          ].filter(item => podeVerModulo(item.tab)).map(item => {
             const Icon = item.icon;
             return (
               <button
@@ -1461,8 +1579,8 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
 
   const horariosHoje = useMemo(() => {
     const dia = getDiaSemanaAtualPt();
-    return dbService.obterHorarios(escola.id).filter(h => h.diaSemana === dia);
-  }, [escola.id]);
+    return dbService.obterHorarios(escola.id, escola.anoLectivoActivo).filter(h => h.diaSemana === dia);
+  }, [escola.id, escola.anoLectivoActivo]);
 
   return (
     <div className="space-y-6">
@@ -1506,6 +1624,14 @@ export const CoordenadorTurnoDashboard: React.FC<SharedRoleDashboardProps> = ({
             >
               <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
               <span>Relatórios</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('plano_atividades')}
+              className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+              <span>Plano de Atividades</span>
             </button>
           </>
         }
@@ -1600,6 +1726,13 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
   taxaAprovacaoEscola,
   onNavigate
 }) => {
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModulo = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
+
   const mediaGlobalDisciplinas = useMemo(() => {
     if (dadosDesempenhoDisciplinas.length === 0) return null;
     const sum20 = dadosDesempenhoDisciplinas.reduce((acc, d) => acc + (d.escala === 10 ? d.media * 2 : d.media), 0);
@@ -1617,38 +1750,56 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
         escola={escola}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => onNavigate('pautas')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <FileText className="h-4 w-4 shrink-0" />
-              <span>Pautas Trimestrais</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('estatisticas')}
-              className="px-3.5 py-2 text-xs font-bold text-purple-900 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <BarChart3 className="h-4 w-4 shrink-0" />
-              <span>Estatísticas</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('historico_escolar')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              <span>Histórico Escolar</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('presencas')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Presenças</span>
-            </button>
+            {podeVerModulo('pautas') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('pautas')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <FileText className="h-4 w-4 shrink-0" />
+                <span>Pautas Trimestrais</span>
+              </button>
+            )}
+            {(visibilidadeUsuario.irrestrito || (visibilidadeUsuario.dadosSensiveis.verEstatisticasGlobaisEscola && podeVerModulo('estatisticas'))) && (
+              <button
+                type="button"
+                onClick={() => onNavigate('estatisticas')}
+                className="px-3.5 py-2 text-xs font-bold text-purple-900 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <BarChart3 className="h-4 w-4 shrink-0" />
+                <span>Estatísticas</span>
+              </button>
+            )}
+            {podeVerModulo('historico_escolar') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('historico_escolar')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Histórico Escolar</span>
+              </button>
+            )}
+            {podeVerModulo('presencas') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('presencas')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ClipboardList className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Presenças</span>
+              </button>
+            )}
+            {podeVerModulo('plano_atividades') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('plano_atividades')}
+                className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+                <span>Plano de Atividades</span>
+              </button>
+            )}
           </>
         }
       />
@@ -1733,19 +1884,28 @@ export const CoordenadorDisciplinaDashboard: React.FC<SharedRoleDashboardProps> 
    ========================================================================= */
 export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
   escola,
+  currentUser,
   alunos,
   mensagens,
   recibos,
   configSistema,
   onNavigate
 }) => {
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModulo = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
+  const podeVerPropinas = visibilidadeUsuario.dadosSensiveis.verSituacaoFinanceiraPropinasAlunos;
+
   const transacoes = useMemo(() => dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo), [escola.id, escola.anoLectivoActivo]);
   const despesas = useMemo(() => dbService.getDespesasEscolares(escola.id, escola.anoLectivoActivo), [escola.id, escola.anoLectivoActivo]);
 
   const totalReceitas = transacoes.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
   const totalDespesas = despesas.reduce((acc, d) => acc + (d.valorKz || 0), 0);
   const saldo = totalReceitas - totalDespesas;
-  const devedores = alunos.filter(a => a.propinaStatus === 'Pendente');
+  const devedores = podeVerPropinas ? alunos.filter(a => a.propinaStatus === 'Pendente') : [];
 
   return (
     <div className="space-y-6">
@@ -1758,30 +1918,46 @@ export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
         escola={escola}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => onNavigate('pagamentos')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <DollarSign className="h-4 w-4 shrink-0" />
-              <span>Registar Pagamento</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('relatorios_financeiros')}
-              className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <TrendingUp className="h-4 w-4 shrink-0" />
-              <span>Relatórios Financeiros</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('patrimonio')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span>Património</span>
-            </button>
+            {podeVerModulo('pagamentos') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('pagamentos')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <DollarSign className="h-4 w-4 shrink-0" />
+                <span>Registar Pagamento</span>
+              </button>
+            )}
+            {podeVerModulo('relatorios_financeiros') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('relatorios_financeiros')}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <TrendingUp className="h-4 w-4 shrink-0" />
+                <span>Relatórios Financeiros</span>
+              </button>
+            )}
+            {podeVerModulo('patrimonio') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('patrimonio')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Boxes className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>Património</span>
+              </button>
+            )}
+            {podeVerModulo('plano_atividades') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('plano_atividades')}
+                className="px-3.5 py-2 text-xs font-bold text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
+                <span>Plano de Atividades</span>
+              </button>
+            )}
           </>
         }
       />
@@ -1804,8 +1980,16 @@ export const TesoureiroDashboard: React.FC<SharedRoleDashboardProps> = ({
         </div>
         <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Propinas Pendentes</span>
-          <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1 tabular-nums">{devedores.length}</div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Estudantes por regularizar</div>
+          {podeVerPropinas ? (
+            <>
+              <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1 tabular-nums">{devedores.length}</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Estudantes por regularizar</div>
+            </>
+          ) : (
+            <div className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-2">
+              Restrito pela Direção Geral
+            </div>
+          )}
         </div>
       </div>
 
@@ -1958,7 +2142,7 @@ export const EstagiarioDashboard: React.FC<SharedRoleDashboardProps> = ({
   resumoAssiduidadeAlunos,
   onNavigate
 }) => {
-  const horarios = useMemo(() => dbService.obterHorarios(escola.id), [escola.id]);
+  const horarios = useMemo(() => dbService.obterHorarios(escola.id, escola.anoLectivoActivo), [escola.id, escola.anoLectivoActivo]);
   const diaHoje = getDiaSemanaAtualPt();
   const aulasHoje = horarios.filter(h => h.diaSemana === diaHoje);
 
@@ -2029,6 +2213,7 @@ export const EstagiarioDashboard: React.FC<SharedRoleDashboardProps> = ({
    ========================================================================= */
 export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
   escola,
+  currentUser,
   funcionarios,
   mensagens,
   configSistema,
@@ -2038,6 +2223,16 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
   onNavigate,
   onOpenUsuariosModal
 }) => {
+  const visibilidadeUsuario = useMemo(
+    () => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola),
+    [currentUser, escola]
+  );
+  const podeVerModulo = (tabId: string) =>
+    visibilidadeUsuario.irrestrito || !visibilidadeUsuario.modulosBloqueados.has(tabId);
+  const podeVerAuditoria =
+    visibilidadeUsuario.irrestrito ||
+    (visibilidadeUsuario.dadosSensiveis.verLogsAuditoriaSistema && podeVerModulo('auditoria_logs'));
+
   const contasSuspensas = funcionarios.filter(f => f.statusConta === 'Suspensa' || !f.ativo).length;
   const solicitacoesApoio = useMemo(
     () => dbService.getSolicitacoesApoioTecnico(escola.id),
@@ -2048,8 +2243,8 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
     return st === 'aberto' || st === 'pendente' || st === 'em_atendimento';
   }).length;
   const logsRecentes = useMemo(
-    () => dbService.getAuditoria().filter(l => l.escolaId === escola.id).slice(0, 6),
-    [escola.id]
+    () => (podeVerAuditoria ? dbService.getAuditoria().filter(l => l.escolaId === escola.id).slice(0, 6) : []),
+    [escola.id, podeVerAuditoria]
   );
 
   return (
@@ -2063,38 +2258,46 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
         escola={escola}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => onNavigate('usuarios_perfis')}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-slate-900 dark:bg-blue-700 hover:bg-slate-800 dark:hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <UserCog className="h-4 w-4 shrink-0" />
-              <span>Usuários & Perfis</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('apoio_tecnico')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <LifeBuoy className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              <span>Apoio Técnico DTI</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('backup_restauro')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <Database className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>Backup & Restauro</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('auditoria_logs')}
-              className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <ShieldCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              <span>Auditoria AES-256</span>
-            </button>
+            {podeVerModulo('usuarios_perfis') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('usuarios_perfis')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-slate-900 dark:bg-blue-700 hover:bg-slate-800 dark:hover:bg-blue-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <UserCog className="h-4 w-4 shrink-0" />
+                <span>Usuários & Perfis</span>
+              </button>
+            )}
+            {podeVerModulo('apoio_tecnico') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('apoio_tecnico')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <LifeBuoy className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Apoio Técnico DTI</span>
+              </button>
+            )}
+            {podeVerModulo('backup_restauro') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('backup_restauro')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Database className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Backup & Restauro</span>
+              </button>
+            )}
+            {podeVerAuditoria && (
+              <button
+                type="button"
+                onClick={() => onNavigate('auditoria_logs')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ShieldCheck className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>Auditoria AES-256</span>
+              </button>
+            )}
           </>
         }
       />
@@ -2136,34 +2339,44 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
-              <Server className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-              <span>Registos Recentes de Auditoria</span>
-            </h3>
-            <button type="button" onClick={() => onNavigate('auditoria_logs')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
-              Ver Logs →
-            </button>
-          </div>
-          {logsRecentes.length === 0 ? (
-            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
-              Sem registos de auditoria nesta escola.
+        {podeVerAuditoria ? (
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+                <Server className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Registos Recentes de Auditoria</span>
+              </h3>
+              <button type="button" onClick={() => onNavigate('auditoria_logs')} className="text-xs font-bold text-blue-700 dark:text-blue-400 hover:underline cursor-pointer">
+                Ver Logs →
+              </button>
             </div>
-          ) : (
-            <div className="space-y-2 text-xs">
-              {logsRecentes.map(l => (
-                <div key={l.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-bold text-slate-900 dark:text-slate-100 truncate">{l.acao}</div>
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{l.utilizadorNome || l.usuarioNome} · {l.detalhe || l.detalhes}</div>
+            {logsRecentes.length === 0 ? (
+              <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
+                Sem registos de auditoria nesta escola.
+              </div>
+            ) : (
+              <div className="space-y-2 text-xs">
+                {logsRecentes.map(l => (
+                  <div key={l.id} className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 dark:text-slate-100 truncate">{l.acao}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">{l.utilizadorNome || l.usuarioNome} · {l.detalhe || l.detalhes}</div>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0">{(l.dataHora || '').slice(0, 16)}</span>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0">{(l.dataHora || '').slice(0, 16)}</span>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs flex items-center justify-center text-center">
+            <div className="space-y-1">
+              <ShieldCheck className="h-6 w-6 text-slate-400 mx-auto" />
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300">Registos de Auditoria Restritos</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Visualização reservada pela Direção Geral.</p>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <RecentNoticesCard mensagens={mensagens} onNavigateComunicacao={() => onNavigate('comunicacao')} />
       </div>

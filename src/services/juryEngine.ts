@@ -93,7 +93,7 @@ export class JuryEngine {
     }
 
     const totalDisciplinas = disciplinasComNota > 0 ? disciplinasComNota : (disciplinas.length || 1);
-    const mediaGeral = disciplinasComNota > 0 ? Number((somaNotas / disciplinasComNota).toFixed(2)) : 0;
+    const mediaGeral = disciplinasComNota > 0 ? Math.round(somaNotas / disciplinasComNota) : 0;
     
     // Percentagem de aproveitamento (positivas / total)
     const percentagemAproveitamento = totalDisciplinas > 0 

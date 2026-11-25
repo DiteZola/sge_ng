@@ -14,11 +14,14 @@ import {
   Cloud,
   CloudOff,
   UploadCloud,
-  ArrowUpRight
+  ArrowUpRight,
+  Sparkles
 } from 'lucide-react';
 import { offlineStorage, StorageHealthInfo, OfflineJournalEntry, PendingSyncItem } from '../services/offlineStorage';
 import { firebaseSyncEngine, SyncStatus } from '../services/firebaseSyncEngine';
 import { dbService } from '../services/storage';
+import { periodicBackupService, PeriodicSnapshotMetadata } from '../services/periodicBackupService';
+import { appUpdateService, AppUpdateState } from '../services/appUpdateService';
 
 export const OfflineStatusWidget: React.FC = () => {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -28,14 +31,22 @@ export const OfflineStatusWidget: React.FC = () => {
   const [pendencias, setPendencias] = useState<PendingSyncItem[]>([]);
   const [totalPendentes, setTotalPendentes] = useState<number>(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [snapshotsIDB, setSnapshotsIDB] = useState<PeriodicSnapshotMetadata[]>([]);
+  const [updateState, setUpdateState] = useState<AppUpdateState>(() => appUpdateService.getState());
   const [msgSucesso, setMsgSucesso] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncingNow, setIsSyncingNow] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isRequestingPersist, setIsRequestingPersist] = useState(false);
 
   const carregarDados = async () => {
     const isAdminGeral = dbService.getCurrentUser()?.role === 'AdminGeral';
-    const diag = await offlineStorage.obterDiagnostico();
+    const [diag, snaps] = await Promise.all([
+      offlineStorage.obterDiagnostico(),
+      periodicBackupService.listarSnapshots().catch(() => [] as PeriodicSnapshotMetadata[])
+    ]);
     setHealth(diag);
+    setSnapshotsIDB(snaps);
     setJournal(offlineStorage.obterDiarioVisivel(isAdminGeral).slice(0, 15));
     const pends = offlineStorage.obterPendenciasVisiveis(isAdminGeral);
     setPendencias(pends);
@@ -60,17 +71,25 @@ export const OfflineStatusWidget: React.FC = () => {
       setTotalPendentes(pends.length);
     };
 
+    const handlePeriodicChanged = () => {
+      periodicBackupService.listarSnapshots().then(setSnapshotsIDB).catch(() => {});
+    };
+
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('sge_pending_sync_changed', handlePendingChanged);
     window.addEventListener('sge_dados_atualizados_remoto', handlePendingChanged);
+    window.addEventListener('sge_periodic_backup_updated', handlePeriodicChanged);
 
     // Carregar na inicialização
     carregarDados();
 
-    // Subscrição ao status do motor Firebase
+    // Subscrição ao status do motor Firebase e de atualizações da app
     const unsubSync = firebaseSyncEngine.subscreverStatus((status) => {
       setSyncStatus(status);
+    });
+    const unsubUpdate = appUpdateService.subscrever((st) => {
+      setUpdateState(st);
     });
 
     // Subscrição ao diário de mutações filtrado pelo perfil atual
@@ -86,29 +105,70 @@ export const OfflineStatusWidget: React.FC = () => {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('sge_pending_sync_changed', handlePendingChanged);
       window.removeEventListener('sge_dados_atualizados_remoto', handlePendingChanged);
+      window.removeEventListener('sge_periodic_backup_updated', handlePeriodicChanged);
       clearInterval(interval);
       unsubscribeJournal();
       unsubSync();
+      unsubUpdate();
     };
   }, []);
 
-  const handleCriarSnapshot = () => {
+  const handleCriarSnapshot = async () => {
     setIsRefreshing(true);
-    const res = offlineStorage.criarSnapshotEmergencia('Ponto de restauro manual pelo utilizador');
-    if (res.sucesso) {
-      setMsgSucesso('Ponto de restauro gravado com sucesso no IndexedDB e LocalStorage!');
-      carregarDados();
-    }
-    setTimeout(() => {
+    try {
+      offlineStorage.criarSnapshotEmergencia('Ponto de restauro manual pelo utilizador');
+      const snap = await periodicBackupService.criarSnapshotAgora(
+        'manual',
+        'Snapshot manual em IndexedDB via Painel Offline'
+      );
+      if (snap) {
+        setMsgSucesso('Snapshot completo gravado com sucesso no IndexedDB!');
+      } else {
+        setMsgSucesso('Ponto de restauro gravado com sucesso no IndexedDB e LocalStorage!');
+      }
+      await carregarDados();
+    } finally {
       setIsRefreshing(false);
       setTimeout(() => setMsgSucesso(null), 4000);
-    }, 400);
+    }
   };
 
   const handleDescarregarBackup = () => {
     offlineStorage.descarregarBackupOfflineEmergencia();
     setMsgSucesso('Ficheiro de segurança JSON transferido para o seu computador!');
     setTimeout(() => setMsgSucesso(null), 4000);
+  };
+
+  const handleGarantirPersistencia = async () => {
+    setIsRequestingPersist(true);
+    try {
+      const ok = await offlineStorage.solicitarPersistenciaNativa();
+      await carregarDados();
+      setMsgSucesso(
+        ok
+          ? 'Armazenamento persistente ativado! O navegador não removerá os seus dados offline.'
+          : 'O navegador manteve o modo padrão; os snapshots em IndexedDB e ficheiros JSON garantem proteção total.'
+      );
+      setTimeout(() => setMsgSucesso(null), 5000);
+    } finally {
+      setIsRequestingPersist(false);
+    }
+  };
+
+  const handleVerificarAtualizacao = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      const { hasUpdate, state } = await appUpdateService.verificarAtualizacaoAgora();
+      setUpdateState(state);
+      setMsgSucesso(
+        hasUpdate
+          ? `Nova versão disponível (${state.latestVersion || 'Atualização PWA'})! Clique em "Sincronizar e Atualizar" para aplicar.`
+          : 'A aplicação já se encontra sincronizada na versão mais recente.'
+      );
+      setTimeout(() => setMsgSucesso(null), 5000);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
   };
 
   const handleSincronizarPendenciasAgora = async () => {
@@ -346,21 +406,37 @@ export const OfflineStatusWidget: React.FC = () => {
                 <div className="text-lg font-black text-slate-900 dark:text-white mt-1">
                   IndexedDB + LS
                 </div>
-                <div className="mt-1 text-[11px] text-blue-700 dark:text-blue-400 font-semibold">
-                  Duplo espelhamento ativado
+                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] font-semibold">
+                  {health?.isStoragePersisted ? (
+                    <span className="text-emerald-700 dark:text-emerald-400">Persistência nativa ativa</span>
+                  ) : (
+                    <>
+                      <span className="text-blue-700 dark:text-blue-400">Modo padrão</span>
+                      <button
+                        type="button"
+                        onClick={handleGarantirPersistencia}
+                        disabled={isRequestingPersist}
+                        className="text-[10px] px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer"
+                      >
+                        {isRequestingPersist ? 'A ativar...' : 'Blindar'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-200 dark:border-slate-700">
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  <span>Mutações no Diário</span>
+                  <span>Snapshots IndexedDB</span>
                   <Clock className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                 </div>
                 <div className="text-lg font-black text-slate-900 dark:text-white mt-1 tabular-nums">
-                  {journal.length} registos
+                  {snapshotsIDB.length} guardado{snapshotsIDB.length === 1 ? '' : 's'}
                 </div>
-                <div className="mt-1 text-[11px] text-purple-700 dark:text-purple-400 font-semibold">
-                  Histórico de operações locais
+                <div className="mt-1 text-[11px] text-purple-700 dark:text-purple-400 font-semibold truncate">
+                  {snapshotsIDB[0]
+                    ? `Último: ${new Date(snapshotsIDB[0].criadoEm).toLocaleTimeString('pt-AO')}`
+                    : `${journal.length} mutações no diário`}
                 </div>
               </div>
             </div>
@@ -370,7 +446,7 @@ export const OfflineStatusWidget: React.FC = () => {
               <div>
                 <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200">Salvar Ponto de Restauro &amp; Exportar</h4>
                 <p className="text-[11px] text-blue-700 dark:text-blue-300 mt-0.5">
-                  Crie um snapshot instantâneo com zero perda de dados ou descarregue um ficheiro JSON para outro computador.
+                  Crie um snapshot completo em IndexedDB ou descarregue um ficheiro JSON para outro computador.
                 </p>
               </div>
               <div className="flex items-center space-x-2 w-full sm:w-auto">
@@ -391,6 +467,46 @@ export const OfflineStatusWidget: React.FC = () => {
                   <Download className="h-3.5 w-3.5" />
                   <span>Backup JSON</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Bloco de Atualização da Aplicação Cross-Browser */}
+            <div className="mt-3 p-3.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <Sparkles className={`h-4 w-4 shrink-0 ${updateState.updateAvailable ? 'text-amber-500' : 'text-indigo-600 dark:text-indigo-400'}`} />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    {updateState.updateAvailable
+                      ? `Nova versão disponível (${updateState.latestVersion || 'Atualização'})`
+                      : `Versão instalada: ${updateState.currentVersion}`}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Sincronização automática compatível com Chrome, Edge, Firefox e Safari.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                {updateState.updateAvailable ? (
+                  <button
+                    type="button"
+                    onClick={() => appUpdateService.aplicarAtualizacaoESincronizar()}
+                    disabled={updateState.updatingNow}
+                    className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-lg flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${updateState.updatingNow ? 'animate-spin' : ''}`} />
+                    <span>{updateState.updatingNow ? 'A atualizar...' : 'Sincronizar e Atualizar'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleVerificarAtualizacao}
+                    disabled={isCheckingUpdate || !isOnline}
+                    className="px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 rounded-lg flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                    <span>{isCheckingUpdate ? 'A verificar...' : 'Verificar Atualização'}</span>
+                  </button>
+                )}
               </div>
             </div>
 

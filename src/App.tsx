@@ -159,9 +159,12 @@ const StudentAttendanceReportView = lazyResilient(() => import('./components/Stu
 const StudentPassesView = lazyResilient(() => import('./components/StudentPassesView').then(m => ({ default: m.StudentPassesView })), 'Passes Escolares');
 const ExecutiveDirectionView = lazyResilient(() => import('./components/ExecutiveDirectionView').then(m => ({ default: m.ExecutiveDirectionView })), 'Direção Executiva');
 const SchoolCalendarView = lazyResilient(() => import('./components/SchoolCalendarView').then(m => ({ default: m.SchoolCalendarView })), 'Calendário Escolar');
+const ActivityPlanView = lazyResilient(() => import('./components/ActivityPlanView').then(m => ({ default: m.ActivityPlanView })), 'Plano de Atividades e Eventos');
 const ReportsView = lazyResilient(() => import('./components/ReportsView').then(m => ({ default: m.ReportsView })), 'Relatórios');
 const StatisticsView = lazyResilient(() => import('./components/StatisticsView').then(m => ({ default: m.StatisticsView })), 'Estatísticas');
 const GuidedTourModal = lazyResilient(() => import('./components/GuidedTourModal').then(m => ({ default: m.GuidedTourModal })), 'Guia do Sistema');
+const MinhasFinancasView = lazyResilient(() => import('./components/MinhasFinancasView').then(m => ({ default: m.MinhasFinancasView })), 'Minhas Finanças');
+const ProvasFiscalizacaoView = lazyResilient(() => import('./components/ProvasFiscalizacaoView').then(m => ({ default: m.ProvasFiscalizacaoView })), 'Provas e Fiscalização');
 
 export default function App() {
   const { isDark } = useTheme();
@@ -266,6 +269,11 @@ export default function App() {
     return null;
   }, [modoApoioTecnico, currentUser.role, escola]);
 
+  const interinidadeAtiva = useMemo(() => {
+    if (modoApoioAtivo || !currentUser?.id) return null;
+    return dbService.getInterinidadeAtivaUsuario(currentUser.id, escola?.id);
+  }, [modoApoioAtivo, currentUser?.id, escola?.id, logs, alunos, turmas, funcionarios]);
+
   const effectiveUser: Funcionario = useMemo(() => {
     if (modoApoioAtivo) {
       return {
@@ -275,8 +283,17 @@ export default function App() {
         escolaId: modoApoioAtivo.escolaId,
       };
     }
+    if (interinidadeAtiva) {
+      const cargoDelegado = interinidadeAtiva.cargoDelegadoRole || interinidadeAtiva.delegadoPorRole || ('DiretorGeral' as UserRole);
+      const tituloDelegado = interinidadeAtiva.cargoDelegadoTitulo || String(interinidadeAtiva.delegadoPorCargo || cargoDelegado);
+      return {
+        ...currentUser,
+        role: cargoDelegado,
+        cargo: `${tituloDelegado} (Interino)`
+      };
+    }
     return currentUser;
-  }, [modoApoioAtivo, currentUser]);
+  }, [modoApoioAtivo, interinidadeAtiva, currentUser]);
 
   // Função centralizada para recarregar todos os dados do banco local após sincronização com o Firebase
   const recarregarDados = useCallback(() => {
@@ -438,6 +455,7 @@ export default function App() {
       const usrAtivo = dbService.getCurrentUser();
       if (usrAtivo && usrAtivo.id) {
         notificationService.verificarNovidadesRemotas(escAtiva.id, usrAtivo);
+        notificationService.sincronizarAgendaComServiceWorker(escAtiva, usrAtivo).catch(() => {});
       }
       if (dbService.temAdminGeral()) {
         setTemAdminGeral(true);
@@ -529,12 +547,13 @@ export default function App() {
     };
   }, [recarregarDados, setActiveTab]);
 
-  // Inicializar linha de base de notificações ao autenticar para detetar apenas novidades futuras
+  // Inicializar linha de base e agenda em segundo plano ao autenticar
   useEffect(() => {
-    if (isAuthenticated && escola?.id) {
+    if (isAuthenticated && escola?.id && effectiveUser?.id) {
       notificationService.inicializarBaselineRemoto(escola.id);
+      notificationService.sincronizarAgendaComServiceWorker(escola, effectiveUser).catch(() => {});
     }
-  }, [isAuthenticated, escola?.id]);
+  }, [isAuthenticated, escola?.id, effectiveUser?.id]);
 
   // Listener contínuo do securityEngine para notificar o AdminGeral via RealtimeSecurityModal
   useEffect(() => {
@@ -599,9 +618,15 @@ export default function App() {
     setEscola({ ...escolaAtiva, anoLectivoActivo: ano });
     setAnosLectivos(dbService.getAnosLectivos(escolaAtiva?.id));
     setTurmas(dbService.obterTurmas());
+    setDisciplinas(dbService.obterDisciplinas());
     setAlunos(dbService.obterAlunos());
+    setAvaliacoes(dbService.obterAvaliacoes());
+    setNotas(dbService.obterNotas());
     setNotasConsolidadas(dbService.obterNotasConsolidadas());
     setAtribuicoes(dbService.obterAtribuicoes());
+    setJuris(dbService.obterJuris());
+    setAssiduidade(dbService.obterAssiduidade());
+    setSolicitacoes(dbService.obterSolicitacoes());
   };
 
   // Alternância de Trimestre
@@ -618,6 +643,8 @@ export default function App() {
       'admin_escolas',
       'ano_lectivo',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'classes',
       'cursos',
       'disciplinas',
@@ -638,6 +665,7 @@ export default function App() {
       'termos_exame',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'patrimonio',
       'usuarios_perfis',
@@ -663,6 +691,8 @@ export default function App() {
       'dashboard',
       'ano_lectivo',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'formulas_notas',
       'classes',
       'cursos',
@@ -685,6 +715,7 @@ export default function App() {
       'termos_exame',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'patrimonio',
       'usuarios_perfis',
@@ -709,6 +740,8 @@ export default function App() {
       'dashboard',
       'ano_lectivo',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'formulas_notas',
       'classes',
       'cursos',
@@ -729,6 +762,7 @@ export default function App() {
       'boletins',
       'passes_escolares',
       'termos_exame',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'academico',
@@ -745,6 +779,8 @@ export default function App() {
       'dashboard',
       'ano_lectivo',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'classes',
       'cursos',
       'disciplinas',
@@ -764,6 +800,7 @@ export default function App() {
       'boletins',
       'passes_escolares',
       'termos_exame',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'academico',
@@ -779,6 +816,7 @@ export default function App() {
     SubdirectorAdministrativo: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'alunos',
       'historico_escolar',
       'direcao',
@@ -789,6 +827,7 @@ export default function App() {
       'presencas',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'patrimonio',
       'meu_perfil',
@@ -804,6 +843,7 @@ export default function App() {
     SubdiretorAdministrativo: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'alunos',
       'historico_escolar',
       'direcao',
@@ -814,6 +854,7 @@ export default function App() {
       'presencas',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'patrimonio',
       'meu_perfil',
@@ -829,14 +870,16 @@ export default function App() {
     Professor: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'alunos',
-      'historico_escolar',
       'horarios',
       'presencas',
       'coordenacao',
       'comissao_juri',
       'pautas',
       'boletins',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'estudantes',
@@ -848,6 +891,7 @@ export default function App() {
     Secretaria: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'classes',
       'cursos',
       'disciplinas',
@@ -865,6 +909,7 @@ export default function App() {
       'passes_escolares',
       'termos_exame',
       'pagamentos',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'academico',
@@ -878,6 +923,7 @@ export default function App() {
     ChefeSecretaria: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'classes',
       'cursos',
       'disciplinas',
@@ -896,6 +942,7 @@ export default function App() {
       'termos_exame',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'usuarios_perfis',
       'auditoria_logs',
@@ -911,6 +958,7 @@ export default function App() {
     Secretario: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'classes',
       'cursos',
       'disciplinas',
@@ -928,6 +976,7 @@ export default function App() {
       'passes_escolares',
       'termos_exame',
       'pagamentos',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'academico',
@@ -941,6 +990,8 @@ export default function App() {
     CoordenadorTurno: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'classes',
       'cursos',
       'disciplinas',
@@ -955,6 +1006,7 @@ export default function App() {
       'comissao_juri',
       'pautas',
       'boletins',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'academico',
@@ -967,19 +1019,12 @@ export default function App() {
       'estatisticas'
     ],
     Encarregado: [
-      'dashboard',
-      'calendario_escolar',
-      'alunos',
-      'boletins',
-      'pagamentos',
-      'biblioteca',
-      'meu_perfil',
-      'estudantes',
-      'comunicacao'
+      'dashboard'
     ],
     SecretarioEscolar: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'classes',
       'cursos',
       'disciplinas',
@@ -997,6 +1042,7 @@ export default function App() {
       'termos_exame',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'usuarios_perfis',
       'meu_perfil',
@@ -1008,12 +1054,15 @@ export default function App() {
     CoordenadorDisciplina: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
+      'provas_fiscalizacao',
       'alunos',
       'historico_escolar',
       'presencas',
       'horarios',
       'pautas',
       'boletins',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'comunicacao',
@@ -1023,8 +1072,10 @@ export default function App() {
     Tesoureiro: [
       'dashboard',
       'calendario_escolar',
+      'plano_atividades',
       'pagamentos',
       'relatorios_financeiros',
+      'minhas_financas',
       'biblioteca',
       'patrimonio',
       'meu_perfil',
@@ -1033,6 +1084,7 @@ export default function App() {
     Bibliotecario: [
       'dashboard',
       'calendario_escolar',
+      'minhas_financas',
       'biblioteca',
       'horarios',
       'meu_perfil',
@@ -1043,6 +1095,7 @@ export default function App() {
       'calendario_escolar',
       'horarios',
       'presencas',
+      'minhas_financas',
       'biblioteca',
       'meu_perfil',
       'comunicacao'
@@ -1055,6 +1108,7 @@ export default function App() {
       'auditoria_logs',
       'backup_restauro',
       'apoio_tecnico',
+      'minhas_financas',
       'biblioteca',
       'patrimonio',
       'meu_perfil',
@@ -1189,7 +1243,7 @@ export default function App() {
     try {
       notificationService.inicializarBaselineRemoto(escolaSelecionada.id);
       const jaViuTour = localStorage.getItem(`sge_tour_completed_${user.id || user.role}`);
-      if (jaViuTour !== 'true') {
+      if (user.role !== 'Encarregado' && jaViuTour !== 'true') {
         setTimeout(() => setShowTourModal(true), 600);
       }
     } catch {
@@ -1215,6 +1269,8 @@ export default function App() {
     dbService.setCurrentUser(perfilAtualizado);
     setAuthenticatedUser(perfilAtualizado);
     setFuncionarios(dbService.obterFuncionarios());
+    setEscolas(dbService.getEscolas());
+    setEscola(dbService.getEscolaAtiva());
     setLogs(dbService.obterLogs());
   };
 
@@ -1494,17 +1550,66 @@ export default function App() {
   const temDelegacaoMatriculas = poderesDelegados.podeMatricular;
   const temDelegacaoCobranca = poderesDelegados.podeCobrarEmolumentos || (poderesDelegados as any).podeCobrar || dbService.getDelegacoesCobranca(escola.id).some(d => d.funcionarioId === currentUser.id && d.ativo);
 
-  const isAbaPermitida = 
-    Boolean(modoApoioAtivo)
-      ? true // No modo de apoio técnico o Administrador Geral possui acesso irrestrito a todos os menus do Diretor Geral da escola
-      : (currentUser.role === 'AdminGeral' && activeTab === 'comissao_juri'
-        ? false // Administrador geral não precisa ver comissões de júri
-        : (temSessaoApoioAdminGeral // Admin Geral em apoio técnico tem acesso aos outros módulos
-          || (activeTab === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
-          || (activeTab === 'alunos' && temDelegacaoMatriculas) // Acesso por delegação de matrículas do Diretor
-          || (activeTab === 'comissao_juri' && isMembroJuriAtivo)
-          || (activeTab === 'relatorios' || activeTab === 'estatisticas') // Acesso oficial sem restrições para Direção, Professores, Coordenadores e Secretaria
-          || allowedTabsPorRole[effectiveUser.role]?.includes(activeTab)));
+  const visibilidadeEfetivaUsuario = dbService.getVisibilidadeEfetivaUsuario(effectiveUser, escola);
+  const ehCoordenadorTurmaAtiva =
+    turmas.some(
+      t =>
+        (!escola?.id || escola.id === 'todas' || t.escolaId === escola.id) &&
+        (!escola?.anoLectivoActivo || t.anoLectivo === escola.anoLectivoActivo) &&
+        t.coordenadorId === effectiveUser.id
+    ) ||
+    atribuicoes.some(
+      a =>
+        (!escola?.id || escola.id === 'todas' || a.escolaId === escola.id) &&
+        (!escola?.anoLectivoActivo || a.anoLectivo === escola.anoLectivoActivo) &&
+        a.professorId === effectiveUser.id &&
+        Boolean(a.ehCoordenadorTurma)
+    );
+  const ehCoordenadorEscolarAtivo = dbService
+    .getCoordenacoes(escola?.id, escola?.anoLectivoActivo)
+    .some(c => (c.funcionarioId === effectiveUser.id || c.professorId === effectiveUser.id) && c.ativo !== false);
+  const podeAcederDelegacoesDirecao =
+    ['DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'ChefeSecretaria', 'Secretaria', 'Secretario', 'SecretarioEscolar', 'AdminGeral'].includes(effectiveUser.role) ||
+    ehCoordenadorTurmaAtiva;
+  const podeAcederPlanoAtividades =
+    ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro'].includes(effectiveUser.role) ||
+    ehCoordenadorTurmaAtiva ||
+    ehCoordenadorEscolarAtivo;
+
+  const isEncarregadoPortal = effectiveUser.role === 'Encarregado' && !modoApoioAtivo;
+  const activeTabEfetiva: NavTab = isEncarregadoPortal ? 'dashboard' : activeTab;
+
+  const isAbaPermitidaBase =
+    isEncarregadoPortal
+      ? activeTabEfetiva === 'dashboard'
+      : Boolean(modoApoioAtivo)
+        ? true // No modo de apoio técnico o Administrador Geral possui acesso irrestrito a todos os menus do Diretor Geral da escola
+        : (currentUser.role === 'AdminGeral' && activeTabEfetiva === 'comissao_juri'
+          ? false // Administrador geral não precisa ver comissões de júri
+          : (temSessaoApoioAdminGeral // Admin Geral em apoio técnico tem acesso aos outros módulos
+            || (activeTabEfetiva === 'direcao' && podeAcederDelegacoesDirecao)
+            || (activeTabEfetiva === 'plano_atividades' && podeAcederPlanoAtividades)
+            || (activeTabEfetiva === 'pagamentos' && temDelegacaoCobranca) // Acesso por delegação financeira do Diretor
+            || (activeTabEfetiva === 'alunos' && temDelegacaoMatriculas) // Acesso por delegação de matrículas do Diretor
+            || (activeTabEfetiva === 'comissao_juri' && isMembroJuriAtivo)
+            || activeTabEfetiva === 'minhas_financas'
+            || (activeTabEfetiva === 'relatorios' || activeTabEfetiva === 'estatisticas') // Acesso oficial para Direção, Professores, Coordenadores e Secretaria (sujeito às regras de visibilidade)
+            || allowedTabsPorRole[effectiveUser.role]?.includes(activeTabEfetiva)));
+
+  const isAbaPermitida =
+    isEncarregadoPortal
+      ? true
+      : Boolean(modoApoioAtivo) || visibilidadeEfetivaUsuario.irrestrito || activeTabEfetiva === 'meu_perfil' || activeTabEfetiva === 'minhas_financas'
+        ? isAbaPermitidaBase
+        : (activeTabEfetiva === 'auditoria_logs' || activeTabEfetiva === 'auditoria') && !visibilidadeEfetivaUsuario.dadosSensiveis.verLogsAuditoriaSistema
+        ? false
+        : activeTabEfetiva === 'estatisticas' && !visibilidadeEfetivaUsuario.dadosSensiveis.verEstatisticasGlobaisEscola
+        ? false
+        : visibilidadeEfetivaUsuario.modulosBloqueados.has(activeTabEfetiva)
+        ? false
+        : visibilidadeEfetivaUsuario.modulosExtrasPermitidos.has(activeTabEfetiva)
+        ? true
+        : isAbaPermitidaBase;
 
   // Isolamento Rigoroso de Dados por Escola e Ano Letivo Ativo
   const escolaIdAtiva = escola?.id || '';
@@ -1555,12 +1660,17 @@ export default function App() {
     return atribuicoesDaEscola.filter(at => at.anoLectivo === anoActivo);
   }, [atribuicoesDaEscola, anoActivo]);
 
-  // 4. Disciplinas estritamente da escola atual
+  // 4. Disciplinas estritamente da escola atual e do ano letivo ativo
   const disciplinasDaEscola = useMemo(() => {
     if (!escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return disciplinas;
     return disciplinas.filter(d => d.escolaId === escolaIdAtiva);
   }, [disciplinas, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const disciplinasDoAnoActivo = useMemo(() => {
+    if (!anoActivo) return disciplinasDaEscola.filter(d => !d.anoLectivo);
+    return disciplinasDaEscola.filter(d => !d.anoLectivo || d.anoLectivo === anoActivo);
+  }, [disciplinasDaEscola, anoActivo]);
 
   // 5. Funcionários estritamente da escola atual (excluindo AdminGeral)
   const funcionariosDaEscola = useMemo(() => {
@@ -1576,11 +1686,21 @@ export default function App() {
     return avaliacoes.filter(av => av.escolaId === escolaIdAtiva);
   }, [avaliacoes, escolaIdAtiva, isGlobalNetworkScope]);
 
+  const avaliacoesDoAnoActivo = useMemo(() => {
+    if (!anoActivo) return [];
+    return avaliacoesDaEscola.filter(av => !av.anoLectivo || av.anoLectivo === anoActivo);
+  }, [avaliacoesDaEscola, anoActivo]);
+
   const jurisDaEscola = useMemo(() => {
     if (!escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return juris;
     return juris.filter(j => j.escolaId === escolaIdAtiva);
   }, [juris, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const jurisDoAnoActivo = useMemo(() => {
+    if (!anoActivo) return [];
+    return jurisDaEscola.filter(j => !j.anoLectivo || j.anoLectivo === anoActivo);
+  }, [jurisDaEscola, anoActivo]);
 
   const mensagensDaEscola = useMemo(() => {
     if (!escolaIdAtiva) return [];
@@ -1601,11 +1721,21 @@ export default function App() {
     return assiduidade.filter(a => a.escolaId === escolaIdAtiva || funcsIds.has(a.funcionarioId));
   }, [assiduidade, escolaIdAtiva, isGlobalNetworkScope, funcionariosDaEscola]);
 
+  const assiduidadeDoAnoActivo = useMemo(() => {
+    if (!anoActivo) return assiduidadeDaEscola;
+    return assiduidadeDaEscola.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo);
+  }, [assiduidadeDaEscola, anoActivo]);
+
   const solicitacoesDaEscola = useMemo(() => {
     if (!escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return solicitacoes;
     return solicitacoes.filter(s => s.escolaId === escolaIdAtiva);
   }, [solicitacoes, escolaIdAtiva, isGlobalNetworkScope]);
+
+  const solicitacoesDoAnoActivo = useMemo(() => {
+    if (!anoActivo) return solicitacoesDaEscola;
+    return solicitacoesDaEscola.filter(s => !s.anoLectivo || s.anoLectivo === anoActivo);
+  }, [solicitacoesDaEscola, anoActivo]);
 
   // 7. Notas consolidadas de todos os anos da escola (para certificados multi-ano, declarações e documentos) e do ano ativo
   const notasConsolidadasDaEscola = useMemo(() => {
@@ -1628,6 +1758,12 @@ export default function App() {
     const avIdsMap = new Set(avaliacoesDaEscola.map(av => av.id));
     return notas.filter(n => alunosIdsMap.has(n.alunoId) || avIdsMap.has(n.avaliacaoId));
   }, [notas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, avaliacoesDaEscola]);
+
+  const notasAvaliacoesDoAnoActivo = useMemo(() => {
+    if (!anoActivo) return [];
+    const avIds = new Set(avaliacoesDoAnoActivo.map(av => av.id));
+    return notasAvaliacoesDaEscola.filter(n => (!n.anoLectivo || n.anoLectivo === anoActivo) && (avIds.size === 0 || avIds.has(n.avaliacaoId) || !n.avaliacaoId));
+  }, [notasAvaliacoesDaEscola, avaliacoesDoAnoActivo, anoActivo]);
 
   // Ecrã de Verificação Soberana Inicial contra o Firebase (Apenas se utilizador NÃO estiver autenticado)
   if (verificandoAdminOnline && !isAuthenticated) {
@@ -1724,8 +1860,8 @@ export default function App() {
         setMobileMenuOpen={setMobileMenuOpen}
         onOpenPublicPortal={() => setActiveTab('alunos')}
         onNavigateToPerfil={() => setActiveTab('meu_perfil')}
-        onNavigateToComunicacao={() => setActiveTab('comunicacao')}
-        onNavigateToTab={(tab, subTab) => {
+        onNavigateToComunicacao={isEncarregadoPortal ? undefined : () => setActiveTab('comunicacao')}
+        onNavigateToTab={isEncarregadoPortal ? undefined : (tab, subTab) => {
           setActiveTab(tab as NavTab);
           if (subTab === 'solicitacoes') {
             setTimeout(() => {
@@ -1739,7 +1875,8 @@ export default function App() {
         }}
         onLogout={handleLogout}
         onOpenSecurityEngine={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
-        onOpenTour={() => setShowTourModal(true)}
+        onOpenTour={isEncarregadoPortal ? undefined : () => setShowTourModal(true)}
+        parentReadOnly={isEncarregadoPortal}
       />
 
       {/* Alerta de Regras do Firestore (quando o projeto externo sge4-8b772 tem regras travadas) */}
@@ -1804,19 +1941,38 @@ export default function App() {
         </div>
       )}
 
+      {/* Banner de Interinidade Total Ativa (Poderes plenos do cargo até revogação do titular) */}
+      {interinidadeAtiva && !modoApoioAtivo && (
+        <div className="bg-gradient-to-r from-indigo-900 via-blue-900 to-slate-900 text-white px-4 py-2.5 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-2 z-30 no-print border-b-2 border-indigo-400">
+          <div className="flex items-center space-x-2.5 text-xs">
+            <ShieldAlert className="h-4 w-4 text-amber-300 shrink-0" />
+            <span>
+              <strong>REGIME DE INTERINIDADE ATIVO:</strong> A exercer plenos poderes de{' '}
+              <strong>{interinidadeAtiva.cargoDelegadoTitulo || interinidadeAtiva.cargoDelegadoRole || interinidadeAtiva.delegadoPorCargo}</strong>{' '}
+              por delegação de <strong>{interinidadeAtiva.delegadoPorNome}</strong> desde {interinidadeAtiva.dataInicio}. Todos os menus do cargo encontram-se desbloqueados até revogação expressa do titular.
+            </span>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950 px-2.5 py-0.5 rounded-full self-start sm:self-auto shrink-0">
+            Auditoria Contínua
+          </span>
+        </div>
+      )}
+
       {/* Main Container */}
       <div className="flex-1 flex w-full max-w-[1600px] mx-auto min-w-0">
-        {/* Sidebar de Navegação Oficial categorizada por grupos e RBAC */}
-        <Sidebar
-          activeTab={activeTab}
-          onTabChange={(tab) => setActiveTab(tab)}
-          userRole={effectiveUser.role}
-          mobileMenuOpen={mobileMenuOpen}
-          setMobileMenuOpen={setMobileMenuOpen}
-          currentUser={effectiveUser}
-          onLogout={handleLogout}
-          onOpenTour={() => setShowTourModal(true)}
-        />
+        {/* Sidebar de Navegação Oficial categorizada por grupos e RBAC (Oculta totalmente para Encarregado) */}
+        {!isEncarregadoPortal && (
+          <Sidebar
+            activeTab={activeTabEfetiva}
+            onTabChange={(tab) => setActiveTab(tab)}
+            userRole={effectiveUser.role}
+            mobileMenuOpen={mobileMenuOpen}
+            setMobileMenuOpen={setMobileMenuOpen}
+            currentUser={effectiveUser}
+            onLogout={handleLogout}
+            onOpenTour={() => setShowTourModal(true)}
+          />
+        )}
 
         {/* Content Area com Proteção de Rotas RBAC */}
         <main className="flex-1 w-full min-w-0 p-3 sm:p-5 lg:p-6 xl:p-8 overflow-x-hidden">
@@ -1839,7 +1995,7 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <ModuleChunkErrorBoundary activeTab={activeTab} onResetToDashboard={() => setActiveTab('dashboard')}>
+            <ModuleChunkErrorBoundary activeTab={activeTabEfetiva} onResetToDashboard={() => setActiveTab('dashboard')}>
             <Suspense
               fallback={
                 <div className="flex items-center justify-center py-20 text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -1849,7 +2005,7 @@ export default function App() {
               }
             >
               {/* 1. PRINCIPAL */}
-              {activeTab === 'dashboard' && (
+              {activeTabEfetiva === 'dashboard' && (
                 <DashboardView
                   escola={escola}
                   escolas={escolas}
@@ -1860,7 +2016,7 @@ export default function App() {
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
                   onNavigate={(tab) => setActiveTab(tab)}
                   onOpenSecurityModal={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
-                  onOpenTour={() => setShowTourModal(true)}
+                  onOpenTour={isEncarregadoPortal ? undefined : () => setShowTourModal(true)}
                 />
               )}
 
@@ -1868,15 +2024,16 @@ export default function App() {
               {(activeTab === 'ano_lectivo' || activeTab === 'classes' || activeTab === 'cursos' || activeTab === 'disciplinas' || activeTab === 'turmas' || activeTab === 'turnos' || activeTab === 'academico') && (
                 <AcademicManagementView
                   escola={escola}
-                  turmas={turmasDaEscola}
-                  disciplinas={disciplinasDaEscola}
-                  atribuicoes={atribuicoesDaEscola}
+                  turmas={turmasDoAnoActivo}
+                  disciplinas={disciplinasDoAnoActivo}
+                  atribuicoes={atribuicoesDoAnoActivo}
                   funcionarios={funcionariosDaEscola}
-                  juris={jurisDaEscola}
+                  juris={jurisDoAnoActivo}
                   onSalvarEscola={handleSalvarEscola}
                   onSalvarTurma={handleSalvarTurma}
                   onEliminarTurma={handleEliminarTurma}
                   onSalvarDisciplina={handleSalvarDisciplina}
+                  onRecarregarDisciplinas={() => setDisciplinas(dbService.obterDisciplinas())}
                   onEliminarDisciplina={handleEliminarDisciplina}
                   onLimparDisciplinas={handleLimparTodasDisciplinas}
                   onSalvarAtribuicao={handleSalvarAtribuicao}
@@ -1891,6 +2048,7 @@ export default function App() {
                     activeTab === 'turnos' ? 'turnos' : 'anos'
                   }
                   onAnoLectivoAlterado={handleSelectAnoLectivo}
+                  onAnoLectivoEliminado={recarregarDados}
                 />
               )}
 
@@ -1902,13 +2060,36 @@ export default function App() {
                 />
               )}
 
+              {/* PLANO DE ATIVIDADES E EVENTOS (HIERÁRQUICO: COORDENADORES / SECRETARIA -> SUBDIRETORES -> DIRETOR) */}
+              {activeTab === 'plano_atividades' && (
+                <ActivityPlanView
+                  escola={escola}
+                  currentUser={effectiveUser}
+                  funcionarios={funcionariosDaEscola}
+                  turmas={turmasDoAnoActivo}
+                />
+              )}
+
+              {/* PROVAS, EXAMES, MAPAS DE FISCALIZAÇÃO E ATAS DE PROVAS */}
+              {activeTab === 'provas_fiscalizacao' && (
+                <ProvasFiscalizacaoView
+                  escola={escola}
+                  currentUser={effectiveUser}
+                  turmas={turmasDoAnoActivo}
+                  disciplinas={disciplinasDoAnoActivo}
+                  alunos={alunosDoAnoActivo}
+                  funcionarios={funcionariosDaEscola}
+                  atribuicoes={atribuicoesDoAnoActivo}
+                />
+              )}
+
               {/* GESTÃO DE HORÁRIOS ESCOLARES SEM CONFLITO & NOTIFICAÇÕES A PROFESSORES */}
               {activeTab === 'horarios' && (
                 <ScheduleTimetableView
                   escola={escola}
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
-                  disciplinas={disciplinasDaEscola}
+                  disciplinas={disciplinasDoAnoActivo}
                   funcionarios={funcionariosDaEscola}
                 />
               )}
@@ -1920,10 +2101,10 @@ export default function App() {
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
                   alunos={alunosDoAnoActivo}
-                  disciplinas={disciplinasDaEscola}
+                  disciplinas={disciplinasDoAnoActivo}
                   funcionarios={funcionariosDaEscola}
                   atribuicoes={atribuicoesDoAnoActivo}
-                  assiduidadeFuncionarios={assiduidadeDaEscola}
+                  assiduidadeFuncionarios={assiduidadeDoAnoActivo}
                   onSalvarRegistoAssiduidade={handleSalvarRegistoAssiduidade}
                   onAtualizarAssiduidade={() => setAssiduidade(dbService.obterAssiduidade())}
                 />
@@ -1946,8 +2127,8 @@ export default function App() {
                   escola={escola}
                   currentUser={effectiveUser}
                   atribuicoes={atribuicoesDoAnoActivo}
-                  alunos={alunosDaEscola}
-                  turmas={turmasDaEscola}
+                  alunos={alunosDoAnoActivo}
+                  turmas={turmasDoAnoActivo}
                   initialSubTab={activeTab === 'historico_escolar' ? 'historico' : undefined}
                   onSalvarAluno={handleSalvarAluno}
                   onExcluirAluno={handleExcluirAluno}
@@ -1960,7 +2141,7 @@ export default function App() {
                   escola={escola}
                   currentUser={effectiveUser}
                   funcionarios={funcionariosDaEscola}
-                  assiduidade={assiduidadeDaEscola}
+                  assiduidade={assiduidadeDoAnoActivo}
                   onSalvarFuncionario={handleSalvarFuncionario}
                   onSalvarRegistoAssiduidade={handleSalvarRegistoAssiduidade}
                   onAtualizarStatusFuncionario={handleAtualizarStatusFuncionario}
@@ -1989,14 +2170,14 @@ export default function App() {
                   currentUser={effectiveUser}
                   turmas={turmasDoAnoActivo}
                   atribuicoes={atribuicoesDoAnoActivo}
-                  disciplinas={disciplinasDaEscola}
+                  disciplinas={disciplinasDoAnoActivo}
                   alunos={alunosDoAnoActivo}
                   tiposAvaliacao={tiposAvaliacao}
                   regrasMAC={regrasMAC}
-                  avaliacoes={avaliacoesDaEscola}
-                  notas={notas}
+                  avaliacoes={avaliacoesDoAnoActivo}
+                  notas={notasAvaliacoesDoAnoActivo}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
-                  solicitacoes={solicitacoesDaEscola}
+                  solicitacoes={solicitacoesDoAnoActivo}
                   onSalvarTipoAvaliacao={handleSalvarTipoAvaliacao}
                   onSalvarRegraMAC={handleSalvarRegraMAC}
                   onSalvarAvaliacao={handleSalvarAvaliacao}
@@ -2012,9 +2193,9 @@ export default function App() {
                 <JuryCommissionView
                   escola={escola}
                   currentUser={effectiveUser}
-                  comissoes={jurisDaEscola}
+                  comissoes={jurisDoAnoActivo}
                   turmas={turmasDoAnoActivo}
-                  disciplinas={disciplinasDaEscola}
+                  disciplinas={disciplinasDoAnoActivo}
                   alunos={alunosDoAnoActivo}
                   notasConsolidadas={notasConsolidadasDoAnoActivo}
                   atribuicoes={atribuicoesDoAnoActivo}
@@ -2033,10 +2214,10 @@ export default function App() {
                   atribuicoes={atribuicoesDoAnoActivo}
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
-                  disciplinas={disciplinasDaEscola}
+                  disciplinas={disciplinasDoAnoActivo}
                   notasConsolidadas={notasConsolidadasDaEscola}
-                  notasAvaliacoes={notasAvaliacoesDaEscola}
-                  avaliacoes={avaliacoesDaEscola}
+                  notasAvaliacoes={notasAvaliacoesDoAnoActivo}
+                  avaliacoes={avaliacoesDoAnoActivo}
                   initialDocType={
                     activeTab === 'pautas' ? 'pautas' :
                     activeTab === 'certificados' ? 'certificado_ciclo' :
@@ -2053,9 +2234,9 @@ export default function App() {
                   escola={escola}
                   escolas={escolas}
                   currentUser={effectiveUser}
-                  turmas={effectiveUser.role === 'AdminGeral' ? turmas : turmasDaEscola}
-                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDaEscola}
-                  disciplinas={effectiveUser.role === 'AdminGeral' ? disciplinas : disciplinasDaEscola}
+                  turmas={effectiveUser.role === 'AdminGeral' ? turmas : turmasDoAnoActivo}
+                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDoAnoActivo}
+                  disciplinas={effectiveUser.role === 'AdminGeral' ? disciplinas : disciplinasDoAnoActivo}
                   notasConsolidadas={effectiveUser.role === 'AdminGeral' ? notasConsolidadas : notasConsolidadasDoAnoActivo}
                   funcionarios={effectiveUser.role === 'AdminGeral' ? funcionarios.filter(f => f.role !== 'AdminGeral') : funcionariosDaEscola}
                   atribuicoes={effectiveUser.role === 'AdminGeral' ? atribuicoes : atribuicoesDoAnoActivo}
@@ -2069,9 +2250,9 @@ export default function App() {
                   escola={escola}
                   escolas={escolas}
                   currentUser={effectiveUser}
-                  turmas={effectiveUser.role === 'AdminGeral' ? turmas : turmasDaEscola}
-                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDaEscola}
-                  disciplinas={effectiveUser.role === 'AdminGeral' ? disciplinas : disciplinasDaEscola}
+                  turmas={effectiveUser.role === 'AdminGeral' ? turmas : turmasDoAnoActivo}
+                  alunos={effectiveUser.role === 'AdminGeral' ? alunos : alunosDoAnoActivo}
+                  disciplinas={effectiveUser.role === 'AdminGeral' ? disciplinas : disciplinasDoAnoActivo}
                   notasConsolidadas={effectiveUser.role === 'AdminGeral' ? notasConsolidadas : notasConsolidadasDoAnoActivo}
                   funcionarios={effectiveUser.role === 'AdminGeral' ? funcionarios.filter(f => f.role !== 'AdminGeral') : funcionariosDaEscola}
                   atribuicoes={effectiveUser.role === 'AdminGeral' ? atribuicoes : atribuicoesDoAnoActivo}
@@ -2084,13 +2265,21 @@ export default function App() {
                 <AdministrativeFinanceView
                   escola={escola}
                   currentUser={effectiveUser}
-                  alunos={alunosDaEscola}
-                  turmas={turmasDaEscola}
+                  alunos={alunosDoAnoActivo}
+                  turmas={turmasDoAnoActivo}
                   onSalvarAluno={handleSalvarAluno}
                   initialSubTab={
                     activeTab === 'pagamentos' ? 'pagamentos' :
                     activeTab === 'relatorios_financeiros' ? 'relatorios' : 'visao_geral'
                   }
+                />
+              )}
+
+              {/* 5.1 FINANÇAS PESSOAIS DO UTILIZADOR (PRIVADO E ISOLADO POR UTILIZADOR) */}
+              {activeTab === 'minhas_financas' && !isEncarregadoPortal && (
+                <MinhasFinancasView
+                  currentUser={currentUser}
+                  escola={escola}
                 />
               )}
 

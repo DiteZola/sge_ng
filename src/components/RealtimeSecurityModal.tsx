@@ -69,6 +69,7 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
   });
   const [payloadCifrado, setPayloadCifrado] = useState<any>(null);
   const [sincronizandoSimulacao, setSincronizandoSimulacao] = useState(false);
+  const [confirmResetAdmin, setConfirmResetAdmin] = useState(false);
 
   const atualizarContas = () => {
     setContasBloqueadas(securityEngine.obterTodasContasBloqueadas());
@@ -177,14 +178,17 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
 
   // Resetar Admin Geral para testar Onboarding
   const handleRedefinirAdmin = () => {
-    if (confirm('Atenção: Deseja redefinir o Administrador Geral para testar a Página de Configuração Inicial do Sistema?')) {
-      dbService.redefinirAdminGeralParaTestes();
-      onClose();
-      if (onAbrirSetupInicial) {
-        onAbrirSetupInicial();
-      } else {
-        window.location.reload();
-      }
+    setConfirmResetAdmin(true);
+  };
+
+  const confirmarRedefinirAdmin = () => {
+    setConfirmResetAdmin(false);
+    dbService.redefinirAdminGeralParaTestes();
+    onClose();
+    if (onAbrirSetupInicial) {
+      onAbrirSetupInicial();
+    } else {
+      window.location.reload();
     }
   };
 
@@ -709,6 +713,35 @@ export const RealtimeSecurityModal: React.FC<RealtimeSecurityModalProps> = ({
           </button>
         </div>
 
+        {confirmResetAdmin && (
+          <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+              <div className="flex items-center space-x-2 text-amber-400">
+                <AlertTriangle className="w-6 h-6 shrink-0" />
+                <h4 className="text-sm font-black text-white">Redefinir Administrador Geral</h4>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Atenção: Deseja redefinir o Administrador Geral para testar a Página de Configuração Inicial do Sistema?
+              </p>
+              <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setConfirmResetAdmin(false)}
+                  className="px-4 py-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarRedefinirAdmin}
+                  className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl cursor-pointer"
+                >
+                  Confirmar Redefinição
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

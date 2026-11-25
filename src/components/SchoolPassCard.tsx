@@ -121,8 +121,8 @@ export const SchoolPassCard: React.FC<SchoolPassCardProps> = ({
   const logoEscolaUrl = (escola.logotipoUrl || escola.logotipo || '').trim();
   const assinaturaUrl = (passConfig.assinaturaDiretorUrl || escola.assinaturaDiretorUrl || '').trim();
   const insigniaUrl = (configSistema?.insigniaNacionalUrl || '').trim();
-  const encarregadoNome = aluno.encarregadoNome || aluno.nomeEncarregado || aluno.encarregado || '';
-  const contactoEmergencia = aluno.encarregadoTelefone || aluno.telefoneEncarregado || aluno.contactoEncarregado || aluno.telefone || '';
+  const encarregadoNome = aluno.encarregadoNome || aluno.nomeEncarregado || '';
+  const contactoEmergencia = aluno.encarregadoTelefone || aluno.telefoneEncarregado || aluno.telefone || '';
 
   const printColorExact: React.CSSProperties = {
     WebkitPrintColorAdjust: 'exact',

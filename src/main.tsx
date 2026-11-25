@@ -4,10 +4,13 @@ import App from './App.tsx';
 import './index.css';
 import { notificationService } from './services/notificationService';
 import { offlineStorage } from './services/offlineStorage';
+import { appUpdateService } from './services/appUpdateService';
+import { periodicBackupService } from './services/periodicBackupService';
 import { enforceHttpsTransport } from './utils/securityTransport';
 import { dbService } from './services/storage';
 import { LegalPoliciesModal } from './components/LegalPoliciesModal';
 import { CookieConsentBanner } from './components/CookieConsentBanner';
+import { AppUpdateBanner } from './components/AppUpdateBanner';
 
 try {
   const cfg = dbService.getConfiguracaoSistema();
@@ -16,8 +19,10 @@ try {
   enforceHttpsTransport(true);
 }
 
+appUpdateService.inicializar();
 notificationService.inicializarServiceWorker();
 offlineStorage.hidratarArmazenamentoDoIndexedDB().catch(() => {});
+periodicBackupService.iniciarAgendador();
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -86,6 +91,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>
       <App />
+      <AppUpdateBanner />
       <LegalPoliciesModal />
       <CookieConsentBanner />
     </AppErrorBoundary>

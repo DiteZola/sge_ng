@@ -15,8 +15,10 @@ import {
   calcularNotaTrimestralDinamica,
   converterComportamentoParaConceito,
   isClasseFinal,
-  obterInformacaoEscala
+  obterInformacaoEscala,
+  obterObservacaoPautaGeral
 } from '../services/macEngine';
+import { isSegundoCiclo } from '../services/academicHierarchyService';
 
 function normDiscNameExcel(nome?: string): string {
   if (!nome) return '';
@@ -51,33 +53,119 @@ function normTrimestreExcel(tri?: string | number | null): '1' | '2' | '3' | '' 
   return '';
 }
 
+function extrairNptExcel(rec?: NotaTrimestralConsolidada): number | undefined {
+  if (!rec) return undefined;
+  if (typeof rec.npt === 'number' && !Number.isNaN(rec.npt)) return rec.npt;
+  if ('npt' in rec && rec.npt === undefined && rec.provaTrimestral === 0) return undefined;
+  if (typeof rec.provaTrimestral === 'number' && !Number.isNaN(rec.provaTrimestral)) return rec.provaTrimestral;
+  return undefined;
+}
+
+function calcularMacAoVivoExcel(
+  alunoId: string,
+  d: Pick<Disciplina, 'id' | 'nome'>,
+  triStr: '1' | '2' | '3',
+  turmaId: string | undefined,
+  avaliacoes: AvaliacaoCriada[] | undefined,
+  notasAvaliacoes: NotaEstudante[] | undefined,
+  regraVigente: RegraCalculoMAC | undefined,
+  nivelEnsino: Turma['nivelEnsino'] | undefined,
+  classe: string | undefined
+): number | undefined {
+  if (!avaliacoes?.length || !notasAvaliacoes?.length) return undefined;
+  const targetNome = normDiscNameExcel(d.nome);
+  const avs = avaliacoes.filter((av) => {
+    if (turmaId && av.turmaId && av.turmaId !== turmaId) return false;
+    if (normTrimestreExcel(av.trimestre) !== triStr) return false;
+    if (d.id && av.disciplinaId === d.id) return true;
+    const avNome = normDiscNameExcel(av.disciplinaNome);
+    return Boolean(targetNome && avNome && (avNome === targetNome || (avNome.length >= 6 && targetNome.length >= 6 && (avNome.includes(targetNome) || targetNome.includes(avNome)))));
+  });
+  if (avs.length === 0) return undefined;
+  const res = calcularMACEstudante(
+    alunoId,
+    avs,
+    notasAvaliacoes,
+    regraVigente as RegraCalculoMAC,
+    nivelEnsino || 'ICiclo',
+    classe || '7ª'
+  );
+  return res.totalAvaliacoesUtilizadas > 0 ? res.macCalculada : undefined;
+}
+
 function resolverValorPautaGeralExcel(
   notas: NotaTrimestralConsolidada[],
   alunoId: string,
   d: Disciplina,
   pautaSubTipo: 'geral_final' | 'trimestral',
   pautaTrimestre: string,
-  ehFinal: boolean
+  ehFinal: boolean,
+  regraVigente?: RegraCalculoMAC,
+  classe?: string,
+  provaProfessorAtiva: boolean = true,
+  turma?: Turma,
+  avaliacoes?: AvaliacaoCriada[],
+  notasAvaliacoes?: NotaEstudante[]
 ): number | undefined {
   const normTri = normTrimestreExcel(pautaTrimestre);
   const matching = notas.filter((nc) => nc.alunoId === alunoId && notaCorrespondeDiscExcel(nc, d));
-  if (matching.length === 0) return undefined;
+
+  const obterMtRegisto = (triStr: '1' | '2' | '3', nc?: NotaTrimestralConsolidada): number | undefined => {
+    const macAoVivo = calcularMacAoVivoExcel(
+      alunoId,
+      d,
+      triStr,
+      turma?.id,
+      avaliacoes,
+      notasAvaliacoes,
+      regraVigente,
+      turma?.nivelEnsino,
+      classe || turma?.classe
+    );
+    const macNum = macAoVivo !== undefined ? macAoVivo : (typeof nc?.mac === 'number' ? nc.mac : undefined);
+    const nppNum = typeof nc?.npp === 'number' ? nc.npp : undefined;
+    const nptNum = extrairNptExcel(nc);
+
+    if (macNum !== undefined || nppNum !== undefined || nptNum !== undefined) {
+      return calcularNotaTrimestralDinamica(
+        macNum ?? 0,
+        nppNum,
+        nptNum,
+        regraVigente,
+        Number(triStr),
+        classe || turma?.classe,
+        provaProfessorAtiva
+      ).mediaTrimestral;
+    }
+    if (!nc) return undefined;
+    if (typeof nc.mediaTrimestral === 'number' && !Number.isNaN(nc.mediaTrimestral)) return nc.mediaTrimestral;
+    return nc.notaFinal;
+  };
+
   if (pautaSubTipo === 'trimestral') {
-    const ncTri = matching.find((nc) => normTrimestreExcel(nc.trimestre) === normTri);
-    return ncTri ? (ncTri.mediaTrimestral ?? ncTri.notaFinal) : undefined;
+    const triTarget = (normTri || '1') as '1' | '2' | '3';
+    const ncTri = matching.find((nc) => normTrimestreExcel(nc.trimestre) === triTarget);
+    return obterMtRegisto(triTarget, ncTri);
   }
+
+  const n1 = matching.find((n) => normTrimestreExcel(n.trimestre) === '1');
+  const n2 = matching.find((n) => normTrimestreExcel(n.trimestre) === '2');
   const n3 = matching.find((n) => normTrimestreExcel(n.trimestre) === '3');
-  if (n3 && typeof n3.notaFinal === 'number') return n3.notaFinal;
-  const mts = matching
-    .map((m) => m.mediaTrimestral ?? m.notaFinal)
-    .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
-  if (mts.length === 0) return undefined;
-  const avgMt = mts.reduce((a, b) => a + b, 0) / mts.length;
-  const exame = ehFinal ? (matching.find((m) => typeof m.notaExame === 'number')?.notaExame) : undefined;
-  if (ehFinal && typeof exame === 'number') {
-    return Math.round(((avgMt * 0.4) + (exame * 0.6)) * 10) / 10;
-  }
-  return Math.round(avgMt * 10) / 10;
+  const mt1Raw = obterMtRegisto('1', n1);
+  const mt2Raw = obterMtRegisto('2', n2);
+  const mt3Raw = obterMtRegisto('3', n3);
+  const mtsDisponiveis = [mt1Raw, mt2Raw, mt3Raw].filter(
+    (v): v is number => typeof v === 'number' && !Number.isNaN(v)
+  );
+  if (mtsDisponiveis.length === 0) return undefined;
+
+  const avgFallback = mtsDisponiveis.reduce((a, b) => a + b, 0) / mtsDisponiveis.length;
+  const mt1 = mt1Raw ?? avgFallback;
+  const mt2 = mt2Raw ?? avgFallback;
+  const mt3 = mt3Raw ?? avgFallback;
+  const exame = ehFinal ? (n3?.notaExame ?? matching.find((m) => typeof m.notaExame === 'number')?.notaExame) : undefined;
+
+  return calcularMediaFinal3Trimestre(mt1, mt2, mt3, exame, regraVigente, classe).mediaFinal;
 }
 
 function colLetter(colIdx0: number): string {
@@ -197,9 +285,13 @@ export interface PautaGeralExcelParams {
   alunos: Aluno[];
   disciplinas: Disciplina[];
   notasConsolidadas: NotaTrimestralConsolidada[];
+  avaliacoes?: AvaliacaoCriada[];
+  notasAvaliacoes?: NotaEstudante[];
   pautaSubTipo: 'geral_final' | 'trimestral';
   pautaTrimestre?: string;
   anoLectivo: string;
+  regraVigente?: RegraCalculoMAC;
+  provaProfessorAtiva?: boolean;
 }
 
 /**
@@ -214,9 +306,13 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
     alunos,
     disciplinas,
     notasConsolidadas,
+    avaliacoes,
+    notasAvaliacoes,
     pautaSubTipo,
     pautaTrimestre = '1',
-    anoLectivo
+    anoLectivo,
+    regraVigente,
+    provaProfessorAtiva = true
   } = params;
 
   const escalaInfo = obterInformacaoEscala(turma?.classe, turma?.nivelEnsino);
@@ -225,7 +321,7 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
 
   const discs = disciplinas.length > 0 ? disciplinas : [{ id: 'geral', nome: 'Média Geral', sigla: 'GER' } as Disciplina];
   const fixedLeftHeaders = ['Nº', 'Proc. Nº', 'Nome Completo do Estudante', 'Gênero'];
-  const discHeaders = discs.map((d) => d.sigla || d.nome.substring(0, 8).toUpperCase());
+  const discHeaders = discs.map((d) => d.nome);
   const rightHeaders = ['Pos.', 'Neg.', 'Média', 'Comportamento', 'Observação / Resultado'];
   const headers = [...fixedLeftHeaders, ...discHeaders, ...rightHeaders];
 
@@ -277,6 +373,7 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
     let countAluno = 0;
     let posAluno = 0;
     let negAluno = 0;
+    const mediasAluno: Array<number | null> = [];
 
     discs.forEach((d, dIdx) => {
       const c0 = firstDiscCol0 + dIdx;
@@ -286,20 +383,32 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
         d,
         pautaSubTipo,
         pautaTrimestre,
-        isClasseFinal(turma.classe)
+        isClasseFinal(turma.classe, regraVigente),
+        regraVigente,
+        turma.classe,
+        provaProfessorAtiva,
+        turma,
+        avaliacoes,
+        notasAvaliacoes
       );
 
       if (valorRaw !== undefined && valorRaw !== null && !Number.isNaN(Number(valorRaw))) {
-        const notaArred = Math.round(Number(valorRaw) * 10) / 10;
-        setCell(ws, curRow0, c0, numCell(notaArred, '0.0'));
+        const notaArred =
+          pautaSubTipo === 'geral_final'
+            ? Math.round(Number(valorRaw))
+            : Math.round(Number(valorRaw) * 10) / 10;
+        setCell(ws, curRow0, c0, numCell(notaArred, pautaSubTipo === 'geral_final' ? '0' : '0.0'));
         somaAluno += notaArred;
         countAluno++;
+        mediasAluno.push(notaArred);
         if (notaArred >= notaAprov) posAluno++;
         else negAluno++;
+      } else {
+        mediasAluno.push(null);
       }
     });
 
-    const mediaAluno = countAluno > 0 ? Math.round((somaAluno / countAluno) * 10) / 10 : 0;
+    const mediaAluno = countAluno > 0 ? Math.round(somaAluno / countAluno) : 0;
     if (countAluno > 0) {
       totalAvaliadosFallback++;
       somaMediasTurma += mediaAluno;
@@ -319,15 +428,15 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
       formulaNumCell(`COUNTIF(${firstDiscL}${excelR}:${lastDiscL}${excelR},"<"&${notaAprov})`, negAluno, '0')
     );
 
-    // Fórmula Excel Média do Aluno
+    // Fórmula Excel Média do Aluno (sempre arredondada a inteiro)
     setCell(
       ws,
       curRow0,
       medCol0,
       formulaNumCell(
-        `IF(COUNT(${firstDiscL}${excelR}:${lastDiscL}${excelR})>0,ROUND(AVERAGE(${firstDiscL}${excelR}:${lastDiscL}${excelR}),1),0)`,
+        `IF(COUNT(${firstDiscL}${excelR}:${lastDiscL}${excelR})>0,ROUND(AVERAGE(${firstDiscL}${excelR}:${lastDiscL}${excelR}),0),0)`,
         mediaAluno,
-        '0.0'
+        '0'
       )
     );
 
@@ -344,26 +453,24 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
         : (aluno.comportamentoConceito || '—');
     setCell(ws, curRow0, compCol0, strCell(compTexto));
 
-    // Observação com fórmula real
-    let obsFallback = 'Sem Notas';
-    if (countAluno > 0) {
-      if (ehIniciacao) {
-        obsFallback = 'Avaliação Qualitativa';
-      } else if (negAluno === 0) {
-        obsFallback = aluno.genero === 'F' ? 'Aprovada' : 'Aprovado';
-        aprovadosFallback++;
-      } else if (negAluno <= 2) {
-        obsFallback = 'Apto Recurso';
-        recursoFallback++;
-      } else {
-        obsFallback = aluno.genero === 'F' ? 'Reprovada' : 'Reprovado';
-        reprovadosFallback++;
-      }
-    }
+    // Observação com fórmula real (respeitando Desistente/Transferido)
+    const obsCalc = obterObservacaoPautaGeral(
+      mediasAluno,
+      turma.classe,
+      aluno.estado,
+      regraVigente
+    );
+    const obsFallback = obsCalc.texto;
+    if (obsCalc.categoria === 'Aprovado') aprovadosFallback++;
+    else if (obsCalc.categoria === 'Recurso') recursoFallback++;
+    else if (obsCalc.categoria === 'Reprovado') reprovadosFallback++;
 
-    const obsFormula = ehIniciacao
-      ? `IF(COUNT(${firstDiscL}${excelR}:${lastDiscL}${excelR})=0,"Sem Notas","Avaliação Qualitativa")`
-      : `IF(COUNT(${firstDiscL}${excelR}:${lastDiscL}${excelR})=0,"Sem Notas",IF(${negL}${excelR}=0,IF(${genL}${excelR}="F","Aprovada","Aprovado"),IF(${negL}${excelR}<=2,"Apto Recurso",IF(${genL}${excelR}="F","Reprovada","Reprovado"))))`;
+    const statusFixo = aluno.estado === 'Desistente' || aluno.estado === 'Transferido';
+    const obsFormula = statusFixo
+      ? `"${obsFallback}"`
+      : ehIniciacao
+        ? `IF(COUNT(${firstDiscL}${excelR}:${lastDiscL}${excelR})=0,"Sem Notas","Avaliação Qualitativa")`
+        : `IF(COUNT(${firstDiscL}${excelR}:${lastDiscL}${excelR})=0,"Sem Notas",IF(${negL}${excelR}=0,IF(${genL}${excelR}="F","Aprovada","Aprovado"),IF(${negL}${excelR}<=2,"Apto Recurso",IF(${genL}${excelR}="F","Reprovada","Reprovado"))))`;
 
     setCell(ws, curRow0, obsCol0, formulaStrCell(obsFormula, obsFallback));
     curRow0++;
@@ -387,25 +494,36 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
             d,
             pautaSubTipo,
             pautaTrimestre,
-            isClasseFinal(turma.classe)
+            isClasseFinal(turma.classe, regraVigente),
+            regraVigente,
+            turma.classe,
+            provaProfessorAtiva,
+            turma,
+            avaliacoes,
+            notasAvaliacoes
           )
         )
         .filter((v): v is number => typeof v === 'number' && !Number.isNaN(v));
-      const mediaDiscFallback = vals.length > 0 ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : 0;
+      const mediaDiscFallback = vals.length > 0
+        ? (pautaSubTipo === 'geral_final'
+            ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)
+            : Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10)
+        : 0;
+      const decDisc = pautaSubTipo === 'geral_final' ? 0 : 1;
       setCell(
         ws,
         mediaRow0,
         c0,
-        formulaNumCell(`IFERROR(ROUND(AVERAGE(${colL}${firstExcelR}:${colL}${lastExcelR}),1),0)`, mediaDiscFallback, '0.0')
+        formulaNumCell(`IFERROR(ROUND(AVERAGE(${colL}${firstExcelR}:${colL}${lastExcelR}),${decDisc}),0)`, mediaDiscFallback, decDisc === 0 ? '0' : '0.0')
       );
     });
 
-    const mediaGeralTurma = totalAvaliadosFallback > 0 ? Math.round((somaMediasTurma / totalAvaliadosFallback) * 10) / 10 : 0;
+    const mediaGeralTurma = totalAvaliadosFallback > 0 ? Math.round(somaMediasTurma / totalAvaliadosFallback) : 0;
     setCell(
       ws,
       mediaRow0,
       medCol0,
-      formulaNumCell(`IFERROR(ROUND(AVERAGE(${medL}${firstExcelR}:${medL}${lastExcelR}),1),0)`, mediaGeralTurma, '0.0')
+      formulaNumCell(`IFERROR(ROUND(AVERAGE(${medL}${firstExcelR}:${medL}${lastExcelR}),0),0)`, mediaGeralTurma, '0')
     );
     setCell(ws, mediaRow0, posCol0, formulaNumCell(`SUM(${posL}${firstExcelR}:${posL}${lastExcelR})`, 0, '0'));
     setCell(ws, mediaRow0, negCol0, formulaNumCell(`SUM(${negL}${firstExcelR}:${negL}${lastExcelR})`, 0, '0'));
@@ -472,15 +590,15 @@ export function exportarPautaGeralExcel(params: PautaGeralExcelParams): void {
 
   setCell(ws, rowMediaGeral0, 0, strCell('Média Geral da Turma'));
   merges.push({ s: { r: rowMediaGeral0, c: 0 }, e: { r: rowMediaGeral0, c: 1 } });
-  const mediaGeralTurma = totalAvaliadosFallback > 0 ? Math.round((somaMediasTurma / totalAvaliadosFallback) * 10) / 10 : 0;
-  setCell(ws, rowMediaGeral0, valCol, formulaNumCell(`IFERROR(ROUND(AVERAGE(${medL}${firstExcelR}:${medL}${lastExcelR}),1),0)`, mediaGeralTurma, '0.0'));
+  const mediaGeralTurma = totalAvaliadosFallback > 0 ? Math.round(somaMediasTurma / totalAvaliadosFallback) : 0;
+  setCell(ws, rowMediaGeral0, valCol, formulaNumCell(`IFERROR(ROUND(AVERAGE(${medL}${firstExcelR}:${medL}${lastExcelR}),0),0)`, mediaGeralTurma, '0'));
 
   const colWidths = [
     6, // Nº
     16, // Proc
     34, // Nome
     9, // Gênero
-    ...discs.map(() => 10),
+    ...discs.map((d) => Math.max(14, Math.min(28, d.nome.length + 3))),
     8, // Pos
     8, // Neg
     10, // Média
@@ -504,13 +622,15 @@ export interface PautaDisciplinaExcelParams {
   disciplina?: Disciplina;
   alunos: Aluno[];
   notasConsolidadas: NotaTrimestralConsolidada[];
+  avaliacoes?: AvaliacaoCriada[];
+  notasAvaliacoes?: NotaEstudante[];
   anoLectivo: string;
   provaProfessorAtiva: boolean;
   regraVigente?: RegraCalculoMAC;
 }
 
 /**
- * Exporta a Pauta Anual da Disciplina (MT1, MT2, MT3, Exame, MFD e Observação) em Excel (.xlsx)
+ * Exporta a Pauta Anual da Disciplina (MAC, [NPP], NPT, MT1, MT2, MT3, Exame, MFD e Observação) em Excel (.xlsx)
  * com fórmulas dinâmicas de Média Final, Observação por Género e Sumário de Percentagens.
  */
 export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelParams): void {
@@ -520,6 +640,8 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
     disciplina,
     alunos,
     notasConsolidadas,
+    avaliacoes,
+    notasAvaliacoes,
     anoLectivo,
     provaProfessorAtiva,
     regraVigente
@@ -537,6 +659,7 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
     'Gênero',
     'MAC',
     ...(provaProfessorAtiva ? ['NPP'] : []),
+    'NPT',
     'MT1',
     'MT2',
     'MT3',
@@ -548,7 +671,9 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
 
   const totalCols = headers.length;
   const genCol0 = 3;
-  const mt1Col0 = provaProfessorAtiva ? 6 : 5;
+  const nppCol0 = provaProfessorAtiva ? 5 : -1;
+  const nptCol0 = provaProfessorAtiva ? 6 : 5;
+  const mt1Col0 = nptCol0 + 1;
   const mt2Col0 = mt1Col0 + 1;
   const mt3Col0 = mt1Col0 + 2;
   const exCol0 = ehFinal ? mt3Col0 + 1 : -1;
@@ -589,25 +714,54 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
     const notasAl = notasConsolidadas.filter(
       (n) => n.alunoId === aluno.id && notaCorrespondeDiscExcel(n, disciplina)
     );
-    const n1 = notasAl.find((n) => normTrimestreExcel(n.trimestre) === '1');
-    const n2 = notasAl.find((n) => normTrimestreExcel(n.trimestre) === '2');
-    const n3 = notasAl.find((n) => normTrimestreExcel(n.trimestre) === '3');
+    const resolverTri = (triStr: '1' | '2' | '3') => {
+      const nc = notasAl.find((n) => normTrimestreExcel(n.trimestre) === triStr);
+      const macVivo = disciplina
+        ? calcularMacAoVivoExcel(
+            aluno.id,
+            disciplina,
+            triStr,
+            turma.id,
+            avaliacoes,
+            notasAvaliacoes,
+            regraVigente,
+            turma.nivelEnsino,
+            turma.classe
+          )
+        : undefined;
+      const mac = macVivo !== undefined ? macVivo : (typeof nc?.mac === 'number' ? nc.mac : undefined);
+      const npp = typeof nc?.npp === 'number' ? nc.npp : undefined;
+      const npt = extrairNptExcel(nc);
+      const mt = (mac !== undefined || npp !== undefined || npt !== undefined)
+        ? calcularNotaTrimestralDinamica(mac ?? 0, npp, npt, regraVigente, Number(triStr), turma.classe, provaProfessorAtiva).mediaTrimestral
+        : (nc?.mediaTrimestral ?? nc?.notaFinal);
+      return { nc, mac, npp, npt, mt };
+    };
 
-    const mac = n3?.mac ?? n2?.mac ?? n1?.mac;
-    const npp = n3?.npp ?? n2?.npp ?? n1?.npp;
-    const mt1 = n1?.mediaTrimestral ?? n1?.notaFinal;
-    const mt2 = n2?.mediaTrimestral ?? n2?.notaFinal;
-    const mt3 = n3?.mediaTrimestral ?? n3?.notaFinal;
-    const exame = ehFinal ? (n3?.notaExame ?? n2?.notaExame ?? n1?.notaExame) : undefined;
+    const r1 = resolverTri('1');
+    const r2 = resolverTri('2');
+    const r3 = resolverTri('3');
+
+    const macList = [r1.mac, r2.mac, r3.mac].filter((x): x is number => typeof x === 'number');
+    const nppList = [r1.npp, r2.npp, r3.npp].filter((x): x is number => typeof x === 'number');
+    const nptList = [r1.npt, r2.npt, r3.npt].filter((x): x is number => typeof x === 'number');
+    const mac = macList.length > 0 ? Math.round((macList.reduce((a, b) => a + b, 0) / macList.length) * 10) / 10 : undefined;
+    const npp = nppList.length > 0 ? Math.round((nppList.reduce((a, b) => a + b, 0) / nppList.length) * 10) / 10 : undefined;
+    const npt = nptList.length > 0 ? Math.round((nptList.reduce((a, b) => a + b, 0) / nptList.length) * 10) / 10 : undefined;
+    const mt1 = r1.mt;
+    const mt2 = r2.mt;
+    const mt3 = r3.mt;
+    const exame = ehFinal ? (r3.nc?.notaExame ?? r2.nc?.notaExame ?? r1.nc?.notaExame) : undefined;
 
     setCell(ws, curRow0, 0, numCell(aluno.numeroOrdem || idx + 1, '0'));
     setCell(ws, curRow0, 1, strCell(aluno.numeroProcesso || aluno.codigoMatricula || '—'));
     setCell(ws, curRow0, 2, strCell(aluno.nomeCompleto));
     setCell(ws, curRow0, genCol0, strCell(aluno.genero === 'F' ? 'F' : 'M'));
     if (typeof mac === 'number') setCell(ws, curRow0, 4, numCell(mac, '0.0'));
-    if (provaProfessorAtiva && typeof npp === 'number') {
-      setCell(ws, curRow0, 5, numCell(npp, '0.0'));
+    if (provaProfessorAtiva && nppCol0 >= 0 && typeof npp === 'number') {
+      setCell(ws, curRow0, nppCol0, numCell(npp, '0.0'));
     }
+    if (typeof npt === 'number') setCell(ws, curRow0, nptCol0, numCell(npt, '0.0'));
     if (typeof mt1 === 'number') setCell(ws, curRow0, mt1Col0, numCell(mt1, '0.0'));
     if (typeof mt2 === 'number') setCell(ws, curRow0, mt2Col0, numCell(mt2, '0.0'));
     if (typeof mt3 === 'number') setCell(ws, curRow0, mt3Col0, numCell(mt3, '0.0'));
@@ -619,20 +773,23 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
     let mfdFallback = 0;
     if (mtsValidos.length > 0) {
       const avgMt = mtsValidos.reduce((a, b) => a + b, 0) / mtsValidos.length;
-      if (ehFinal && typeof exame === 'number' && !Number.isNaN(exame)) {
-        mfdFallback = Math.round(((avgMt * pesoMDF + exame * pesoNE) / totalPesos) * 10) / 10;
-      } else {
-        mfdFallback = Math.round(avgMt * 10) / 10;
-      }
+      mfdFallback = calcularMediaFinal3Trimestre(
+        typeof mt1 === 'number' ? mt1 : avgMt,
+        typeof mt2 === 'number' ? mt2 : avgMt,
+        typeof mt3 === 'number' ? mt3 : avgMt,
+        ehFinal ? exame : undefined,
+        regraVigente,
+        turma.classe
+      ).mediaFinal;
       totalAvaliados++;
       somaMfd += mfdFallback;
     }
 
     const mfdFormula = ehFinal
-      ? `IF(COUNT(${mt1L}${excelR}:${mt3L}${excelR})=0,0,IF(ISNUMBER(${exL}${excelR}),ROUND(((AVERAGE(${mt1L}${excelR}:${mt3L}${excelR})*${pesoMDF})+(${exL}${excelR}*${pesoNE}))/${totalPesos},1),ROUND(AVERAGE(${mt1L}${excelR}:${mt3L}${excelR}),1)))`
-      : `IF(COUNT(${mt1L}${excelR}:${mt3L}${excelR})=0,0,ROUND(AVERAGE(${mt1L}${excelR}:${mt3L}${excelR}),1))`;
+      ? `IF(COUNT(${mt1L}${excelR}:${mt3L}${excelR})=0,0,IF(ISNUMBER(${exL}${excelR}),ROUND(((AVERAGE(${mt1L}${excelR}:${mt3L}${excelR})*${pesoMDF})+(${exL}${excelR}*${pesoNE}))/${totalPesos},0),ROUND(AVERAGE(${mt1L}${excelR}:${mt3L}${excelR}),0)))`
+      : `IF(COUNT(${mt1L}${excelR}:${mt3L}${excelR})=0,0,ROUND(AVERAGE(${mt1L}${excelR}:${mt3L}${excelR}),0))`;
 
-    setCell(ws, curRow0, mfdCol0, formulaNumCell(mfdFormula, mfdFallback, '0.0'));
+    setCell(ws, curRow0, mfdCol0, formulaNumCell(mfdFormula, Math.round(mfdFallback), '0'));
     setCell(ws, curRow0, compCol0, strCell(aluno.comportamentoConceito || '—'));
 
     let obsFallback = 'Sem Notas';
@@ -708,12 +865,13 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
 
   setCell(ws, rMed0, 0, strCell('Média da Turma na Disciplina'));
   merges.push({ s: { r: rMed0, c: 0 }, e: { r: rMed0, c: 1 } });
-  const medDisciplina = totalAvaliados > 0 ? Math.round((somaMfd / totalAvaliados) * 10) / 10 : 0;
-  setCell(ws, rMed0, valC0, formulaNumCell(`IFERROR(ROUND(AVERAGE(${mfdL}${firstExcelR}:${mfdL}${lastExcelR}),1),0)`, medDisciplina, '0.0'));
+  const medDisciplina = totalAvaliados > 0 ? Math.round(somaMfd / totalAvaliados) : 0;
+  setCell(ws, rMed0, valC0, formulaNumCell(`IFERROR(ROUND(AVERAGE(${mfdL}${firstExcelR}:${mfdL}${lastExcelR}),0),0)`, medDisciplina, '0'));
 
   const colWidths = [
     6, 16, 34, 8, 9,
     ...(provaProfessorAtiva ? [9] : []),
+    9, // NPT
     9, 9, 9,
     ...(ehFinal ? [9] : []),
     10, 15, 18
@@ -723,7 +881,7 @@ export function exportarPautaDisciplinaAnualExcel(params: PautaDisciplinaExcelPa
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Pauta_Disciplina');
-  const fname = `Pauta_Disciplina_${sanitizeFilenamePart(disciplina?.sigla || disciplina?.nome || 'Disc')}_${sanitizeFilenamePart(turma.nome)}_${sanitizeFilenamePart(anoLectivo)}.xlsx`;
+  const fname = `Pauta_Disciplina_${sanitizeFilenamePart(disciplina?.nome || 'Disciplina')}_${sanitizeFilenamePart(turma.nome)}_${sanitizeFilenamePart(anoLectivo)}.xlsx`;
   XLSX.writeFile(wb, fname);
 }
 
@@ -847,9 +1005,11 @@ export function exportarPautaTrimestralComFormulasExcel(params: PautaTrimestralA
         normTrimestreExcel(c.trimestre) === String(trimestre)
     );
 
-    const macVal = notaCons?.mac ?? resMAC.macCalculada;
+    const macVal = resMAC.totalAvaliacoesUtilizadas > 0
+      ? resMAC.macCalculada
+      : (typeof notaCons?.mac === 'number' ? notaCons.mac : 0);
     const nppVal = notaCons?.npp;
-    const ptVal = notaCons?.provaTrimestral ?? notaCons?.npt;
+    const ptVal = extrairNptExcel(notaCons);
     const exameVal = ehFinal ? notaCons?.notaExame : undefined;
 
     const calcTrim = calcularNotaTrimestralDinamica(
@@ -861,7 +1021,12 @@ export function exportarPautaTrimestralComFormulasExcel(params: PautaTrimestralA
       turma.classe,
       provaProfessorAtiva
     );
-    const mediaTrim = notaCons?.mediaTrimestral ?? calcTrim.mediaTrimestral;
+    const temInputsLive =
+      resMAC.totalAvaliacoesUtilizadas > 0 ||
+      typeof notaCons?.mac === 'number' ||
+      typeof nppVal === 'number' ||
+      typeof ptVal === 'number';
+    const mediaTrim = temInputsLive ? calcTrim.mediaTrimestral : (notaCons?.mediaTrimestral ?? calcTrim.mediaTrimestral);
     const calcMF = ehTrim3
       ? calcularMediaFinal3Trimestre(
           mediaTrim,
@@ -931,9 +1096,9 @@ export function exportarPautaTrimestralComFormulasExcel(params: PautaTrimestralA
     if (ehTrim3 && mfCol0 >= 0) {
       const mfFormula =
         ehFinal && exL
-          ? `IF(ISNUMBER(${exL}${excelR}),ROUND((${mtL}${excelR}*${pesoMDF}+${exL}${excelR}*${pesoNE})/${totalPesosExame},1),${mtL}${excelR})`
-          : `${mtL}${excelR}`;
-      setCell(ws, curRow0, mfCol0, formulaNumCell(mfFormula, finalNum, '0.0'));
+          ? `IF(ISNUMBER(${exL}${excelR}),ROUND((${mtL}${excelR}*${pesoMDF}+${exL}${excelR}*${pesoNE})/${totalPesosExame},0),ROUND(${mtL}${excelR},0))`
+          : `ROUND(${mtL}${excelR},0)`;
+      setCell(ws, curRow0, mfCol0, formulaNumCell(mfFormula, Math.round(finalNum), '0'));
     }
 
     const compStr =
@@ -1007,8 +1172,8 @@ export function exportarPautaTrimestralComFormulasExcel(params: PautaTrimestralA
 
   setCell(ws, rMed0, 0, strCell('Média Geral da Turma'));
   merges.push({ s: { r: rMed0, c: 0 }, e: { r: rMed0, c: 1 } });
-  const medTurma = countAvaliados > 0 ? Math.round((somaFinais / countAvaliados) * 10) / 10 : 0;
-  setCell(ws, rMed0, valC0, formulaNumCell(`IFERROR(ROUND(AVERAGE(${finalL}${firstExcelR}:${finalL}${lastExcelR}),1),0)`, medTurma, '0.0'));
+  const medTurma = countAvaliados > 0 ? Math.round(somaFinais / countAvaliados) : 0;
+  setCell(ws, rMed0, valC0, formulaNumCell(`IFERROR(ROUND(AVERAGE(${finalL}${firstExcelR}:${finalL}${lastExcelR}),0),0)`, medTurma, '0'));
 
   const colWidths = [
     6,
@@ -1030,7 +1195,7 @@ export function exportarPautaTrimestralComFormulasExcel(params: PautaTrimestralA
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, `Pauta_${trimestre}T`);
-  const fname = `Pauta_Oficial_${sanitizeFilenamePart(turma.nome)}_${sanitizeFilenamePart(disciplina?.sigla || disciplina?.nome || 'Disc')}_${trimestre}T_${sanitizeFilenamePart(anoLectivo)}.xlsx`;
+  const fname = `Pauta_Oficial_${sanitizeFilenamePart(turma.nome)}_${sanitizeFilenamePart(disciplina?.nome || 'Disciplina')}_${trimestre}T_${sanitizeFilenamePart(anoLectivo)}.xlsx`;
   XLSX.writeFile(wb, fname);
 }
 
@@ -1115,10 +1280,10 @@ export function exportarPautaJuriExcel(params: {
     setCell(ws, curRow0, 3, strCell(it.aluno.genero === 'F' ? 'F' : 'M'));
     setCell(ws, curRow0, 4, strCell(it.turma?.classe || classe));
     setCell(ws, curRow0, 5, strCell(it.turma?.nome || '—'));
-    setCell(ws, curRow0, 6, strCell(it.turma?.curso || 'Geral'));
+    setCell(ws, curRow0, 6, strCell(isSegundoCiclo(it.turma?.classe || classe) ? (it.turma?.curso || 'Geral') : '—'));
     setCell(ws, curRow0, 7, numCell(it.disciplinasPositivas, '0'));
     setCell(ws, curRow0, 8, numCell(it.disciplinasNegativas, '0'));
-    setCell(ws, curRow0, 9, numCell(Math.round(it.mediaGeral * 10) / 10, '0.0'));
+    setCell(ws, curRow0, 9, numCell(Math.round(it.mediaGeral), '0'));
     setCell(
       ws,
       curRow0,
@@ -1171,8 +1336,8 @@ export function exportarPautaJuriExcel(params: {
 
   setCell(ws, rMed0, 0, strCell('Média Geral da Pauta'));
   merges.push({ s: { r: rMed0, c: 0 }, e: { r: rMed0, c: 1 } });
-  const medTurma = itens.length > 0 ? Math.round((somaMed / itens.length) * 10) / 10 : 0;
-  setCell(ws, rMed0, 2, formulaNumCell(`IFERROR(ROUND(AVERAGE(J${firstExcelR}:J${lastExcelR}),1),0)`, medTurma, '0.0'));
+  const medTurma = itens.length > 0 ? Math.round(somaMed / itens.length) : 0;
+  setCell(ws, rMed0, 2, formulaNumCell(`IFERROR(ROUND(AVERAGE(J${firstExcelR}:J${lastExcelR}),0),0)`, medTurma, '0'));
 
   finalizeSheetRange(ws, curRow0, totalCols, [6, 16, 32, 8, 10, 12, 18, 14, 14, 12, 26, 24], merges);
 
@@ -1268,7 +1433,7 @@ export function exportarBoletimAlunoExcel(params: {
   const rPerc0 = curRow0++;
 
   setCell(ws, rMed0, 1, strCell('Média Geral do Estudante'));
-  setCell(ws, rMed0, 5, formulaNumCell(`IFERROR(ROUND(AVERAGE(F${firstExcelR}:F${lastExcelR}),1),0)`, countMts > 0 ? Math.round((somaMts / countMts) * 10) / 10 : 0, '0.0'));
+  setCell(ws, rMed0, 5, formulaNumCell(`IFERROR(ROUND(AVERAGE(F${firstExcelR}:F${lastExcelR}),0),0)`, countMts > 0 ? Math.round(somaMts / countMts) : 0, '0'));
 
   setCell(ws, rPos0, 1, strCell('Disciplinas Positivas'));
   setCell(ws, rPos0, 5, formulaNumCell(`COUNTIF(F${firstExcelR}:F${lastExcelR},">="&${notaAprov})`, pos, '0'));

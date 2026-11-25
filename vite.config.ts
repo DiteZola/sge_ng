@@ -1,15 +1,51 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, Plugin} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+
+const BUILD_TIMESTAMP = new Date().toISOString();
+const APP_BUILD_VERSION = `sge-${BUILD_TIMESTAMP.replace(/[:.TZ-]/g, '').slice(0, 14)}`;
+
+function sgeBuildVersionPlugin(version: string, buildTime: string): Plugin {
+  const payload = JSON.stringify({ version, buildTime }, null, 2);
+  return {
+    name: 'sge-build-version-plugin',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const urlPath = (req.url || '').split('?')[0];
+        if (urlPath === '/version.json' || urlPath.endsWith('/version.json')) {
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          res.end(payload);
+          return;
+        }
+        next();
+      });
+    },
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: payload
+      });
+    }
+  };
+}
 
 export default defineConfig(() => {
   return {
     base: './',
+    define: {
+      __SGE_APP_VERSION__: JSON.stringify(APP_BUILD_VERSION),
+      __SGE_BUILD_TIME__: JSON.stringify(BUILD_TIMESTAMP),
+    },
     plugins: [
       react(),
       tailwindcss(),
+      sgeBuildVersionPlugin(APP_BUILD_VERSION, BUILD_TIMESTAMP),
       VitePWA({
         registerType: 'autoUpdate',
         manifest: false,
@@ -31,12 +67,17 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
           importScripts: ['./sw-notifications.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json}'],
+          globIgnores: ['**/version.json'],
           navigateFallback: 'index.html',
-          navigateFallbackDenylist: [/robots\.txt$/i, /sitemap\.xml$/i],
+          navigateFallbackDenylist: [/robots\.txt$/i, /sitemap\.xml$/i, /version\.json$/i],
           cleanupOutdatedCaches: true,
           skipWaiting: true,
           clientsClaim: true,
           runtimeCaching: [
+            {
+              urlPattern: /\/version\.json(\?.*)?$/i,
+              handler: 'NetworkOnly',
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',

@@ -23,14 +23,27 @@ import {
   FileCheck2, 
   Gavel, 
   BookOpen, 
-  DollarSign
+  DollarSign,
+  Eye,
+  EyeOff,
+  Save,
+  Shield
 } from 'lucide-react';
-import { Escola, Funcionario, Turma, Aluno } from '../types';
-import { dbService } from '../services/storage';
+import {
+  Escola,
+  Funcionario,
+  Turma,
+  Aluno,
+  ConfiguracaoVisibilidadeEmpregados,
+  RegraVisibilidadeDadosSensiveis,
+  RegraVisibilidadePorCargo
+} from '../types';
+import { dbService, DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS } from '../services/storage';
 import { InsigniaAngola, DEFAULT_INSIGNIA_SVG_DATA_URL } from '../constants/insignia';
 import { downloadHtmlDocument } from '../utils/curriculoAngola';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { formatarDataAngolana } from '../utils/dateFormat';
+import { obterGeneroDiretorGeral } from '../utils/directorHelper';
 import { DelegationsManagementView } from './DelegationsManagementView';
 
 export interface DespachoDirecao {
@@ -82,8 +95,19 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
   onSalvarEscola,
   onNavigate
 }) => {
-  const [subAba, setSubAba] = useState<'painel' | 'despachos' | 'reunioes' | 'comissoes' | 'delegacoes'>('painel');
+  const ehExecutivoDirecao = ['DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'AdminGeral'].includes(currentUser.role);
+  const [subAba, setSubAba] = useState<'painel' | 'despachos' | 'reunioes' | 'comissoes' | 'delegacoes' | 'visibilidade'>(
+    ehExecutivoDirecao ? 'painel' : 'delegacoes'
+  );
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [visConfig, setVisConfig] = useState<ConfiguracaoVisibilidadeEmpregados>(() => dbService.getVisibilidadeEmpregados(escola.id));
+  const [cargoSelecionadoVis, setCargoSelecionadoVis] = useState<string>('Professor');
+
+  const podeGerirVisibilidade = ['DiretorGeral', 'AdminGeral'].includes(currentUser.role);
+
+  React.useEffect(() => {
+    setVisConfig(dbService.getVisibilidadeEmpregados(escola.id));
+  }, [escola.id, escola.visibilidadeEmpregados]);
 
   const notificar = (msg: string) => {
     setFeedback(msg);
@@ -116,6 +140,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
   const [novoDespachoPublico, setNovoDespachoPublico] = useState<DespachoDirecao['publicoAlvo']>('Professores');
   const [novoDespachoLegal, setNovoDespachoLegal] = useState('Nos termos da Lei n.º 32/20 (Lei de Bases do Sistema de Educação e Ensino de Angola).');
   const [novoDespachoConteudo, setNovoDespachoConteudo] = useState('');
+  const [erroModalDespacho, setErroModalDespacho] = useState<string | null>(null);
 
   // Modal Nova Reunião
   const [showNovaReuniaoModal, setShowNovaReuniaoModal] = useState(false);
@@ -202,8 +227,9 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
 
   const handleSalvarDespacho = (e: React.FormEvent) => {
     e.preventDefault();
+    setErroModalDespacho(null);
     if (!novoDespachoAssunto.trim() || !novoDespachoConteudo.trim()) {
-      alert('Preencha o assunto e o conteúdo normativo do despacho.');
+      setErroModalDespacho('Preencha o assunto e o conteúdo normativo do despacho.');
       return;
     }
 
@@ -431,7 +457,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
         <div class="title">${reun.numeroAta} • CONSELHO DE DIREÇÃO</div>
 
         <div class="section">
-          Aos ${formatarDataAngolana(reun.data, 'extenso')}, pelas ${reun.hora}, reuniu-se em sessão ${reun.tipo} o Conselho de Direção da instituição, no(a) ${reun.local}, sob a presidência do(a) Director(a) Geral <strong>${escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
+          Aos ${formatarDataAngolana(reun.data, 'extenso')}, pelas ${reun.hora}, reuniu-se em sessão ${reun.tipo} o Conselho de Direção da instituição, em <strong>${reun.local}</strong>, sob a presidência ${obterGeneroDiretorGeral(escola) === 'F' ? 'da Directora Geral' : 'do Director Geral'} <strong>${escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
         </div>
 
         <div class="section">
@@ -593,12 +619,26 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center space-x-2 cursor-pointer ${
             subAba === 'delegacoes'
               ? 'bg-blue-700 text-white shadow-xs'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800'
           }`}
         >
           <Award className="h-4 w-4" />
-          <span>Delegação de Poderes (Matrículas & Cobrança)</span>
+          <span>Delegação de Poderes &amp; Interinidade</span>
         </button>
+
+        {podeGerirVisibilidade && (
+          <button
+            onClick={() => setSubAba('visibilidade')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center space-x-2 cursor-pointer ${
+              subAba === 'visibilidade'
+                ? 'bg-indigo-700 text-white shadow-xs'
+                : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Eye className="h-4 w-4" />
+            <span>Visibilidade de Empregados</span>
+          </button>
+        )}
       </div>
 
       {/* 1. ABA: PAINEL DE GOVERNAÇÃO & DECISÃO RÁPIDA */}
@@ -1160,6 +1200,464 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
         />
       )}
 
+      {/* 6. ABA: CONTROLO DE VISIBILIDADE E PERMISSÕES DE EMPREGADOS */}
+      {subAba === 'visibilidade' && podeGerirVisibilidade && (() => {
+        const CARGOS_GERIVEIS: { id: string; label: string }[] = [
+          { id: 'SubdiretorPedagogico', label: 'Subdiretor Pedagógico' },
+          { id: 'SubdiretorAdministrativo', label: 'Subdiretor Administrativo' },
+          { id: 'CoordenadorPedagogico', label: 'Coordenador Pedagógico' },
+          { id: 'CoordenadorTurno', label: 'Coordenador de Turno' },
+          { id: 'CoordenadorDisciplina', label: 'Coordenador de Disciplina' },
+          { id: 'Professor', label: 'Professor' },
+          { id: 'Secretaria', label: 'Secretaria' },
+          { id: 'ChefeSecretaria', label: 'Chefe de Secretaria' },
+          { id: 'SecretarioEscolar', label: 'Secretário Escolar' },
+          { id: 'Tesoureiro', label: 'Tesoureiro' },
+          { id: 'Bibliotecario', label: 'Bibliotecário' },
+          { id: 'Estagiario', label: 'Estagiário' },
+          { id: 'TecnicoTI', label: 'Técnico de TI' }
+        ];
+
+        const DADOS_SENSIVEIS_INFO: {
+          key: keyof RegraVisibilidadeDadosSensiveis;
+          titulo: string;
+          descricao: string;
+        }[] = [
+          {
+            key: 'verContactosAlunosEncarregados',
+            titulo: 'Ver Contactos de Alunos e Encarregados',
+            descricao: 'Permite visualizar números de telefone e contactos dos encarregados nas listas, passes, fichas e exportações.'
+          },
+          {
+            key: 'verDocumentosIdentificacaoAlunos',
+            titulo: 'Ver Documentos de Identificação (BI/Cédula) de Alunos',
+            descricao: 'Permite visualizar o número de BI, cédula ou passaporte dos alunos em fichas, passes e declarações.'
+          },
+          {
+            key: 'verSituacaoFinanceiraPropinasAlunos',
+            titulo: 'Ver Situação Financeira e Propinas de Alunos',
+            descricao: 'Permite visualizar estados de propina (Em Dia / Devedor), valores em dívida e resumos financeiros discentes.'
+          },
+          {
+            key: 'verDadosSensiveisFuncionarios',
+            titulo: 'Ver Dados Sensíveis de Funcionários (BI, IBAN, INSS, Contactos)',
+            descricao: 'Permite visualizar IBAN, banco, INSS, BI e contactos de outros colegas no quadro de RH e fichas.'
+          },
+          {
+            key: 'verEstatisticasGlobaisEscola',
+            titulo: 'Ver Estatísticas Globais & Indicadores da Escola',
+            descricao: 'Permite visualizar gráficos globais, médias gerais da escola e painéis estatísticos consolidados.'
+          },
+          {
+            key: 'verLogsAuditoriaSistema',
+            titulo: 'Ver Logs de Auditoria & Segurança',
+            descricao: 'Permite consultar registos forenses e trilhas de auditoria do sistema.'
+          }
+        ];
+
+        const MODULOS_VISIBILIDADE: { id: string; label: string; grupo: string }[] = [
+          { id: 'ano_lectivo', label: 'Ano Letivo', grupo: 'Académico' },
+          { id: 'plano_atividades', label: 'Plano de Atividades e Eventos', grupo: 'Académico' },
+          { id: 'classes', label: 'Classes', grupo: 'Académico' },
+          { id: 'cursos', label: 'Cursos', grupo: 'Académico' },
+          { id: 'disciplinas', label: 'Disciplinas', grupo: 'Académico' },
+          { id: 'turmas', label: 'Turmas', grupo: 'Académico' },
+          { id: 'turnos', label: 'Turnos', grupo: 'Académico' },
+          { id: 'horarios', label: 'Horários & Notificações', grupo: 'Académico' },
+          { id: 'presencas', label: 'Fichas de Presenças', grupo: 'Académico' },
+          { id: 'avaliacoes', label: 'Lançamento de Notas (MAC)', grupo: 'Académico' },
+          { id: 'alunos', label: 'Alunos & Matrículas', grupo: 'Gestão' },
+          { id: 'historico_escolar', label: 'Histórico Escolar & Dossiê', grupo: 'Gestão' },
+          { id: 'professores', label: 'Recursos Humanos & Docência', grupo: 'Gestão' },
+          { id: 'coordenacao', label: 'Coordenação Pedagógica', grupo: 'Gestão' },
+          { id: 'comissao_juri', label: 'Comissão de Júri', grupo: 'Gestão' },
+          { id: 'direcao', label: 'Presidência / Direção', grupo: 'Gestão' },
+          { id: 'declaracoes', label: 'Declarações', grupo: 'Documentos' },
+          { id: 'certificados', label: 'Certificados', grupo: 'Documentos' },
+          { id: 'pautas', label: 'Pautas Trimestrais', grupo: 'Documentos' },
+          { id: 'boletins', label: 'Boletins de Notas', grupo: 'Documentos' },
+          { id: 'passes_escolares', label: 'Passes Escolares', grupo: 'Documentos' },
+          { id: 'termos_exame', label: 'Termos de Exame', grupo: 'Documentos' },
+          { id: 'relatorios', label: 'Relatórios & Acontecimentos', grupo: 'Relatórios' },
+          { id: 'estatisticas', label: 'Estatísticas & Rendimento', grupo: 'Relatórios' },
+          { id: 'pagamentos', label: 'Pagamentos & Caixa', grupo: 'Financeiro' },
+          { id: 'relatorios_financeiros', label: 'Relatórios Financeiros', grupo: 'Financeiro' },
+          { id: 'comunicacao', label: 'Comunicação & Mensagens', grupo: 'Logística' },
+          { id: 'biblioteca', label: 'Biblioteca Escolar', grupo: 'Logística' },
+          { id: 'patrimonio', label: 'Património Escolar', grupo: 'Logística' },
+          { id: 'usuarios_perfis', label: 'Usuários e Perfis', grupo: 'Sistema' },
+          { id: 'configuracoes', label: 'Configurações do Sistema', grupo: 'Sistema' },
+          { id: 'formulas_notas', label: 'Fórmulas de Cálculo de Notas', grupo: 'Sistema' },
+          { id: 'auditoria_logs', label: 'Auditoria & Segurança', grupo: 'Sistema' },
+          { id: 'backup_restauro', label: 'Backup & Sincronização', grupo: 'Sistema' }
+        ];
+
+        const regraCargoAtual: RegraVisibilidadePorCargo = visConfig.regrasPorCargo?.[cargoSelecionadoVis] || {
+          ativo: false,
+          modulosBloqueados: [...(visConfig.modulosBloqueadosPadrao || [])],
+          modulosExtrasPermitidos: [],
+          dadosSensiveis: { ...DEFAULT_VISIBILIDADE_DADOS_SENSIVEIS, ...(visConfig.padraoEmpregados || {}) }
+        };
+
+        const atualizarRegraCargo = (novaRegra: RegraVisibilidadePorCargo) => {
+          setVisConfig(prev => ({
+            ...prev,
+            regrasPorCargo: {
+              ...(prev.regrasPorCargo || {}),
+              [cargoSelecionadoVis]: novaRegra
+            }
+          }));
+        };
+
+        const toggleModuloPadrao = (modId: string) => {
+          setVisConfig(prev => {
+            const lista = new Set(prev.modulosBloqueadosPadrao || []);
+            if (lista.has(modId)) lista.delete(modId);
+            else lista.add(modId);
+            return { ...prev, modulosBloqueadosPadrao: Array.from(lista) };
+          });
+        };
+
+        const toggleModuloCargoBloqueado = (modId: string) => {
+          const bloq = new Set(regraCargoAtual.modulosBloqueados || []);
+          const ext = new Set(regraCargoAtual.modulosExtrasPermitidos || []);
+          if (bloq.has(modId)) {
+            bloq.delete(modId);
+          } else {
+            bloq.add(modId);
+            ext.delete(modId);
+          }
+          atualizarRegraCargo({
+            ...regraCargoAtual,
+            modulosBloqueados: Array.from(bloq),
+            modulosExtrasPermitidos: Array.from(ext)
+          });
+        };
+
+        const toggleModuloCargoExtra = (modId: string) => {
+          const bloq = new Set(regraCargoAtual.modulosBloqueados || []);
+          const ext = new Set(regraCargoAtual.modulosExtrasPermitidos || []);
+          if (ext.has(modId)) {
+            ext.delete(modId);
+          } else {
+            ext.add(modId);
+            bloq.delete(modId);
+          }
+          atualizarRegraCargo({
+            ...regraCargoAtual,
+            modulosBloqueados: Array.from(bloq),
+            modulosExtrasPermitidos: Array.from(ext)
+          });
+        };
+
+        const handleSalvarVisibilidade = () => {
+          const salva = dbService.salvarVisibilidadeEmpregados(escola.id, visConfig, currentUser.nomeCompleto);
+          setVisConfig(salva);
+          onSalvarEscola?.({
+            ...escola,
+            visibilidadeEmpregados: salva,
+            atualizadoEm: salva.atualizadoEm || new Date().toISOString()
+          });
+          notificar('Política de visibilidade e acesso dos empregados guardada e sincronizada com sucesso!');
+        };
+
+        return (
+          <div className="space-y-6">
+            {/* Cabeçalho da Aba */}
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <Shield className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  <h3 className="text-base font-black text-gray-900 dark:text-slate-100">
+                    Ajustes de Visibilidade & Sigilo para Empregados
+                  </h3>
+                </div>
+                <p className="text-xs text-gray-600 dark:text-slate-400">
+                  Defina exatamente que dados sensíveis e módulos os funcionários e docentes podem visualizar. O Director Geral e o Admin Geral mantêm sempre acesso integral.
+                </p>
+                {visConfig.atualizadoPorNome && (
+                  <p className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold">
+                    Última atualização por {visConfig.atualizadoPorNome}
+                    {visConfig.atualizadoEm ? ` em ${formatarDataAngolana(visConfig.atualizadoEm, 'curto')}` : ''}.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <label className={`flex items-center space-x-2.5 px-3.5 py-2 rounded-xl border-2 cursor-pointer transition-all text-xs font-black ${
+                  visConfig.ativo
+                    ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-600 text-indigo-900 dark:text-indigo-100'
+                    : 'bg-gray-50 dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={visConfig.ativo}
+                    onChange={(e) => setVisConfig(prev => ({ ...prev, ativo: e.target.checked }))}
+                    className="h-4 w-4 accent-indigo-600"
+                  />
+                  <span>{visConfig.ativo ? 'Controlo Ativo' : 'Activar Controlo de Visibilidade'}</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleSalvarVisibilidade}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl shadow-xs flex items-center space-x-2 cursor-pointer transition-all"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>Guardar Ajustes</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 1. Regra Padrão Geral para Empregados */}
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl p-5 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h4 className="text-sm font-black text-gray-900 dark:text-slate-100">
+                    1. Regra Padrão Geral para Todos os Empregados
+                  </h4>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                    Aplicada automaticamente a qualquer funcionário que não possua uma regra específica configurada para o seu cargo.
+                  </p>
+                </div>
+                <label className="flex items-center space-x-2 text-xs font-bold text-gray-700 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={visConfig.aplicarRestricaoPadraoTodosEmpregados}
+                    onChange={(e) => setVisConfig(prev => ({ ...prev, aplicarRestricaoPadraoTodosEmpregados: e.target.checked }))}
+                    className="h-4 w-4 accent-indigo-600"
+                  />
+                  <span>Aplicar padrão global</span>
+                </label>
+              </div>
+
+              {/* Dados Sensíveis Padrão */}
+              <div className="space-y-2.5">
+                <p className="text-xs font-black uppercase text-gray-700 dark:text-slate-300 tracking-wide">
+                  Informação & Dados Sensíveis Visíveis (Padrão)
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {DADOS_SENSIVEIS_INFO.map((item) => {
+                    const checked = visConfig.padraoEmpregados[item.key];
+                    return (
+                      <label
+                        key={item.key}
+                        className={`flex items-start space-x-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                          checked
+                            ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
+                            : 'bg-red-50/60 dark:bg-red-950/30 border-red-300 dark:border-red-800'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setVisConfig(prev => ({
+                              ...prev,
+                              padraoEmpregados: {
+                                ...prev.padraoEmpregados,
+                                [item.key]: e.target.checked
+                              }
+                            }))
+                          }
+                          className="h-4 w-4 mt-0.5 accent-emerald-600"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center space-x-1.5">
+                            {checked ? (
+                              <Eye className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            ) : (
+                              <EyeOff className="h-3.5 w-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                            )}
+                            <span className="text-xs font-bold text-gray-900 dark:text-slate-100">{item.titulo}</span>
+                          </div>
+                          <p className="text-[11px] text-gray-600 dark:text-slate-400 mt-0.5">{item.descricao}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Módulos Bloqueados Padrão */}
+              <div className="space-y-2.5 pt-2 border-t border-gray-100 dark:border-slate-800">
+                <p className="text-xs font-black uppercase text-gray-700 dark:text-slate-300 tracking-wide">
+                  Módulos Ocultados / Bloqueados para Empregados (Padrão)
+                </p>
+                <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                  Marque os módulos que devem ficar ocultos no menu e bloqueados por omissão para empregados.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {MODULOS_VISIBILIDADE.map(mod => {
+                    const bloqueado = (visConfig.modulosBloqueadosPadrao || []).includes(mod.id);
+                    return (
+                      <label
+                        key={mod.id}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          bloqueado
+                            ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-700 text-amber-950 dark:text-amber-100 font-bold'
+                            : 'bg-gray-50 dark:bg-slate-800/60 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={bloqueado}
+                            onChange={() => toggleModuloPadrao(mod.id)}
+                            className="h-3.5 w-3.5 accent-amber-600 shrink-0"
+                          />
+                          <span className="truncate">{mod.label}</span>
+                        </div>
+                        <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 text-gray-500 dark:text-slate-400 shrink-0 ml-1">
+                          {mod.grupo}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Regras Específicas por Cargo */}
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl p-5 shadow-xs space-y-5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-gray-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h4 className="text-sm font-black text-gray-900 dark:text-slate-100">
+                    2. Regras Personalizadas por Cargo / Função
+                  </h4>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                    Defina excepções específicas por perfil (ex: autorizar Secretaria a ver BI de alunos, ou restringir Estatísticas Globais para Estagiários).
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={cargoSelecionadoVis}
+                    onChange={(e) => setCargoSelecionadoVis(e.target.value)}
+                    className="p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-800 text-xs font-bold text-gray-900 dark:text-slate-100"
+                  >
+                    {CARGOS_GERIVEIS.map(c => {
+                      const ativa = Boolean(visConfig.regrasPorCargo?.[c.id]?.ativo);
+                      return (
+                        <option key={c.id} value={c.id}>
+                          {c.label} {ativa ? '• (Regra Ativa)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  <label className={`flex items-center space-x-2 px-3 py-2 rounded-xl border text-xs font-bold cursor-pointer ${
+                    regraCargoAtual.ativo
+                      ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-900 dark:text-blue-100'
+                      : 'bg-gray-50 dark:bg-slate-800 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={regraCargoAtual.ativo}
+                      onChange={(e) => atualizarRegraCargo({ ...regraCargoAtual, ativo: e.target.checked })}
+                      className="h-4 w-4 accent-blue-600"
+                    />
+                    <span>Ativar regra para este cargo</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className={`space-y-5 transition-opacity ${regraCargoAtual.ativo ? 'opacity-100' : 'opacity-60'}`}>
+                {/* Dados sensíveis para o cargo */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {DADOS_SENSIVEIS_INFO.map(item => {
+                    const checked = regraCargoAtual.dadosSensiveis[item.key];
+                    return (
+                      <label
+                        key={`cargo-${item.key}`}
+                        className={`flex items-start space-x-3 p-3 rounded-xl border cursor-pointer ${
+                          checked
+                            ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800'
+                            : 'bg-red-50/60 dark:bg-red-950/30 border-red-300 dark:border-red-800'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            atualizarRegraCargo({
+                              ...regraCargoAtual,
+                              ativo: true,
+                              dadosSensiveis: {
+                                ...regraCargoAtual.dadosSensiveis,
+                                [item.key]: e.target.checked
+                              }
+                            })
+                          }
+                          className="h-4 w-4 mt-0.5 accent-emerald-600"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-gray-900 dark:text-slate-100 block">{item.titulo}</span>
+                          <span className="text-[11px] text-gray-500 dark:text-slate-400">{item.descricao}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {/* Módulos por cargo: Bloqueados ou Extras Permitidos */}
+                <div className="space-y-2">
+                  <p className="text-xs font-black uppercase text-gray-700 dark:text-slate-300 tracking-wide">
+                    Módulos Específicos do Cargo ({CARGOS_GERIVEIS.find(c => c.id === cargoSelecionadoVis)?.label})
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {MODULOS_VISIBILIDADE.map(mod => {
+                      const isBloqueado = (regraCargoAtual.modulosBloqueados || []).includes(mod.id);
+                      const isExtra = (regraCargoAtual.modulosExtrasPermitidos || []).includes(mod.id);
+                      return (
+                        <div
+                          key={`cargo-mod-${mod.id}`}
+                          className="p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <span className="font-semibold text-gray-800 dark:text-slate-200 truncate">{mod.label}</span>
+                          <div className="flex items-center space-x-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!regraCargoAtual.ativo) atualizarRegraCargo({ ...regraCargoAtual, ativo: true });
+                                toggleModuloCargoBloqueado(mod.id);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                                isBloqueado
+                                  ? 'bg-red-600 text-white'
+                                  : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border border-gray-300 dark:border-slate-600'
+                              }`}
+                              title="Bloquear este módulo para o cargo"
+                            >
+                              Bloquear
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!regraCargoAtual.ativo) atualizarRegraCargo({ ...regraCargoAtual, ativo: true });
+                                toggleModuloCargoExtra(mod.id);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                                isExtra
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border border-gray-300 dark:border-slate-600'
+                              }`}
+                              title="Autorizar acesso mesmo que bloqueado no padrão ou perfil"
+                            >
+                              Permitir
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* MODAL: NOVO DESPACHO */}
       {showNovoDespachoModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 overflow-y-auto">
@@ -1183,6 +1681,12 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
             </div>
 
             <form onSubmit={handleSalvarDespacho} className="space-y-4 text-xs">
+              {erroModalDespacho && (
+                <div className="p-2.5 bg-red-50 border border-red-300 text-red-800 rounded-xl text-xs font-bold flex items-center justify-between">
+                  <span>{erroModalDespacho}</span>
+                  <button type="button" onClick={() => setErroModalDespacho(null)} className="text-red-600 hover:text-red-800"><X className="h-4 w-4" /></button>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Número do Despacho *</label>
@@ -1634,7 +2138,7 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           </div>
 
           <p className="text-xs text-justify leading-relaxed">
-            Aos {formatarDataAngolana(docParaExportar.item.data, 'extenso')}, pelas {docParaExportar.item.hora}, reuniu-se em sessão {docParaExportar.item.tipo} o Conselho de Direção da instituição, no(a) {docParaExportar.item.local}, sob a presidência de <strong>{escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
+            Aos {formatarDataAngolana(docParaExportar.item.data, 'extenso')}, pelas {docParaExportar.item.hora}, reuniu-se em sessão {docParaExportar.item.tipo} o Conselho de Direção da instituição, em <strong>{docParaExportar.item.local}</strong>, sob a presidência {obterGeneroDiretorGeral(escola) === 'F' ? 'da Directora Geral' : 'do Director Geral'} <strong>{escola.diretorGeralNome || currentUser.nomeCompleto}</strong>.
           </p>
 
           <div className="text-xs space-y-1">
