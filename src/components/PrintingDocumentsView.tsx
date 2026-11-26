@@ -289,6 +289,14 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return alunos.filter(a => ids.has(a.turmaId));
   }, [alunos, isProfessor, turmasPermitidas]);
 
+  const avaliacoesLocal = useMemo(() => {
+    return (avaliacoes && avaliacoes.length > 0) ? avaliacoes : dbService.obterAvaliacoes();
+  }, [avaliacoes]);
+
+  const notasAvaliacoesLocal = useMemo(() => {
+    return (notasAvaliacoes && notasAvaliacoes.length > 0) ? notasAvaliacoes : dbService.obterNotas();
+  }, [notasAvaliacoes]);
+
   const anosLectivosConfigs = useMemo(() => dbService.getAnosLectivosConfigs(escola.id), [escola.id]);
   const anosLectivosDisponiveis = useMemo(() => {
     const list = new Set<string>();
@@ -298,16 +306,19 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     alunosPermitidos.forEach(a => { 
       if (a.anoLectivo) list.add(a.anoLectivo); 
       if (a.anoMatricula) list.add(a.anoMatricula);
+      a.historicoAnterior?.forEach(h => { if (h.anoLectivo) list.add(h.anoLectivo); });
     });
+    notasConsolidadas.forEach(n => { if (n.anoLectivo) list.add(n.anoLectivo); });
+    avaliacoesLocal.forEach(av => { if (av.anoLectivo) list.add(av.anoLectivo); });
     return Array.from(list).sort().reverse();
-  }, [escola.anoLectivoActivo, anosLectivosConfigs, turmasPermitidas, alunosPermitidos]);
+  }, [escola.anoLectivoActivo, anosLectivosConfigs, turmasPermitidas, alunosPermitidos, notasConsolidadas, avaliacoesLocal]);
 
   const [selectedAnoLectivo, setSelectedAnoLectivo] = useState<string>(
     escola.anoLectivoActivo || ''
   );
   useEffect(() => {
-    setSelectedAnoLectivo(escola.anoLectivoActivo || anosLectivosDisponiveis[0] || '');
-  }, [escola.id, escola.anoLectivoActivo, anosLectivosDisponiveis]);
+    setSelectedAnoLectivo(escola.anoLectivoActivo || dbService.getAnosLectivos(escola.id)[0] || '');
+  }, [escola.id, escola.anoLectivoActivo]);
   const [selectedAlunoId, setSelectedAlunoId] = useState<string>(alunosPermitidos[0]?.id || '');
   const [selectedTurmaId, setSelectedTurmaId] = useState<string>(turmasPermitidas[0]?.id || '');
   const [selectedClasse, setSelectedClasse] = useState<string>(() => {
@@ -315,6 +326,12 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   });
   const [selectedCurso, setSelectedCurso] = useState<string>('TODOS');
   const [buscaAlunoDocumento, setBuscaAlunoDocumento] = useState<string>('');
+
+  const CLASSES_FINAIS_CERTIFICADO = useMemo(() => new Set(['6ª', '9ª', '12ª', '13ª']), []);
+  const isClasseFinalCertificado = (cl?: string): boolean => {
+    const norm = normalizarClasse(cl || '');
+    return CLASSES_FINAIS_CERTIFICADO.has(norm);
+  };
 
   const todasClasses = useMemo(() => {
     const fromCfg = dbService.getClassesConfigs(escola.id, selectedAnoLectivo || escola.anoLectivoActivo).filter(c => c.ativa !== false).map(c => c.nome);
@@ -332,21 +349,50 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return lista;
   }, [escola.id, escola.anoLectivoActivo, selectedAnoLectivo, isProfessor, turmasPermitidas]);
 
+  const todasClassesDocumento = useMemo(() => {
+    if (docType === 'certificado_ciclo') {
+      const finais = todasClasses.filter(c => isClasseFinalCertificado(c));
+      return finais.length > 0 ? finais : ['6ª', '9ª', '12ª', '13ª'];
+    }
+    return todasClasses;
+  }, [todasClasses, docType]);
+
   // Turmas filtradas estritamente pelo ano lectivo selecionado
   const turmasDoAnoDocumento = useMemo(() => {
     return turmasPermitidas.filter(t => !t.anoLectivo || !selectedAnoLectivo || t.anoLectivo === selectedAnoLectivo);
   }, [turmasPermitidas, selectedAnoLectivo]);
 
-  // Garantir que a classe inicial existe nas turmas da escola quando aplicável
+  // Garantir que a classe inicial existe nas turmas da escola e respeita classes finais nos certificados
   useEffect(() => {
-    if (turmasDoAnoDocumento.length > 0 && selectedClasse !== 'TODAS') {
-      const temNaClasse = getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse).length > 0;
-      if (!temNaClasse) {
+    if (docType === 'certificado_ciclo') {
+      const turmasFinais = turmasDoAnoDocumento.filter(t => isClasseFinalCertificado(t.classe));
+      if (!isClasseFinalCertificado(selectedClasse)) {
+        const primeiraFinal = turmasFinais[0]?.classe
+          ? normalizarClasse(turmasFinais[0].classe)
+          : (todasClassesDocumento[0] || '9ª');
+        setSelectedClasse(primeiraFinal);
+        return;
+      }
+      if (turmasFinais.length > 0 && getTurmasPorClasse(turmasFinais, selectedClasse).length === 0) {
+        const primeiraFinal = normalizarClasse(turmasFinais[0].classe);
+        if (primeiraFinal) setSelectedClasse(primeiraFinal);
+      }
+      return;
+    }
+
+    if (turmasDoAnoDocumento.length > 0) {
+      if (docType !== 'lista_nominal' && selectedClasse === 'TODAS') {
         const primeiraClasse = normalizarClasse(turmasDoAnoDocumento[0].classe);
         if (primeiraClasse) setSelectedClasse(primeiraClasse);
+      } else if (selectedClasse !== 'TODAS') {
+        const temNaClasse = getTurmasPorClasse(turmasDoAnoDocumento, selectedClasse).length > 0;
+        if (!temNaClasse) {
+          const primeiraClasse = normalizarClasse(turmasDoAnoDocumento[0].classe);
+          if (primeiraClasse) setSelectedClasse(primeiraClasse);
+        }
       }
     }
-  }, [turmasDoAnoDocumento, selectedClasse]);
+  }, [turmasDoAnoDocumento, selectedClasse, docType, todasClassesDocumento]);
 
   const mostrarFiltroCursoDoc = useMemo(() => {
     if (selectedClasse !== 'TODAS') return isSegundoCiclo(selectedClasse);
@@ -384,40 +430,98 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return base.filter(t => (t.curso || '').trim().toLowerCase() === selectedCurso.trim().toLowerCase());
   }, [turmasDoAnoDocumento, selectedClasse, selectedCurso, mostrarFiltroCursoDoc]);
 
+  // Resolver contexto académico real de cada aluno dentro de um ano letivo específico (suporta histórico/promoções)
+  const resolverContextoAlunoNoAno = (
+    aluno: Aluno | undefined,
+    anoAlvo: string
+  ): {
+    turma?: Turma;
+    classe: string;
+    curso: string;
+    anoLectivo: string;
+  } | null => {
+    if (!aluno) return null;
+    const turmaAtual = turmas.find(tm => tm.id === aluno.turmaId);
+    const anoAtual = aluno.anoLectivo || aluno.anoMatricula || turmaAtual?.anoLectivo || escola.anoLectivoActivo || '';
+
+    if (!anoAlvo || anoAtual === anoAlvo) {
+      return {
+        turma: turmaAtual,
+        classe: normalizarClasse(turmaAtual?.classe || aluno.classeId || ''),
+        curso: (turmaAtual?.curso || aluno.curso || '').trim(),
+        anoLectivo: anoAtual || anoAlvo
+      };
+    }
+
+    // Procurar registo de notas ou avaliações do aluno nesse ano lectivo
+    const notaDoAno = notasConsolidadas.find(n => n.alunoId === aluno.id && n.anoLectivo === anoAlvo);
+    let turmaHist = notaDoAno?.turmaId ? turmas.find(tm => tm.id === notaDoAno.turmaId) : undefined;
+    if (!turmaHist) {
+      const avIdsAluno = new Set(notasAvaliacoesLocal.filter(na => na.alunoId === aluno.id).map(na => na.avaliacaoId));
+      const avDoAno = avaliacoesLocal.find(av => avIdsAluno.has(av.id) && av.anoLectivo === anoAlvo);
+      if (avDoAno?.turmaId) {
+        turmaHist = turmas.find(tm => tm.id === avDoAno.turmaId);
+      }
+    }
+
+    const histAnt = aluno.historicoAnterior?.find(h => h.anoLectivo === anoAlvo);
+    const histEscolar = dbService.getHistoricoEscolarCompleto(aluno.id);
+    const histCls = histEscolar?.classes?.find(c => c.anoLectivo === anoAlvo);
+
+    if (turmaHist || histAnt || histCls || notaDoAno) {
+      const classeResolvida = normalizarClasse(
+        turmaHist?.classe || histCls?.classe || histAnt?.classe || (notaDoAno as any)?.classeId || ''
+      );
+      if (classeResolvida || turmaHist) {
+        return {
+          turma: turmaHist,
+          classe: classeResolvida,
+          curso: (turmaHist?.curso || (histCls as any)?.curso || aluno.curso || '').trim(),
+          anoLectivo: anoAlvo
+        };
+      }
+    }
+
+    return null;
+  };
+
   const alunosFiltradosIndividual = useMemo(() => {
-    let list = alunosPermitidos.filter(a => {
-      const t = turmasPermitidas.find(tm => tm.id === a.turmaId);
-      const anoDoAluno = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo || '';
-      return !selectedAnoLectivo || anoDoAluno === selectedAnoLectivo;
-    });
+    const comContexto = alunosPermitidos
+      .map(a => ({ aluno: a, ctx: resolverContextoAlunoNoAno(a, selectedAnoLectivo) }))
+      .filter((item): item is { aluno: Aluno; ctx: NonNullable<ReturnType<typeof resolverContextoAlunoNoAno>> } => item.ctx !== null);
+
+    let list = comContexto;
+
+    if (docType === 'certificado_ciclo') {
+      list = list.filter(({ ctx }) => isClasseFinalCertificado(ctx.classe));
+    }
 
     if (selectedClasse && selectedClasse !== 'TODAS') {
-      list = list.filter(a => {
-        const t = turmas.find(tm => tm.id === a.turmaId);
-        const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
-        return cl === normalizarClasse(selectedClasse);
-      });
+      const alvoCl = normalizarClasse(selectedClasse);
+      list = list.filter(({ ctx }) => ctx.classe === alvoCl);
     }
+
     if (mostrarFiltroCursoDoc && selectedCurso && selectedCurso !== 'TODOS') {
-      list = list.filter(a => {
-        const t = turmas.find(tm => tm.id === a.turmaId);
-        const cur = (t?.curso || a.curso || '').trim().toLowerCase();
-        return cur === selectedCurso.trim().toLowerCase();
-      });
+      const alvoCur = selectedCurso.trim().toLowerCase();
+      list = list.filter(({ ctx }) => (ctx.curso || '').trim().toLowerCase() === alvoCur);
     }
+
     if (selectedTurmaId && selectedTurmaId !== 'TODAS') {
-      list = list.filter(a => a.turmaId === selectedTurmaId);
+      list = list.filter(({ aluno, ctx }) => (ctx.turma?.id || aluno.turmaId) === selectedTurmaId);
     }
+
+    let alunosMatch = list.map(item => item.aluno);
+
     if (buscaAlunoDocumento.trim()) {
-      list = list.filter(a => 
+      alunosMatch = alunosMatch.filter(a => 
         safeSearchMatch(a.nomeCompleto, buscaAlunoDocumento) ||
         safeSearchMatch(a.codigoMatricula, buscaAlunoDocumento) ||
         safeSearchMatch(a.numeroProcesso, buscaAlunoDocumento) ||
         safeSearchMatch(a.numeroBI, buscaAlunoDocumento)
       );
     }
-    return list;
-  }, [alunosPermitidos, alunos, turmasPermitidas, selectedClasse, selectedCurso, selectedTurmaId, buscaAlunoDocumento, turmas, selectedAnoLectivo, escola.anoLectivoActivo]);
+    return alunosMatch;
+  }, [alunosPermitidos, selectedClasse, selectedCurso, selectedTurmaId, buscaAlunoDocumento, turmas, selectedAnoLectivo, escola.anoLectivoActivo, docType, mostrarFiltroCursoDoc, notasConsolidadas, avaliacoesLocal, notasAvaliacoesLocal]);
 
   const [larguraTermica, setLarguraTermica] = useState<'58mm' | '80mm'>('58mm');
   const [modoRecibo, setModoRecibo] = useState<'a4_8' | 'pos'>('a4_8');
@@ -538,14 +642,18 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   });
   const [selectedReciboId, setSelectedReciboId] = useState<string>('');
 
-  // Selecionar aluno ativo estritamente dentro da turma e classe selecionadas
-  const alunoSelecionado = alunosFiltradosIndividual.find(a => a.id === selectedAlunoId) || alunosFiltradosIndividual[0] || alunos[0];
-  const turmaDoAluno = turmas.find(t => t.id === alunoSelecionado?.turmaId);
+  // Selecionar aluno ativo estritamente dentro do ano, turma e classe selecionados (sem fallback enganoso para outro aluno)
+  const alunoSelecionado =
+    alunosFiltradosIndividual.find(a => a.id === selectedAlunoId) || alunosFiltradosIndividual[0];
+  const contextoAlunoSelecionado = resolverContextoAlunoNoAno(alunoSelecionado, selectedAnoLectivo);
+  const turmaDoAluno = contextoAlunoSelecionado?.turma || turmas.find(t => t.id === alunoSelecionado?.turmaId);
 
   // Sincronizar turma selecionada sempre que o filtro de classe/curso mudar
   useEffect(() => {
     if (turmasDaClasseSelecionada.length > 0) {
-      if (selectedTurmaId !== 'TODAS' && !turmasDaClasseSelecionada.some(t => t.id === selectedTurmaId)) {
+      if (docType !== 'lista_nominal' && selectedTurmaId === 'TODAS') {
+        setSelectedTurmaId(turmasDaClasseSelecionada[0].id);
+      } else if (selectedTurmaId !== 'TODAS' && !turmasDaClasseSelecionada.some(t => t.id === selectedTurmaId)) {
         setSelectedTurmaId(docType === 'lista_nominal' ? 'TODAS' : turmasDaClasseSelecionada[0].id);
       }
     } else {
@@ -577,60 +685,56 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return isClasseFinal(turmaSelecionada?.classe);
   }, [turmaSelecionada?.classe]);
 
-  // Alunos exclusivos e estritos da turma e classe selecionada
+  // Alunos exclusivos e estritos da turma e classe selecionada no ano letivo selecionado
   const alunosDaTurma = useMemo(() => {
     if (!turmaSelecionada.id) return [];
     return alunosPermitidos.filter(a => {
-      if (a.turmaId !== turmaSelecionada.id) return false;
-
-      // Se a turma tiver classe definida, o aluno deve pertencer a essa classe
-      if (turmaSelecionada.classe && a.classeId) {
-        if (normalizarClasse(a.classeId) !== normalizarClasse(turmaSelecionada.classe)) {
+      const ctx = resolverContextoAlunoNoAno(a, selectedAnoLectivo);
+      if (!ctx) return false;
+      const turmaAlId = ctx.turma?.id || a.turmaId;
+      if (turmaAlId !== turmaSelecionada.id) return false;
+      if (turmaSelecionada.classe && ctx.classe) {
+        if (normalizarClasse(ctx.classe) !== normalizarClasse(turmaSelecionada.classe)) {
           return false;
         }
       }
-
-      const t = turmas.find(tm => tm.id === a.turmaId);
-      const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
-      return !selectedAnoLectivo || ano === selectedAnoLectivo;
+      return true;
     });
-  }, [alunosPermitidos, turmaSelecionada, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
+  }, [alunosPermitidos, turmaSelecionada, selectedAnoLectivo, turmas, escola.anoLectivoActivo, notasConsolidadas, avaliacoesLocal, notasAvaliacoesLocal]);
 
   // Alunos para a Lista Nominal (suporta turma específica OU todas as turmas da classe/curso)
   const alunosListaNominal = useMemo(() => {
     return alunosPermitidos.filter(a => {
-      const t = turmas.find(tm => tm.id === a.turmaId);
-      const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
-      if (selectedAnoLectivo && ano && ano !== selectedAnoLectivo) return false;
+      const ctx = resolverContextoAlunoNoAno(a, selectedAnoLectivo);
+      if (!ctx) return false;
       if (selectedTurmaId && selectedTurmaId !== 'TODAS') {
-        return a.turmaId === selectedTurmaId;
+        return (ctx.turma?.id || a.turmaId) === selectedTurmaId;
       }
-      const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
-      if (selectedClasse && selectedClasse !== 'TODAS' && cl !== normalizarClasse(selectedClasse)) {
+      if (selectedClasse && selectedClasse !== 'TODAS' && ctx.classe !== normalizarClasse(selectedClasse)) {
         return false;
       }
       if (mostrarFiltroCursoDoc && selectedCurso && selectedCurso !== 'TODOS') {
-        const cur = (t?.curso || a.curso || '').trim().toLowerCase();
-        if (cur !== selectedCurso.trim().toLowerCase()) return false;
+        if ((ctx.curso || '').trim().toLowerCase() !== selectedCurso.trim().toLowerCase()) return false;
       }
       return true;
     });
-  }, [alunosPermitidos, turmas, selectedAnoLectivo, escola.anoLectivoActivo, selectedTurmaId, selectedClasse, selectedCurso]);
+  }, [alunosPermitidos, turmas, selectedAnoLectivo, escola.anoLectivoActivo, selectedTurmaId, selectedClasse, selectedCurso, mostrarFiltroCursoDoc, notasConsolidadas, avaliacoesLocal, notasAvaliacoesLocal]);
 
   const alunosDaClasse = useMemo(() => {
     if (!selectedClasse || selectedClasse === 'TODAS') return [];
+    const clAlvo = normalizarClasse(selectedClasse);
     return alunosPermitidos.filter(a => {
-      const t = turmas.find(tm => tm.id === a.turmaId);
-      const cl = t ? normalizarClasse(t.classe) : normalizarClasse(a.classeId);
-      const ano = a.anoLectivo || a.anoMatricula || t?.anoLectivo || escola.anoLectivoActivo;
-      return cl === normalizarClasse(selectedClasse) && (!selectedAnoLectivo || ano === selectedAnoLectivo);
+      const ctx = resolverContextoAlunoNoAno(a, selectedAnoLectivo);
+      return Boolean(ctx && ctx.classe === clAlvo);
     });
-  }, [alunosPermitidos, selectedClasse, selectedAnoLectivo, turmas, escola.anoLectivoActivo]);
+  }, [alunosPermitidos, selectedClasse, selectedAnoLectivo, turmas, escola.anoLectivoActivo, notasConsolidadas, avaliacoesLocal, notasAvaliacoesLocal]);
 
   // Sincronizar o discente selecionado automaticamente quando o filtro ou classe muda
   useEffect(() => {
     if (alunosFiltradosIndividual.length > 0 && !alunosFiltradosIndividual.some(a => a.id === selectedAlunoId)) {
       setSelectedAlunoId(alunosFiltradosIndividual[0].id);
+    } else if (alunosFiltradosIndividual.length === 0 && selectedAlunoId) {
+      setSelectedAlunoId('');
     }
   }, [alunosFiltradosIndividual, selectedAlunoId]);
 
@@ -643,14 +747,51 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
   const [modalConfigDocOpen, setModalConfigDocOpen] = useState(false);
 
-  // Contexto académico real do aluno selecionado (para Boletim, Declaração e Certificado)
-  const classeAlunoDoc = turmaDoAluno?.classe || alunoSelecionado?.classeId || selectedClasse || '';
-  const cursoAlunoDoc = (turmaDoAluno?.curso || alunoSelecionado?.curso || '').trim();
+  // Contexto académico real do aluno selecionado no ano lectivo selecionado (Boletim, Declaração e Certificado)
+  const classeAlunoDoc =
+    contextoAlunoSelecionado?.classe ||
+    turmaDoAluno?.classe ||
+    alunoSelecionado?.classeId ||
+    (selectedClasse !== 'TODAS' ? selectedClasse : '') ||
+    '';
+  const cursoAlunoDoc = (
+    contextoAlunoSelecionado?.curso ||
+    turmaDoAluno?.curso ||
+    alunoSelecionado?.curso ||
+    ''
+  ).trim();
+  const anoAlunoDoc =
+    contextoAlunoSelecionado?.anoLectivo ||
+    selectedAnoLectivo ||
+    alunoSelecionado?.anoLectivo ||
+    alunoSelecionado?.anoMatricula ||
+    turmaDoAluno?.anoLectivo ||
+    escola.anoLectivoActivo ||
+    '';
   const ehSegundoCicloAlunoDoc = isSegundoCiclo(classeAlunoDoc);
   const escalaAlunoDoc = useMemo(
     () => obterInformacaoEscala(classeAlunoDoc, turmaDoAluno?.nivelEnsino),
     [classeAlunoDoc, turmaDoAluno?.nivelEnsino]
   );
+
+  // Objeto do aluno alinhado com o ano lectivo/classe/curso selecionado para interpolação fiel de textos e cabeçalhos
+  const alunoDocAlinhado = useMemo(() => {
+    if (!alunoSelecionado) return undefined;
+    return {
+      ...alunoSelecionado,
+      classeId: classeAlunoDoc || alunoSelecionado.classeId,
+      curso: ehSegundoCicloAlunoDoc ? (cursoAlunoDoc || alunoSelecionado.curso) : '',
+      turmaId: turmaDoAluno?.id || alunoSelecionado.turmaId,
+      anoLectivo: anoAlunoDoc || alunoSelecionado.anoLectivo,
+      anoMatricula: anoAlunoDoc || alunoSelecionado.anoMatricula
+    } as Aluno;
+  }, [alunoSelecionado, classeAlunoDoc, ehSegundoCicloAlunoDoc, cursoAlunoDoc, turmaDoAluno?.id, anoAlunoDoc]);
+
+  const disciplinasDoAnoDocumento = useMemo(() => {
+    if (!selectedAnoLectivo) return disciplinas;
+    const doAno = disciplinas.filter(d => !d.anoLectivo || d.anoLectivo === selectedAnoLectivo);
+    return doAno.length > 0 ? doAno : disciplinas;
+  }, [disciplinas, selectedAnoLectivo]);
 
   const disciplinasCatalogoGlobal = useMemo(() => {
     const map = new Map<string, Disciplina>();
@@ -662,14 +803,6 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     });
     return Array.from(map.values());
   }, [disciplinas]);
-
-  const avaliacoesLocal = useMemo(() => {
-    return (avaliacoes && avaliacoes.length > 0) ? avaliacoes : dbService.obterAvaliacoes();
-  }, [avaliacoes]);
-
-  const notasAvaliacoesLocal = useMemo(() => {
-    return (notasAvaliacoes && notasAvaliacoes.length > 0) ? notasAvaliacoes : dbService.obterNotas();
-  }, [notasAvaliacoes]);
 
   const resolverNomeDisciplinaNota = (n: any): string => {
     if (n?.disciplinaNome && String(n.disciplinaNome).trim()) return String(n.disciplinaNome).trim();
@@ -705,12 +838,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     classeOverride?: string,
     cursoOverride?: string
   ): Disciplina[] => {
-    const turmaAl = turmas.find(t => t.id === aluno?.turmaId);
-    const cl = classeOverride || turmaAl?.classe || aluno?.classeId || selectedClasse || '';
+    const ctxAl = resolverContextoAlunoNoAno(aluno, selectedAnoLectivo);
+    const turmaAl = ctxAl?.turma || turmas.find(t => t.id === aluno?.turmaId);
+    const cl = classeOverride || ctxAl?.classe || turmaAl?.classe || aluno?.classeId || (selectedClasse !== 'TODAS' ? selectedClasse : '') || '';
     const ehII = isSegundoCiclo(cl);
-    const cur = ehII ? (cursoOverride || turmaAl?.curso || aluno?.curso || '') : undefined;
+    const cur = ehII ? (cursoOverride || ctxAl?.curso || turmaAl?.curso || aluno?.curso || '') : undefined;
 
-    const filtradas = filtrarDisciplinasDaClasse(disciplinas, cl, cur);
+    const filtradas = filtrarDisciplinasDaClasse(disciplinasDoAnoDocumento, cl, cur);
     const base: Disciplina[] =
       filtradas.length > 0
         ? [...filtradas]
@@ -741,14 +875,17 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     };
 
     const alvoNorm = normalizarClasse(cl);
-    const anoAl = aluno.anoLectivo || aluno.anoMatricula || turmaAl?.anoLectivo || selectedAnoLectivo;
+    const anoAl = ctxAl?.anoLectivo || selectedAnoLectivo || aluno.anoLectivo || aluno.anoMatricula || turmaAl?.anoLectivo;
+    const isClasseAtualAl = alvoNorm === normalizarClasse(ctxAl?.classe || turmaAl?.classe || aluno.classeId || '');
 
     // 1) Disciplinas presentes nas notas consolidadas deste aluno para esta classe/ano
     notasConsolidadas.forEach(n => {
       if (n.alunoId !== aluno.id) return;
       const tNota = turmas.find(t => t.id === n.turmaId);
-      const classeNotaNorm = tNota?.classe ? normalizarClasse(tNota.classe) : '';
-      const mesmaClasse = classeNotaNorm ? classeNotaNorm === alvoNorm : (!n.anoLectivo || !anoAl || n.anoLectivo === anoAl);
+      const classeNotaNorm = normalizarClasse(tNota?.classe || (n as any).classeId || (n as any).classe || '');
+      const mesmaClasse = classeNotaNorm
+        ? classeNotaNorm === alvoNorm && (!isClasseAtualAl || !n.anoLectivo || !anoAl || n.anoLectivo === anoAl)
+        : (isClasseAtualAl && (!n.anoLectivo || !anoAl || n.anoLectivo === anoAl));
       if (!mesmaClasse) return;
       adicionarSeFalta(resolverNomeDisciplinaNota(n), n.disciplinaId);
     });
@@ -759,16 +896,18 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       const av = avaliacoesLocal.find(a => a.id === na.avaliacaoId);
       if (!av) return;
       const tAv = turmas.find(t => t.id === av.turmaId);
-      const classeAvNorm = tAv?.classe ? normalizarClasse(tAv.classe) : '';
+      const classeAvNorm = normalizarClasse(tAv?.classe || (av as any).classe || '');
       if (classeAvNorm && alvoNorm && classeAvNorm !== alvoNorm) return;
-      if (!classeAvNorm && av.anoLectivo && anoAl && av.anoLectivo !== anoAl) return;
+      if (isClasseAtualAl && av.anoLectivo && anoAl && av.anoLectivo !== anoAl) return;
+      if (!classeAvNorm && (!isClasseAtualAl || (av.anoLectivo && anoAl && av.anoLectivo !== anoAl))) return;
       const nomeAvDisc = av.disciplinaNome || disciplinasCatalogoGlobal.find(d => d.id === av.disciplinaId)?.nome;
       adicionarSeFalta(nomeAvDisc, av.disciplinaId);
     });
 
     // 3) Disciplinas gravadas no Histórico Escolar Completo para esta classe
     const histAl = dbService.getHistoricoEscolarCompleto(aluno.id);
-    const histCls = histAl?.classes?.find(c => normalizarClasse(c.classe) === alvoNorm);
+    const histCls = histAl?.classes?.find(c => normalizarClasse(c.classe) === alvoNorm && (!isClasseAtualAl || !anoAl || !c.anoLectivo || c.anoLectivo === anoAl))
+      || histAl?.classes?.find(c => normalizarClasse(c.classe) === alvoNorm);
     histCls?.notasDisciplinas?.forEach(nd => adicionarSeFalta(nd.disciplinaNome));
 
     return ordenarDisciplinas(base, cl, cur);
@@ -799,13 +938,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   }, [regrasMAC, turmaSelecionada?.classe, turmaSelecionada?.nivelEnsino, selectedClasse, docType, pautaSubTipo, pautaTrimestre, pautaDisciplinaPeriodo, boletimTrimestre]);
 
   // Disciplinas estritas da classe/curso selecionado para documentos de turma (Pautas / Termos)
-  const classeEfetivaDocumento = turmaSelecionada?.classe || alunoSelecionado?.classeId || selectedClasse;
+  const classeEfetivaDocumento = turmaSelecionada?.classe || classeAlunoDoc || selectedClasse;
   const cursoEfetivoDocumento = isSegundoCiclo(classeEfetivaDocumento)
-    ? (turmaSelecionada?.curso || alunoSelecionado?.curso)
+    ? (turmaSelecionada?.curso || cursoAlunoDoc)
     : undefined;
 
   const disciplinasDaClasseDocumento = useMemo(() => {
-    const filtradas = filtrarDisciplinasDaClasse(disciplinas, classeEfetivaDocumento, cursoEfetivoDocumento);
+    const filtradas = filtrarDisciplinasDaClasse(disciplinasDoAnoDocumento, classeEfetivaDocumento, cursoEfetivoDocumento);
     const base: Disciplina[] =
       filtradas.length > 0
         ? [...filtradas]
@@ -870,7 +1009,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     }
     return ordenadoBase;
   }, [
-    disciplinas,
+    disciplinasDoAnoDocumento,
     classeEfetivaDocumento,
     cursoEfetivoDocumento,
     escola.id,
@@ -893,7 +1032,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       classeAlunoDoc,
       ehSegundoCicloAlunoDoc ? cursoAlunoDoc : undefined
     );
-  }, [alunoSelecionado, classeAlunoDoc, ehSegundoCicloAlunoDoc, cursoAlunoDoc, disciplinas, notasConsolidadas, notasAvaliacoesLocal, avaliacoesLocal, turmas, selectedAnoLectivo, escola.id]);
+  }, [alunoSelecionado, classeAlunoDoc, ehSegundoCicloAlunoDoc, cursoAlunoDoc, disciplinasDoAnoDocumento, notasConsolidadas, notasAvaliacoesLocal, avaliacoesLocal, turmas, selectedAnoLectivo, escola.id]);
 
   // Sincronizar disciplina selecionada na Pauta por Disciplina quando a lista muda
   useEffect(() => {
@@ -912,26 +1051,33 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     return dbService.getHistoricoEscolarCompleto(alunoSelecionado.id);
   }, [alunoSelecionado?.id, alunoSelecionado?.historicoAnterior]);
 
-  // Notas consolidadas do aluno selecionado filtradas por ano letivo e com match normalizado por disciplina
+  // Notas consolidadas do aluno selecionado filtradas pelo ano letivo e turma/classe do ano selecionado
   const notasDoAluno = useMemo(() => {
     if (!alunoSelecionado) return [];
-    const anoAluno = alunoSelecionado.anoLectivo || alunoSelecionado.anoMatricula || turmaDoAluno?.anoLectivo || selectedAnoLectivo;
-    return notasConsolidadas.filter(n =>
-      n.alunoId === alunoSelecionado.id &&
-      (!n.anoLectivo || !anoAluno || n.anoLectivo === anoAluno)
-    );
-  }, [notasConsolidadas, alunoSelecionado, turmaDoAluno?.anoLectivo, selectedAnoLectivo]);
+    const clsAlvoNorm = normalizarClasse(classeAlunoDoc);
+    return notasConsolidadas.filter(n => {
+      if (n.alunoId !== alunoSelecionado.id) return false;
+      if (anoAlunoDoc && n.anoLectivo && n.anoLectivo !== anoAlunoDoc) return false;
+      if (clsAlvoNorm) {
+        const tN = turmas.find(t => t.id === n.turmaId);
+        const clN = normalizarClasse(tN?.classe || (n as any).classeId || (n as any).classe || '');
+        if (clN && clN !== clsAlvoNorm) return false;
+      }
+      return true;
+    });
+  }, [notasConsolidadas, alunoSelecionado, anoAlunoDoc, classeAlunoDoc, turmas]);
 
-  // Determinar dinamicamente o nível e modelo do certificado para classes terminais
+  // Determinar dinamicamente o nível e modelo do certificado estritamente para classes finais (6ª, 9ª, 12ª, 13ª)
   const tipoCertificadoEfetivo = useMemo(() => {
     if (tipoCertificadoSelecionado !== 'auto') return tipoCertificadoSelecionado;
-    const clNorm = normalizarClasse(alunoSelecionado?.classeId || turmaDoAluno?.classe || turmaSelecionada?.classe || '');
-    const curso = (alunoSelecionado?.curso || turmaDoAluno?.curso || turmaSelecionada?.curso || '').toLowerCase();
-    if (['iniciação', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª'].includes(clNorm.toLowerCase()) || clNorm.includes('6')) return 'primario_6';
-    if (['7ª', '8ª', '9ª'].includes(clNorm.toLowerCase()) || clNorm.includes('9')) return 'iciclo_9';
-    if (clNorm.includes('13') || curso.includes('técnico') || curso.includes('tecnico') || curso.includes('magistério') || curso.includes('magisterio')) return 'tecnico_12_13';
+    const clNorm = normalizarClasse(classeAlunoDoc || turmaDoAluno?.classe || turmaSelecionada?.classe || '');
+    const curso = (cursoAlunoDoc || turmaDoAluno?.curso || turmaSelecionada?.curso || '').toLowerCase();
+    if (clNorm === '6ª') return 'primario_6';
+    if (clNorm === '9ª') return 'iciclo_9';
+    if (clNorm === '13ª' || (clNorm === '12ª' && (curso.includes('técnico') || curso.includes('tecnico') || curso.includes('magistério') || curso.includes('magisterio')))) return 'tecnico_12_13';
+    if (clNorm === '12ª') return 'iiciclo_12';
     return 'iiciclo_12';
-  }, [tipoCertificadoSelecionado, alunoSelecionado, turmaDoAluno, turmaSelecionada]);
+  }, [tipoCertificadoSelecionado, classeAlunoDoc, cursoAlunoDoc, turmaDoAluno, turmaSelecionada]);
 
   // Verificação de Pauta Homologada pelo Júri para a turma/aluno
   const juris = dbService.getJuris();
@@ -982,27 +1128,39 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     };
     if (!aluno) return empty;
 
-    const turmaAl = turmas.find(t => t.id === aluno.turmaId);
-    const classeAtualAlNorm = normalizarClasse(turmaAl?.classe || aluno.classeId || selectedClasse || '');
+    const ctxAl = resolverContextoAlunoNoAno(aluno, selectedAnoLectivo);
+    const turmaAl = ctxAl?.turma || turmas.find(t => t.id === aluno.turmaId);
+    const classeAtualAlNorm = normalizarClasse(ctxAl?.classe || turmaAl?.classe || aluno.classeId || (selectedClasse !== 'TODAS' ? selectedClasse : '') || '');
     const alvoNorm = normalizarClasse(classeAlvo || classeAtualAlNorm);
     const isClasseAtualDoAluno = !classeAlvo || alvoNorm === classeAtualAlNorm;
-    const anoAluno = aluno.anoLectivo || aluno.anoMatricula || turmaAl?.anoLectivo || selectedAnoLectivo;
+    const anoAluno = ctxAl?.anoLectivo || selectedAnoLectivo || aluno.anoLectivo || aluno.anoMatricula || turmaAl?.anoLectivo;
 
-    // 1) Filtrar notas consolidadas do aluno que pertencem à disciplina E à classe alvo (inclusive anos anteriores no mesmo escolaId!)
+    // 1) Filtrar notas consolidadas do aluno que pertencem à disciplina E à classe/ano alvo
     const todasDoAlunoDisc = notasConsolidadas.filter(n => {
       if (n.alunoId !== aluno.id) return false;
       if (!notaCorrespondeDisciplina(n, disc)) return false;
       const tNota = turmas.find(t => t.id === n.turmaId);
-      const classeNotaNorm = tNota?.classe ? normalizarClasse(tNota.classe) : '';
+      const classeNotaNorm = normalizarClasse(tNota?.classe || (n as any).classeId || (n as any).classe || '');
       if (classeAlvo && classeNotaNorm) {
-        return classeNotaNorm === alvoNorm;
+        if (classeNotaNorm !== alvoNorm) return false;
+        return !isClasseAtualDoAluno || !n.anoLectivo || !anoAluno || n.anoLectivo === anoAluno;
       }
       if (!isClasseAtualDoAluno) return false;
       return !n.anoLectivo || !anoAluno || n.anoLectivo === anoAluno;
     });
 
-    const homologadasAl = isClasseAtualDoAluno ? dbService.obterNotasHomologadasAluno(aluno.id) : [];
-    const notasOficiaisDisc = homologadasAl.filter((n: any) => notaCorrespondeDisciplina(n, disc));
+    const homologadasAl = dbService.obterNotasHomologadasAluno(aluno.id);
+    const notasOficiaisDisc = homologadasAl.filter((n: any) => {
+      if (!notaCorrespondeDisciplina(n, disc)) return false;
+      const tNota = turmas.find(t => t.id === n.turmaId);
+      const classeNotaNorm = normalizarClasse(tNota?.classe || n.classeId || n.classe || '');
+      if (classeAlvo && classeNotaNorm) {
+        if (classeNotaNorm !== alvoNorm) return false;
+        return !isClasseAtualDoAluno || !n.anoLectivo || !anoAluno || n.anoLectivo === anoAluno;
+      }
+      if (!isClasseAtualDoAluno) return false;
+      return !n.anoLectivo || !anoAluno || n.anoLectivo === anoAluno;
+    });
 
     const extrairNptSeguro = (rec: any): number | null => {
       if (!rec) return null;
@@ -1026,15 +1184,19 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
         );
       };
 
+      const turmaContextoId = isClasseAtualDoAluno ? (ctxAl?.turma?.id || aluno.turmaId) : undefined;
       const avsEstritas = avaliacoesLocal.filter(av => {
         if (!correspondeAvDisc(av)) return false;
         if (normalizarTrimestreNumero(av.trimestre) !== triTarget) return false;
         const tAv = turmas.find(t => t.id === av.turmaId);
-        if (isClasseAtualDoAluno && aluno.turmaId && av.turmaId) {
-          return av.turmaId === aluno.turmaId;
+        if (isClasseAtualDoAluno && turmaContextoId && av.turmaId) {
+          return av.turmaId === turmaContextoId && (!av.anoLectivo || !anoAluno || av.anoLectivo === anoAluno);
         }
-        if (classeAlvo && tAv?.classe && normalizarClasse(tAv.classe) !== alvoNorm) return false;
-        if (!tAv?.classe && av.anoLectivo && anoAluno && av.anoLectivo !== anoAluno) return false;
+        if (classeAlvo) {
+          if (tAv?.classe) return normalizarClasse(tAv.classe) === alvoNorm && (!isClasseAtualDoAluno || !av.anoLectivo || !anoAluno || av.anoLectivo === anoAluno);
+          return false;
+        }
+        if (av.anoLectivo && anoAluno && av.anoLectivo !== anoAluno) return false;
         return true;
       });
 
@@ -1168,7 +1330,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     const r1 = t1Res.ncTri || t1Res.fonte;
     const r2 = t2Res.ncTri || t2Res.fonte;
     const r3 = t3Res.ncTri || t3Res.fonte;
-    const noFinal = notasOficiaisDisc.find((n: any) => typeof n.notaFinal === 'number') || notasOficiaisDisc[notasOficiaisDisc.length - 1];
+    const noFinal =
+      notasOficiaisDisc.find((n: any) => typeof n.notaFinal === 'number' && normalizarTrimestreNumero(n.trimestre) === '3') ||
+      notasOficiaisDisc.find((n: any) => typeof n.notaFinal === 'number') ||
+      undefined;
 
     const mt1 = t1Res.mtNum;
     const mt2 = t2Res.mtNum;
@@ -1229,7 +1394,9 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     // 2) Consultar Histórico Escolar Completo (inclui 1ª à 6ª, 7ª–9ª, 10ª–13ª)
     const nomeNorm = normalizarNomeDisciplina(disc.nome);
     const histAl = dbService.getHistoricoEscolarCompleto(aluno.id);
-    const histClasse = histAl?.classes?.find(c => normalizarClasse(c.classe) === alvoNorm);
+    const histClasse =
+      histAl?.classes?.find(c => normalizarClasse(c.classe) === alvoNorm && (!isClasseAtualDoAluno || !anoAluno || !c.anoLectivo || c.anoLectivo === anoAluno)) ||
+      histAl?.classes?.find(c => normalizarClasse(c.classe) === alvoNorm);
     if (histClasse?.notasDisciplinas?.length) {
       const nd = histClasse.notasDisciplinas.find(n => {
         const hn = normalizarNomeDisciplina(n.disciplinaNome || '');
@@ -1622,6 +1789,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   }, [docType, modoRecibo, passConfig.disposicaoGrade]);
 
   const handleBaixarPDF = async () => {
+    if (docType === 'certificado_ciclo' && (!alunoSelecionado || !isClasseFinalCertificado(classeAlunoDoc))) {
+      setPdfSuccessToast('Certificados só podem ser emitidos para alunos de classes finais (6ª, 9ª, 12ª ou 13ª Classe).');
+      setTimeout(() => setPdfSuccessToast(null), 5000);
+      return;
+    }
     const el =
       document.getElementById('documento-para-impressao') ||
       document.getElementById('documento-lista-nominal-alunos');
@@ -1689,6 +1861,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   };
 
   const handlePrint = () => {
+    if (docType === 'certificado_ciclo' && (!alunoSelecionado || !isClasseFinalCertificado(classeAlunoDoc))) {
+      setPdfSuccessToast('Certificados só podem ser emitidos para alunos de classes finais (6ª, 9ª, 12ª ou 13ª Classe).');
+      setTimeout(() => setPdfSuccessToast(null), 5000);
+      return;
+    }
     const el =
       document.getElementById('documento-para-impressao') ||
       document.getElementById('documento-lista-nominal-alunos');
@@ -1708,6 +1885,11 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   };
 
   const handleBaixarHTML = () => {
+    if (docType === 'certificado_ciclo' && (!alunoSelecionado || !isClasseFinalCertificado(classeAlunoDoc))) {
+      setPdfSuccessToast('Certificados só podem ser emitidos para alunos de classes finais (6ª, 9ª, 12ª ou 13ª Classe).');
+      setTimeout(() => setPdfSuccessToast(null), 5000);
+      return;
+    }
     const el = document.getElementById('documento-para-impressao');
     if (!el) {
       handleBaixarPDF();
@@ -1833,26 +2015,41 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     }
   };
 
-  // Cálculo da média geral real (sempre arredondada a inteiro) baseada nas disciplinas da classe real do aluno
+  // Cálculo da média geral real (sempre arredondada a inteiro) baseada estritamente nas disciplinas, classe e ano do aluno
   const mediaGeralCalculada = useMemo(() => {
     if (!alunoSelecionado) return '—';
     const valores = disciplinasDaClasseAluno
-      .map(d => resolverNotaRealAluno(d).valorFinal)
+      .map(d => resolverNotaRealAluno(d, classeAlunoDoc).valorFinal)
       .filter((v): v is number => v !== null && !isNaN(v));
     if (valores.length > 0) {
       return String(Math.round(valores.reduce((acc, v) => acc + v, 0) / valores.length));
     }
-    if (notasOficiaisAluno.length > 0) {
-      return String(Math.round(notasOficiaisAluno.reduce((acc: number, curr: any) => acc + (curr.notaFinal || curr.mediaTrimestral || 0), 0) / notasOficiaisAluno.length));
+    const alvoClsNorm = normalizarClasse(classeAlunoDoc);
+    const notasOficiaisDaClasse = notasOficiaisAluno.filter((n: any) => {
+      if (anoAlunoDoc && n.anoLectivo && n.anoLectivo !== anoAlunoDoc) return false;
+      const tN = turmas.find(t => t.id === n.turmaId);
+      const clN = normalizarClasse(tN?.classe || n.classeId || n.classe || '');
+      if (clN && alvoClsNorm) return clN === alvoClsNorm;
+      return !turmaDoAluno?.id || !n.turmaId || n.turmaId === turmaDoAluno.id;
+    });
+    if (notasOficiaisDaClasse.length > 0) {
+      return String(Math.round(notasOficiaisDaClasse.reduce((acc: number, curr: any) => acc + (curr.notaFinal ?? curr.mediaTrimestral ?? 0), 0) / notasOficiaisDaClasse.length));
     }
-    if (notasDoAluno.length > 0) {
-      return String(Math.round(notasDoAluno.reduce((acc: number, curr: any) => acc + (curr.mediaTrimestral || 0), 0) / notasDoAluno.length));
+    const notasDoAlunoDaClasse = notasDoAluno.filter((n: any) => {
+      if (anoAlunoDoc && n.anoLectivo && n.anoLectivo !== anoAlunoDoc) return false;
+      const tN = turmas.find(t => t.id === n.turmaId);
+      const clN = normalizarClasse(tN?.classe || n.classeId || n.classe || '');
+      if (clN && alvoClsNorm) return clN === alvoClsNorm;
+      return !turmaDoAluno?.id || !n.turmaId || n.turmaId === turmaDoAluno.id;
+    });
+    if (notasDoAlunoDaClasse.length > 0) {
+      return String(Math.round(notasDoAlunoDaClasse.reduce((acc: number, curr: any) => acc + (curr.mediaTrimestral || 0), 0) / notasDoAlunoDaClasse.length));
     }
     return '—';
-  }, [alunoSelecionado, disciplinasDaClasseAluno, notasOficiaisAluno, notasDoAluno, historicoCompletoAluno]);
+  }, [alunoSelecionado, disciplinasDaClasseAluno, notasOficiaisAluno, notasDoAluno, historicoCompletoAluno, classeAlunoDoc, anoAlunoDoc, turmaDoAluno?.id, turmas]);
 
   const buildTemplateCtx = (extra?: Partial<DocumentTemplateContext>): DocumentTemplateContext => {
-    const alAlvo = extra?.aluno !== undefined ? extra.aluno : alunoSelecionado;
+    const alAlvo = extra?.aluno !== undefined ? extra.aluno : (alunoDocAlinhado || alunoSelecionado);
     const turAlvo = extra?.turma !== undefined ? extra.turma : (turmaDoAluno || turmaSelecionada);
     const funcAlvo = extra?.funcionario !== undefined ? extra.funcionario : funcionarioSelecionado;
     return {
@@ -1862,7 +2059,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       funcionario: funcAlvo,
       diretor: funcionariosEscola.find(f => f.role === 'DiretorGeral') || ({ nomeCompleto: nomeDiretorGeral } as Funcionario),
       subdiretor: funcionariosEscola.find(f => f.role === 'SubdiretorPedagogico') || ({ nomeCompleto: subdirectorPedagogicoNome } as Funcionario),
-      anoLectivo: extra?.anoLectivo || selectedAnoLectivo || escola.anoLectivoActivo,
+      anoLectivo: extra?.anoLectivo || anoAlunoDoc || selectedAnoLectivo || escola.anoLectivoActivo,
       trimestre: extra?.trimestre || (boletimTrimestre === 'anual' ? 'Anual' : `${boletimTrimestre}º Trimestre`),
       livro: alAlvo?.livroRegisto,
       folha: alAlvo?.folhaRegisto,
@@ -2454,17 +2651,17 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </span>
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
               <span className="px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
-                Ano Lectivo: {selectedAnoLectivo}
+                Ano Lectivo: {anoAlunoDoc || selectedAnoLectivo}
               </span>
               <span className="px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-900 border border-blue-200">
-                Classe: {alunoSelecionado?.classeId || turmaSelecionada?.classe || selectedClasse}
+                Classe: {classeAlunoDoc || turmaSelecionada?.classe || selectedClasse}
               </span>
               <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-200">
-                Sala: {getSalaDaTurma(turmaSelecionada || turmaDoAluno)}
+                Sala: {getSalaDaTurma(turmaDoAluno || turmaSelecionada)}
               </span>
-              {isSegundoCiclo(alunoSelecionado?.classeId || turmaSelecionada?.classe || selectedClasse) && (
+              {isSegundoCiclo(classeAlunoDoc || turmaSelecionada?.classe || selectedClasse) && (
                 <span className="px-2 py-0.5 rounded-full font-bold bg-purple-100 text-purple-900 border border-purple-200">
-                  Curso: {getCursoDaTurma(turmaSelecionada || turmaDoAluno)}
+                  Curso: {cursoAlunoDoc || getCursoDaTurma(turmaDoAluno || turmaSelecionada)}
                 </span>
               )}
             </div>
@@ -2522,10 +2719,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {docType === 'lista_nominal' && (
                   <option value="TODAS">Todas as Classes</option>
                 )}
-                {todasClasses.map(cls => (
+                {todasClassesDocumento.map(cls => (
                   <option key={`doc-cl-${cls}`} value={cls}>{cls} {cls !== 'Iniciação' ? 'Classe' : ''}</option>
                 ))}
               </select>
+              {docType === 'certificado_ciclo' && (
+                <p className="text-[10px] text-amber-800 font-semibold mt-1">
+                  Emissão restrita às classes finais: 6ª, 9ª, 12ª e 13ª Classe.
+                </p>
+              )}
             </div>
 
             {/* 3. Seleção de Turma */}
@@ -2700,17 +2902,27 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 <select
                   value={selectedAlunoId}
                   onChange={(e) => {
-                    setSelectedAlunoId(e.target.value);
-                    const al = alunos.find(a => a.id === e.target.value);
-                    if (al?.turmaId) setSelectedTurmaId(al.turmaId);
+                    const novoId = e.target.value;
+                    setSelectedAlunoId(novoId);
+                    const al = alunosFiltradosIndividual.find(a => a.id === novoId) || alunos.find(a => a.id === novoId);
+                    const ctxNovo = resolverContextoAlunoNoAno(al, selectedAnoLectivo);
+                    const turmaAlId = ctxNovo?.turma?.id || al?.turmaId;
+                    if (turmaAlId && turmasDaClasseSelecionada.some(t => t.id === turmaAlId)) {
+                      setSelectedTurmaId(turmaAlId);
+                    }
                   }}
                   className="w-full p-2 border border-gray-300 rounded-lg font-bold text-gray-900 bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  {alunosFiltradosIndividual.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.nomeCompleto} — Proc. {a.numeroProcesso || a.codigoMatricula} ({a.classeId})
-                    </option>
-                  ))}
+                  {alunosFiltradosIndividual.map(a => {
+                    const ctxOp = resolverContextoAlunoNoAno(a, selectedAnoLectivo);
+                    const clOp = ctxOp?.classe || a.classeId;
+                    const turOp = ctxOp?.turma?.nome ? ` • ${ctxOp.turma.nome}` : '';
+                    return (
+                      <option key={a.id} value={a.id}>
+                        {a.nomeCompleto} — Proc. {a.numeroProcesso || a.codigoMatricula} ({clOp}{turOp})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             ) : modoEmissao === 'turma' ? (
@@ -4168,10 +4380,10 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   </p>
                 </div>
 
-                {/* 4. Director Geral com Assinatura Digitalizada & Homologação */}
+                {/* 4. Director Geral com Assinatura Digitalizada */}
                 {exibirAssinDiretorDoc && (
                   <div className="space-y-1 flex flex-col items-center justify-end min-w-0">
-                    <p className="font-black text-gray-950 uppercase text-[11px] whitespace-normal break-words">{getTituloDiretor(escola)} (Homologação)</p>
+                    <p className="font-black text-gray-950 uppercase text-[11px] whitespace-normal break-words">{getTituloDiretor(escola)}</p>
                     {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                       <div className="h-10 flex items-center justify-center -mb-1">
                         <img 
@@ -4287,13 +4499,13 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
           </div>
         ) : (() => {
-          const ctxDecl = buildTemplateCtx({ aluno: alunoSelecionado, turma: turmaDoAluno });
-          const cabDecl = resolverCabecalhoPersonalizado({ aluno: alunoSelecionado, turma: turmaDoAluno });
-          const tituloDecl = resolverTextoDiretor(configAtual?.tituloOficial, { aluno: alunoSelecionado, turma: turmaDoAluno }) || 'DECLARAÇÃO DE HABILITAÇÕES (COM NOTAS)';
-          const subtituloDecl = resolverTextoDiretor(configAtual?.subtitulo, { aluno: alunoSelecionado, turma: turmaDoAluno });
-          const aberturaDecl = resolverTextoDiretor(configAtual?.textoCorpoAbertura, { aluno: alunoSelecionado, turma: turmaDoAluno });
-          const fechamentoDecl = resolverTextoDiretor(configAtual?.textoFechamento, { aluno: alunoSelecionado, turma: turmaDoAluno });
-          const rodapeDecl = resolverTextoDiretor(configAtual?.textoRodape, { aluno: alunoSelecionado, turma: turmaDoAluno });
+          const ctxDecl = buildTemplateCtx({ aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const cabDecl = resolverCabecalhoPersonalizado({ aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const tituloDecl = resolverTextoDiretor(configAtual?.tituloOficial, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc }) || 'DECLARAÇÃO DE HABILITAÇÕES (COM NOTAS)';
+          const subtituloDecl = resolverTextoDiretor(configAtual?.subtitulo, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const aberturaDecl = resolverTextoDiretor(configAtual?.textoCorpoAbertura, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const fechamentoDecl = resolverTextoDiretor(configAtual?.textoFechamento, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const rodapeDecl = resolverTextoDiretor(configAtual?.textoRodape, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
           const podeVerDocAluno = visibilidadeUsuario.dadosSensiveis.verDocumentosIdentificacaoAlunos;
           const podeVerContactoAluno = visibilidadeUsuario.dadosSensiveis.verContactosAlunosEncarregados;
           const biExibidoDecl = podeVerDocAluno ? (alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—') : '*** Protegido ***';
@@ -4340,7 +4552,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {camposDoc.mostrarGovernoGabinete && (
                   <>
                     <p className="text-[11px] font-bold uppercase text-gray-800">
-                      {escola.governoProvincial || `GOVERNO PROVINCIAL DO ${(escola.provincia || 'LUANDA').toUpperCase()}`}
+                      {escola.governoProvincial || (escola.provincia ? `GOVERNO PROVINCIAL DE ${escola.provincia.toUpperCase()}` : 'GOVERNO PROVINCIAL')}
                     </p>
                     <p className="text-[11px] font-bold uppercase text-gray-800">
                       {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
@@ -4430,13 +4642,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       ? `Concluiu com aproveitamento a`
                       : `Frequentou com aproveitamento insuficiente a`;
                   const turnoReal = turmaDoAluno?.turno || alunoSelecionado.periodo;
-                  const anoReal =
-                    alunoSelecionado.anoLectivo ||
-                    alunoSelecionado.anoMatricula ||
-                    turmaDoAluno?.anoLectivo ||
-                    selectedAnoLectivo ||
-                    escola.anoLectivoActivo ||
-                    '—';
+                  const anoReal = anoAlunoDoc || '—';
                   return (
                     <>
                       {situacaoTexto} <strong>{classeAlunoDoc ? `${classeAlunoDoc} Classe` : '—'}</strong>, no Ano Lectivo de <strong>{anoReal}</strong>
@@ -4564,7 +4770,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
             {camposDoc.mostrarDataLocalExtenso && (
               <p className="text-right pt-2 font-medium">
-                {escola.municipio || escola.provincia || 'Angola'}, aos {hojeAngolano('extenso')}.
+                {[escola.municipio, escola.provincia].filter(Boolean).join(', ') || 'República de Angola'}, aos {hojeAngolano('extenso')}.
               </p>
             )}
           </div>
@@ -4629,26 +4835,46 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 3. CERTIFICADO MULTI-CLASSE 10ª, 11ª, 12ª (SCREENSHOT 4 - COMPLEXO 151) */}
+      {/* 3. CERTIFICADO OFICIAL (RESTRITO A CLASSES FINAIS: 6ª, 9ª, 12ª e 13ª) */}
       {/* ========================================================================= */}
       {docType === 'certificado_ciclo' && (
         !alunoSelecionado ? (
           <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-12 text-center text-gray-500 max-w-xl mx-auto my-8">
             <Award className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-            <h3 className="text-base font-bold text-gray-800">Nenhum Estudante Registado ou Selecionado</h3>
+            <h3 className="text-base font-bold text-gray-800">Nenhum Estudante de Classe Final Selecionado</h3>
             <p className="text-sm text-gray-500 mt-1">
-              Para emitir o Certificado Oficial de Habilitações, selecione ou registe um estudante concluinte.
+              A emissão de Certificados Oficiais é permitida apenas para estudantes matriculados nas classes finais: <strong>6ª, 9ª, 12ª e 13ª Classe</strong>.
+            </p>
+          </div>
+        ) : !isClasseFinalCertificado(classeAlunoDoc) ? (
+          <div className="bg-amber-50 border-2 border-amber-400 rounded-xl p-10 text-center text-amber-950 max-w-xl mx-auto my-8 space-y-2">
+            <Award className="h-12 w-12 text-amber-600 mx-auto" />
+            <h3 className="text-base font-black">Emissão de Certificado Não Permitida para {classeAlunoDoc || 'Esta Classe'}</h3>
+            <p className="text-xs text-amber-900">
+              O estudante <strong>{alunoSelecionado.nomeCompleto}</strong> pertence à <strong>{classeAlunoDoc || 'classe não final'}</strong>. Os Certificados Oficiais só podem ser emitidos para alunos das classes finais: <strong>6ª, 9ª, 12ª e 13ª Classe</strong>. Para as restantes classes, utilize a <strong>Declaração com Notas</strong>.
             </p>
           </div>
         ) : (() => {
-          const ctxCert = buildTemplateCtx({ aluno: alunoSelecionado, turma: turmaDoAluno });
-          const cabCert = resolverCabecalhoPersonalizado({ aluno: alunoSelecionado, turma: turmaDoAluno });
-          const tituloCertRaw = resolverTextoDiretor(configAtual?.tituloOficial, { aluno: alunoSelecionado, turma: turmaDoAluno });
-          const aberturaCert = resolverTextoDiretor(configAtual?.textoCorpoAbertura, { aluno: alunoSelecionado, turma: turmaDoAluno });
-          const fechamentoCert = resolverTextoDiretor(configAtual?.textoFechamento, { aluno: alunoSelecionado, turma: turmaDoAluno });
-          const rodapeCert = resolverTextoDiretor(configAtual?.textoRodape, { aluno: alunoSelecionado, turma: turmaDoAluno });
+          const ctxCert = buildTemplateCtx({ aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const cabCert = resolverCabecalhoPersonalizado({ aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const tituloCertRaw = resolverTextoDiretor(configAtual?.tituloOficial, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const aberturaCert = resolverTextoDiretor(configAtual?.textoCorpoAbertura, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const fechamentoCert = resolverTextoDiretor(configAtual?.textoFechamento, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
+          const rodapeCert = resolverTextoDiretor(configAtual?.textoRodape, { aluno: alunoDocAlinhado || alunoSelecionado, turma: turmaDoAluno, anoLectivo: anoAlunoDoc });
           const podeVerDocAlunoCert = visibilidadeUsuario.dadosSensiveis.verDocumentosIdentificacaoAlunos;
           const biExibidoCert = podeVerDocAlunoCert ? (alunoSelecionado.numeroDocumento || alunoSelecionado.numeroBI || '—') : '*** Protegido ***';
+
+          const obterDisciplinasCertificado = (alvoCls: string, cursoAlvo?: string): Disciplina[] => {
+            const lista = obterDisciplinasParaAlunoEClasse(alunoSelecionado, alvoCls, cursoAlvo);
+            if (lista.length > 0) return lista;
+            const nomesMatriz = resolverNomesDisciplinasPorClasseECurso(disciplinasDoAnoDocumento, alvoCls, cursoAlvo);
+            return nomesMatriz.map((nome, i) => ({
+              id: `cert-${normalizarClasse(alvoCls)}-${i}`,
+              nome,
+              sigla: nome.substring(0, 4).toUpperCase(),
+              escolaId: escola.id
+            } as Disciplina));
+          };
 
           return (
         <div id="documento-para-impressao" data-doc-root="true" className={`documento-oficial-print bg-white border-4 border-double border-gray-900 p-6 sm:p-8 md:p-10 rounded-xl shadow-lg max-w-5xl mx-auto text-black print:shadow-none print:p-6 print:border-4 print:border-double print:border-gray-900 space-y-6 ${fontScaleClassDoc}`}>
@@ -4690,7 +4916,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {camposDoc.mostrarGovernoGabinete && (
                   <>
                     <p className="text-[11px] font-bold uppercase text-gray-800">
-                      {escola.governoProvincial || `GOVERNO PROVINCIAL DO ${(escola.provincia || 'LUANDA').toUpperCase()}`}
+                      {escola.governoProvincial || (escola.provincia ? `GOVERNO PROVINCIAL DE ${escola.provincia.toUpperCase()}` : 'GOVERNO PROVINCIAL')}
                     </p>
                     <p className="text-[11px] font-bold uppercase text-gray-800">
                       {escola.gabineteEducacao || 'GABINETE PROVINCIAL DA EDUCAÇÃO'}
@@ -4771,13 +4997,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
               <p>
                 {(() => {
-                  const anoReal =
-                    alunoSelecionado.anoLectivo ||
-                    alunoSelecionado.anoMatricula ||
-                    turmaDoAluno?.anoLectivo ||
-                    selectedAnoLectivo ||
-                    escola.anoLectivoActivo ||
-                    '—';
+                  const anoReal = anoAlunoDoc || '—';
                   const turnoSpan = camposDoc.mostrarTurmaSalaTurno && (turmaDoAluno?.nome || turmaDoAluno?.turno)
                     ? <>{turmaDoAluno?.nome ? <>, na Turma <strong>{turmaDoAluno.nome}</strong></> : null}{turmaDoAluno?.turno ? <>, Período <strong>{turmaDoAluno.turno}</strong></> : null}</>
                     : null;
@@ -4798,11 +5018,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 1: ENSINO PRIMÁRIO (6ª CLASSE) */}
           {tipoCertificadoEfetivo === 'primario_6' && (() => {
-            const discsMatriz = resolverNomesDisciplinasPorClasseECurso(disciplinas, '6ª', undefined);
-            const discs =
-              discsMatriz.length > 0
-                ? discsMatriz.map((nome, i) => ({ id: `cert-prim-${i}`, nome }))
-                : disciplinasDaClasseAluno;
+            const discs = obterDisciplinasCertificado('6ª', undefined);
             const linhas = discs.map(disc => {
               const real = resolverNotaRealAluno(disc, '6ª');
               const mac = real.mac !== null ? Math.round(real.mac) : null;
@@ -4854,11 +5070,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 2: Iº CICLO DO ENSINO SECUNDÁRIO (7ª, 8ª e 9ª CLASSES) */}
           {tipoCertificadoEfetivo === 'iciclo_9' && (() => {
-            const discsMatriz = resolverNomesDisciplinasPorClasseECurso(disciplinas, '9ª', undefined);
-            const discs =
-              discsMatriz.length > 0
-                ? discsMatriz.map((nome, i) => ({ id: `cert-ic-${i}`, nome }))
-                : disciplinasDaClasseAluno;
+            const discs = obterDisciplinasCertificado('9ª', undefined);
             const linhas = discs.map(disc => {
               const r7 = resolverNotaRealAluno(disc, '7ª').valorFinal;
               const r8 = resolverNotaRealAluno(disc, '8ª').valorFinal;
@@ -4922,11 +5134,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 3: IIº CICLO GERAL (10ª, 11ª e 12ª CLASSES) */}
           {tipoCertificadoEfetivo === 'iiciclo_12' && (() => {
-            const discsMatriz = resolverNomesDisciplinasPorClasseECurso(disciplinas, '12ª', cursoAlunoDoc);
-            const discs =
-              discsMatriz.length > 0
-                ? discsMatriz.map((nome, i) => ({ id: `cert-ii-${i}`, nome }))
-                : disciplinasDaClasseAluno;
+            const discs = obterDisciplinasCertificado('12ª', cursoAlunoDoc);
             const linhas = discs.map(disc => {
               const r10 = resolverNotaRealAluno(disc, '10ª').valorFinal;
               const r11 = resolverNotaRealAluno(disc, '11ª').valorFinal;
@@ -4992,11 +5200,15 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
 
           {/* TABELA 4: ENSINO TÉCNICO-PROFISSIONAL / MAGISTÉRIO (10ª A 13ª CLASSES) */}
           {tipoCertificadoEfetivo === 'tecnico_12_13' && (() => {
-            const discsMatriz = resolverNomesDisciplinasPorClasseECurso(disciplinas, classeAlunoDoc || '12ª', cursoAlunoDoc);
-            const discs =
-              discsMatriz.length > 0
-                ? discsMatriz.map((nome, i) => ({ id: `cert-tec-${i}`, nome }))
-                : disciplinasDaClasseAluno;
+            const discs = obterDisciplinasCertificado(classeAlunoDoc || '12ª', cursoAlunoDoc);
+            const notaPapGlobal = (() => {
+              const discPap = discs.find(d => {
+                const nm = normalizarNomeDisciplina(d.nome);
+                return nm.includes('pap') || nm.includes('aptidao profissional') || nm.includes('estagio');
+              });
+              if (!discPap) return null;
+              return resolverNotaRealAluno(discPap, classeAlunoDoc || '13ª').valorFinal;
+            })();
             const linhas = discs.map(disc => {
               const r10 = resolverNotaRealAluno(disc, '10ª').valorFinal;
               const r11 = resolverNotaRealAluno(disc, '11ª').valorFinal;
@@ -5004,13 +5216,18 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
               const r13 = resolverNotaRealAluno(disc, '13ª').valorFinal;
               const nums = [r10, r11, r12, r13].filter((v): v is number => v !== null);
               const mf = nums.length > 0 ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : null;
+              const ehDiscPap = (() => {
+                const nm = normalizarNomeDisciplina(disc.nome);
+                return nm.includes('pap') || nm.includes('aptidao profissional') || nm.includes('estagio');
+              })();
+              const papVal = ehDiscPap ? (mf !== null ? mf : notaPapGlobal !== null ? Math.round(notaPapGlobal) : '—') : '—';
               return {
                 disc: disc.nome,
                 n10: r10 !== null ? Math.round(r10) : '—',
                 n11: r11 !== null ? Math.round(r11) : '—',
                 n12: r12 !== null ? Math.round(r12) : '—',
                 n13: r13 !== null ? Math.round(r13) : '—',
-                pap: '—',
+                pap: papVal,
                 mf
               };
             });
@@ -5082,7 +5299,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
             </p>
             {camposDoc.mostrarDataLocalExtenso && (
               <p className="text-right pt-2 font-medium">
-                {escola.municipio || escola.provincia || 'Angola'}, aos {hojeAngolano('extenso')}.
+                {[escola.municipio, escola.provincia].filter(Boolean).join(', ') || 'República de Angola'}, aos {hojeAngolano('extenso')}.
               </p>
             )}
           </div>

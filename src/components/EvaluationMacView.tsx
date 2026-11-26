@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FileSpreadsheet, 
   Plus, 
@@ -24,7 +24,11 @@ import {
   ShieldAlert,
   Award,
   Download,
-  Loader2
+  Loader2,
+  Bell,
+  CheckCheck,
+  Edit3,
+  RotateCcw
 } from 'lucide-react';
 import { StudentRankingSection } from './StudentRankingSection';
 import {
@@ -56,7 +60,8 @@ import {
   AvaliacaoCriada, 
   NotaEstudante, 
   NotaTrimestralConsolidada,
-  SolicitacaoAlteracaoNota
+  SolicitacaoAlteracaoNota,
+  RegistroAlteracaoNotaDirecao
 } from '../types';
 import { dbService } from '../services/storage';
 import * as XLSX from 'xlsx';
@@ -76,6 +81,8 @@ import {
 import {
   aplicarNotasAdministrativas,
   calcularNotasAdministrativasProporcionais,
+  ModoAplicacaoNotaAdministrativa,
+  resolverProfessoresAtribuidosDisciplina,
   TipoComponenteNotaAdministrativa
 } from '../services/administrativeGradeService';
 import { handleStrictNumericKeyDown, handleStrictNumericPaste } from './StrictNumericInput';
@@ -114,7 +121,7 @@ interface EvaluationMacViewProps {
   onSalvarNota: (nota: NotaEstudante) => void;
   onSalvarNotaConsolidada: (cons: NotaTrimestralConsolidada) => void;
   onSalvarSolicitacao: (sol: SolicitacaoAlteracaoNota) => void;
-  initialSubTab?: 'lancamento' | 'governanca_mac' | 'solicitacoes' | 'pauta' | 'ranking_turmas';
+  initialSubTab?: 'lancamento' | 'governanca_mac' | 'solicitacoes' | 'auditoria_direcao' | 'pauta' | 'ranking_turmas';
 }
 
 export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
@@ -139,7 +146,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   onSalvarNotaConsolidada,
   onSalvarSolicitacao
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'lancamento' | 'governanca_mac' | 'solicitacoes' | 'pauta' | 'ranking_turmas'>(initialSubTab || 'lancamento');
+  const [activeSubTab, setActiveSubTab] = useState<'lancamento' | 'governanca_mac' | 'solicitacoes' | 'auditoria_direcao' | 'pauta' | 'ranking_turmas'>(initialSubTab || 'lancamento');
 
   useEffect(() => {
     if (initialSubTab) {
@@ -150,7 +157,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   useEffect(() => {
     const handleSubTab = (e: Event) => {
       const sub = (e as CustomEvent<string>).detail;
-      if (sub === 'solicitacoes' || sub === 'lancamento' || sub === 'governanca_mac' || sub === 'pauta' || sub === 'ranking_turmas') {
+      if (sub === 'solicitacoes' || sub === 'lancamento' || sub === 'governanca_mac' || sub === 'auditoria_direcao' || sub === 'pauta' || sub === 'ranking_turmas') {
         setActiveSubTab(sub);
       }
     };
@@ -299,9 +306,17 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Modal de Atribuição de Notas Administrativas Proporcionais (Direção)
   const [modalNotasAdmOpen, setModalNotasAdmOpen] = useState(false);
+  const [admClasse, setAdmClasse] = useState<string>('');
+  const [admCurso, setAdmCurso] = useState<string>('TODOS');
+  const [admTurmaId, setAdmTurmaId] = useState<string>('');
+  const [admDisciplinaId, setAdmDisciplinaId] = useState<string>('');
+  const [admTrimestre, setAdmTrimestre] = useState<'1' | '2' | '3'>('1');
   const [admAlvoTipo, setAdmAlvoTipo] = useState<TipoComponenteNotaAdministrativa>('PROVA_TRIMESTRAL');
-  const [admApenasEmFalta, setAdmApenasEmFalta] = useState(true);
+  const [admModoAplicacao, setAdmModoAplicacao] = useState<ModoAplicacaoNotaAdministrativa>('FALTA');
   const [admJustificativa, setAdmJustificativa] = useState('Atribuição administrativa proporcional por incumprimento de prazo de lançamento docente.');
+  const [admNotasEditadas, setAdmNotasEditadas] = useState<Record<string, string>>({});
+  const [admSelecionados, setAdmSelecionados] = useState<Record<string, boolean>>({});
+  const [buscaAuditoriaDirecao, setBuscaAuditoriaDirecao] = useState<string>('');
 
   // Modal de Configuração de Regra de Cálculo MAC (Direção)
   const [editingRegraNivel, setEditingRegraNivel] = useState<'Primario' | 'ICiclo' | 'IICiclo'>('ICiclo');
@@ -510,6 +525,162 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
   }, [alunos, selectedTurmaId, buscaAlunoTabela]);
 
   const isDirecao = ['DiretorGeral', 'SubdiretorPedagogico', 'AdminGeral', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'ChefeSecretaria'].includes(currentUser.role);
+  const isDirecaoAuditavel = currentUser.role === 'DiretorGeral' || currentUser.role === 'SubdiretorPedagogico';
+
+  // Registos de auditoria de notas alteradas pela Direção / Subdireção Pedagógica
+  const [registosAuditoriaDirecao, setRegistosAuditoriaDirecao] = useState<RegistroAlteracaoNotaDirecao[]>(() => {
+    try {
+      return dbService.getRegistosAlteracoesNotas(
+        isProfessor ? currentUser.id : undefined,
+        escola.id,
+        escola.anoLectivoActivo
+      );
+    } catch {
+      return [];
+    }
+  });
+
+  const recarregarAuditoriaDirecao = () => {
+    try {
+      setRegistosAuditoriaDirecao(
+        dbService.getRegistosAlteracoesNotas(
+          isProfessor ? currentUser.id : undefined,
+          escola.id,
+          escola.anoLectivoActivo
+        )
+      );
+    } catch {
+      // ignorar
+    }
+  };
+
+  useEffect(() => {
+    recarregarAuditoriaDirecao();
+    const onAtualizado = () => recarregarAuditoriaDirecao();
+    window.addEventListener('sge_alteracao_nota_direcao', onAtualizado);
+    window.addEventListener('sge_alteracao_nota_direcao_atualizada', onAtualizado);
+    window.addEventListener('sge_dados_atualizados_remoto', onAtualizado);
+    return () => {
+      window.removeEventListener('sge_alteracao_nota_direcao', onAtualizado);
+      window.removeEventListener('sge_alteracao_nota_direcao_atualizada', onAtualizado);
+      window.removeEventListener('sge_dados_atualizados_remoto', onAtualizado);
+    };
+  }, [escola.id, escola.anoLectivoActivo, currentUser.id, isProfessor]);
+
+  const registosNaoLidosProfessor = useMemo(
+    () =>
+      registosAuditoriaDirecao.filter(
+        (r) => r.professorId === currentUser.id && !r.lidoPeloProfessor
+      ),
+    [registosAuditoriaDirecao, currentUser.id]
+  );
+
+  // Rastreio de edições diretas na grelha pela Direção / Subdireção Pedagógica para auditoria & notificação ao professor
+  const notasFocoInicialRef = useRef<Record<string, { val: number | null; label: string }>>({});
+
+  const registarInicioFocoNota = (chave: string, valorInicial: number | undefined | null, label: string) => {
+    if (!isDirecaoAuditavel) return;
+    if (!(chave in notasFocoInicialRef.current)) {
+      const valNorm =
+        typeof valorInicial === 'number' && !isNaN(valorInicial) ? valorInicial : null;
+      notasFocoInicialRef.current[chave] = { val: valNorm, label };
+    }
+  };
+
+  const emitirAuditoriaAlteracaoDirecao = (params: {
+    aluno: Aluno;
+    tipoNota: 'MAC' | 'NPP' | 'NPT' | 'MT' | 'Exame';
+    notaAnterior: number | null;
+    novaNota: number;
+    motivo: string;
+    turmaAlvo?: Turma;
+    discId?: string;
+    discNome?: string;
+    trim?: string;
+  }) => {
+    if (!isDirecaoAuditavel) return [];
+    const tAlvo = params.turmaAlvo || turmaAtiva;
+    const dId = params.discId || selectedDisciplinaId;
+    const dNome = params.discNome || disciplinaAtiva?.nome || dId;
+    const tri = params.trim || selectedTrimestre;
+    if (!tAlvo || !dId) return [];
+
+    const profs = resolverProfessoresAtribuidosDisciplina(
+      escola.id,
+      tAlvo.id,
+      dId,
+      dNome,
+      tAlvo.anoLectivo || escola.anoLectivoActivo
+    );
+    const destinatarios =
+      profs.length > 0
+        ? profs
+        : [{ id: '', nomeCompleto: 'Sem professor atribuído' } as Funcionario];
+    const dataHoraFmt = formatarDataHoraAngolana(new Date());
+    const notaNovaArred = Math.round(params.novaNota * 10) / 10;
+
+    for (const prof of destinatarios) {
+      dbService.salvarRegistoAlteracaoNotaDirecao({
+        id: `dir-audit-${Date.now()}-${params.aluno.id.slice(-4)}-${(prof.id || 'sem').slice(-4)}-${Math.random().toString(36).slice(2, 6)}`,
+        escolaId: escola.id,
+        anoLectivo: tAlvo.anoLectivo || escola.anoLectivoActivo,
+        alunoId: params.aluno.id,
+        alunoNome: params.aluno.nomeCompleto,
+        turmaId: tAlvo.id,
+        turmaNome: tAlvo.nome,
+        classe: tAlvo.classe,
+        curso: isSegundoCiclo(tAlvo.classe) ? tAlvo.curso : undefined,
+        disciplinaId: dId,
+        disciplinaNome: dNome,
+        professorId: prof.id,
+        professorNome: prof.nomeCompleto,
+        trimestre: tri as any,
+        tipoNota: params.tipoNota,
+        notaAnterior: params.notaAnterior ?? 0,
+        notaAnteriorEmFalta: params.notaAnterior === null,
+        novaNota: notaNovaArred,
+        motivoJustificativa: params.motivo,
+        alteradoPorId: currentUser.id,
+        alteradoPorNome: currentUser.nomeCompleto,
+        alteradoPorRole: currentUser.role as any,
+        dataHora: dataHoraFmt,
+        lidoPeloProfessor: false,
+      });
+    }
+    return profs;
+  };
+
+  const finalizarFocoNotaDirecao = (
+    chave: string,
+    aluno: Aluno,
+    valorAtualStr: string,
+    tipoNota: 'MAC' | 'NPP' | 'NPT' | 'Exame',
+    detalheAvaliacao?: string
+  ) => {
+    const infoInicial = notasFocoInicialRef.current[chave];
+    delete notasFocoInicialRef.current[chave];
+    if (!isDirecaoAuditavel || !infoInicial) return;
+
+    const texto = (valorAtualStr || '').trim().replace(/,/g, '.');
+    if (texto === '') return;
+    const novoNum = parseFloat(texto);
+    if (isNaN(novoNum) || novoNum < 0 || novoNum > escalaMaxima) return;
+
+    const novoArred = Math.round(novoNum * 10) / 10;
+    const mudou =
+      infoInicial.val === null || Math.abs(infoInicial.val - novoArred) > 0.001;
+    if (!mudou) return;
+
+    emitirAuditoriaAlteracaoDirecao({
+      aluno,
+      tipoNota,
+      notaAnterior: infoInicial.val,
+      novaNota: novoArred,
+      motivo: detalheAvaliacao
+        ? `Alteração direta pela Direção na avaliação "${detalheAvaliacao}".`
+        : `Alteração direta pela Direção na grelha de lançamento (${tipoNota}).`,
+    });
+  };
 
   // Verificação oficial de autorização para lançar notas de Exame (Comissão de Júri ou Direção)
   const isMembroJuriOuDirecao = useMemo(() => {
@@ -530,91 +701,285 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     }
   }, [isDirecao, currentUser.id, selectedTurmaId, selectedClasse]);
 
-  const alunosCompletosDaTurma = useMemo(
-    () => alunos.filter(a => a.turmaId === selectedTurmaId),
-    [alunos, selectedTurmaId]
+  // Cascata de filtros independente dentro do Modal de Atribuição de Notas Administrativas
+  const admClassesDisponiveis = useMemo(() => {
+    const fromTurmas = turmas.map((t) => normalizarClasse(t.classe)).filter(Boolean);
+    const lista = ordenarClassesMED([...todasClasses, ...fromTurmas]);
+    return lista.length > 0 ? lista : TODAS_CLASSES_OFICIAIS_MED;
+  }, [todasClasses, turmas]);
+
+  const admCursosDisponiveis = useMemo(() => {
+    if (!isSegundoCiclo(admClasse)) return [];
+    const set = new Set<string>();
+    dbService
+      .getCursos(escola.id)
+      .filter((c) => c.ativo !== false)
+      .forEach((c) => {
+        if (c.nome) set.add(c.nome);
+      });
+    turmas.forEach((t) => {
+      if (
+        isSegundoCiclo(t.classe) &&
+        normalizarClasse(t.classe) === normalizarClasse(admClasse) &&
+        t.curso
+      ) {
+        set.add(t.curso);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt', { sensitivity: 'base' }));
+  }, [escola.id, turmas, admClasse]);
+
+  const admTurmasFiltradas = useMemo(() => {
+    const porClasse = getTurmasPorClasse(turmas, admClasse);
+    const base = porClasse.length > 0 ? porClasse : turmas;
+    if (isSegundoCiclo(admClasse) && admCurso !== 'TODOS') {
+      const porCurso = base.filter(
+        (t) => (t.curso || '').trim().toLowerCase() === admCurso.trim().toLowerCase()
+      );
+      return porCurso.length > 0 ? porCurso : base;
+    }
+    return base;
+  }, [turmas, admClasse, admCurso]);
+
+  const admTurmaAtiva = useMemo(
+    () =>
+      admTurmasFiltradas.find((t) => t.id === admTurmaId) ||
+      admTurmasFiltradas[0] ||
+      turmaAtiva,
+    [admTurmasFiltradas, admTurmaId, turmaAtiva]
+  );
+
+  const admDisciplinasFiltradas = useMemo(() => {
+    if (!admTurmaAtiva) return disciplinas;
+    const cursoEfetivo = isSegundoCiclo(admTurmaAtiva.classe)
+      ? admTurmaAtiva.curso || (admCurso !== 'TODOS' ? admCurso : undefined)
+      : undefined;
+    return filtrarDisciplinasDaClasse(disciplinas, admTurmaAtiva.classe, cursoEfetivo);
+  }, [disciplinas, admTurmaAtiva, admCurso]);
+
+  const admDisciplinaAtiva = useMemo(
+    () =>
+      admDisciplinasFiltradas.find((d) => d.id === admDisciplinaId) ||
+      admDisciplinasFiltradas[0] ||
+      null,
+    [admDisciplinasFiltradas, admDisciplinaId]
+  );
+
+  const admRegraVigente = useMemo(() => {
+    if (!admTurmaAtiva) return regraVigente;
+    const triStr = `${admTrimestre}º Trimestre`;
+    return (
+      regrasMAC.find((r) => r.classe === admTurmaAtiva.classe && r.trimestre === triStr) ||
+      regrasMAC.find((r) => r.classe === admTurmaAtiva.classe) ||
+      regrasMAC.find((r) => r.nivelEnsino === admTurmaAtiva.nivelEnsino) ||
+      regrasMAC[0]
+    );
+  }, [regrasMAC, admTurmaAtiva, admTrimestre, regraVigente]);
+
+  const admEscalaInfo = obterInformacaoEscala(
+    admTurmaAtiva?.classe || admClasse,
+    admTurmaAtiva?.nivelEnsino
+  );
+  const admEhClasseFinal = isClasseFinal(admTurmaAtiva?.classe || admClasse, admRegraVigente);
+
+  useEffect(() => {
+    if (!modalNotasAdmOpen) return;
+    if (admTurmasFiltradas.length > 0 && !admTurmasFiltradas.some((t) => t.id === admTurmaId)) {
+      setAdmTurmaId(admTurmasFiltradas[0].id);
+    }
+  }, [modalNotasAdmOpen, admTurmasFiltradas, admTurmaId]);
+
+  useEffect(() => {
+    if (!modalNotasAdmOpen) return;
+    if (!isSegundoCiclo(admClasse) && admCurso !== 'TODOS') {
+      setAdmCurso('TODOS');
+    }
+  }, [modalNotasAdmOpen, admClasse, admCurso]);
+
+  useEffect(() => {
+    if (!modalNotasAdmOpen) return;
+    if (
+      admDisciplinasFiltradas.length > 0 &&
+      !admDisciplinasFiltradas.some((d) => d.id === admDisciplinaId)
+    ) {
+      setAdmDisciplinaId(admDisciplinasFiltradas[0].id);
+    }
+  }, [modalNotasAdmOpen, admDisciplinasFiltradas, admDisciplinaId]);
+
+  useEffect(() => {
+    if (!admEhClasseFinal && admAlvoTipo === 'EXAME') {
+      setAdmAlvoTipo('PROVA_TRIMESTRAL');
+    }
+  }, [admEhClasseFinal, admAlvoTipo]);
+
+  useEffect(() => {
+    if (!modalNotasAdmOpen) return;
+    setAdmNotasEditadas({});
+    setAdmSelecionados({});
+  }, [
+    modalNotasAdmOpen,
+    admTurmaId,
+    admDisciplinaId,
+    admTrimestre,
+    admAlvoTipo,
+    admModoAplicacao,
+  ]);
+
+  const abrirModalNotasAdm = () => {
+    setAdmClasse(turmaAtiva?.classe ? normalizarClasse(turmaAtiva.classe) : selectedClasse);
+    setAdmCurso(
+      isSegundoCiclo(turmaAtiva?.classe || selectedClasse)
+        ? turmaAtiva?.curso || selectedCursoFilter || 'TODOS'
+        : 'TODOS'
+    );
+    setAdmTurmaId(turmaAtiva?.id || selectedTurmaId || turmas[0]?.id || '');
+    setAdmDisciplinaId(selectedDisciplinaId || disciplinasDaClasseECurso[0]?.id || '');
+    setAdmTrimestre(selectedTrimestre);
+    setAdmNotasEditadas({});
+    setAdmSelecionados({});
+    setModalNotasAdmOpen(true);
+  };
+
+  const admAlunosDaTurma = useMemo(
+    () => (admTurmaAtiva ? alunos.filter((a) => a.turmaId === admTurmaAtiva.id) : []),
+    [alunos, admTurmaAtiva]
   );
 
   const previewNotasAdm = useMemo(() => {
-    if (!modalNotasAdmOpen || !turmaAtiva || !selectedDisciplinaId) return null;
+    if (!modalNotasAdmOpen || !admTurmaAtiva || !admDisciplinaAtiva) return null;
     return calcularNotasAdministrativasProporcionais({
-      turma: turmaAtiva,
-      disciplinaId: selectedDisciplinaId,
-      trimestre: selectedTrimestre,
-      anoLectivo: turmaAtiva.anoLectivo || escola.anoLectivoActivo || '',
-      alunosDaTurma: alunosCompletosDaTurma,
+      turma: admTurmaAtiva,
+      disciplinaId: admDisciplinaAtiva.id,
+      trimestre: admTrimestre,
+      anoLectivo: admTurmaAtiva.anoLectivo || escola.anoLectivoActivo || '',
+      alunosDaTurma: admAlunosDaTurma,
       avaliacoes,
       notasAvaliacoes: notas,
       notasConsolidadas,
-      regraVigente,
+      regraVigente: admRegraVigente,
       alvoTipo: admAlvoTipo,
-      apenasEmFalta: admApenasEmFalta
+      modoAplicacao: admModoAplicacao
     });
   }, [
     modalNotasAdmOpen,
-    turmaAtiva,
-    selectedDisciplinaId,
-    selectedTrimestre,
+    admTurmaAtiva,
+    admDisciplinaAtiva,
+    admTrimestre,
     escola.anoLectivoActivo,
-    alunosCompletosDaTurma,
+    admAlunosDaTurma,
     avaliacoes,
     notas,
     notasConsolidadas,
-    regraVigente,
+    admRegraVigente,
     admAlvoTipo,
-    admApenasEmFalta
+    admModoAplicacao
   ]);
+
+  const itensAdmEditaveis = useMemo(() => {
+    if (!previewNotasAdm) return [];
+    return previewNotasAdm.itens.map((item) => {
+      const aplicarFinal =
+        admSelecionados[item.alunoId] !== undefined
+          ? admSelecionados[item.alunoId]
+          : item.aplicar;
+      const textoEditado = admNotasEditadas[item.alunoId];
+      let notaFinalItem = item.notaProposta;
+      let editadaManual = false;
+      let invalida = false;
+
+      if (textoEditado !== undefined) {
+        const parsed = parseFloat(textoEditado.replace(/,/g, '.'));
+        if (
+          textoEditado.trim() === '' ||
+          isNaN(parsed) ||
+          parsed < 0 ||
+          parsed > previewNotasAdm.escalaMaxima
+        ) {
+          invalida = aplicarFinal;
+        } else {
+          notaFinalItem = Math.round(parsed * 10) / 10;
+          editadaManual = Math.abs(notaFinalItem - item.notaSugeridaProporcional) > 0.001;
+        }
+      }
+
+      return {
+        ...item,
+        aplicar: aplicarFinal,
+        notaProposta: notaFinalItem,
+        textoEditado,
+        editadaManual,
+        invalida,
+      };
+    });
+  }, [previewNotasAdm, admSelecionados, admNotasEditadas]);
+
+  const totalAdmSelecionados = useMemo(
+    () => itensAdmEditaveis.filter((i) => i.aplicar).length,
+    [itensAdmEditaveis]
+  );
+
+  const totalAdmInvalidas = useMemo(
+    () => itensAdmEditaveis.filter((i) => i.invalida).length,
+    [itensAdmEditaveis]
+  );
 
   const handleConfirmarNotasAdministrativas = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isDirecao || !turmaAtiva || !selectedDisciplinaId || !previewNotasAdm) return;
-    if (previewNotasAdm.totalAplicaveis === 0) return;
+    if (!isDirecao || !admTurmaAtiva || !admDisciplinaAtiva || !previewNotasAdm) return;
+    if (totalAdmSelecionados === 0 || totalAdmInvalidas > 0) return;
 
     const resultado = aplicarNotasAdministrativas({
       escola,
-      turma: turmaAtiva,
-      disciplina: disciplinaAtiva,
-      disciplinaId: selectedDisciplinaId,
-      trimestre: selectedTrimestre,
+      turma: admTurmaAtiva,
+      disciplina: admDisciplinaAtiva,
+      disciplinaId: admDisciplinaAtiva.id,
+      trimestre: admTrimestre,
       currentUser,
-      regraVigente,
+      regraVigente: admRegraVigente,
       alvoTipo: admAlvoTipo,
-      itensPreview: previewNotasAdm.itens,
+      itensPreview: itensAdmEditaveis,
       justificativa: admJustificativa.trim() || 'Atribuição administrativa proporcional pela Direção.'
     });
 
-    // Limpar estados digitados locais para refletir de imediato as novas notas na tabela
-    const limparIds = new Set(previewNotasAdm.itens.filter(i => i.aplicar).map(i => i.alunoId));
-    if (admAlvoTipo === 'AVALIACAO' && resultado.avaliacaoCriadaOuUsada) {
-      const avId = resultado.avaliacaoCriadaOuUsada.id;
-      setValoresDigitados(prev => {
-        const next = { ...prev };
-        limparIds.forEach(alId => delete next[`${avId}-${alId}`]);
-        return next;
-      });
-    } else if (admAlvoTipo === 'PROVA_TRIMESTRAL') {
-      setPtDigitadas(prev => {
-        const next = { ...prev };
-        limparIds.forEach(alId => delete next[alId]);
-        return next;
-      });
-    } else if (admAlvoTipo === 'NPP') {
-      setNppDigitadas(prev => {
-        const next = { ...prev };
-        limparIds.forEach(alId => delete next[alId]);
-        return next;
-      });
-    } else if (admAlvoTipo === 'EXAME') {
-      setExameDigitados(prev => {
-        const next = { ...prev };
-        limparIds.forEach(alId => delete next[alId]);
-        return next;
-      });
+    // Limpar estados digitados locais se for a mesma turma/disciplina/trimestre da grelha principal
+    if (
+      admTurmaAtiva.id === selectedTurmaId &&
+      admDisciplinaAtiva.id === selectedDisciplinaId &&
+      admTrimestre === selectedTrimestre
+    ) {
+      const limparIds = new Set(itensAdmEditaveis.filter(i => i.aplicar).map(i => i.alunoId));
+      if (admAlvoTipo === 'AVALIACAO' && resultado.avaliacaoCriadaOuUsada) {
+        const avId = resultado.avaliacaoCriadaOuUsada.id;
+        setValoresDigitados(prev => {
+          const next = { ...prev };
+          limparIds.forEach(alId => delete next[`${avId}-${alId}`]);
+          return next;
+        });
+      } else if (admAlvoTipo === 'PROVA_TRIMESTRAL') {
+        setPtDigitadas(prev => {
+          const next = { ...prev };
+          limparIds.forEach(alId => delete next[alId]);
+          return next;
+        });
+      } else if (admAlvoTipo === 'NPP') {
+        setNppDigitadas(prev => {
+          const next = { ...prev };
+          limparIds.forEach(alId => delete next[alId]);
+          return next;
+        });
+      } else if (admAlvoTipo === 'EXAME') {
+        setExameDigitados(prev => {
+          const next = { ...prev };
+          limparIds.forEach(alId => delete next[alId]);
+          return next;
+        });
+      }
     }
 
+    recarregarAuditoriaDirecao();
     setModalNotasAdmOpen(false);
     setRetificacaoSucessoMsg(
-      `${resultado.aplicadasCount} nota(s) administrativa(s) atribuída(s) proporcionalmente em ${disciplinaAtiva?.nome || 'Disciplina'} (${previewNotasAdm.minimoPermitido} a ${previewNotasAdm.maximoPermitido} valores)!`
+      `${resultado.aplicadasCount} nota(s) administrativa(s) atribuída(s) em ${admDisciplinaAtiva.nome} (${admTurmaAtiva.nome} • ${admTrimestre}º Trimestre)! Os professores atribuídos foram notificados.`
     );
     setTimeout(() => setRetificacaoSucessoMsg(null), 6000);
   };
@@ -869,27 +1234,19 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     }
   };
 
-  // Retificação Executiva de Nota pela Direção Geral / Subdireção com Registo Forense no Perfil do Professor
+  // Retificação Executiva de Nota pela Direção Geral / Subdireção com Registo Forense e Notificação ao Professor
   const handleSalvarRetificacaoExecutiva = (e: React.FormEvent) => {
     e.preventDefault();
     if (!retificacaoAluno || !retificacaoMotivo.trim()) return;
 
-    const atribuicoes = dbService.getAtribuicoes ? dbService.getAtribuicoes() : [];
-    const atrib = atribuicoes.find((a: any) => a.turmaId === selectedTurmaId && a.disciplinaId === selectedDisciplinaId);
-    const funcionarios = dbService.getFuncionarios();
-    const profTitular = funcionarios.find((f: any) => f.id === atrib?.professorId) || 
-      funcionarios.find((f: any) => f.role === 'Professor' && f.escolaId === escola.id) || 
-      funcionarios.find((f: any) => f.role === 'Professor') || 
-      currentUser;
-
-    const notaFinalValida = Math.min(escalaMaxima, Math.max(0, retificacaoNovaNota));
+    const notaFinalValida = Math.round(Math.min(escalaMaxima, Math.max(0, retificacaoNovaNota)) * 10) / 10;
 
     // 1. Atualizar ou criar nota consolidada
     const notasConsolid = dbService.getNotasConsolidadas();
     const idx = notasConsolid.findIndex((c: any) => 
       c.alunoId === retificacaoAluno.id && 
-      c.disciplinaId === selectedDisciplinaId && 
-      c.trimestre === selectedTrimestre
+      correspondeDiscEval(c) && 
+      normTriEval(c.trimestre) === normTriEval(selectedTrimestre)
     );
 
     let registroRetificado: NotaTrimestralConsolidada;
@@ -903,6 +1260,23 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         notasConsolid[idx].mediaTrimestral = notaFinalValida;
         notasConsolid[idx].notaFinal = notaFinalValida;
       }
+      if (retificacaoTipoNota === 'MAC' || retificacaoTipoNota === 'NPP' || retificacaoTipoNota === 'NPT') {
+        const calcTri = calcularNotaTrimestralDinamica(
+          notasConsolid[idx].mac || 0,
+          notasConsolid[idx].npp,
+          extrairNptConsolidada(notasConsolid[idx]),
+          regraVigente,
+          Number(selectedTrimestre),
+          turmaAtiva?.classe || selectedClasse,
+          provaProfessorAtiva
+        );
+        notasConsolid[idx].mediaTrimestral = calcTri.mediaTrimestral;
+        if (String(selectedTrimestre) !== '3') {
+          notasConsolid[idx].notaFinal = calcTri.mediaTrimestral;
+        }
+      }
+      notasConsolid[idx].validadaPelaDirecao = true;
+      notasConsolid[idx].origemNota = 'Direcao';
       if (!notasConsolid[idx].disciplinaNome && disciplinaAtiva?.nome) {
         notasConsolid[idx].disciplinaNome = disciplinaAtiva.nome;
       }
@@ -918,7 +1292,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         disciplinaNome: disciplinaAtiva?.nome || '',
         trimestre: selectedTrimestre as any,
         anoLectivo: escola.anoLectivoActivo || '',
-        mac: retificacaoTipoNota === 'MAC' ? notaFinalValida : 10,
+        mac: retificacaoTipoNota === 'MAC' ? notaFinalValida : 0,
         npp: retificacaoTipoNota === 'NPP' ? notaFinalValida : undefined,
         provaTrimestral: retificacaoTipoNota === 'NPT' ? notaFinalValida : undefined,
         npt: retificacaoTipoNota === 'NPT' ? notaFinalValida : undefined,
@@ -927,40 +1301,63 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         comportamentoNota: undefined,
         comportamentoConceito: undefined,
         faltas: 0,
-        validadaPelaDirecao: true
+        validadaPelaDirecao: true,
+        origemNota: 'Direcao'
       };
       notasConsolid.push(registroRetificado);
       dbService.salvarNotasConsolidadas(notasConsolid);
     }
     onSalvarNotaConsolidada(registroRetificado);
 
-    // 2. Registar averbamento no perfil do professor titular e trilha de auditoria
-    dbService.salvarRegistoAlteracaoNotaDirecao({
-      id: `retif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      escolaId: escola.id,
-      alunoId: retificacaoAluno.id,
-      alunoNome: retificacaoAluno.nomeCompleto,
-      turmaId: selectedTurmaId,
-      turmaNome: turmaAtiva?.nome || selectedTurmaId,
-      classe: turmaAtiva?.classe || selectedClasse,
-      curso: isSegundoCiclo(turmaAtiva?.classe || selectedClasse) ? turmaAtiva?.curso : undefined,
-      disciplinaId: selectedDisciplinaId,
-      disciplinaNome: disciplinaAtiva?.nome || selectedDisciplinaId,
-      professorId: profTitular.id,
-      professorNome: profTitular.nomeCompleto,
-      trimestre: selectedTrimestre,
-      tipoNota: retificacaoTipoNota,
-      notaAnterior: retificacaoNotaAnterior,
-      novaNota: notaFinalValida,
-      motivoJustificativa: retificacaoMotivo.trim(),
-      alteradoPorId: currentUser.id,
-      alteradoPorNome: currentUser.nomeCompleto,
-      alteradoPorRole: currentUser.role as any,
-      dataHora: formatarDataHoraAngolana(new Date()),
-      lidoPeloProfessor: false
-    });
+    // 2. Registar auditoria e notificar todos os professores atribuídos a esta turma e disciplina
+    const profsNotificados = resolverProfessoresAtribuidosDisciplina(
+      escola.id,
+      selectedTurmaId,
+      selectedDisciplinaId,
+      disciplinaAtiva?.nome,
+      turmaAtiva?.anoLectivo || escola.anoLectivoActivo
+    );
+    const destinatarios =
+      profsNotificados.length > 0
+        ? profsNotificados
+        : [{ id: '', nomeCompleto: 'Sem professor atribuído' } as Funcionario];
+    const dataHoraFmt = formatarDataHoraAngolana(new Date());
 
-    setRetificacaoSucessoMsg(`Nota do aluno "${retificacaoAluno.nomeCompleto}" alterada com sucesso! Log gravado no perfil do Professor ${profTitular.nomeCompleto}.`);
+    for (const prof of destinatarios) {
+      dbService.salvarRegistoAlteracaoNotaDirecao({
+        id: `retif-${Date.now()}-${(prof.id || 'sem').slice(-4)}-${Math.random().toString(36).slice(2, 6)}`,
+        escolaId: escola.id,
+        anoLectivo: turmaAtiva?.anoLectivo || escola.anoLectivoActivo,
+        alunoId: retificacaoAluno.id,
+        alunoNome: retificacaoAluno.nomeCompleto,
+        turmaId: selectedTurmaId,
+        turmaNome: turmaAtiva?.nome || selectedTurmaId,
+        classe: turmaAtiva?.classe || selectedClasse,
+        curso: isSegundoCiclo(turmaAtiva?.classe || selectedClasse) ? turmaAtiva?.curso : undefined,
+        disciplinaId: selectedDisciplinaId,
+        disciplinaNome: disciplinaAtiva?.nome || selectedDisciplinaId,
+        professorId: prof.id,
+        professorNome: prof.nomeCompleto,
+        trimestre: selectedTrimestre,
+        tipoNota: retificacaoTipoNota,
+        notaAnterior: retificacaoNotaAnterior,
+        novaNota: notaFinalValida,
+        motivoJustificativa: retificacaoMotivo.trim(),
+        alteradoPorId: currentUser.id,
+        alteradoPorNome: currentUser.nomeCompleto,
+        alteradoPorRole: currentUser.role as any,
+        dataHora: dataHoraFmt,
+        lidoPeloProfessor: false
+      });
+    }
+
+    recarregarAuditoriaDirecao();
+    const nomesProfs = profsNotificados.map((p) => p.nomeCompleto).join(', ');
+    setRetificacaoSucessoMsg(
+      profsNotificados.length > 0
+        ? `Nota de "${retificacaoAluno.nomeCompleto}" alterada (${retificacaoNotaAnterior.toFixed(1)} → ${notaFinalValida.toFixed(1)})! Auditoria e notificação enviadas para ${nomesProfs}.`
+        : `Nota de "${retificacaoAluno.nomeCompleto}" alterada (${retificacaoNotaAnterior.toFixed(1)} → ${notaFinalValida.toFixed(1)}) e registada na auditoria da escola.`
+    );
     setModalRetificacaoDirecaoOpen(false);
     setTimeout(() => setRetificacaoSucessoMsg(null), 5000);
   };
@@ -1290,6 +1687,29 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
           )}
         </button>
 
+        {(isProfessor || isDirecao || registosAuditoriaDirecao.length > 0) && (
+          <button
+            onClick={() => setActiveSubTab('auditoria_direcao')}
+            className={`px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-colors border-2 flex items-center space-x-1.5 cursor-pointer ${
+              activeSubTab === 'auditoria_direcao'
+                ? 'bg-indigo-50 text-indigo-800 border-indigo-600'
+                : 'text-gray-700 hover:bg-gray-100 border-transparent'
+            }`}
+          >
+            <Bell className="h-4 w-4 text-indigo-600" />
+            <span>Auditoria da Direção</span>
+            {registosNaoLidosProfessor.length > 0 ? (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-600 text-white">
+                {registosNaoLidosProfessor.length} nova(s)
+              </span>
+            ) : registosAuditoriaDirecao.length > 0 ? (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-900">
+                {registosAuditoriaDirecao.length}
+              </span>
+            ) : null}
+          </button>
+        )}
+
         <button
           onClick={() => setActiveSubTab('pauta')}
           className={`px-3 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-colors border-2 ${
@@ -1518,12 +1938,12 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {isDirecao && turmaAtiva && selectedDisciplinaId && (
+              {isDirecao && turmas.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setModalNotasAdmOpen(true)}
+                  onClick={abrirModalNotasAdm}
                   className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer text-xs whitespace-nowrap shrink-0"
-                  title="Atribuir notas administrativas proporcionais para avaliações, provas ou exames em falta"
+                  title="Atribuir ou editar notas administrativas por classe, curso, turma e disciplina"
                 >
                   <ShieldCheck className="h-4 w-4" />
                   <span>Atribuir Notas Administrativas</span>
@@ -1540,6 +1960,51 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Alerta para Professor quando Diretor / Subdiretor Pedagógico alterou notas */}
+          {registosNaoLidosProfessor.length > 0 && (
+            <div className="p-3.5 bg-indigo-50 border-2 border-indigo-500 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-2.5">
+                <div className="p-1.5 bg-indigo-600 text-white rounded-lg shrink-0 mt-0.5">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-black text-indigo-950">
+                    {registosNaoLidosProfessor.length} alteração(ões) de nota pela Direção aguardando a sua leitura
+                  </div>
+                  <p className="text-[11px] text-indigo-900 mt-0.5">
+                    Último registo: <strong>{registosNaoLidosProfessor[0].alunoNome}</strong> ({registosNaoLidosProfessor[0].disciplinaNome} • {registosNaoLidosProfessor[0].turmaNome}) — {registosNaoLidosProfessor[0].tipoNota}:{' '}
+                    <strong>
+                      {registosNaoLidosProfessor[0].notaAnteriorEmFalta
+                        ? 'Em falta'
+                        : `${Number(registosNaoLidosProfessor[0].notaAnterior).toFixed(1)} val.`}
+                    </strong>{' '}
+                    → <strong className="text-emerald-800">{Number(registosNaoLidosProfessor[0].novaNota).toFixed(1)} val.</strong>{' '}
+                    por {registosNaoLidosProfessor[0].alteradoPorNome}.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('auditoria_direcao')}
+                  className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white font-bold rounded-lg cursor-pointer whitespace-nowrap"
+                >
+                  Ver Auditoria
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    dbService.marcarTodasAlteracoesNotaComoLidas(currentUser.id, escola.id);
+                    recarregarAuditoriaDirecao();
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-300 font-bold rounded-lg cursor-pointer whitespace-nowrap"
+                >
+                  Marcar Lidas
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Banner de Aviso de Notas Fora do Intervalo */}
           {Object.keys(notasInvalidas).length > 0 && (
@@ -1761,6 +2226,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                                   value={val}
                                   onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
                                   onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleNotaChange(av.id, aluno.id, novo), true)}
+                                  onFocus={() => registarInicioFocoNota(chave, notaAluno?.valorNota ?? null, av.titulo)}
+                                  onBlur={(e) => finalizarFocoNotaDirecao(chave, aluno, e.target.value, 'MAC', av.titulo)}
                                   onChange={(e) => handleNotaChange(av.id, aluno.id, e.target.value)}
                                   placeholder="0.0"
                                   title={isInvalid ? erroMsg : `Escala oficial: 0 a ${escalaMaxima}`}
@@ -1805,6 +2272,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                                   placeholder="0.0"
                                   onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
                                   onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleNppChange(aluno.id, novo, resMAC), true)}
+                                  onFocus={() => registarInicioFocoNota(chaveNpp, notaConsol?.npp ?? null, 'NPP')}
+                                  onBlur={(e) => finalizarFocoNotaDirecao(chaveNpp, aluno, e.target.value, 'NPP')}
                                   onChange={(e) => handleNppChange(aluno.id, e.target.value, resMAC)}
                                   className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
                                     isNppInvalid
@@ -1833,6 +2302,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                                 placeholder="0.0"
                                 onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
                                 onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleProvaTrimestralChange(aluno.id, novo, resMAC), true)}
+                                onFocus={() => registarInicioFocoNota(chavePt, ptSalvo ?? null, 'NPT')}
+                                onBlur={(e) => finalizarFocoNotaDirecao(chavePt, aluno, e.target.value, 'NPT')}
                                 onChange={(e) => handleProvaTrimestralChange(aluno.id, e.target.value, resMAC)}
                                 className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
                                   isPtInvalid
@@ -1880,6 +2351,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                                       placeholder="0.0"
                                       onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
                                       onPaste={(e) => handleStrictNumericPaste(e, (novo) => handleExameJuriChange(aluno.id, novo, resMAC), true)}
+                                      onFocus={() => registarInicioFocoNota(chaveExame, notaConsol?.notaExame ?? null, 'Exame')}
+                                      onBlur={(e) => finalizarFocoNotaDirecao(chaveExame, aluno, e.target.value, 'Exame')}
                                       onChange={(e) => handleExameJuriChange(aluno.id, e.target.value, resMAC)}
                                       className={`w-16 text-center text-xs font-black p-1.5 rounded focus:outline-none transition-all shadow-2xs ${
                                         isExameInvalid
@@ -2563,6 +3036,169 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         </div>
       )}
 
+      {/* 3.5 AUDITORIA DE ALTERAÇÕES DE NOTAS PELA DIREÇÃO */}
+      {activeSubTab === 'auditoria_direcao' && (
+        <div className="space-y-5">
+          <div className="p-4 bg-indigo-50 border-2 border-indigo-500 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start space-x-3">
+              <History className="h-5 w-5 text-indigo-700 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs sm:text-sm font-black text-indigo-950">
+                  Auditoria de Notas Alteradas pelo Diretor Geral e Subdiretor Pedagógico
+                </h4>
+                <p className="text-xs text-indigo-900 mt-0.5">
+                  Registo transparente de todas as retificações executivas, alterações diretas na pauta e atribuições administrativas de notas, incluindo nota anterior, nova nota, disciplina, turma, autor e motivo.
+                </p>
+              </div>
+            </div>
+            {registosNaoLidosProfessor.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  dbService.marcarTodasAlteracoesNotaComoLidas(currentUser.id, escola.id);
+                  recarregarAuditoriaDirecao();
+                }}
+                className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-bold rounded-lg inline-flex items-center space-x-1.5 shrink-0 cursor-pointer"
+              >
+                <CheckCheck className="w-4 h-4" />
+                <span>Marcar todas como lidas ({registosNaoLidosProfessor.length})</span>
+              </button>
+            )}
+          </div>
+
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={buscaAuditoriaDirecao}
+              onChange={(e) => setBuscaAuditoriaDirecao(sanitizeSearchInput(e.target.value, 80))}
+              placeholder="Pesquisar por aluno, disciplina, turma ou autor da alteração..."
+              className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-gray-50 text-gray-700 font-bold border-b border-gray-200">
+                  <tr>
+                    <th className="p-3">Data / Hora</th>
+                    <th className="p-3">Estudante</th>
+                    <th className="p-3">Classe / Turma</th>
+                    <th className="p-3">Disciplina & Trim.</th>
+                    <th className="p-3 text-center">Tipo</th>
+                    <th className="p-3 text-center">Nota Anterior → Nova Nota</th>
+                    <th className="p-3">Alterado por</th>
+                    <th className="p-3">Motivo / Observação</th>
+                    <th className="p-3 text-right">Leitura</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {(() => {
+                    const filtrados = registosAuditoriaDirecao.filter((r) => {
+                      if (!buscaAuditoriaDirecao.trim()) return true;
+                      return (
+                        safeSearchMatch(r.alunoNome, buscaAuditoriaDirecao) ||
+                        safeSearchMatch(r.disciplinaNome, buscaAuditoriaDirecao) ||
+                        safeSearchMatch(r.turmaNome, buscaAuditoriaDirecao) ||
+                        safeSearchMatch(r.alteradoPorNome, buscaAuditoriaDirecao) ||
+                        safeSearchMatch(r.professorNome, buscaAuditoriaDirecao)
+                      );
+                    });
+                    if (filtrados.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={9} className="p-6 text-center text-gray-500">
+                            Nenhuma alteração de nota pela Direção registada até ao momento.
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return filtrados.map((reg) => {
+                      const ehMeuRegisto = reg.professorId === currentUser.id;
+                      const naoLida = ehMeuRegisto && !reg.lidoPeloProfessor;
+                      return (
+                        <tr
+                          key={reg.id}
+                          className={naoLida ? 'bg-indigo-50/60 hover:bg-indigo-50' : 'hover:bg-gray-50'}
+                        >
+                          <td className="p-3 text-gray-600 font-mono whitespace-nowrap">
+                            {reg.dataHora}
+                          </td>
+                          <td className="p-3 font-bold text-gray-900">{reg.alunoNome}</td>
+                          <td className="p-3 text-gray-700">
+                            <div className="font-semibold">{reg.classe} • {reg.turmaNome}</div>
+                            {reg.curso && (
+                              <div className="text-[10px] text-purple-700 font-semibold">{reg.curso}</div>
+                            )}
+                          </td>
+                          <td className="p-3 text-gray-800">
+                            <div className="font-semibold">{reg.disciplinaNome}</div>
+                            <div className="text-[10px] text-gray-500">{reg.trimestre}º Trimestre</div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="px-2 py-0.5 rounded bg-gray-100 border border-gray-300 font-bold text-gray-800 text-[10px]">
+                              {reg.tipoNota}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center whitespace-nowrap font-mono">
+                            <span className="text-rose-700 font-bold">
+                              {reg.notaAnteriorEmFalta ? 'Em falta' : Number(reg.notaAnterior).toFixed(1)}
+                            </span>
+                            <span className="mx-1.5 text-gray-400">→</span>
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-950 border border-emerald-300 font-black">
+                              {Number(reg.novaNota).toFixed(1)} val.
+                            </span>
+                          </td>
+                          <td className="p-3 text-gray-700">
+                            <div className="font-bold text-gray-900">{reg.alteradoPorNome}</div>
+                            <div className="text-[10px] text-indigo-700 font-semibold">
+                              {reg.alteradoPorRole === 'DiretorGeral'
+                                ? 'Diretor Geral'
+                                : reg.alteradoPorRole === 'SubdiretorPedagogico'
+                                ? 'Subdiretor Pedagógico'
+                                : reg.alteradoPorRole}
+                            </div>
+                            {!isProfessor && reg.professorNome && (
+                              <div className="text-[10px] text-gray-500">Prof.: {reg.professorNome}</div>
+                            )}
+                          </td>
+                          <td className="p-3 text-gray-600 max-w-xs">{reg.motivoJustificativa}</td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            {naoLida ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  dbService.marcarAlteracaoNotaComoLida(reg.id);
+                                  recarregarAuditoriaDirecao();
+                                }}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg cursor-pointer"
+                              >
+                                Marcar lida
+                              </button>
+                            ) : (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  reg.lidoPeloProfessor
+                                    ? 'bg-emerald-100 text-emerald-900'
+                                    : 'bg-amber-100 text-amber-900'
+                                }`}
+                              >
+                                {reg.lidoPeloProfessor ? 'Lida' : 'Pendente leitura'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 4. PAUTA OFICIAL COM FORMATAÇÃO OFICIAL DO MINISTÉRIO DA EDUCAÇÃO */}
       {activeSubTab === 'pauta' && (
         <div className="space-y-6">
@@ -2948,10 +3584,10 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   </p>
                 </div>
 
-                {/* 4. Director Geral com Homologação */}
+                {/* 4. Director Geral */}
                 <div className="space-y-1 flex flex-col items-center justify-end">
                   <p className="font-black text-gray-950 uppercase text-[11px]">
-                    {obterTituloDiretorGeral(escola, funcionariosEscola)} (Homologação)
+                    {obterTituloDiretorGeral(escola, funcionariosEscola)}
                   </p>
                   {Boolean((escola.assinaturaDiretorUrl || (escola as any).configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
                     <div className="h-10 flex items-center justify-center -mb-1">
@@ -3264,168 +3900,454 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         </div>
       )}
 
-      {/* Modal de Atribuição de Notas Administrativas Proporcionais pela Direção */}
-      {modalNotasAdmOpen && turmaAtiva && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full p-5 sm:p-6 border border-gray-200 flex flex-col max-h-[90vh]">
-            <div className="flex items-start justify-between border-b border-gray-200 pb-3 mb-4 shrink-0">
-              <div className="flex items-center space-x-2.5">
+      {/* Modal de Atribuição e Edição de Notas Administrativas (Direção) */}
+      {modalNotasAdmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/65 backdrop-blur-xs p-2 sm:p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full border border-gray-200 flex flex-col max-h-[94vh] overflow-hidden">
+            {/* Cabeçalho fixo */}
+            <div className="flex items-start justify-between border-b border-gray-200 px-4 sm:px-6 py-3.5 bg-gray-50/70 shrink-0">
+              <div className="flex items-center space-x-2.5 min-w-0">
                 <div className="p-2 bg-amber-100 text-amber-800 rounded-xl shrink-0">
                   <ShieldCheck className="w-5 h-5 text-amber-700" />
                 </div>
-                <div>
-                  <h3 className="text-sm sm:text-base font-black text-gray-900">
-                    Atribuir Notas Administrativas Proporcionais (Direção)
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-black text-gray-900 truncate">
+                    Atribuição e Edição de Notas Administrativas (Direção)
                   </h3>
-                  <p className="text-xs text-gray-600">
-                    Turma <strong>{turmaAtiva.nome}</strong> ({turmaAtiva.classe}) • {disciplinaAtiva?.nome || 'Disciplina'} • {selectedTrimestre}º Trimestre
+                  <p className="text-[11px] sm:text-xs text-gray-600 truncate">
+                    {admTurmaAtiva ? (
+                      <>
+                        <strong>{admTurmaAtiva.classe}</strong>
+                        {isSegundoCiclo(admTurmaAtiva.classe) && (admTurmaAtiva.curso || admCurso !== 'TODOS')
+                          ? ` • ${admTurmaAtiva.curso || admCurso}`
+                          : ''}{' '}
+                        • Turma <strong>{admTurmaAtiva.nome}</strong> •{' '}
+                        <strong>{admDisciplinaAtiva?.nome || 'Selecionar Disciplina'}</strong> • {admTrimestre}º Trimestre
+                      </>
+                    ) : (
+                      'Selecione a classe, curso, turma e disciplina para gerir notas administrativas.'
+                    )}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setModalNotasAdmOpen(false)}
-                className="text-gray-400 hover:text-gray-700 p-1 cursor-pointer"
+                className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-200/60 cursor-pointer shrink-0"
                 aria-label="Fechar modal"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleConfirmarNotasAdministrativas} className="flex flex-col min-h-0 flex-1 space-y-4 text-xs">
-              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
-                <div>
-                  <span className="font-black uppercase text-[11px] tracking-wide block">
-                    Regra de Proporcionalidade Oficial ({escalaInfo.ehPrimario ? 'Ensino Primário: 4.0 a 10.0' : 'I e II Ciclos: 8.0 a 20.0'})
-                  </span>
-                  <span className="text-[11px] text-amber-900">
-                    Calculado proporcionalmente pelo desempenho individual de cada aluno nas restantes disciplinas. Alunos com melhores médias recebem notas mais altas; estas notas passam a contar para pautas, boletins, rankings e estatísticas.
-                  </span>
+            <form onSubmit={handleConfirmarNotasAdministrativas} className="flex flex-col min-h-0 flex-1 text-xs">
+              {/* Corpo rolável único para garantir visibilidade completa em qualquer ecrã */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-4">
+                {/* 1. Seleção Académica completa dentro do modal */}
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11px] font-black text-slate-800 uppercase tracking-wide">
+                      1. Selecionar Turma, Curso e Disciplina Alvo
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-200">
+                      Escala: 0 a {admEscalaInfo.escalaMaxima} val. ({admEscalaInfo.ehPrimario ? 'Sugestão 4–10' : 'Sugestão 8–20'})
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">Classe</label>
+                      <select
+                        value={admClasse}
+                        onChange={(e) => {
+                          setAdmClasse(e.target.value);
+                          setAdmCurso('TODOS');
+                        }}
+                        className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                      >
+                        {admClassesDisponiveis.map((c) => (
+                          <option key={`adm-cl-${c}`} value={c}>
+                            {c} {c !== 'Iniciação' ? 'Classe' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {isSegundoCiclo(admClasse) && (
+                      <div>
+                        <label className="block font-bold text-gray-700 mb-1">Curso (IIº Ciclo)</label>
+                        <select
+                          value={admCurso}
+                          onChange={(e) => setAdmCurso(e.target.value)}
+                          className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-purple-900"
+                        >
+                          <option value="TODOS">Todos os Cursos</option>
+                          {admCursosDisponiveis.map((c) => (
+                            <option key={`adm-cur-${c}`} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">
+                        Turma ({admTurmasFiltradas.length})
+                      </label>
+                      <select
+                        value={admTurmaAtiva?.id || ''}
+                        onChange={(e) => setAdmTurmaId(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                      >
+                        {admTurmasFiltradas.length === 0 ? (
+                          <option value="">Sem turmas cadastradas</option>
+                        ) : (
+                          admTurmasFiltradas.map((t) => (
+                            <option key={`adm-t-${t.id}`} value={t.id}>
+                              {t.nome} ({t.turno}){isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">
+                        Disciplina ({admDisciplinasFiltradas.length})
+                      </label>
+                      <select
+                        value={admDisciplinaAtiva?.id || ''}
+                        onChange={(e) => setAdmDisciplinaId(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                      >
+                        {admDisciplinasFiltradas.length === 0 ? (
+                          <option value="">Sem disciplinas configuradas</option>
+                        ) : (
+                          admDisciplinasFiltradas.map((d) => (
+                            <option key={`adm-d-${d.id}`} value={d.id}>
+                              {d.nome}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-gray-700 mb-1">Trimestre</label>
+                      <select
+                        value={admTrimestre}
+                        onChange={(e) => setAdmTrimestre(e.target.value as '1' | '2' | '3')}
+                        className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                      >
+                        <option value="1">1º Trimestre</option>
+                        <option value="2">2º Trimestre</option>
+                        <option value="3">3º Trimestre</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                {previewNotasAdm && (
-                  <span className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg font-black text-amber-900 tabular-nums whitespace-nowrap shrink-0">
-                    {previewNotasAdm.totalAplicaveis} de {previewNotasAdm.itens.length} aluno(s) a atualizar
-                  </span>
+
+                {/* 2. Parâmetros de Atribuição e Edição */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Componente de Nota</label>
+                    <select
+                      value={admAlvoTipo}
+                      onChange={(e) => setAdmAlvoTipo(e.target.value as TipoComponenteNotaAdministrativa)}
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                    >
+                      <option value="AVALIACAO">Avaliação Contínua (MAC)</option>
+                      <option value="PROVA_TRIMESTRAL">Prova Trimestral (PT / NPT)</option>
+                      {provaProfessorAtiva && <option value="NPP">Prova do Professor (NPP)</option>}
+                      {admEhClasseFinal && <option value="EXAME">Exame (Classe Final)</option>}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Âmbito / Modo de Edição</label>
+                    <select
+                      value={admModoAplicacao}
+                      onChange={(e) => setAdmModoAplicacao(e.target.value as ModoAplicacaoNotaAdministrativa)}
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
+                    >
+                      <option value="FALTA">Apenas alunos sem nota lançada</option>
+                      <option value="APENAS_ADM">Editar notas administrativas já atribuídas e em falta</option>
+                      <option value="TODOS">Toda a turma (atribuir/editar todos os alunos)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Despacho / Justificativa</label>
+                    <input
+                      type="text"
+                      required
+                      value={admJustificativa}
+                      onChange={(e) => setAdmJustificativa(e.target.value)}
+                      placeholder="Motivo administrativo..."
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white text-gray-900"
+                    />
+                  </div>
+                </div>
+
+                {/* Resumo + Ações em lote */}
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-950 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+                  <div className="space-y-0.5">
+                    <span className="font-black uppercase text-[11px] tracking-wide block">
+                      Edição Direta & Proporcionalidade ({admEscalaInfo.ehPrimario ? 'Ensino Primário: 4.0 a 10.0' : 'I e II Ciclos: 8.0 a 20.0'})
+                    </span>
+                    <span className="text-[11px] text-amber-900 block">
+                      Pode editar individualmente qualquer nota sugerida ou já atribuída administrativamente na coluna editável abaixo. Os professores atribuídos recebem auditoria e notificação automática.
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {Object.keys(admNotasEditadas).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setAdmNotasEditadas({})}
+                        className="px-2.5 py-1.5 bg-white hover:bg-amber-100 border border-amber-400 rounded-lg font-bold text-[11px] text-amber-900 inline-flex items-center space-x-1 cursor-pointer"
+                        title="Repor todas as notas editadas manualmente para a sugestão proporcional"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Repor Sugestões</span>
+                      </button>
+                    )}
+                    {itensAdmEditaveis.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next: Record<string, boolean> = {};
+                            itensAdmEditaveis.forEach((it) => {
+                              next[it.alunoId] = true;
+                            });
+                            setAdmSelecionados(next);
+                          }}
+                          className="px-2.5 py-1.5 bg-white hover:bg-amber-100 border border-amber-300 rounded-lg font-bold text-[11px] text-amber-900 cursor-pointer"
+                        >
+                          Selecionar Todos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next: Record<string, boolean> = {};
+                            itensAdmEditaveis.forEach((it) => {
+                              next[it.alunoId] = false;
+                            });
+                            setAdmSelecionados(next);
+                          }}
+                          className="px-2.5 py-1.5 bg-white hover:bg-gray-100 border border-gray-300 rounded-lg font-bold text-[11px] text-gray-700 cursor-pointer"
+                        >
+                          Desmarcar Todos
+                        </button>
+                      </>
+                    )}
+                    <span className="px-2.5 py-1 bg-white border border-amber-400 rounded-lg font-black text-amber-900 tabular-nums whitespace-nowrap">
+                      {totalAdmSelecionados} de {itensAdmEditaveis.length} selecionado(s)
+                    </span>
+                  </div>
+                </div>
+
+                {totalAdmInvalidas > 0 && (
+                  <div className="p-2.5 bg-red-50 border border-red-400 rounded-xl text-red-900 font-bold text-[11px] flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+                    <span>
+                      Existem {totalAdmInvalidas} nota(s) editada(s) inválida(s). Cada nota deve estar entre 0 e {admEscalaInfo.escalaMaxima} valores.
+                    </span>
+                  </div>
                 )}
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Componente em Falta</label>
-                  <select
-                    value={admAlvoTipo}
-                    onChange={(e) => setAdmAlvoTipo(e.target.value as TipoComponenteNotaAdministrativa)}
-                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
-                  >
-                    <option value="AVALIACAO">Avaliação Contínua (MAC)</option>
-                    <option value="PROVA_TRIMESTRAL">Prova Trimestral (PT / NPT)</option>
-                    {provaProfessorAtiva && <option value="NPP">Prova do Professor (NPP)</option>}
-                    {ehClasseFinal && <option value="EXAME">Exame (Classe Final)</option>}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Âmbito de Aplicação</label>
-                  <select
-                    value={admApenasEmFalta ? 'FALTA' : 'TODOS'}
-                    onChange={(e) => setAdmApenasEmFalta(e.target.value === 'FALTA')}
-                    className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold text-gray-900"
-                  >
-                    <option value="FALTA">Apenas alunos sem nota lançada</option>
-                    <option value="TODOS">Toda a turma (substituir em falta e existentes)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Despacho / Justificativa</label>
-                  <input
-                    type="text"
-                    required
-                    value={admJustificativa}
-                    onChange={(e) => setAdmJustificativa(e.target.value)}
-                    placeholder="Motivo administrativo..."
-                    className="w-full p-2 border border-gray-300 rounded-lg bg-white text-gray-900"
-                  />
-                </div>
-              </div>
-
-              <div className="border border-gray-200 rounded-xl overflow-y-auto flex-1 min-h-[220px]">
-                <table className="w-full text-left border-collapse text-xs tabular-nums">
-                  <thead className="bg-gray-100 border-b border-gray-200 sticky top-0 z-10 text-[11px] font-black text-gray-700 uppercase">
-                    <tr>
-                      <th className="p-2.5">Estudante</th>
-                      <th className="p-2.5 text-center">Média Noutras Disc.</th>
-                      <th className="p-2.5 text-center">Disc. Base</th>
-                      <th className="p-2.5 text-center">Nota Atual</th>
-                      <th className="p-2.5 text-center">Nota Administrativa ({previewNotasAdm?.minimoPermitido}–{previewNotasAdm?.maximoPermitido})</th>
-                      <th className="p-2.5 text-center">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {!previewNotasAdm || previewNotasAdm.itens.length === 0 ? (
+                {/* Tabela completa com edição por estudante */}
+                <div className="border border-gray-200 rounded-xl overflow-x-auto bg-white">
+                  <table className="w-full text-left border-collapse text-xs tabular-nums">
+                    <thead className="bg-gray-100 border-b border-gray-200 text-[11px] font-black text-gray-700 uppercase">
                       <tr>
-                        <td colSpan={6} className="p-6 text-center text-gray-500">
-                          Nenhum aluno matriculado nesta turma.
-                        </td>
+                        <th className="p-2.5 text-center w-10">Aplicar</th>
+                        <th className="p-2.5 min-w-[180px]">Estudante</th>
+                        <th className="p-2.5 text-center whitespace-nowrap">Média Noutras Disc.</th>
+                        <th className="p-2.5 text-center whitespace-nowrap">Nota Atual</th>
+                        <th className="p-2.5 text-center whitespace-nowrap">Nota a Atribuir (0–{admEscalaInfo.escalaMaxima})</th>
+                        <th className="p-2.5 text-center">Estado</th>
                       </tr>
-                    ) : (
-                      previewNotasAdm.itens.map((item) => (
-                        <tr key={item.alunoId} className={item.aplicar ? 'bg-white hover:bg-amber-50/40' : 'bg-gray-50/70 opacity-65'}>
-                          <td className="p-2.5">
-                            <div className="font-bold text-gray-900">{item.alunoNome}</div>
-                            <div className="text-[10px] text-gray-500">{item.codigoMatricula} • {item.motivoBase}</div>
-                          </td>
-                          <td className="p-2.5 text-center font-mono font-bold text-blue-900">
-                            {item.disciplinasBaseCount > 0 ? `${item.mediaOutrasDisciplinas.toFixed(1)}/${escalaMaxima}` : '—'}
-                          </td>
-                          <td className="p-2.5 text-center font-mono text-gray-700">
-                            {item.disciplinasBaseCount}
-                          </td>
-                          <td className="p-2.5 text-center font-mono text-gray-700">
-                            {item.notaAtual !== null ? item.notaAtual.toFixed(1) : 'Em falta'}
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <span className="inline-block px-2.5 py-0.5 rounded font-mono font-black text-amber-950 bg-amber-100 border border-amber-300">
-                              {item.notaProposta.toFixed(1)}
-                            </span>
-                          </td>
-                          <td className="p-2.5 text-center">
-                            {item.aplicar ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900">
-                                Aplicar
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-200 text-gray-700">
-                                Mantida
-                              </span>
-                            )}
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {!admTurmaAtiva || !admDisciplinaAtiva ? (
+                        <tr>
+                          <td colSpan={6} className="p-6 text-center text-gray-500">
+                            Selecione uma turma e uma disciplina válidas acima para visualizar os estudantes.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : itensAdmEditaveis.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-6 text-center text-gray-500">
+                            Nenhum aluno matriculado na turma selecionada ({admTurmaAtiva.nome}).
+                          </td>
+                        </tr>
+                      ) : (
+                        itensAdmEditaveis.map((item) => {
+                          const inputVal =
+                            item.textoEditado !== undefined
+                              ? item.textoEditado
+                              : item.notaProposta.toFixed(1);
+                          return (
+                            <tr
+                              key={item.alunoId}
+                              className={item.aplicar ? 'bg-white hover:bg-amber-50/40' : 'bg-gray-50/70 opacity-70'}
+                            >
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={item.aplicar}
+                                  onChange={(e) =>
+                                    setAdmSelecionados((prev) => ({
+                                      ...prev,
+                                      [item.alunoId]: e.target.checked,
+                                    }))
+                                  }
+                                  className="h-4 w-4 text-amber-600 border-gray-300 rounded cursor-pointer"
+                                  title="Incluir ou excluir estudante desta atribuição"
+                                />
+                              </td>
+                              <td className="p-2.5">
+                                <div className="font-bold text-gray-900">{item.alunoNome}</div>
+                                <div className="text-[10px] text-gray-500">
+                                  {item.codigoMatricula} • {item.motivoBase}
+                                </div>
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-bold text-blue-900">
+                                {item.disciplinasBaseCount > 0
+                                  ? `${item.mediaOutrasDisciplinas.toFixed(1)}/${admEscalaInfo.escalaMaxima} (${item.disciplinasBaseCount})`
+                                  : '—'}
+                              </td>
+                              <td className="p-2.5 text-center font-mono text-gray-700 whitespace-nowrap">
+                                {item.notaAtual !== null ? (
+                                  <span className="inline-flex items-center space-x-1">
+                                    <span>{item.notaAtual.toFixed(1)}</span>
+                                    {item.origemNota === 'Administrativa' && (
+                                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                        ADM
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-rose-700 font-semibold">Em falta</span>
+                                )}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <div className="inline-flex items-center justify-center space-x-1.5">
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={inputVal}
+                                      onKeyDown={(e) => handleStrictNumericKeyDown(e, true)}
+                                      onPaste={(e) =>
+                                        handleStrictNumericPaste(
+                                          e,
+                                          (novo) => {
+                                            setAdmNotasEditadas((prev) => ({
+                                              ...prev,
+                                              [item.alunoId]: novo,
+                                            }));
+                                            setAdmSelecionados((prev) => ({
+                                              ...prev,
+                                              [item.alunoId]: true,
+                                            }));
+                                          },
+                                          true
+                                        )
+                                      }
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        setAdmNotasEditadas((prev) => ({
+                                          ...prev,
+                                          [item.alunoId]: val,
+                                        }));
+                                        setAdmSelecionados((prev) => ({
+                                          ...prev,
+                                          [item.alunoId]: true,
+                                        }));
+                                      }}
+                                      className={`w-20 text-center font-mono font-black px-2 py-1 rounded-lg focus:outline-none ${
+                                        item.invalida
+                                          ? 'border-2 border-red-700 bg-red-50 text-red-950'
+                                          : item.editadaManual
+                                          ? 'border-2 border-indigo-500 bg-indigo-50 text-indigo-950'
+                                          : 'border border-amber-400 bg-amber-50 text-amber-950 focus:ring-2 focus:ring-amber-500'
+                                      }`}
+                                      title={`Sugestão proporcional: ${item.notaSugeridaProporcional.toFixed(1)} val. Pode editar entre 0 e ${admEscalaInfo.escalaMaxima}.`}
+                                    />
+                                  </div>
+                                  {item.editadaManual && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setAdmNotasEditadas((prev) => {
+                                          const next = { ...prev };
+                                          delete next[item.alunoId];
+                                          return next;
+                                        })
+                                      }
+                                      className="p-1 text-indigo-700 hover:bg-indigo-100 rounded cursor-pointer"
+                                      title={`Repor sugestão (${item.notaSugeridaProporcional.toFixed(1)})`}
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="text-[9px] text-gray-500 mt-0.5">
+                                  Sugerida: {item.notaSugeridaProporcional.toFixed(1)}
+                                </div>
+                              </td>
+                              <td className="p-2.5 text-center">
+                                {!item.aplicar ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-200 text-gray-700">
+                                    Mantida
+                                  </span>
+                                ) : item.invalida ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-900">
+                                    Inválida
+                                  </span>
+                                ) : item.editadaManual ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-900 inline-flex items-center space-x-1">
+                                    <Edit3 className="w-3 h-3" />
+                                    <span>Editada</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900">
+                                    Aplicar
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-gray-200 shrink-0">
-                <span className="text-[11px] text-gray-500">
-                  As notas são guardadas offline e sincronizadas automaticamente com o Firebase.
+              {/* Rodapé fixo */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 border-t border-gray-200 bg-gray-50/80 shrink-0">
+                <span className="text-[11px] text-gray-600">
+                  As notas são guardadas offline, sincronizadas com o Firebase e notificam os professores atribuídos.
                 </span>
                 <div className="flex items-center space-x-2">
                   <button
                     type="button"
                     onClick={() => setModalNotasAdmOpen(false)}
-                    className="px-3.5 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100 rounded-lg cursor-pointer"
+                    className="px-3.5 py-2 text-xs font-bold text-gray-700 hover:bg-gray-200/70 rounded-lg cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    disabled={!previewNotasAdm || previewNotasAdm.totalAplicaveis === 0}
+                    disabled={!admTurmaAtiva || !admDisciplinaAtiva || totalAdmSelecionados === 0 || totalAdmInvalidas > 0}
                     className="px-4 py-2 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-lg shadow-xs flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Confirmar e Atribuir ({previewNotasAdm?.totalAplicaveis || 0})</span>
+                    <span>Confirmar e Atribuir ({totalAdmSelecionados})</span>
                   </button>
                 </div>
               </div>

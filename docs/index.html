@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
     <script>
+      // Suporte imediato à raiz (/), /docs/ e /documentos sem quebrar carregamento relativo de assets
+      (function() {
+        try {
+          var p = window.location.pathname || '/';
+          if (/\/docs$/i.test(p)) {
+            window.location.replace(p + '/' + window.location.search + window.location.hash);
+            return;
+          }
+          if (/\/documentos\/?$/i.test(p)) {
+            sessionStorage.setItem('sge_entry_route', 'documentos');
+            if (/\/documentos\/+$/i.test(p)) {
+              var cleanPath = p.replace(/\/+$/, '');
+              window.location.replace(cleanPath + window.location.search + window.location.hash);
+              return;
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script>
       // Forçar HTTPS automaticamente em domínios públicos (mantém localhost/LAN livres para desenvolvimento)
       (function() {
         try {
@@ -74,6 +94,25 @@
     <link rel="sitemap" type="application/xml" title="Sitemap" href="./sitemap.xml" />
 
     <!-- Schema.org Structured Data -->
+    <script>
+      // Aplicar tema escuro/claro antes da pintura inicial para evitar flash visual
+      (function() {
+        try {
+          var mode = localStorage.getItem('sge_theme_mode') || 'light';
+          var isDark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.style.colorScheme = 'dark';
+            root.dataset.theme = 'dark';
+          } else {
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+            root.dataset.theme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -90,14 +129,15 @@
         }
       }
     </script>
-    <script type="module" crossorigin src="./assets/index-yJOsIg-y.js"></script>
+    <script type="module" crossorigin src="./assets/index-BodYNqpk.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/rolldown-runtime-hePW80VL.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-icons-BXEfg-fa.js">
-    <link rel="modulepreload" crossorigin href="./assets/vendor-react-rvEbAo8W.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-icons-UhbuyM8N.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-react-DbctoR_D.js">
     <link rel="modulepreload" crossorigin href="./assets/vendor-firebase-Dfr8U4TP.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-Cl4UapjK.css">
+    <link rel="modulepreload" crossorigin href="./assets/storage-BpiwYpwA.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-DsrIP59Q.css">
   </head>
-  <body class="bg-white text-gray-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+  <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-blue-100 dark:selection:bg-blue-900/60 selection:text-blue-900 dark:selection:text-blue-100 overflow-x-hidden">
     <div id="root">
       <div id="sge-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0F2942; color: white; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
         <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 6px;">SGE-NG</div>

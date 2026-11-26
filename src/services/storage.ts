@@ -4764,20 +4764,42 @@ export const dbService = {
     const juris = dbService.getJuris();
 
     return notasGerais.map(nota => {
-      let notaFinal = nota.mediaTrimestral;
+      let notaFinalAlterada: number | undefined =
+        typeof nota.notaFinal === 'number' && !isNaN(nota.notaFinal) ? nota.notaFinal : undefined;
+      let foiHomologadaJuri = false;
+
       for (const juri of juris) {
         if ((juri.estado === 'Validada' || juri.deliberacoes) && juri.deliberacoes?.[alunoId]) {
+          if (juri.anoLectivo && nota.anoLectivo && juri.anoLectivo !== nota.anoLectivo) {
+            continue;
+          }
+          if (Array.isArray(juri.turmasIds) && juri.turmasIds.length > 0 && nota.turmaId && !juri.turmasIds.includes(nota.turmaId)) {
+            continue;
+          }
           const alteracao = juri.deliberacoes[alunoId].notasAlteradas?.find(na => na.disciplinaId === nota.disciplinaId);
-          if (alteracao) {
-            notaFinal = alteracao.novaNota;
+          if (alteracao && typeof alteracao.novaNota === 'number' && !isNaN(alteracao.novaNota)) {
+            notaFinalAlterada = alteracao.novaNota;
+            foiHomologadaJuri = true;
           }
         }
       }
-      return {
-        ...nota,
-        mediaTrimestral: notaFinal,
-        notaFinal
-      };
+
+      if (foiHomologadaJuri && notaFinalAlterada !== undefined) {
+        return {
+          ...nota,
+          mediaTrimestral: notaFinalAlterada,
+          notaFinal: notaFinalAlterada
+        };
+      }
+
+      if (notaFinalAlterada !== undefined) {
+        return {
+          ...nota,
+          notaFinal: notaFinalAlterada
+        };
+      }
+
+      return { ...nota };
     });
   },
 
@@ -7436,6 +7458,149 @@ export const dbService = {
     firebaseSyncEngine.eliminarItemPatrimonio(id);
     dbService.registarLog('Património Escolar', `Item de património ${id} removido do inventário.`);
   },
+  movimentarQuantidadePatrimonio: (params: {
+    itemId: string;
+    destinoEstado: EstadoConservacao;
+    quantidadeMover: number;
+    novaLocalizacao?: string;
+    responsavel?: string;
+    observacoes?: string;
+    statusInventario?: string;
+  }): { sucesso: boolean; mensagem: string } => {
+    const { itemId, destinoEstado, quantidadeMover, novaLocalizacao, responsavel, observacoes, statusInventario } = params;
+    const todos = getLocal<ItemPatrimonio[]>(STORAGE_KEYS.PATRIMONIO, DEFAULT_PATRIMONIO);
+    const idxSource = todos.findIndex(p => p.id === itemId);
+    if (idxSource < 0) {
+      return { sucesso: false, mensagem: 'Bem patrimonial não encontrado.' };
+    }
+    const source = { ...todos[idxSource] };
+    const qtdAtual = Math.max(0, Number(source.quantidade || 0));
+    const qtdMover = Math.floor(Number(quantidadeMover || 0));
+    if (qtdMover <= 0 || qtdMover > qtdAtual) {
+      return { sucesso: false, mensagem: `Quantidade inválida. Disponível: ${qtdAtual} unidade(s).` };
+    }
+
+    const hojeFmt = new Date().toLocaleDateString('pt-AO');
+    const agoraIso = new Date().toISOString();
+    const escolaAtiva = dbService.getEscolaPorId(source.escolaId) || dbService.getEscolaAtiva();
+    const nomeBem = (source.designacao || source.nomeItem || 'Bem').trim();
+    const locDestino = (novaLocalizacao || source.localizacao || source.salaLocalizacao || 'Edifício Principal').trim();
+    const estadoAnterior = source.estadoConservacao;
+    const obsTag = `[${destinoEstado === 'Já Não Existe / Abatido' ? 'Baixa/Inexistente' : destinoEstado} ${hojeFmt} - ${qtdMover} un.]${observacoes?.trim() ? ` ${observacoes.trim()}` : ''}`;
+    const statusFinal =
+      statusInventario ||
+      (destinoEstado === 'Já Não Existe / Abatido'
+        ? 'Inexistente'
+        : destinoEstado === 'Para Abate'
+        ? 'Para_Abate'
+        : destinoEstado === 'Danificado' || destinoEstado === 'Inoperante'
+        ? 'Danificado'
+        : 'Confirmado');
+
+    const restante = qtdAtual - qtdMover;
+    const norm = (s?: string) => (s || '').trim().toLowerCase();
+
+    // Procurar registo de destino equivalente (mesma escola, nome, localização e estado destino)
+    const idxDestinoExistente = todos.findIndex(
+      (p, i) =>
+        i !== idxSource &&
+        p.escolaId === source.escolaId &&
+        norm(p.designacao || p.nomeItem) === norm(nomeBem) &&
+        norm(p.localizacao || p.salaLocalizacao) === norm(locDestino) &&
+        p.estadoConservacao === destinoEstado
+    );
+
+    if (restante === 0 && idxDestinoExistente < 0) {
+      // Conversão total em linha única preservando o ID original
+      const atualizado: ItemPatrimonio = {
+        ...source,
+        estadoConservacao: destinoEstado,
+        localizacao: locDestino,
+        salaLocalizacao: locDestino,
+        statusInventario: statusFinal,
+        responsavelNome: responsavel || source.responsavelNome,
+        revisadoPor: responsavel || source.revisadoPor,
+        revisadoEm: hojeFmt,
+        ultimaRevisaoAno: escolaAtiva?.anoLectivoActivo || source.ultimaRevisaoAno,
+        observacoes: source.observacoes ? `${source.observacoes} | ${obsTag}` : obsTag,
+        atualizadoEm: agoraIso
+      };
+      todos[idxSource] = atualizado;
+      setLocal(STORAGE_KEYS.PATRIMONIO, todos);
+      firebaseSyncEngine.salvarItemPatrimonio(atualizado);
+    } else {
+      // Subtrair da origem (ou remover se zerou ao fundir com destino existente)
+      if (restante > 0) {
+        const origemAtualizada: ItemPatrimonio = {
+          ...source,
+          quantidade: restante,
+          revisadoEm: hojeFmt,
+          revisadoPor: responsavel || source.revisadoPor,
+          ultimaRevisaoAno: escolaAtiva?.anoLectivoActivo || source.ultimaRevisaoAno,
+          observacoes: source.observacoes
+            ? `${source.observacoes} | [Subtraído ${qtdMover} un. → ${destinoEstado} em ${hojeFmt}]`
+            : `[Subtraído ${qtdMover} un. → ${destinoEstado} em ${hojeFmt}]`,
+          atualizadoEm: agoraIso
+        };
+        todos[idxSource] = origemAtualizada;
+        firebaseSyncEngine.salvarItemPatrimonio(origemAtualizada);
+      } else {
+        todos.splice(idxSource, 1);
+        firebaseSyncEngine.eliminarItemPatrimonio(source.id);
+      }
+
+      if (idxDestinoExistente >= 0) {
+        const adjIdx = restante === 0 && idxDestinoExistente > idxSource ? idxDestinoExistente - 1 : idxDestinoExistente;
+        const destExist = todos[adjIdx];
+        const destAtualizado: ItemPatrimonio = {
+          ...destExist,
+          quantidade: Number(destExist.quantidade || 0) + qtdMover,
+          statusInventario: statusFinal,
+          responsavelNome: responsavel || destExist.responsavelNome,
+          revisadoPor: responsavel || destExist.revisadoPor,
+          revisadoEm: hojeFmt,
+          ultimaRevisaoAno: escolaAtiva?.anoLectivoActivo || destExist.ultimaRevisaoAno,
+          observacoes: destExist.observacoes ? `${destExist.observacoes} | ${obsTag}` : obsTag,
+          atualizadoEm: agoraIso
+        };
+        todos[adjIdx] = destAtualizado;
+        firebaseSyncEngine.salvarItemPatrimonio(destAtualizado);
+      } else {
+        const tomboBase = source.codigoTombo || source.codigoTombamento || `PAT-${Date.now().toString().slice(-4)}`;
+        const sufixo = destinoEstado === 'Em Uso' ? 'USO' : destinoEstado === 'Já Não Existe / Abatido' ? 'BAIXA' : 'MOV';
+        const novoItem: ItemPatrimonio = {
+          ...source,
+          id: `pat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          codigoTombo: `${tomboBase}-${sufixo}`,
+          codigoTombamento: `${tomboBase}-${sufixo}`,
+          quantidade: qtdMover,
+          estadoConservacao: destinoEstado,
+          localizacao: locDestino,
+          salaLocalizacao: locDestino,
+          statusInventario: statusFinal,
+          responsavelNome: responsavel || source.responsavelNome,
+          revisadoPor: responsavel || source.revisadoPor,
+          revisadoEm: hojeFmt,
+          ultimaRevisaoAno: escolaAtiva?.anoLectivoActivo || source.ultimaRevisaoAno,
+          observacoes: obsTag,
+          atualizadoEm: agoraIso
+        };
+        todos.unshift(novoItem);
+        firebaseSyncEngine.salvarItemPatrimonio(novoItem);
+      }
+
+      setLocal(STORAGE_KEYS.PATRIMONIO, todos);
+    }
+
+    dbService.registarLog(
+      'Movimentação de Património',
+      `${qtdMover} unidade(s) de "${nomeBem}" (${source.codigoTombo || source.codigoTombamento}) subtraída(s) de "${estadoAnterior}" para "${destinoEstado}" (${locDestino}). Restam ${restante} un. no lote original.`
+    );
+    return {
+      sucesso: true,
+      mensagem: `${qtdMover} unidade(s) movimentada(s) de "${estadoAnterior}" para "${destinoEstado}". Restam ${restante} un. no registo original.`
+    };
+  },
 
   // ==========================================
   // HISTÓRICO ESCOLAR COMPLETO (DISCIPLINAS EM CADA CLASSE)
@@ -8081,8 +8246,9 @@ export const dbService = {
         const alunoNotif = dbService.getAlunos(regComTs.escolaId).find(a => a.id === regComTs.alunoId);
         const saudacaoProf = profNotif?.genero === 'F' ? 'Estimada Colega' : 'Estimado Colega';
         const artigoEstudante = alunoNotif?.genero === 'F' ? 'da estudante' : 'do estudante';
+        const notaAntTexto = regComTs.notaAnteriorEmFalta ? 'Em falta (Sem nota)' : `${regComTs.notaAnterior}`;
         dbService.enviarMensagem({
-          id: `msg-retif-${Date.now()}`,
+          id: `msg-retif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           escolaId: regComTs.escolaId,
           remetenteId: regComTs.alteradoPorId,
           remetenteNome: regComTs.alteradoPorNome,
@@ -8092,13 +8258,16 @@ export const dbService = {
           destinatarioTipo: 'Individual',
           destinatarioId: regComTs.professorId,
           destinatarioNome: regComTs.professorNome,
-          titulo: `Aviso de Retificação de Nota: ${regComTs.alunoNome} (${regComTs.disciplinaNome} - ${regComTs.turmaNome})`,
-          assunto: 'Retificação Executiva de Nota',
-          conteudo: `${saudacaoProf} ${regComTs.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${regComTs.tipoNota} ${artigoEstudante} ${regComTs.alunoNome} na turma ${regComTs.turmaNome} (${regComTs.classe}${regComTs.curso ? ' - ' + regComTs.curso : ''}) na disciplina de ${regComTs.disciplinaNome} (${regComTs.trimestre}º Trimestre).\n\n• Nota Anterior: ${regComTs.notaAnterior}\n• Nova Nota Homologada: ${regComTs.novaNota}\n• Justificativa: ${regComTs.motivoJustificativa}\n• Autorizado por: ${regComTs.alteradoPorNome} (${regComTs.alteradoPorRole})\n• Data/Hora: ${regComTs.dataHora}\n\nEste registo encontra-se devidamente averbado na sua folha de ocorrências e na trilha de auditoria ministerial.`,
+          titulo: `Aviso de Alteração de Nota: ${regComTs.alunoNome} (${regComTs.disciplinaNome} - ${regComTs.turmaNome})`,
+          assunto: 'Alteração Executiva de Nota pela Direção',
+          conteudo: `${saudacaoProf} ${regComTs.professorNome},\n\nInformamos que a Direção da instituição procedeu à alteração da nota de ${regComTs.tipoNota} ${artigoEstudante} ${regComTs.alunoNome} na turma ${regComTs.turmaNome} (${regComTs.classe}${regComTs.curso ? ' - ' + regComTs.curso : ''}) na disciplina de ${regComTs.disciplinaNome} (${regComTs.trimestre}º Trimestre).\n\n• Nota Anterior: ${notaAntTexto}\n• Nova Nota: ${regComTs.novaNota}\n• Justificativa: ${regComTs.motivoJustificativa}\n• Alterado por: ${regComTs.alteradoPorNome} (${regComTs.alteradoPorRole === 'DiretorGeral' ? 'Diretor Geral' : 'Subdiretor Pedagógico'})\n• Data/Hora: ${regComTs.dataHora}\n\nEste registo encontra-se disponível na Auditoria de Notas (menu Avaliações & Notas) e na sua folha de auditoria.`,
           dataHora: new Date().toISOString()
         });
       } catch {
         // Ignora erro
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_alteracao_nota_direcao', { detail: regComTs }));
       }
     }
   },
@@ -8111,6 +8280,33 @@ export const dbService = {
       todos[idx].atualizadoEm = new Date().toISOString();
       setLocal(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, todos);
       firebaseSyncEngine.salvarAlteracaoNotaDirecao(todos[idx]);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_alteracao_nota_direcao_atualizada'));
+      }
+    }
+  },
+
+  marcarTodasAlteracoesNotaComoLidas: (professorId: string, escolaId?: string): void => {
+    const todos = getLocal<RegistroAlteracaoNotaDirecao[]>(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, []);
+    const agoraIso = new Date().toISOString();
+    let alterados = 0;
+    todos.forEach((r) => {
+      if (
+        r.professorId === professorId &&
+        (!escolaId || escolaId === 'todas' || r.escolaId === escolaId) &&
+        r.lidoPeloProfessor !== true
+      ) {
+        r.lidoPeloProfessor = true;
+        r.atualizadoEm = agoraIso;
+        firebaseSyncEngine.salvarAlteracaoNotaDirecao(r);
+        alterados++;
+      }
+    });
+    if (alterados > 0) {
+      setLocal(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, todos);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_alteracao_nota_direcao_atualizada'));
+      }
     }
   },
 

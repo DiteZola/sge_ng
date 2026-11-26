@@ -21,7 +21,8 @@ import {
   Escola,
   Funcionario,
   NotificacaoSistemaItem,
-  PreferenciasNotificacaoSW
+  PreferenciasNotificacaoSW,
+  RegistroAlteracaoNotaDirecao
 } from '../types';
 import { dbService } from '../services/storage';
 import { notificationService, BackgroundCapabilityInfo } from '../services/notificationService';
@@ -153,10 +154,30 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
       }
     };
 
+    const handleAlteracaoNotaDirecao = (e: Event) => {
+      const reg = (e as CustomEvent<RegistroAlteracaoNotaDirecao>).detail;
+      if (reg) {
+        notificationService.processarAlteracaoNotaDirecao(reg, currentUser, true);
+      }
+    };
+
+    const verificarAuditoriaDirecaoPendente = () => {
+      try {
+        const pendentes = dbService.getRegistosAlteracoesNotas(currentUser.id, escola.id);
+        pendentes.forEach((reg) => {
+          notificationService.processarAlteracaoNotaDirecao(reg, currentUser, true);
+        });
+      } catch {}
+    };
+
+    verificarAuditoriaDirecaoPendente();
+
     window.addEventListener('sge_notificacoes_atualizadas', atualizarEstado);
     window.addEventListener('sge_toast_notificacao', handleToast);
     window.addEventListener('sge_local_write', handleScheduleChanged);
     window.addEventListener('sge_dados_atualizados_remoto', sincronizarAgendaSW);
+    window.addEventListener('sge_dados_atualizados_remoto', verificarAuditoriaDirecaoPendente);
+    window.addEventListener('sge_alteracao_nota_direcao', handleAlteracaoNotaDirecao);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
@@ -164,10 +185,12 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
       window.removeEventListener('sge_toast_notificacao', handleToast);
       window.removeEventListener('sge_local_write', handleScheduleChanged);
       window.removeEventListener('sge_dados_atualizados_remoto', sincronizarAgendaSW);
+      window.removeEventListener('sge_dados_atualizados_remoto', verificarAuditoriaDirecaoPendente);
+      window.removeEventListener('sge_alteracao_nota_direcao', handleAlteracaoNotaDirecao);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
-  }, [escola.id, currentUser.id, atualizarEstado, sincronizarAgendaSW]);
+  }, [escola.id, currentUser, atualizarEstado, sincronizarAgendaSW]);
 
   // Monitor contínuo de Mudança de Tempo Letivo e Término de Tempo (Horários + TemposHorarios + Turnos)
   useEffect(() => {
@@ -490,6 +513,8 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
     switch (cat) {
       case 'SOLICITACAO_NOTA':
         return <FileEdit className="w-4 h-4 text-amber-600 shrink-0" />;
+      case 'ALTERACAO_NOTA_DIRECAO':
+        return <FileEdit className="w-4 h-4 text-rose-600 shrink-0" />;
       case 'OCORRENCIA_ESCOLAR':
         return <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />;
       case 'MENSAGEM_BIBLIOTECA':
@@ -653,6 +678,16 @@ export const PeriodNotificationBell: React.FC<PeriodNotificationBellProps> = ({
                       type="checkbox"
                       checked={prefs.notificarSolicitacoesNota}
                       onChange={() => handleTogglePref('notificarSolicitacoesNota')}
+                      className="rounded text-blue-600"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Notas Alteradas pela Direção</span>
+                    <input
+                      type="checkbox"
+                      checked={prefs.notificarAlteracoesNotaDirecao !== false}
+                      onChange={() => handleTogglePref('notificarAlteracoesNotaDirecao')}
                       className="rounded text-blue-600"
                     />
                   </label>

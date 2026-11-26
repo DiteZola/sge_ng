@@ -1110,6 +1110,7 @@ export type CategoriaPatrimonio =
 
 export type EstadoConservacao = 
   | 'Novo' 
+  | 'Em Uso' 
   | 'Bom' 
   | 'Razoável' 
   | 'Regular' 
@@ -1631,6 +1632,7 @@ export interface RegistroAlteracaoNotaDirecao {
   trimestre: Trimestre;
   tipoNota: 'MAC' | 'NPP' | 'NPT' | 'MT' | 'Exame';
   notaAnterior: number;
+  notaAnteriorEmFalta?: boolean;
   novaNota: number;
   motivoJustificativa: string;
   alteradoPorId: string;
@@ -1838,6 +1840,7 @@ export interface RegistoAcessoBiblioteca {
 
 export type NotificacaoSistemaCategoria =
   | 'SOLICITACAO_NOTA'
+  | 'ALTERACAO_NOTA_DIRECAO'
   | 'OCORRENCIA_ESCOLAR'
   | 'MENSAGEM_BIBLIOTECA'
   | 'COMUNICACAO'
@@ -1867,6 +1870,7 @@ export interface NotificacaoSistemaItem {
 export interface PreferenciasNotificacaoSW {
   somAtivo: boolean;
   notificarSolicitacoesNota: boolean;
+  notificarAlteracoesNotaDirecao?: boolean;
   notificarOcorrencias?: boolean;
   notificarBibliotecaUrgente: boolean;
   notificarComunicacoes: boolean;

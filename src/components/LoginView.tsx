@@ -59,7 +59,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [configSistema, setConfigSistema] = useState<ConfiguracaoSistema>(() => dbService.getConfiguracaoSistema());
   const [redeOnline, setRedeOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
   const { isDark, toggleDarkMode } = useTheme();
-  const todosAlunos = dbService.getAlunos();
 
   const [identificador, setIdentificador] = useState('');
   const [senha, setSenha] = useState('');
@@ -76,13 +75,20 @@ export const LoginView: React.FC<LoginViewProps> = ({
       }
     });
 
+    const handleRemoteCfg = () => {
+      if (ativo) {
+        setConfigSistema(dbService.getConfiguracaoSistema());
+      }
+    };
     const handleOnline = () => setRedeOnline(true);
     const handleOffline = () => setRedeOnline(false);
+    window.addEventListener('sge_dados_atualizados_remoto', handleRemoteCfg);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
     return () => {
       ativo = false;
+      window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteCfg);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
@@ -312,7 +318,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
       return;
     }
 
-    const aluno = todosAlunos.find(a => 
+    const alunosDisponiveis = dbService.getAlunos();
+    const aluno = alunosDisponiveis.find(a => 
       safeSearchMatch(a.codigoMatricula, termo) ||
       safeSearchMatch(a.numeroBI, termo) ||
       safeSearchMatch(a.numeroDocumento, termo) ||

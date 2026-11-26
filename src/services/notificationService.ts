@@ -8,6 +8,7 @@ import {
   NotificacaoSistemaItem,
   OcorrenciaHistoricoAluno,
   PreferenciasNotificacaoSW,
+  RegistroAlteracaoNotaDirecao,
   SolicitacaoAlteracaoNota
 } from '../types';
 import { dbService } from './storage';
@@ -25,6 +26,7 @@ const REMINDER_STORE = 'state';
 const DEFAULT_PREFS: PreferenciasNotificacaoSW = {
   somAtivo: true,
   notificarSolicitacoesNota: true,
+  notificarAlteracoesNotaDirecao: true,
   notificarOcorrencias: true,
   notificarBibliotecaUrgente: true,
   notificarComunicacoes: true,
@@ -728,6 +730,8 @@ class NotificationService {
     switch (categoria) {
       case 'SOLICITACAO_NOTA':
         return prefs.notificarSolicitacoesNota;
+      case 'ALTERACAO_NOTA_DIRECAO':
+        return prefs.notificarAlteracoesNotaDirecao !== false;
       case 'OCORRENCIA_ESCOLAR':
         return prefs.notificarOcorrencias !== false;
       case 'MENSAGEM_BIBLIOTECA':
@@ -1011,6 +1015,13 @@ class NotificationService {
             this.salvarSeenKey(`ocorr_${al.id}_${oc.id}`);
           }
         });
+      });
+
+      const alteracoesLidas = dbService.getRegistosAlteracoesNotas(undefined, escolaId);
+      alteracoesLidas.forEach((r) => {
+        if (r?.id && r.lidoPeloProfessor === true) {
+          this.salvarSeenKey(`alt_nota_${r.id}`);
+        }
       });
     } catch {}
   }
@@ -1425,11 +1436,57 @@ class NotificationService {
     });
   }
 
+  public processarAlteracaoNotaDirecao(
+    reg: RegistroAlteracaoNotaDirecao,
+    currentUser: Funcionario,
+    forcarAlerta = false
+  ) {
+    if (!reg || !reg.id || !currentUser?.id) return;
+    if (reg.alteradoPorRole === 'AdminGeral') return;
+    if (reg.professorId !== currentUser.id) return;
+    if (reg.lidoPeloProfessor === true) return;
+    if (reg.alteradoPorId === currentUser.id) return;
+
+    const key = `alt_nota_${reg.id}`;
+    if (forcarAlerta && this.seenKeys.has(key)) return;
+
+    const escolaObj = dbService.getEscolaPorId(reg.escolaId);
+    const iconFinal = escolaObj?.logotipoUrl || escolaObj?.logotipo || './pwa-192x192.png';
+    const notaAntTexto = reg.notaAnteriorEmFalta ? 'Em falta' : `${reg.notaAnterior}`;
+    const cargoAutor =
+      reg.alteradoPorRole === 'DiretorGeral' ? 'Diretor Geral' : 'Subdiretor Pedagógico';
+
+    this.dispararNotificacaoSW({
+      escolaId: reg.escolaId,
+      destinatarioUserId: reg.professorId,
+      categoria: 'ALTERACAO_NOTA_DIRECAO',
+      titulo: `✏️ Nota Alterada pela Direção (${reg.disciplinaNome})`,
+      mensagem: `${reg.alunoNome} (${reg.classe} • ${reg.turmaNome}): ${reg.tipoNota} de ${notaAntTexto} para ${reg.novaNota} val. (${reg.trimestre}º Tri).`,
+      detalhes: `Alterado por ${reg.alteradoPorNome} (${cargoAutor}) • Motivo: ${reg.motivoJustificativa}`,
+      urgente: true,
+      tagSW: `sge-alt-nota-${reg.id}`,
+      icon: iconFinal,
+      navegacao: {
+        tab: 'avaliacoes',
+        subTab: 'auditoria_direcao',
+        entityId: reg.id
+      },
+      dedupeKey: key
+    });
+  }
+
   public verificarNovidadesRemotas(escolaId: string, currentUser: Funcionario) {
     if (!currentUser || !currentUser.id) return;
 
     if (!this.baselineInicializado) {
       this.inicializarBaselineRemoto(escolaId);
+      // Verificar alterações de notas não lidas pela direção logo após inicializar baseline
+      try {
+        const altPendentes = dbService.getRegistosAlteracoesNotas(currentUser.id, escolaId);
+        altPendentes.forEach((r) => {
+          this.processarAlteracaoNotaDirecao(r, currentUser, true);
+        });
+      } catch {}
       return;
     }
 
@@ -1449,6 +1506,11 @@ class NotificationService {
         (al.ocorrencias || []).forEach((oc) => {
           this.processarOcorrenciaAluno(al, oc, currentUser, true);
         });
+      });
+
+      const alteracoesNotas = dbService.getRegistosAlteracoesNotas(currentUser.id, escolaId);
+      alteracoesNotas.forEach((r) => {
+        this.processarAlteracaoNotaDirecao(r, currentUser, true);
       });
     } catch {}
   }

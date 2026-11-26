@@ -441,30 +441,76 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [patCategoria, setPatCategoria] = useState<CategoriaPatrimonio>('Mobiliário Escolar (Carteiras/Secretárias)');
   const [patSala, setPatSala] = useState('');
   const [patQuantidade, setPatQuantidade] = useState<number>(1);
-  const [patEstado, setPatEstado] = useState<'Novo' | 'Bom' | 'Regular' | 'Danificado' | 'Para Abate'>('Bom');
+  const [patEstado, setPatEstado] = useState<'Novo' | 'Em Uso' | 'Bom' | 'Regular' | 'Danificado' | 'Para Abate'>('Bom');
   const [patValor, setPatValor] = useState<number>(150000);
   const [patResponsavel, setPatResponsavel] = useState(currentUser.nomeCompleto);
 
   // Estados de Revisão de Património (Continuidade Plurianual)
   const [itemParaRevisar, setItemParaRevisar] = useState<ItemPatrimonio | null>(null);
-  const [revEstado, setRevEstado] = useState<'Novo' | 'Bom' | 'Regular' | 'Danificado' | 'Para Abate'>('Bom');
-  const [revStatus, setRevStatus] = useState<'Confirmado' | 'Danificado' | 'Inexistente' | 'Para_Abate'>('Confirmado');
+  const [revEstado, setRevEstado] = useState<'Novo' | 'Em Uso' | 'Bom' | 'Regular' | 'Danificado' | 'Para Abate' | 'Já Não Existe / Abatido'>('Bom');
+  const [revStatus, setRevStatus] = useState<'Confirmado' | 'Em Uso' | 'Danificado' | 'Inexistente' | 'Para_Abate'>('Confirmado');
+  const [revQtd, setRevQtd] = useState<number>(1);
+  const [revLocalDestino, setRevLocalDestino] = useState<string>('');
   const [revObs, setRevObs] = useState('');
+  const [isExportingPatPdf, setIsExportingPatPdf] = useState(false);
+
+  const handleBaixarPdfPatrimonioFin = async () => {
+    const el = document.getElementById('financeiro-patrimonio-inventario-pdf');
+    if (!el || isExportingPatPdf) return;
+    setIsExportingPatPdf(true);
+    try {
+      const sigla = (escola.sigla || escola.nomeOficial || 'SGE').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const ano = (escola.anoLectivoActivo || new Date().getFullYear().toString()).replace(/[^a-zA-Z0-9_-]/g, '_');
+      await downloadElementAsPdf(el, `Inventario_Patrimonio_${sigla}_${ano}.pdf`, {
+        orientation: 'landscape',
+        format: 'a4',
+        marginMm: 10
+      });
+      notificar('Inventário de Património exportado em PDF com sucesso!');
+    } catch (err) {
+      console.error('Falha ao gerar PDF do inventário patrimonial:', err);
+      window.print();
+    } finally {
+      setIsExportingPatPdf(false);
+    }
+  };
 
   const handleSalvarRevisaoPatrimonio = (e: React.FormEvent) => {
     e.preventDefault();
     if (!itemParaRevisar) return;
-    dbService.revisarItemPatrimonio(
-      itemParaRevisar.id,
-      revEstado,
-      revStatus,
-      currentUser.nomeCompleto,
-      revObs
-    );
+    const qtdDisp = Math.max(1, Number(itemParaRevisar.quantidade || 1));
+    const qtdMover = Math.min(qtdDisp, Math.max(1, Math.floor(Number(revQtd || qtdDisp))));
+    const estadoFinal: any =
+      revStatus === 'Inexistente'
+        ? 'Já Não Existe / Abatido'
+        : revStatus === 'Em Uso'
+        ? 'Em Uso'
+        : revEstado;
+
+    if (qtdMover < qtdDisp || itemParaRevisar.estadoConservacao === 'Novo' || revStatus === 'Inexistente' || revStatus === 'Em Uso') {
+      const res = dbService.movimentarQuantidadePatrimonio({
+        itemId: itemParaRevisar.id,
+        destinoEstado: estadoFinal,
+        quantidadeMover: qtdMover,
+        novaLocalizacao: revLocalDestino.trim() || itemParaRevisar.localizacao || itemParaRevisar.salaLocalizacao,
+        responsavel: currentUser.nomeCompleto,
+        observacoes: revObs,
+        statusInventario: revStatus
+      });
+      notificar(res.mensagem);
+    } else {
+      dbService.revisarItemPatrimonio(
+        itemParaRevisar.id,
+        estadoFinal,
+        revStatus,
+        currentUser.nomeCompleto,
+        revObs
+      );
+      notificar(`Revisão de inventário para "${itemParaRevisar.nomeItem || itemParaRevisar.designacao}" registada com sucesso.`);
+    }
     setPatrimonio(dbService.getPatrimonio(escola.id));
     setItemParaRevisar(null);
     setRevObs('');
-    notificar(`Revisão de inventário para "${itemParaRevisar.nomeItem}" registada com sucesso.`);
   };
 
   // Filtros de busca com sanitização e proteção anti-ReDoS
@@ -2030,7 +2076,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               <p className="text-xs text-gray-500">Mobiliário, carteiras escolares, geradores, computadores e equipamentos da escola</p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2 no-print">
               <div className="relative">
                 <Search className="h-4 w-4 absolute left-3 top-2.5 text-gray-400" />
                 <input
@@ -2043,6 +2089,15 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
               </div>
               <button
                 type="button"
+                onClick={handleBaixarPdfPatrimonioFin}
+                disabled={isExportingPatPdf}
+                className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shrink-0"
+              >
+                <Download className="h-4 w-4" />
+                <span>{isExportingPatPdf ? 'A gerar PDF...' : 'Baixar PDF'}</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setShowNovoPatrimonioModal(true)}
                 className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 cursor-pointer shrink-0"
               >
@@ -2052,7 +2107,16 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             </div>
           </div>
 
-          <div className="overflow-x-auto border border-gray-200 rounded-xl">
+          <div id="financeiro-patrimonio-inventario-pdf" data-doc-root="true" className="overflow-x-auto border border-gray-200 rounded-xl bg-white">
+            <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="hidden print:block text-center px-4 pt-4 pb-3 border-b-2 border-gray-900 space-y-1">
+              <div className="flex justify-center mb-1">
+                <InsigniaAngola size={42} />
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-900">REPÚBLICA DE ANGOLA</p>
+              <h4 className="text-sm font-black uppercase text-gray-900">{escola.nomeOficial}</h4>
+              <p className="text-xs font-black uppercase text-gray-900 underline">INVENTÁRIO OFICIAL DE PATRIMÓNIO</p>
+              <p className="text-[10px] text-gray-700">Ano Lectivo: {escola.anoLectivoActivo || '—'}</p>
+            </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-700 font-bold border-b border-gray-200 uppercase text-[10px]">
                 <tr>
@@ -2063,7 +2127,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   <th className="py-3 px-3">Qtd</th>
                   <th className="py-3 px-3">Estado</th>
                   <th className="py-3 px-3">Valor Estimado</th>
-                  <th className="py-3 px-3 text-right">Ações</th>
+                  <th className="py-3 px-3 text-right no-print">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -2102,6 +2166,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                       <td className="py-2.5 px-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           p.estadoConservacao === 'Novo' ? 'bg-emerald-100 text-emerald-800' :
+                          p.estadoConservacao === 'Em Uso' ? 'bg-cyan-100 text-cyan-900' :
                           p.estadoConservacao === 'Bom' ? 'bg-blue-100 text-blue-800' :
                           p.estadoConservacao === 'Regular' ? 'bg-amber-100 text-amber-800' :
                           'bg-rose-100 text-rose-800'
@@ -2110,23 +2175,25 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         </span>
                         {p.statusInventario && p.statusInventario !== 'Confirmado' && (
                           <span className="block mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-800">
-                            {p.statusInventario === 'Inexistente' ? '❌ Inexistente' : p.statusInventario === 'Danificado' ? '⚠️ Danificado' : '🗑️ Para Abate'}
+                            {p.statusInventario === 'Inexistente' ? '❌ Inexistente' : p.statusInventario === 'Em Uso' ? '🔄 Em Uso' : p.statusInventario === 'Danificado' ? '⚠️ Danificado' : '🗑️ Para Abate'}
                           </span>
                         )}
                       </td>
                       <td className="py-2.5 px-3 font-bold text-gray-900">
                         {(p.valorEstimadoKz || 0).toLocaleString()} Kz
                       </td>
-                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap no-print">
                         <button
                           onClick={() => {
                             setItemParaRevisar(p);
                             setRevEstado(p.estadoConservacao as any || 'Bom');
-                            setRevStatus((p.statusInventario as any) || 'Confirmado');
-                            setRevObs(p.observacoes || '');
+                            setRevStatus((p.statusInventario as any) || (p.estadoConservacao === 'Novo' ? 'Em Uso' : 'Confirmado'));
+                            setRevQtd(p.quantidade || 1);
+                            setRevLocalDestino(p.localizacao || p.salaLocalizacao || '');
+                            setRevObs('');
                           }}
                           className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors mr-1"
-                          title="Revisar Estado do Bem (Danificado / Inexistente / Bom)"
+                          title="Revisar Estado / Subtrair Qtd (Em Uso / Danificado / Inexistente)"
                         >
                           <ClipboardCheck className="h-4 w-4" />
                         </button>
@@ -2159,48 +2226,82 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 </div>
 
                 <div className="bg-gray-50 p-3 rounded-xl mb-4 text-xs space-y-1">
-                  <div><strong>Item:</strong> {itemParaRevisar.nomeItem}</div>
-                  <div><strong>Tombamento:</strong> <span className="font-mono text-indigo-700">{itemParaRevisar.codigoTombamento}</span></div>
-                  <div><strong>Localização:</strong> {itemParaRevisar.salaLocalizacao}</div>
+                  <div><strong>Item:</strong> {itemParaRevisar.designacao || itemParaRevisar.nomeItem}</div>
+                  <div><strong>Tombamento:</strong> <span className="font-mono text-indigo-700">{itemParaRevisar.codigoTombo || itemParaRevisar.codigoTombamento}</span></div>
+                  <div><strong>Quantidade Disponível:</strong> {itemParaRevisar.quantidade} un. • <strong>Estado Atual:</strong> {itemParaRevisar.estadoConservacao}</div>
                 </div>
 
-                <form onSubmit={handleSalvarRevisaoPatrimonio} className="space-y-4">
+                <form onSubmit={handleSalvarRevisaoPatrimonio} className="space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Status de Existência / Inventário *</label>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Status de Existência / Destino *</label>
                     <select
                       value={revStatus}
-                      onChange={(e) => setRevStatus(e.target.value as any)}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setRevStatus(val);
+                        if (val === 'Em Uso') setRevEstado('Em Uso');
+                        else if (val === 'Inexistente') setRevEstado('Já Não Existe / Abatido');
+                        else if (val === 'Danificado') setRevEstado('Danificado');
+                        else if (val === 'Para_Abate') setRevEstado('Para Abate');
+                      }}
                       className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold cursor-pointer"
                     >
                       <option value="Confirmado">✅ Confirmado (Existe e Localizado)</option>
+                      <option value="Em Uso">🔄 Colocar em Uso (Subtrai do Stock)</option>
                       <option value="Danificado">⚠️ Danificado / Necessita Reparação</option>
-                      <option value="Inexistente">❌ Já Não Existe (Extraviado / Inexistente)</option>
+                      <option value="Inexistente">❌ Já Não Existe / Inexistente (Subtrai do Stock)</option>
                       <option value="Para_Abate">🗑️ Para Abate Oficial de Património</option>
                     </select>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Quantidade a Subtrair / Rever *</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.max(1, itemParaRevisar.quantidade)}
+                        value={revQtd}
+                        onChange={(e) => setRevQtd(Math.min(Math.max(1, itemParaRevisar.quantidade), Math.max(1, Number(e.target.value) || 1)))}
+                        className="w-full p-2 border border-gray-300 rounded-lg text-xs font-bold text-indigo-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Estado Físico *</label>
+                      <select
+                        value={revEstado}
+                        onChange={(e) => setRevEstado(e.target.value as any)}
+                        className="w-full p-2 border border-gray-300 rounded-lg text-xs cursor-pointer"
+                      >
+                        <option value="Novo">Novo</option>
+                        <option value="Em Uso">Em Uso</option>
+                        <option value="Bom">Bom</option>
+                        <option value="Regular">Regular</option>
+                        <option value="Danificado">Mau / Danificado</option>
+                        <option value="Para Abate">Para Abate</option>
+                        <option value="Já Não Existe / Abatido">Já Não Existe / Abatido</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 mb-1">Estado de Conservação Físico *</label>
-                    <select
-                      value={revEstado}
-                      onChange={(e) => setRevEstado(e.target.value as any)}
-                      className="w-full p-2 border border-gray-300 rounded-lg text-xs cursor-pointer"
-                    >
-                      <option value="Novo">Novo</option>
-                      <option value="Bom">Bom</option>
-                      <option value="Regular">Regular</option>
-                      <option value="Danificado">Mau / Danificado</option>
-                      <option value="Para Abate">Para Abate</option>
-                    </select>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Localização / Sala Destino</label>
+                    <input
+                      type="text"
+                      value={revLocalDestino}
+                      onChange={(e) => setRevLocalDestino(e.target.value)}
+                      placeholder="Ex: Sala 02"
+                      className="w-full p-2 border border-gray-300 rounded-lg text-xs"
+                    />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Observações da Vistoria</label>
                     <textarea
-                      rows={3}
+                      rows={2}
                       value={revObs}
                       onChange={(e) => setRevObs(e.target.value)}
-                      placeholder="Ex: Vistoriado no início do ano letivo; tampo quebrado, transferido para manutenção ou desaparecido..."
+                      placeholder="Ex: Entregue à sala de aulas, tampo quebrado ou extraviado..."
                       className="w-full p-2 border border-gray-300 rounded-lg text-xs"
                     />
                   </div>
@@ -3376,6 +3477,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                     className="w-full p-2 border border-gray-300 rounded-lg font-bold"
                   >
                     <option value="Novo">Novo</option>
+                    <option value="Em Uso">Em Uso</option>
                     <option value="Bom">Bom</option>
                     <option value="Regular">Regular</option>
                     <option value="Danificado">Danificado</option>

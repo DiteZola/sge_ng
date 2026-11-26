@@ -9,21 +9,48 @@ const APP_BUILD_VERSION = `sge-${BUILD_TIMESTAMP.replace(/[:.TZ-]/g, '').slice(0
 
 function sgeBuildVersionPlugin(version: string, buildTime: string): Plugin {
   const payload = JSON.stringify({ version, buildTime }, null, 2);
+  const handleSubpathRewrite = (req: any, res: any, next: () => void, isPreview: boolean) => {
+    const rawUrl = req.url || '/';
+    const qIdx = rawUrl.indexOf('?');
+    const urlPath = qIdx >= 0 ? rawUrl.slice(0, qIdx) : rawUrl;
+    const querySuffix = qIdx >= 0 ? rawUrl.slice(qIdx) : '';
+
+    if (urlPath === '/version.json' || urlPath.endsWith('/version.json')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.end(payload);
+      return;
+    }
+
+    // Permitir acesso transparente via /docs, /docs/, /documentos e /docs/documentos
+    if (
+      urlPath === '/docs' ||
+      urlPath === '/docs/' ||
+      urlPath === '/documentos' ||
+      urlPath === '/documentos/' ||
+      urlPath === '/docs/documentos' ||
+      urlPath === '/docs/documentos/'
+    ) {
+      req.url = (isPreview ? '/index.html' : '/') + querySuffix;
+    } else if (urlPath.startsWith('/docs/documentos/')) {
+      req.url = urlPath.slice('/docs/documentos'.length) + querySuffix;
+    } else if (urlPath.startsWith('/docs/')) {
+      req.url = urlPath.slice('/docs'.length) + querySuffix;
+    } else if (urlPath.startsWith('/documentos/')) {
+      req.url = urlPath.slice('/documentos'.length) + querySuffix;
+    }
+    next();
+  };
+
   return {
     name: 'sge-build-version-plugin',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const urlPath = (req.url || '').split('?')[0];
-        if (urlPath === '/version.json' || urlPath.endsWith('/version.json')) {
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-          res.setHeader('Pragma', 'no-cache');
-          res.setHeader('Expires', '0');
-          res.end(payload);
-          return;
-        }
-        next();
-      });
+      server.middlewares.use((req, res, next) => handleSubpathRewrite(req, res, next, false));
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => handleSubpathRewrite(req, res, next, true));
     },
     generateBundle() {
       this.emitFile({
@@ -66,7 +93,24 @@ export default defineConfig(() => {
         workbox: {
           maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
           importScripts: ['./sw-notifications.js'],
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json}'],
+          // Pre-cache apenas do shell essencial no arranque; módulos pesados carregam e ficam em cache sob demanda/pós-login
+          globPatterns: [
+            'index.html',
+            'manifest.json',
+            'sw-notifications.js',
+            '*.{ico,png,svg}',
+            '**/*.css',
+            'assets/index-*.js',
+            'assets/storage-*.js',
+            'assets/vendor-*.js',
+            'assets/DashboardView-*.js',
+            'assets/PrintingDocumentsView-*.js',
+            'assets/PatrimonyView-*.js',
+            'assets/pdfGenerator-*.js',
+            'assets/directorHelper-*.js',
+            'assets/dateFormat-*.js',
+            'assets/qrCodeUtils-*.js'
+          ],
           globIgnores: ['**/version.json'],
           navigateFallback: 'index.html',
           navigateFallbackDenylist: [/robots\.txt$/i, /sitemap\.xml$/i, /version\.json$/i],
@@ -77,6 +121,20 @@ export default defineConfig(() => {
             {
               urlPattern: /\/version\.json(\?.*)?$/i,
               handler: 'NetworkOnly',
+            },
+            {
+              urlPattern: /\/assets\/.*\.(js|css|woff2?)(\?.*)?$/i,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'sge-modules-runtime-cache',
+                expiration: {
+                  maxEntries: 80,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
             },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,

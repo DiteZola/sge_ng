@@ -1,4 +1,4 @@
-import React, { StrictMode, Component, ErrorInfo, ReactNode } from 'react';
+import React, { StrictMode, Component, ErrorInfo, ReactNode, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
@@ -8,9 +8,12 @@ import { appUpdateService } from './services/appUpdateService';
 import { periodicBackupService } from './services/periodicBackupService';
 import { enforceHttpsTransport } from './utils/securityTransport';
 import { dbService } from './services/storage';
-import { LegalPoliciesModal } from './components/LegalPoliciesModal';
 import { CookieConsentBanner } from './components/CookieConsentBanner';
 import { AppUpdateBanner } from './components/AppUpdateBanner';
+
+const LegalPoliciesModal = lazy(() =>
+  import('./components/LegalPoliciesModal').then((m) => ({ default: m.LegalPoliciesModal }))
+);
 
 try {
   const cfg = dbService.getConfiguracaoSistema();
@@ -22,7 +25,9 @@ try {
 appUpdateService.inicializar();
 notificationService.inicializarServiceWorker();
 offlineStorage.hidratarArmazenamentoDoIndexedDB().catch(() => {});
-periodicBackupService.iniciarAgendador();
+setTimeout(() => {
+  periodicBackupService.iniciarAgendador();
+}, 4000);
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -92,7 +97,9 @@ createRoot(document.getElementById('root')!).render(
     <AppErrorBoundary>
       <App />
       <AppUpdateBanner />
-      <LegalPoliciesModal />
+      <Suspense fallback={null}>
+        <LegalPoliciesModal />
+      </Suspense>
       <CookieConsentBanner />
     </AppErrorBoundary>
   </StrictMode>,

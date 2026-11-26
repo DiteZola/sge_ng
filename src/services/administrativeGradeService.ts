@@ -13,6 +13,8 @@ import {
 import {
   calcularConceitoIniciacao,
   calcularMACEstudante,
+  calcularMediaFinal3Trimestre,
+  calcularNotaTrimestralDinamica,
   isClasseFinal,
   obterEscalaMaximaPorNivel,
 } from './macEngine';
@@ -25,6 +27,8 @@ export type TipoComponenteNotaAdministrativa =
   | 'NPP'
   | 'EXAME';
 
+export type ModoAplicacaoNotaAdministrativa = 'FALTA' | 'TODOS' | 'APENAS_ADM';
+
 export interface PreviewNotaAdministrativaItem {
   alunoId: string;
   alunoNome: string;
@@ -33,6 +37,8 @@ export interface PreviewNotaAdministrativaItem {
   disciplinasBaseCount: number;
   ratioDesempenho: number;
   notaAtual: number | null;
+  origemNota?: 'Professor' | 'Administrativa' | 'Direcao';
+  notaSugeridaProporcional: number;
   notaProposta: number;
   aplicar: boolean;
   motivoBase: string;
@@ -46,6 +52,68 @@ export interface ResultadoPreviewNotasAdministrativas {
   maximoPermitido: 10 | 20;
   totalAplicaveis: number;
   mediaTurmaOutrasDisciplinas: number;
+}
+
+const normTxt = (s?: string): string =>
+  (s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.\-_()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+export function resolverProfessoresAtribuidosDisciplina(
+  escolaId: string,
+  turmaId: string,
+  disciplinaId: string,
+  disciplinaNome?: string,
+  anoLectivo?: string
+): Funcionario[] {
+  const funcionarios = dbService.getFuncionarios(escolaId);
+  const todasDisciplinas = dbService.getDisciplinas(escolaId);
+  const nomeDiscResolvido =
+    disciplinaNome ||
+    todasDisciplinas.find((d) => d.id === disciplinaId)?.nome ||
+    '';
+  const discNorm = normTxt(nomeDiscResolvido);
+
+  const correspondeDisciplina = (candId?: string, candNome?: string): boolean => {
+    if (candId && disciplinaId && candId === disciplinaId) return true;
+    const nomeCand =
+      candNome || todasDisciplinas.find((d) => d.id === candId)?.nome || '';
+    const candNorm = normTxt(nomeCand);
+    return Boolean(discNorm && candNorm && candNorm === discNorm);
+  };
+
+  const idsProfessores = new Set<string>();
+  const atribuicoes = dbService.getAtribuicoes ? dbService.getAtribuicoes() : [];
+  for (const a of atribuicoes) {
+    if (a.turmaId === turmaId && correspondeDisciplina(a.disciplinaId, a.disciplinaNome)) {
+      if (a.professorId) idsProfessores.add(a.professorId);
+    }
+  }
+
+  try {
+    const horarios = dbService.obterHorarios ? dbService.obterHorarios(escolaId, anoLectivo) : [];
+    for (const h of horarios) {
+      if (h.turmaId === turmaId && correspondeDisciplina(h.disciplinaId, h.disciplinaNome)) {
+        if (h.professorId) idsProfessores.add(h.professorId);
+      }
+    }
+  } catch {
+    // ignorar caso sem horários
+  }
+
+  const encontrados: Funcionario[] = [];
+  idsProfessores.forEach((pid) => {
+    const func = funcionarios.find((f) => f.id === pid);
+    if (func && !encontrados.some((e) => e.id === func.id)) {
+      encontrados.push(func);
+    }
+  });
+
+  return encontrados;
 }
 
 /**
@@ -66,6 +134,7 @@ export function calcularNotasAdministrativasProporcionais(params: {
   regraVigente: RegraCalculoMAC;
   alvoTipo: TipoComponenteNotaAdministrativa;
   apenasEmFalta?: boolean;
+  modoAplicacao?: ModoAplicacaoNotaAdministrativa;
   notasExameActuaisPorAluno?: Record<string, number | undefined>;
 }): ResultadoPreviewNotasAdministrativas {
   const {
@@ -80,8 +149,12 @@ export function calcularNotasAdministrativasProporcionais(params: {
     regraVigente,
     alvoTipo,
     apenasEmFalta = true,
+    modoAplicacao,
     notasExameActuaisPorAluno,
   } = params;
+
+  const modoEfetivo: ModoAplicacaoNotaAdministrativa =
+    modoAplicacao || (apenasEmFalta === false ? 'TODOS' : 'FALTA');
 
   const escalaMaxima = obterEscalaMaximaPorNivel(turma.nivelEnsino, turma.classe);
   const ehPrimario = escalaMaxima === 10;
@@ -210,19 +283,22 @@ export function calcularNotasAdministrativasProporcionais(params: {
     };
   };
 
-  // Calcular nota atual do aluno no componente alvo
-  const obterNotaAtualNoAlvo = (alunoId: string): number | null => {
-    if (alvoTipo === 'EXAME' && notasExameActuaisPorAluno) {
-      const v = notasExameActuaisPorAluno[alunoId];
-      return typeof v === 'number' && v > 0 ? v : null;
-    }
-
+  // Calcular nota atual e origem do aluno no componente alvo
+  const obterInfoAtualNoAlvo = (
+    alunoId: string
+  ): { nota: number | null; origem?: 'Professor' | 'Administrativa' | 'Direcao' } => {
     const nc = notasConsolidadas.find(
       (c) =>
         c.alunoId === alunoId &&
         c.disciplinaId === disciplinaId &&
         String(c.trimestre) === trimStr
     );
+
+    if (alvoTipo === 'EXAME' && notasExameActuaisPorAluno) {
+      const v = notasExameActuaisPorAluno[alunoId];
+      const nota = typeof v === 'number' && v > 0 ? v : null;
+      return { nota, origem: nota !== null ? (nc?.origemNota || 'Professor') : undefined };
+    }
 
     if (alvoTipo === 'AVALIACAO') {
       const resMac = calcularMACEstudante(
@@ -233,25 +309,44 @@ export function calcularNotasAdministrativasProporcionais(params: {
         turma.nivelEnsino,
         turma.classe
       );
-      if (resMac.totalAvaliacoesUtilizadas > 0) return resMac.macCalculada;
-      if (nc && typeof nc.mac === 'number' && nc.mac > 0) return nc.mac;
-      return null;
+      const notasAlvoAv = notasAvaliacoes.filter(
+        (n) =>
+          n.alunoId === alunoId &&
+          avsTargetDisciplina.some((av) => av.id === n.avaliacaoId)
+      );
+      const temNotaAdmAv =
+        notasAlvoAv.some((n) => n.origemNota === 'Administrativa') ||
+        nc?.origemNota === 'Administrativa';
+
+      if (resMac.totalAvaliacoesUtilizadas > 0) {
+        return {
+          nota: resMac.macCalculada,
+          origem: temNotaAdmAv ? 'Administrativa' : (nc?.origemNota || 'Professor'),
+        };
+      }
+      if (nc && typeof nc.mac === 'number' && nc.mac > 0) {
+        return { nota: nc.mac, origem: nc.origemNota || 'Professor' };
+      }
+      return { nota: null };
     }
 
     if (alvoTipo === 'PROVA_TRIMESTRAL') {
       const pt = nc?.provaTrimestral ?? nc?.npt;
-      return typeof pt === 'number' && pt > 0 ? pt : null;
+      const nota = typeof pt === 'number' && pt > 0 ? pt : null;
+      return { nota, origem: nota !== null ? (nc?.origemNota || 'Professor') : undefined };
     }
 
     if (alvoTipo === 'NPP') {
-      return typeof nc?.npp === 'number' && nc.npp > 0 ? nc.npp : null;
+      const nota = typeof nc?.npp === 'number' && nc.npp > 0 ? nc.npp : null;
+      return { nota, origem: nota !== null ? (nc?.origemNota || 'Professor') : undefined };
     }
 
     if (alvoTipo === 'EXAME') {
-      return typeof nc?.notaExame === 'number' && nc.notaExame > 0 ? nc.notaExame : null;
+      const nota = typeof nc?.notaExame === 'number' && nc.notaExame > 0 ? nc.notaExame : null;
+      return { nota, origem: nota !== null ? (nc?.origemNota || 'Professor') : undefined };
     }
 
-    return null;
+    return { nota: null };
   };
 
   const ordenados = [...alunosDaTurma].sort((a, b) =>
@@ -273,13 +368,26 @@ export function calcularNotasAdministrativasProporcionais(params: {
         ? baselineSemHistorico
         : minimoPermitido + base.ratio * (maximoPermitido - minimoPermitido);
 
-    const notaProposta = Math.min(
+    const notaSugeridaProporcional = Math.min(
       maximoPermitido,
       Math.max(minimoPermitido, Math.round(rawProposta * 10) / 10)
     );
 
-    const notaAtual = obterNotaAtualNoAlvo(al.id);
-    const aplicar = apenasEmFalta ? notaAtual === null : true;
+    const { nota: notaAtual, origem: origemNota } = obterInfoAtualNoAlvo(al.id);
+
+    let aplicar = false;
+    let notaProposta = notaSugeridaProporcional;
+
+    if (modoEfetivo === 'FALTA') {
+      aplicar = notaAtual === null;
+    } else if (modoEfetivo === 'APENAS_ADM') {
+      aplicar = origemNota === 'Administrativa' || notaAtual === null;
+      if (origemNota === 'Administrativa' && notaAtual !== null) {
+        notaProposta = notaAtual;
+      }
+    } else {
+      aplicar = true;
+    }
 
     return {
       alunoId: al.id,
@@ -289,6 +397,8 @@ export function calcularNotasAdministrativasProporcionais(params: {
       disciplinasBaseCount: base.disciplinasCount,
       ratioDesempenho: base.ratio,
       notaAtual,
+      origemNota,
+      notaSugeridaProporcional,
       notaProposta,
       aplicar,
       motivoBase: base.motivo,
@@ -308,8 +418,8 @@ export function calcularNotasAdministrativasProporcionais(params: {
 }
 
 /**
- * Aplica em lote as notas administrativas calculadas no banco offline + fila Firebase,
- * recalculando MAC, MT, MF e conceito de Iniciação automaticamente.
+ * Aplica em lote (ou com notas editadas individualmente) as notas administrativas no banco offline + fila Firebase,
+ * recalculando MAC, MT, MF e conceito de Iniciação automaticamente e notificando os professores atribuídos.
  */
 export function aplicarNotasAdministrativas(params: {
   escola: Escola;
@@ -392,6 +502,10 @@ export function aplicarNotasAdministrativas(params: {
     }
 
     for (const item of itensAplicar) {
+      const notaFinalItem = Math.min(
+        escalaMaxima,
+        Math.max(0, Math.round(item.notaProposta * 10) / 10)
+      );
       const metaAdm = {
         atribuidaPorNome: currentUser.nomeCompleto,
         atribuidaPorRole: currentUser.role,
@@ -404,10 +518,10 @@ export function aplicarNotasAdministrativas(params: {
         id: `nota-${avTarget.id}-${item.alunoId}`,
         avaliacaoId: avTarget.id,
         alunoId: item.alunoId,
-        valorNota: item.notaProposta,
+        valorNota: notaFinalItem,
         conceitoIniciacao:
           turma.classe === 'Iniciação'
-            ? calcularConceitoIniciacao(item.notaProposta)
+            ? calcularConceitoIniciacao(notaFinalItem)
             : undefined,
         dataLancamento: dataHoje,
         origemNota: 'Administrativa',
@@ -438,6 +552,10 @@ export function aplicarNotasAdministrativas(params: {
   const consolidadas = [...dbService.getNotasConsolidadas()];
 
   for (const item of itensAplicar) {
+    const notaFinalItem = Math.min(
+      escalaMaxima,
+      Math.max(0, Math.round(item.notaProposta * 10) / 10)
+    );
     const idxC = consolidadas.findIndex(
       (c) =>
         c.alunoId === item.alunoId &&
@@ -459,10 +577,10 @@ export function aplicarNotasAdministrativas(params: {
       alvoTipo === 'AVALIACAO'
         ? resMac.totalAvaliacoesUtilizadas > 0
           ? resMac.macCalculada
-          : item.notaProposta
+          : notaFinalItem
         : existente?.mac ?? resMac.macCalculada;
 
-    const nppVal = alvoTipo === 'NPP' ? item.notaProposta : existente?.npp;
+    const nppVal = alvoTipo === 'NPP' ? notaFinalItem : existente?.npp;
     const existentePt = existente
       ? (typeof existente.npt === 'number'
           ? existente.npt
@@ -472,33 +590,54 @@ export function aplicarNotasAdministrativas(params: {
       : undefined;
     const ptVal =
       alvoTipo === 'PROVA_TRIMESTRAL'
-        ? item.notaProposta
+        ? notaFinalItem
         : existentePt;
     const exameVal = ehClasseFinal
       ? alvoTipo === 'EXAME'
-        ? item.notaProposta
+        ? notaFinalItem
         : existente?.notaExame
       : undefined;
 
-    const temNpp = typeof nppVal === 'number' && !isNaN(nppVal);
-    const temPt = typeof ptVal === 'number' && !isNaN(ptVal);
-
-    let mediaTri = macVal;
-    if (provaProfessorAtiva) {
-      if (temNpp && temPt) {
-        mediaTri = Math.round(((macVal + nppVal! + ptVal!) / 3) * 10) / 10;
-      } else if (temPt) {
-        mediaTri = Math.round(((macVal + ptVal!) / 2) * 10) / 10;
-      } else if (temNpp) {
-        mediaTri = Math.round(((macVal + nppVal!) / 2) * 10) / 10;
-      }
-    } else if (temPt) {
-      mediaTri = Math.round(((macVal + ptVal!) / 2) * 10) / 10;
-    }
+    const calcTriDinamico = calcularNotaTrimestralDinamica(
+      macVal,
+      nppVal,
+      ptVal,
+      regraVigente,
+      Number(trimStr) || 1,
+      turma.classe,
+      provaProfessorAtiva
+    );
+    const mediaTri = calcTriDinamico.mediaTrimestral;
 
     let notaFinal = mediaTri;
-    if (ehClasseFinal && typeof exameVal === 'number' && !isNaN(exameVal)) {
-      notaFinal = Math.round((mediaTri * 0.4 + exameVal * 0.6) * 10) / 10;
+    if (String(trimStr) === '3') {
+      const n1Al = consolidadas.find(
+        (c) => c.alunoId === item.alunoId && c.disciplinaId === disciplinaId && String(c.trimestre) === '1'
+      );
+      const n2Al = consolidadas.find(
+        (c) => c.alunoId === item.alunoId && c.disciplinaId === disciplinaId && String(c.trimestre) === '2'
+      );
+      const mt1 = n1Al?.mediaTrimestral ?? mediaTri;
+      const mt2 = n2Al?.mediaTrimestral ?? mediaTri;
+      const calcMf = calcularMediaFinal3Trimestre(
+        mt1,
+        mt2,
+        mediaTri,
+        ehClasseFinal ? exameVal : undefined,
+        regraVigente,
+        turma.classe
+      );
+      notaFinal = calcMf.mediaFinal;
+    } else if (ehClasseFinal && typeof exameVal === 'number' && !isNaN(exameVal)) {
+      const calcMf = calcularMediaFinal3Trimestre(
+        mediaTri,
+        mediaTri,
+        mediaTri,
+        exameVal,
+        regraVigente,
+        turma.classe
+      );
+      notaFinal = calcMf.mediaFinal;
     }
 
     const metaAdm = {
@@ -547,6 +686,71 @@ export function aplicarNotasAdministrativas(params: {
 
   dbService.salvarNotasConsolidadas(consolidadas);
 
+  // Registar auditoria e notificar professores atribuídos quando alterado pelo Diretor Geral ou Subdiretor Pedagógico
+  if (
+    currentUser.role === 'DiretorGeral' ||
+    currentUser.role === 'SubdiretorPedagogico'
+  ) {
+    const professoresAtribuidos = resolverProfessoresAtribuidosDisciplina(
+      escola.id,
+      turma.id,
+      disciplinaId,
+      disciplina?.nome,
+      anoLectivo
+    );
+    const tipoNotaAudit: 'MAC' | 'NPP' | 'NPT' | 'MT' | 'Exame' =
+      alvoTipo === 'AVALIACAO'
+        ? 'MAC'
+        : alvoTipo === 'NPP'
+        ? 'NPP'
+        : alvoTipo === 'PROVA_TRIMESTRAL'
+        ? 'NPT'
+        : 'Exame';
+    const destinatarios =
+      professoresAtribuidos.length > 0
+        ? professoresAtribuidos
+        : [{ id: '', nomeCompleto: 'Sem professor atribuído' } as Funcionario];
+
+    for (const item of itensAplicar) {
+      const novaNotaItem = Math.min(
+        escalaMaxima,
+        Math.max(0, Math.round(item.notaProposta * 10) / 10)
+      );
+      const houveMudanca =
+        item.notaAtual === null || Math.abs(item.notaAtual - novaNotaItem) > 0.001;
+      if (!houveMudanca) continue;
+
+      for (const prof of destinatarios) {
+        dbService.salvarRegistoAlteracaoNotaDirecao({
+          id: `adm-audit-${Date.now()}-${item.alunoId.slice(-4)}-${(prof.id || 'sem').slice(-4)}-${Math.random().toString(36).slice(2, 6)}`,
+          escolaId: escola.id,
+          anoLectivo,
+          alunoId: item.alunoId,
+          alunoNome: item.alunoNome,
+          turmaId: turma.id,
+          turmaNome: turma.nome,
+          classe: turma.classe,
+          curso: turma.curso,
+          disciplinaId,
+          disciplinaNome: disciplina?.nome || disciplinaId,
+          professorId: prof.id,
+          professorNome: prof.nomeCompleto,
+          trimestre: trimStr,
+          tipoNota: tipoNotaAudit,
+          notaAnterior: item.notaAtual ?? 0,
+          notaAnteriorEmFalta: item.notaAtual === null,
+          novaNota: novaNotaItem,
+          motivoJustificativa: justificativa,
+          alteradoPorId: currentUser.id,
+          alteradoPorNome: currentUser.nomeCompleto,
+          alteradoPorRole: currentUser.role,
+          dataHora: dataHoraFmt,
+          lidoPeloProfessor: false,
+        });
+      }
+    }
+  }
+
   const labelComp =
     alvoTipo === 'AVALIACAO'
       ? 'Avaliação Contínua (MAC)'
@@ -558,7 +762,7 @@ export function aplicarNotasAdministrativas(params: {
 
   dbService.registarLog(
     'Atribuição Administrativa de Notas',
-    `${currentUser.nomeCompleto} (${currentUser.cargo || currentUser.role}) atribuiu ${itensAplicar.length} nota(s) administrativa(s) proporcional(is) em ${labelComp} para ${disciplina?.nome || disciplinaId} na turma ${turma.nome} (${turma.classe}, ${trimStr}º Trimestre). Intervalo regulamentar: ${escalaMaxima === 10 ? '4 a 10' : '8 a 20'} valores. Motivo: ${justificativa}.`
+    `${currentUser.nomeCompleto} (${currentUser.cargo || currentUser.role}) atribuiu ${itensAplicar.length} nota(s) administrativa(s) em ${labelComp} para ${disciplina?.nome || disciplinaId} na turma ${turma.nome} (${turma.classe}, ${trimStr}º Trimestre). Motivo: ${justificativa}.`
   );
 
   if (typeof window !== 'undefined') {

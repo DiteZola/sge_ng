@@ -180,6 +180,15 @@ export default function App() {
     try {
       const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
       if (!isAuth) return 'dashboard';
+      const pathNorm = typeof window !== 'undefined' ? (window.location.pathname || '') : '';
+      const entryRoute = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sge_entry_route') : null;
+      if (/\/documentos\/?$/i.test(pathNorm) || entryRoute === 'documentos') {
+        try {
+          sessionStorage.removeItem('sge_entry_route');
+          localStorage.setItem('sge_active_tab', 'documentos');
+        } catch {}
+        return 'documentos';
+      }
       const savedTab = localStorage.getItem('sge_active_tab') as NavTab;
       if (savedTab) return savedTab;
       return 'dashboard';
@@ -213,23 +222,23 @@ export default function App() {
   const [escola, setEscola] = useState<Escola>(() => dbService.getEscolaAtiva());
   const [anosLectivos, setAnosLectivos] = useState<string[]>(() => dbService.getAnosLectivos(dbService.getEscolaAtiva()?.id));
 
-  // Estado Geral do SGE-NG
-  const [turmas, setTurmas] = useState<Turma[]>(() => dbService.obterTurmas());
-  const [disciplinas, setDisciplinas] = useState<Disciplina[]>(() => dbService.obterDisciplinas());
+  // Estado Geral do SGE-NG (carregamento diferido se ainda no ecrã de login para arranque instantâneo)
+  const [turmas, setTurmas] = useState<Turma[]>(() => isAuthenticated ? dbService.obterTurmas() : []);
+  const [disciplinas, setDisciplinas] = useState<Disciplina[]>(() => isAuthenticated ? dbService.obterDisciplinas() : []);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>(() => dbService.obterFuncionarios());
-  const [alunos, setAlunos] = useState<Aluno[]>(() => dbService.obterAlunos());
-  const [tiposAvaliacao, setTiposAvaliacao] = useState<TipoAvaliacaoConfig[]>(() => dbService.obterTiposAvaliacao());
-  const [regrasMAC, setRegrasMAC] = useState<RegraCalculoMAC[]>(() => dbService.obterRegrasMAC());
-  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoCriada[]>(() => dbService.obterAvaliacoes());
-  const [notas, setNotas] = useState<NotaEstudante[]>(() => dbService.obterNotas());
-  const [notasConsolidadas, setNotasConsolidadas] = useState<NotaTrimestralConsolidada[]>(() => dbService.obterNotasConsolidadas());
-  const [solicitacoes, setSolicitacoes] = useState<SolicitacaoAlteracaoNota[]>(() => dbService.obterSolicitacoes());
-  const [assiduidade, setAssiduidade] = useState<RegistoAssiduidade[]>(() => dbService.obterAssiduidade());
-  const [mensagens, setMensagens] = useState<Mensagem[]>(() => dbService.obterMensagens());
-  const [livros, setLivros] = useState<DocumentoBiblioteca[]>(() => dbService.obterLivros());
-  const [logs, setLogs] = useState<LogAuditoria[]>(() => dbService.obterLogs());
-  const [juris, setJuris] = useState<ComissaoJuri[]>(() => dbService.obterJuris());
-  const [atribuicoes, setAtribuicoes] = useState(() => dbService.obterAtribuicoes());
+  const [alunos, setAlunos] = useState<Aluno[]>(() => isAuthenticated ? dbService.obterAlunos() : []);
+  const [tiposAvaliacao, setTiposAvaliacao] = useState<TipoAvaliacaoConfig[]>(() => isAuthenticated ? dbService.obterTiposAvaliacao() : []);
+  const [regrasMAC, setRegrasMAC] = useState<RegraCalculoMAC[]>(() => isAuthenticated ? dbService.obterRegrasMAC() : []);
+  const [avaliacoes, setAvaliacoes] = useState<AvaliacaoCriada[]>(() => isAuthenticated ? dbService.obterAvaliacoes() : []);
+  const [notas, setNotas] = useState<NotaEstudante[]>(() => isAuthenticated ? dbService.obterNotas() : []);
+  const [notasConsolidadas, setNotasConsolidadas] = useState<NotaTrimestralConsolidada[]>(() => isAuthenticated ? dbService.obterNotasConsolidadas() : []);
+  const [solicitacoes, setSolicitacoes] = useState<SolicitacaoAlteracaoNota[]>(() => isAuthenticated ? dbService.obterSolicitacoes() : []);
+  const [assiduidade, setAssiduidade] = useState<RegistoAssiduidade[]>(() => isAuthenticated ? dbService.obterAssiduidade() : []);
+  const [mensagens, setMensagens] = useState<Mensagem[]>(() => isAuthenticated ? dbService.obterMensagens() : []);
+  const [livros, setLivros] = useState<DocumentoBiblioteca[]>(() => isAuthenticated ? dbService.obterLivros() : []);
+  const [logs, setLogs] = useState<LogAuditoria[]>(() => isAuthenticated ? dbService.obterLogs() : []);
+  const [juris, setJuris] = useState<ComissaoJuri[]>(() => isAuthenticated ? dbService.obterJuris() : []);
+  const [atribuicoes, setAtribuicoes] = useState(() => isAuthenticated ? dbService.obterAtribuicoes() : []);
 
   // Utilizador Ativo
   const [authenticatedUser, setAuthenticatedUser] = useState<Funcionario | null>(() => {
@@ -300,8 +309,13 @@ export default function App() {
     setEscolas(dbService.getEscolas());
     const escAtiva = dbService.getEscolaAtiva();
     setEscola(escAtiva);
+    setAnosLectivos(dbService.getAnosLectivos(escAtiva?.id));
     const funcsFrescos = dbService.getFuncionariosBruto();
     setFuncionarios(dbService.obterFuncionarios());
+
+    const autenticado = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+    if (!autenticado) return;
+
     setTurmas(dbService.obterTurmas());
     setAlunos(dbService.obterAlunos());
     setDisciplinas(dbService.obterDisciplinas());
@@ -315,7 +329,6 @@ export default function App() {
     setMensagens(dbService.obterMensagens());
     setLivros(dbService.obterLivros());
     setLogs(dbService.obterLogs());
-    setAnosLectivos(dbService.getAnosLectivos(escAtiva?.id));
     setTiposAvaliacao(dbService.obterTiposAvaliacao());
     setRegrasMAC(dbService.obterRegrasMAC());
 
@@ -421,7 +434,7 @@ export default function App() {
       }
     });
 
-    // Arranque em duas fases APÓS abrir/renderizar o ecrã inicial: bootstrap leve no login e sincronização completa quando autenticado
+    // Arranque imediato em duas fases: bootstrap leve no login e sincronização completa quando autenticado
     let syncStartTimer: ReturnType<typeof setTimeout> | null = null;
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       syncStartTimer = setTimeout(() => {
@@ -445,7 +458,7 @@ export default function App() {
             }
           }
         });
-      }, 120);
+      }, 0);
     }
 
     const handleRemoteUpdate = () => {
@@ -470,9 +483,9 @@ export default function App() {
     const unsubNavNotif = notificationService.subscreverNavegacao(({ tab, subTab }) => {
       if (!ativo) return;
       setActiveTab(tab as NavTab);
-      if (subTab === 'solicitacoes') {
+      if (subTab === 'solicitacoes' || subTab === 'auditoria_direcao') {
         setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: 'solicitacoes' }));
+          window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: subTab }));
         }, 80);
       } else if (subTab === 'biblioteca' || tab === 'biblioteca') {
         setTimeout(() => {
@@ -481,43 +494,11 @@ export default function App() {
       }
     });
 
-    const precarregarModulosOffline = () => {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-      const conn = typeof navigator !== 'undefined' ? (navigator as any).connection : null;
-      if (conn?.saveData) {
-        notificationService.warmOfflineCache();
-        return;
-      }
-      const runBatch = (idx: number) => {
-        if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
-        if (idx >= PRELOAD_MODULE_IMPORTERS.length) {
-          notificationService.warmOfflineCache();
-          return;
-        }
-        const slice = PRELOAD_MODULE_IMPORTERS.slice(idx, idx + 2);
-        Promise.allSettled(slice.map((fn) => fn().catch(() => null))).finally(() => {
-          if (ativo) {
-            setTimeout(() => runBatch(idx + 2), 350);
-          }
-        });
-      };
-      setTimeout(() => {
-        if (!ativo) return;
-        if (typeof (window as any).requestIdleCallback === 'function') {
-          (window as any).requestIdleCallback(() => runBatch(0), { timeout: 2500 });
-        } else {
-          runBatch(0);
-        }
-      }, 2200);
-    };
-    precarregarModulosOffline();
-
     const handleOnline = () => {
       setIntegrity(verificarIntegridadeSistema());
       if (!dbService.temAdminGeral()) {
         verificarAdmin();
       }
-      precarregarModulosOffline();
     };
     const handleOffline = () => {
       setIntegrity(verificarIntegridadeSistema());
@@ -546,6 +527,47 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [recarregarDados, setActiveTab]);
+
+  // Pré-carregamento silencioso de módulos offline APENAS após autenticação e janela de ociosidade (mantém dispositivos novos ultra-rápidos no arranque)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let ativo = true;
+
+    const precarregarModulosOffline = () => {
+      if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+      const conn = typeof navigator !== 'undefined' ? (navigator as any).connection : null;
+      if (conn?.saveData) {
+        notificationService.warmOfflineCache();
+        return;
+      }
+      const runBatch = (idx: number) => {
+        if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+        if (idx >= PRELOAD_MODULE_IMPORTERS.length) {
+          notificationService.warmOfflineCache();
+          return;
+        }
+        const slice = PRELOAD_MODULE_IMPORTERS.slice(idx, idx + 2);
+        Promise.allSettled(slice.map((fn) => fn().catch(() => null))).finally(() => {
+          if (ativo) {
+            setTimeout(() => runBatch(idx + 2), 450);
+          }
+        });
+      };
+      if (typeof (window as any).requestIdleCallback === 'function') {
+        (window as any).requestIdleCallback(() => runBatch(0), { timeout: 3000 });
+      } else {
+        runBatch(0);
+      }
+    };
+
+    const startTimer = setTimeout(precarregarModulosOffline, 1200);
+    window.addEventListener('online', precarregarModulosOffline);
+    return () => {
+      ativo = false;
+      clearTimeout(startTimer);
+      window.removeEventListener('online', precarregarModulosOffline);
+    };
+  }, [isAuthenticated]);
 
   // Inicializar linha de base e agenda em segundo plano ao autenticar
   useEffect(() => {
@@ -1224,14 +1246,32 @@ export default function App() {
       dbService.setAnoLectivoActivo(anoFinal, escolaSelecionada.id);
     }
     setEscola({ ...escolaSelecionada, anoLectivoActivo: anoFinal });
+    localStorage.setItem('sge_authenticated', 'true');
+    setIsAuthenticated(true);
     setAnosLectivos(dbService.getAnosLectivos(escolaSelecionada.id));
     setTurmas(dbService.obterTurmas());
+    setDisciplinas(dbService.obterDisciplinas());
     setAlunos(dbService.obterAlunos());
     setAtribuicoes(dbService.obterAtribuicoes());
     setNotasConsolidadas(dbService.obterNotasConsolidadas());
-    setIsAuthenticated(true);
-    localStorage.setItem('sge_authenticated', 'true');
-    setActiveTab('dashboard');
+    setTiposAvaliacao(dbService.obterTiposAvaliacao());
+    setRegrasMAC(dbService.obterRegrasMAC());
+    setAvaliacoes(dbService.obterAvaliacoes());
+    setNotas(dbService.obterNotas());
+    setSolicitacoes(dbService.obterSolicitacoes());
+    setAssiduidade(dbService.obterAssiduidade());
+    setMensagens(dbService.obterMensagens());
+    setLivros(dbService.obterLivros());
+    setJuris(dbService.obterJuris());
+    const pathNorm = typeof window !== 'undefined' ? (window.location.pathname || '') : '';
+    const entryRoute = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('sge_entry_route') : null;
+    const querDocumentos = /\/documentos\/?$/i.test(pathNorm) || entryRoute === 'documentos';
+    try { sessionStorage.removeItem('sge_entry_route'); } catch {}
+    if (querDocumentos && allowedTabsPorRole[user.role]?.includes('documentos')) {
+      setActiveTab('documentos');
+    } else {
+      setActiveTab('dashboard');
+    }
     setLogs(dbService.obterLogs());
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -1618,13 +1658,14 @@ export default function App() {
 
   // 1. Alunos estritamente da escola atual
   const alunosDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return alunos;
     return alunos.filter(a => a.escolaId === escolaIdAtiva);
-  }, [alunos, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, alunos, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 1.1 Alunos confirmados/matriculados no ano letivo ativo
   const alunosDoAnoActivo = useMemo(() => {
+    if (!isAuthenticated) return [];
     if (!anoActivo) {
       return alunosDaEscola.filter(a => !(a.anoLectivo || a.anoMatricula));
     }
@@ -1632,138 +1673,141 @@ export default function App() {
       const ano = a.anoLectivo || a.anoMatricula;
       return !ano || ano === anoActivo;
     });
-  }, [alunosDaEscola, anoActivo]);
+  }, [isAuthenticated, alunosDaEscola, anoActivo]);
 
   // 2. Turmas estritamente da escola atual
   const turmasDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return turmas;
     return turmas.filter(t => t.escolaId === escolaIdAtiva);
-  }, [turmas, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, turmas, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 2.1 Turmas do ano letivo ativo (estritamente isoladas pelo ano lectivo ativo)
   const turmasDoAnoActivo = useMemo(() => {
-    if (!anoActivo) return [];
+    if (!isAuthenticated || !anoActivo) return [];
     return turmasDaEscola.filter(t => t.anoLectivo === anoActivo);
-  }, [turmasDaEscola, anoActivo]);
+  }, [isAuthenticated, turmasDaEscola, anoActivo]);
 
   // 3. Atribuições docentes estritamente da escola atual
   const atribuicoesDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return atribuicoes;
     return atribuicoes.filter(at => at.escolaId === escolaIdAtiva);
-  }, [atribuicoes, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, atribuicoes, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 3.1 Atribuições docentes do ano letivo ativo (estritamente isoladas pelo ano lectivo ativo)
   const atribuicoesDoAnoActivo = useMemo(() => {
-    if (!anoActivo) return [];
+    if (!isAuthenticated || !anoActivo) return [];
     return atribuicoesDaEscola.filter(at => at.anoLectivo === anoActivo);
-  }, [atribuicoesDaEscola, anoActivo]);
+  }, [isAuthenticated, atribuicoesDaEscola, anoActivo]);
 
   // 4. Disciplinas estritamente da escola atual e do ano letivo ativo
   const disciplinasDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return disciplinas;
     return disciplinas.filter(d => d.escolaId === escolaIdAtiva);
-  }, [disciplinas, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, disciplinas, escolaIdAtiva, isGlobalNetworkScope]);
 
   const disciplinasDoAnoActivo = useMemo(() => {
+    if (!isAuthenticated) return [];
     if (!anoActivo) return disciplinasDaEscola.filter(d => !d.anoLectivo);
     return disciplinasDaEscola.filter(d => !d.anoLectivo || d.anoLectivo === anoActivo);
-  }, [disciplinasDaEscola, anoActivo]);
+  }, [isAuthenticated, disciplinasDaEscola, anoActivo]);
 
   // 5. Funcionários estritamente da escola atual (excluindo AdminGeral)
   const funcionariosDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return funcionarios.filter(f => f.role !== 'AdminGeral');
     return funcionarios.filter(f => f.escolaId === escolaIdAtiva && f.role !== 'AdminGeral');
-  }, [funcionarios, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, funcionarios, escolaIdAtiva, isGlobalNetworkScope]);
 
   // 6. Avaliações, Júris, Mensagens, Biblioteca, Assiduidade e Solicitações estritamente da escola atual
   const avaliacoesDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return avaliacoes;
     return avaliacoes.filter(av => av.escolaId === escolaIdAtiva);
-  }, [avaliacoes, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, avaliacoes, escolaIdAtiva, isGlobalNetworkScope]);
 
   const avaliacoesDoAnoActivo = useMemo(() => {
-    if (!anoActivo) return [];
+    if (!isAuthenticated || !anoActivo) return [];
     return avaliacoesDaEscola.filter(av => !av.anoLectivo || av.anoLectivo === anoActivo);
-  }, [avaliacoesDaEscola, anoActivo]);
+  }, [isAuthenticated, avaliacoesDaEscola, anoActivo]);
 
   const jurisDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return juris;
     return juris.filter(j => j.escolaId === escolaIdAtiva);
-  }, [juris, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, juris, escolaIdAtiva, isGlobalNetworkScope]);
 
   const jurisDoAnoActivo = useMemo(() => {
-    if (!anoActivo) return [];
+    if (!isAuthenticated || !anoActivo) return [];
     return jurisDaEscola.filter(j => !j.anoLectivo || j.anoLectivo === anoActivo);
-  }, [jurisDaEscola, anoActivo]);
+  }, [isAuthenticated, jurisDaEscola, anoActivo]);
 
   const mensagensDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return mensagens;
     return mensagens.filter(m => m.escolaId === escolaIdAtiva);
-  }, [mensagens, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, mensagens, escolaIdAtiva, isGlobalNetworkScope]);
 
   const livrosDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return livros;
     return livros.filter(l => l.escolaId === escolaIdAtiva);
-  }, [livros, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, livros, escolaIdAtiva, isGlobalNetworkScope]);
 
   const assiduidadeDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return assiduidade;
     const funcsIds = new Set(funcionariosDaEscola.map(f => f.id));
     return assiduidade.filter(a => a.escolaId === escolaIdAtiva || funcsIds.has(a.funcionarioId));
-  }, [assiduidade, escolaIdAtiva, isGlobalNetworkScope, funcionariosDaEscola]);
+  }, [isAuthenticated, assiduidade, escolaIdAtiva, isGlobalNetworkScope, funcionariosDaEscola]);
 
   const assiduidadeDoAnoActivo = useMemo(() => {
+    if (!isAuthenticated) return [];
     if (!anoActivo) return assiduidadeDaEscola;
     return assiduidadeDaEscola.filter(a => !a.anoLectivo || a.anoLectivo === anoActivo);
-  }, [assiduidadeDaEscola, anoActivo]);
+  }, [isAuthenticated, assiduidadeDaEscola, anoActivo]);
 
   const solicitacoesDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return solicitacoes;
     return solicitacoes.filter(s => s.escolaId === escolaIdAtiva);
-  }, [solicitacoes, escolaIdAtiva, isGlobalNetworkScope]);
+  }, [isAuthenticated, solicitacoes, escolaIdAtiva, isGlobalNetworkScope]);
 
   const solicitacoesDoAnoActivo = useMemo(() => {
+    if (!isAuthenticated) return [];
     if (!anoActivo) return solicitacoesDaEscola;
     return solicitacoesDaEscola.filter(s => !s.anoLectivo || s.anoLectivo === anoActivo);
-  }, [solicitacoesDaEscola, anoActivo]);
+  }, [isAuthenticated, solicitacoesDaEscola, anoActivo]);
 
   // 7. Notas consolidadas de todos os anos da escola (para certificados multi-ano, declarações e documentos) e do ano ativo
   const notasConsolidadasDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return notasConsolidadas;
     const alunosIdsMap = new Set(alunosDaEscola.map(a => a.id));
     const turmasIdsMap = new Set(turmasDaEscola.map(t => t.id));
     return notasConsolidadas.filter(n => n.escolaId === escolaIdAtiva || alunosIdsMap.has(n.alunoId) || turmasIdsMap.has(n.turmaId));
-  }, [notasConsolidadas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, turmasDaEscola]);
+  }, [isAuthenticated, notasConsolidadas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, turmasDaEscola]);
 
   const notasConsolidadasDoAnoActivo = useMemo(() => {
-    if (!escolaIdAtiva || !anoActivo) return [];
+    if (!isAuthenticated || !escolaIdAtiva || !anoActivo) return [];
     return notasConsolidadasDaEscola.filter(n => !n.anoLectivo || n.anoLectivo === anoActivo);
-  }, [notasConsolidadasDaEscola, escolaIdAtiva, anoActivo]);
+  }, [isAuthenticated, notasConsolidadasDaEscola, escolaIdAtiva, anoActivo]);
 
   const notasAvaliacoesDaEscola = useMemo(() => {
-    if (!escolaIdAtiva) return [];
+    if (!isAuthenticated || !escolaIdAtiva) return [];
     if (isGlobalNetworkScope) return notas;
     const alunosIdsMap = new Set(alunosDaEscola.map(a => a.id));
     const avIdsMap = new Set(avaliacoesDaEscola.map(av => av.id));
     return notas.filter(n => alunosIdsMap.has(n.alunoId) || avIdsMap.has(n.avaliacaoId));
-  }, [notas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, avaliacoesDaEscola]);
+  }, [isAuthenticated, notas, escolaIdAtiva, isGlobalNetworkScope, alunosDaEscola, avaliacoesDaEscola]);
 
   const notasAvaliacoesDoAnoActivo = useMemo(() => {
-    if (!anoActivo) return [];
+    if (!isAuthenticated || !anoActivo) return [];
     const avIds = new Set(avaliacoesDoAnoActivo.map(av => av.id));
     return notasAvaliacoesDaEscola.filter(n => (!n.anoLectivo || n.anoLectivo === anoActivo) && (avIds.size === 0 || avIds.has(n.avaliacaoId) || !n.avaliacaoId));
-  }, [notasAvaliacoesDaEscola, avaliacoesDoAnoActivo, anoActivo]);
+  }, [isAuthenticated, notasAvaliacoesDaEscola, avaliacoesDoAnoActivo, anoActivo]);
 
   // Ecrã de Verificação Soberana Inicial contra o Firebase (Apenas se utilizador NÃO estiver autenticado)
   if (verificandoAdminOnline && !isAuthenticated) {
@@ -1801,11 +1845,9 @@ export default function App() {
             setMostrarSetupInicial(false);
             setTemAdminGeral(true);
             setAuthenticatedUser(novoAdmin);
-            setIsAuthenticated(true);
             localStorage.setItem('sge_authenticated', 'true');
-            setFuncionarios(dbService.obterFuncionarios());
-            setEscolas(dbService.getEscolas());
-            setEscola(dbService.getEscolaAtiva());
+            setIsAuthenticated(true);
+            recarregarDados();
             setActiveTab('dashboard');
             if (typeof navigator !== 'undefined' && navigator.onLine) {
               firebaseSyncEngine.iniciarCicloInicialOnline().then(() => {
@@ -1863,9 +1905,9 @@ export default function App() {
         onNavigateToComunicacao={isEncarregadoPortal ? undefined : () => setActiveTab('comunicacao')}
         onNavigateToTab={isEncarregadoPortal ? undefined : (tab, subTab) => {
           setActiveTab(tab as NavTab);
-          if (subTab === 'solicitacoes') {
+          if (subTab === 'solicitacoes' || subTab === 'auditoria_direcao') {
             setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: 'solicitacoes' }));
+              window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: subTab }));
             }, 80);
           } else if (tab === 'biblioteca' || subTab === 'biblioteca') {
             setTimeout(() => {
@@ -2211,13 +2253,13 @@ export default function App() {
                 <PrintingDocumentsView
                   escola={escola}
                   currentUser={effectiveUser}
-                  atribuicoes={atribuicoesDoAnoActivo}
+                  atribuicoes={atribuicoesDaEscola}
                   alunos={alunosDaEscola}
                   turmas={turmasDaEscola}
-                  disciplinas={disciplinasDoAnoActivo}
+                  disciplinas={disciplinasDaEscola}
                   notasConsolidadas={notasConsolidadasDaEscola}
-                  notasAvaliacoes={notasAvaliacoesDoAnoActivo}
-                  avaliacoes={avaliacoesDoAnoActivo}
+                  notasAvaliacoes={notasAvaliacoesDaEscola}
+                  avaliacoes={avaliacoesDaEscola}
                   initialDocType={
                     activeTab === 'pautas' ? 'pautas' :
                     activeTab === 'certificados' ? 'certificado_ciclo' :

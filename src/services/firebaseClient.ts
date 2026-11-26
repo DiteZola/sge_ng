@@ -184,6 +184,6 @@ export async function testConnection(): Promise<boolean> {
 if (typeof window !== 'undefined') {
   setTimeout(() => {
     testConnection();
-  }, 1500);
+  }, 6500);
 }
 

@@ -2421,9 +2421,9 @@ export const JuryCommissionView: React.FC<JuryCommissionViewProps> = ({
                     </p>
                   </div>
 
-                  {/* Director Geral da Instituição (Homologação) */}
+                  {/* Director Geral da Instituição */}
                   <div className="space-y-1">
-                    <p className="font-black text-slate-900 uppercase">{obterTituloDiretorSimples(escola, funcionarios)} (Homologação)</p>
+                    <p className="font-black text-slate-900 uppercase">{obterTituloDiretorSimples(escola, funcionarios)}</p>
                     <div className="w-40 border-b-2 border-black mx-auto my-2" />
                     <p className="font-bold text-slate-800">
                       {obterNomeDiretorGeral(escola, funcionarios)}

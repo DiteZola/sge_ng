@@ -64,7 +64,6 @@ import { dbService } from '../services/storage';
 import { securityEngine, AlertaSegurancaVisual } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
 import { StudentRankingSection } from './StudentRankingSection';
-import * as XLSX from 'xlsx';
 
 const ParentStudentReportView = React.lazy(() =>
   import('./ParentStudentReportView').then((m) => ({ default: m.ParentStudentReportView }))
@@ -609,8 +608,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     });
   }, [resumoGeralRede, resumoBusca, resumoProvincia, resumoApenasPendencias]);
 
-  const handleExportarResumoGeralRedeExcel = () => {
+  const handleExportarResumoGeralRedeExcel = async () => {
     if (!resumoGeralRede) return;
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const linhasEscolas = resumoGeralRede.escolasDetalhe.map((item, idx) => ({
       'Nº': idx + 1,
@@ -1240,7 +1240,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [turmas, alunos, notasConsolidadas]);
 
   // Handlers de Download de Todos os Tipos de Dados
-  const handleBaixarEstatisticaCompletaXLSX = () => {
+  const handleBaixarEstatisticaCompletaXLSX = async () => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
 
     const wsClasses = XLSX.utils.json_to_sheet(estatisticasPorClasse.map(c => ({

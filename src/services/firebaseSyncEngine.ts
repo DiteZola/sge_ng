@@ -187,6 +187,10 @@ class FirebaseSyncEngine {
   private syncPromise: Promise<{ sucesso: boolean; mensagem: string }> | null = null;
   private bootstrapLevePromise: Promise<void> | null = null;
   private cicloInicialPromise: Promise<void> | null = null;
+  private configFetchPromise: Promise<ConfiguracaoSistema | null> | null = null;
+  private lastConfigFetchTs = 0;
+  private backgroundWavePromise: Promise<void> | null = null;
+  private secondaryListenersTimer: ReturnType<typeof setTimeout> | null = null;
   private escutasAtivas = false;
   private unsubRealtime: Unsubscribe[] = [];
   private remoteNotifyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -951,47 +955,38 @@ class FirebaseSyncEngine {
 
     this.bootstrapLevePromise = (async () => {
       if (!this.canUseFirestore() || !firestoreDb) return;
-      this.emSincronizacao = true;
-      this.atualizarProgresso(25, 'A sincronizar escolas e configurações após abertura...');
       try {
-        await offlineStorage.hidratarArmazenamentoDoIndexedDB();
-        await this.processarPendenciasOffline();
-        this.atualizarProgresso(60, 'A atualizar escolas e anos letivos com o Firebase...');
+        // Hidratação e pendências rápidas em paralelo com a busca mínima de login (configuração, escolas e anos letivos)
         await Promise.allSettled([
+          offlineStorage.hidratarArmazenamentoDoIndexedDB(),
           this.buscarConfiguracaoSistema(),
           this.puxarColecaoArray<Escola>("escolas", STORAGE_KEYS.ESCOLAS, {
             filterValid: (esc) => Boolean(esc && esc.id && !isDemoEscola(esc)),
             preserveFieldFn: (existing, esc) => this.mergeEscolaRemota(existing, esc),
             uploadLocalIfRemoteEmpty: true,
-            extraColecoes: ["schools"]
+            extraColecoes: ["schools"],
+            timeoutMs: 2500
           }),
           (async () => {
             if (!firestoreDb) return;
-            const snap = await withTimeout(getDoc(doc(firestoreDb, "configuracao_sistema", "anos_lectivos")), 5000);
+            const snap = await withTimeout(getDoc(doc(firestoreDb, "configuracao_sistema", "anos_lectivos")), 2500);
             if (snap !== FIRESTORE_TIMEOUT_TOKEN && snap.exists() && Array.isArray(snap.data().anos)) {
-              localStorage.setItem(STORAGE_KEYS.ANOS_LECTIVOS, JSON.stringify(snap.data().anos));
+              const serAnos = JSON.stringify(snap.data().anos);
+              if (localStorage.getItem(STORAGE_KEYS.ANOS_LECTIVOS) !== serAnos) {
+                localStorage.setItem(STORAGE_KEYS.ANOS_LECTIVOS, serAnos);
+                invalidateLocalCache(STORAGE_KEYS.ANOS_LECTIVOS);
+              }
             }
           })()
         ]);
-        this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
-        this.emSincronizacao = false;
-        this.atualizarProgresso(100, 'Sincronização concluída com sucesso!');
-        this.agendarNotificacaoRemota();
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('sge_sync_notificacao', {
-            detail: {
-              sucesso: true,
-              mensagem: 'Aplicação pronta no dispositivo e sincronizada com o Firebase!',
-              hora: this.ultimaSincronizacao
-            }
-          }));
+        if (offlineStorage.obterTotalPendentes() > 0) {
+          this.processarPendenciasOffline().catch(() => {});
         }
+        this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+        this.agendarNotificacaoRemota(true);
       } catch (err) {
         console.warn('[SGE Firebase Sync] Aviso no bootstrap leve:', err);
-        this.emSincronizacao = false;
-        this.atualizarProgresso(0, '');
       } finally {
-        this.emSincronizacao = false;
         this.notificarStatus();
         this.bootstrapLevePromise = null;
       }
@@ -1104,30 +1099,35 @@ class FirebaseSyncEngine {
     const finalArray = Array.from(resultMap.values());
     if (remotosValidos.length > 0 || finalArray.length > 0 || jaSincronizouAntes) {
       const serialized = JSON.stringify(finalArray);
-      offlineStorage.gravarChaveNoIndexedDB(storageKey, serialized);
-      try {
-        localStorage.setItem(storageKey, serialized);
-        invalidateLocalCache(storageKey);
-      } catch (quotaErr) {
-        console.warn(`[SGE Sync] Quota localStorage excedida ao gravar ${storageKey}, preservando fotos no IndexedDB:`, quotaErr);
-        if (colecao === 'funcionarios' || colecao === 'alunos') {
-          const entityType = colecao === 'funcionarios' ? 'funcionario' : 'aluno';
-          const slimmed = finalArray.map((item: any) => {
-            if (item?.id && typeof item.fotoUrl === 'string' && item.fotoUrl.length > 2048 && item.fotoUrl !== '__idb_media__') {
-              offlineStorage.definirMidiaEmCache(entityType, item.id, item.fotoUrl);
-              offlineStorage.salvarMidia(entityType, item.id, item.fotoUrl, item.atualizadoEm);
-              return { ...item, fotoUrl: '__idb_media__' };
-            }
-            return item;
-          });
-          try {
-            localStorage.setItem(storageKey, JSON.stringify(slimmed));
-            invalidateLocalCache(storageKey);
-          } catch {}
+      const existingRaw = localStorage.getItem(storageKey);
+      if (serialized !== existingRaw) {
+        offlineStorage.gravarChaveNoIndexedDB(storageKey, serialized);
+        try {
+          localStorage.setItem(storageKey, serialized);
+          invalidateLocalCache(storageKey);
+        } catch (quotaErr) {
+          console.warn(`[SGE Sync] Quota localStorage excedida ao gravar ${storageKey}, preservando fotos no IndexedDB:`, quotaErr);
+          if (colecao === 'funcionarios' || colecao === 'alunos') {
+            const entityType = colecao === 'funcionarios' ? 'funcionario' : 'aluno';
+            const slimmed = finalArray.map((item: any) => {
+              if (item?.id && typeof item.fotoUrl === 'string' && item.fotoUrl.length > 2048 && item.fotoUrl !== '__idb_media__') {
+                offlineStorage.definirMidiaEmCache(entityType, item.id, item.fotoUrl);
+                offlineStorage.salvarMidia(entityType, item.id, item.fotoUrl, item.atualizadoEm);
+                return { ...item, fotoUrl: '__idb_media__' };
+              }
+              return item;
+            });
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(slimmed));
+              invalidateLocalCache(storageKey);
+            } catch {}
+          }
         }
       }
       if (!fromCache && remotosValidos.length > 0) {
-        localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+        if (!jaSincronizouAntes) {
+          localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+        }
         this.registrarIdsSincronizados(colecao, Array.from(mapRemote.keys()));
       }
     }
@@ -1191,6 +1191,7 @@ class FirebaseSyncEngine {
           }
 
           if (remotos.length > 0 || removedIds.size > 0) {
+            const rawBefore = localStorage.getItem(storageKey);
             const aplicados = this.aplicarSnapshotArray(
               storageKey,
               colecao,
@@ -1200,8 +1201,11 @@ class FirebaseSyncEngine {
               preserveFieldFn,
               getIdFn
             );
-            if (afterApply) afterApply(aplicados);
-            this.agendarNotificacaoRemota(immediateNotify);
+            const rawAfter = localStorage.getItem(storageKey);
+            if (rawBefore !== rawAfter || removedIds.size > 0) {
+              if (afterApply) afterApply(aplicados);
+              this.agendarNotificacaoRemota(immediateNotify);
+            }
           }
         }, (err) => {
           this.registrarErroPermissao(err);
@@ -1384,52 +1388,17 @@ class FirebaseSyncEngine {
     registrarEscutaArray<any>("avaliacoes", STORAGE_KEYS.AVALIACOES, (av) => Boolean(av && av.id));
     registrarEscutaArray<any>("notas", STORAGE_KEYS.NOTAS_CONSOLIDADAS, (n) => Boolean(n && (n.id || n.alunoId)), undefined, undefined, (n) => n.id || `${n.alunoId}_${n.disciplinaId}_${n.trimestre}_${n.anoLectivo || 'padrao'}`);
     registrarEscutaArray<any>("notas_estudantes", STORAGE_KEYS.NOTAS, (n) => Boolean(n && (n.id || n.avaliacaoId)), undefined, undefined, (n) => n.id || `${n.avaliacaoId}_${n.alunoId}`);
-    registrarEscutaArray<any>("juris", STORAGE_KEYS.JURIS, (j) => Boolean(j && j.id));
-    registrarEscutaArray<any>("termos_exame", STORAGE_KEYS.TERMOS_EXAME, (t) => Boolean(t && t.id));
     registrarEscutaArray<any>("mensagens", STORAGE_KEYS.MENSAGENS, (m) => Boolean(m && m.id));
-    registrarEscutaArray<any>("solicitacoes_apoio", STORAGE_KEYS.SOLICITACOES_APOIO, (s) => Boolean(s && s.id));
-    registrarEscutaArray<any>("horarios", STORAGE_KEYS.HORARIOS, (h) => Boolean(h && h.id));
-    registrarEscutaArray<any>("transacoes_financeiras", STORAGE_KEYS.TRANSACOES_FINANCEIRAS, (t) => Boolean(t && t.id));
-    registrarEscutaArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, (d) => Boolean(d && d.id));
-    registrarEscutaArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, (l) => Boolean(l && l.id));
-    registrarEscutaArray<any>("biblioteca", STORAGE_KEYS.BIBLIOTECA, (b) => Boolean(b && b.id));
-    registrarEscutaArray<any>("biblioteca_acessos", STORAGE_KEYS.BIBLIOTECA_ACESSOS, (ba) => Boolean(ba && ba.id));
-    registrarEscutaArray<any>("presencas", STORAGE_KEYS.PRESENCAS, (p) => Boolean(p && p.funcionarioId && p.data), undefined, undefined, (p) => p.id || `${p.funcionarioId}_${p.data}`);
-    registrarEscutaArray<any>("presencas_alunos", STORAGE_KEYS.PRESENCAS_ALUNOS, (p) => Boolean(p && p.alunoId && p.data), undefined, undefined, (p) => p.id || `${p.alunoId}_${p.data}_${p.tempoLectivo}`);
-    registrarEscutaArray<any>("recibos", STORAGE_KEYS.RECIBOS, (r) => Boolean(r && r.id));
-    registrarEscutaArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, (d) => Boolean(d && d.id));
-    registrarEscutaArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, (p) => Boolean(p && p.id));
-    registrarEscutaArray<any>("regras_mac", STORAGE_KEYS.REGRAS_MAC, (r) => Boolean(r && r.id));
-    registrarEscutaArray<any>("tipos_avaliacao", STORAGE_KEYS.TIPOS_AVALIACAO, (t) => Boolean(t && t.id));
     registrarEscutaArray<any>("solicitacoes_nota", STORAGE_KEYS.SOLICITACOES_NOTA, (s) => Boolean(s && s.id));
-    registrarEscutaArray<any>("anos_lectivos_configs", STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, (c) => Boolean(c && c.id));
-    registrarEscutaArray<any>("turnos_configs", STORAGE_KEYS.TURNOS_CONFIGS, (t) => Boolean(t && t.id));
-    registrarEscutaArray<any>("classes_configs", STORAGE_KEYS.CLASSES_CONFIGS, (c) => Boolean(c && c.id));
-    registrarEscutaArray<any>("cursos", STORAGE_KEYS.CURSOS, (c) => Boolean(c && c.id));
-    registrarEscutaArray<any>("areas_formacao", STORAGE_KEYS.AREAS_FORMACAO, (a) => Boolean(a && a.id));
-    registrarEscutaArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, (s) => Boolean(s && s.id));
-    registrarEscutaArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, (r) => Boolean(r && r.id));
-    registrarEscutaArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, (r) => Boolean(r && r.id));
-    registrarEscutaArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, (c) => Boolean(c && c.id));
-    registrarEscutaArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, (t) => Boolean(t && t.id));
-    registrarEscutaArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, (r) => Boolean(r && r.id));
-    registrarEscutaArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, (a) => Boolean(a && a.id));
-    registrarEscutaArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, (h) => Boolean(h && h.id));
-    registrarEscutaArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, (m) => Boolean(m && m.id));
-    registrarEscutaArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, (a) => Boolean(a && a.id));
-
-    registrarEscutaMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId);
-    registrarEscutaMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId);
-    registrarEscutaMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId);
-    registrarEscutaMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId);
-    registrarEscutaMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d);
-    registrarEscutaMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId);
 
     // Escuta em tempo real de configuração global (Insígnia Nacional + parâmetros)
     const aplicarConfigRemota = async (rawCfg: ConfiguracaoSistema) => {
       const cfg = await this.reconstruirConfiguracaoComChunks({ ...rawCfg });
-      localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(cfg));
-      this.agendarNotificacaoRemota();
+      const serCfg = JSON.stringify(cfg);
+      if (localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA) !== serCfg) {
+        localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, serCfg);
+        this.agendarNotificacaoRemota();
+      }
     };
     try {
       const unsubCfg = onSnapshot(doc(firestoreDb, "configuracao_sistema", "global"), async (snap) => {
@@ -1446,6 +1415,54 @@ class FirebaseSyncEngine {
       }, () => {});
       this.unsubRealtime.push(unsubCfgAlt);
     } catch {}
+
+    // Escutas secundárias escalonadas em segundo plano para não saturar a abertura inicial em dispositivos novos
+    if (this.secondaryListenersTimer) {
+      clearTimeout(this.secondaryListenersTimer);
+    }
+    this.secondaryListenersTimer = setTimeout(() => {
+      this.secondaryListenersTimer = null;
+      if (!this.escutasAtivas || !firestoreDb) return;
+
+      registrarEscutaArray<any>("juris", STORAGE_KEYS.JURIS, (j) => Boolean(j && j.id));
+      registrarEscutaArray<any>("termos_exame", STORAGE_KEYS.TERMOS_EXAME, (t) => Boolean(t && t.id));
+      registrarEscutaArray<any>("solicitacoes_apoio", STORAGE_KEYS.SOLICITACOES_APOIO, (s) => Boolean(s && s.id));
+      registrarEscutaArray<any>("horarios", STORAGE_KEYS.HORARIOS, (h) => Boolean(h && h.id));
+      registrarEscutaArray<any>("transacoes_financeiras", STORAGE_KEYS.TRANSACOES_FINANCEIRAS, (t) => Boolean(t && t.id));
+      registrarEscutaArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, (d) => Boolean(d && d.id));
+      registrarEscutaArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, (l) => Boolean(l && l.id));
+      registrarEscutaArray<any>("biblioteca", STORAGE_KEYS.BIBLIOTECA, (b) => Boolean(b && b.id));
+      registrarEscutaArray<any>("biblioteca_acessos", STORAGE_KEYS.BIBLIOTECA_ACESSOS, (ba) => Boolean(ba && ba.id));
+      registrarEscutaArray<any>("presencas", STORAGE_KEYS.PRESENCAS, (p) => Boolean(p && p.funcionarioId && p.data), undefined, undefined, (p) => p.id || `${p.funcionarioId}_${p.data}`);
+      registrarEscutaArray<any>("presencas_alunos", STORAGE_KEYS.PRESENCAS_ALUNOS, (p) => Boolean(p && p.alunoId && p.data), undefined, undefined, (p) => p.id || `${p.alunoId}_${p.data}_${p.tempoLectivo}`);
+      registrarEscutaArray<any>("recibos", STORAGE_KEYS.RECIBOS, (r) => Boolean(r && r.id));
+      registrarEscutaArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, (d) => Boolean(d && d.id));
+      registrarEscutaArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, (p) => Boolean(p && p.id));
+      registrarEscutaArray<any>("regras_mac", STORAGE_KEYS.REGRAS_MAC, (r) => Boolean(r && r.id));
+      registrarEscutaArray<any>("tipos_avaliacao", STORAGE_KEYS.TIPOS_AVALIACAO, (t) => Boolean(t && t.id));
+      registrarEscutaArray<any>("anos_lectivos_configs", STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, (c) => Boolean(c && c.id));
+      registrarEscutaArray<any>("turnos_configs", STORAGE_KEYS.TURNOS_CONFIGS, (t) => Boolean(t && t.id));
+      registrarEscutaArray<any>("classes_configs", STORAGE_KEYS.CLASSES_CONFIGS, (c) => Boolean(c && c.id));
+      registrarEscutaArray<any>("cursos", STORAGE_KEYS.CURSOS, (c) => Boolean(c && c.id));
+      registrarEscutaArray<any>("areas_formacao", STORAGE_KEYS.AREAS_FORMACAO, (a) => Boolean(a && a.id));
+      registrarEscutaArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, (s) => Boolean(s && s.id));
+      registrarEscutaArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, (r) => Boolean(r && r.id));
+      registrarEscutaArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, (r) => Boolean(r && r.id));
+      registrarEscutaArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, (c) => Boolean(c && c.id));
+      registrarEscutaArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, (t) => Boolean(t && t.id));
+      registrarEscutaArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, (r) => Boolean(r && r.id));
+      registrarEscutaArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, (a) => Boolean(a && a.id));
+      registrarEscutaArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, (h) => Boolean(h && h.id));
+      registrarEscutaArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, (m) => Boolean(m && m.id));
+      registrarEscutaArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, (a) => Boolean(a && a.id));
+
+      registrarEscutaMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId);
+      registrarEscutaMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId);
+      registrarEscutaMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId);
+      registrarEscutaMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId);
+      registrarEscutaMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d);
+      registrarEscutaMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId);
+    }, 1800);
   }
 
   /**
@@ -1461,7 +1478,7 @@ class FirebaseSyncEngine {
     }
 
     const isAdminKeyword = termo === 'admin' || termo === 'admin.geral' || termo === 'admingeral' || termo === 'superadmin' || termo === 'administrador';
-    const firestoreTimeoutMs = localCandidate ? 1100 : 2200;
+    const firestoreTimeoutMs = localCandidate ? 900 : 1800;
 
     try {
       const funcsRef = collection(firestoreDb, "funcionarios");
@@ -1491,12 +1508,13 @@ class FirebaseSyncEngine {
       }
 
       const biUpper = identificador.trim().toUpperCase();
-      // Consultas específicas em paralelo com timeout rígido para não travar offline/rede instável
+      // Consultas específicas em paralelo (inclui users por email para login imediato em dispositivo novo)
       const parallelRes = await withTimeout(
         Promise.all([
           getDocs(query(funcsRef, where("email", "==", termo), limit(1))),
           getDocs(query(funcsRef, where("numeroBI", "==", biUpper), limit(1))),
-          getDoc(doc(firestoreDb, "funcionarios", identificador.trim()))
+          getDoc(doc(firestoreDb, "funcionarios", identificador.trim())),
+          getDocs(query(usersRef, where("email", "==", termo), limit(1)))
         ]),
         firestoreTimeoutMs
       );
@@ -1505,7 +1523,7 @@ class FirebaseSyncEngine {
         return localCandidate || this.buscarPerfilNoDispositivo(termo);
       }
 
-      const [snapEmail, snapBI, docDirect] = parallelRes;
+      const [snapEmail, snapBI, docDirect, snapUsersEmail] = parallelRes;
 
       if (!snapEmail.empty) {
         const userFromFirebase = snapEmail.docs[0].data() as Funcionario;
@@ -1522,9 +1540,14 @@ class FirebaseSyncEngine {
         this.atualizarUsuarioNoDispositivo(userFromFirebase);
         return userFromFirebase;
       }
+      if (!snapUsersEmail.empty) {
+        const userFromFirebase = snapUsersEmail.docs[0].data() as Funcionario;
+        this.atualizarUsuarioNoDispositivo(userFromFirebase);
+        return userFromFirebase;
+      }
 
       if (!localCandidate) {
-        const snapAll = await withTimeout(getDocs(funcsRef), 1800);
+        const snapAll = await withTimeout(getDocs(funcsRef), 1500);
         if (snapAll !== FIRESTORE_TIMEOUT_TOKEN) {
           for (const docSnap of snapAll.docs) {
             const f = docSnap.data() as Funcionario;
@@ -1664,44 +1687,65 @@ class FirebaseSyncEngine {
   }
 
   public async buscarConfiguracaoSistema(): Promise<ConfiguracaoSistema | null> {
-    if (this.canUseFirestore() && firestoreDb) {
-      try {
-        const cfgSnaps = await withTimeout(
-          Promise.all([
-            getDoc(doc(firestoreDb, "configuracao_sistema", "global")),
-            getDoc(doc(firestoreDb, "system_config", "global"))
-          ]),
-          2000
-        );
-
-        if (cfgSnaps !== FIRESTORE_TIMEOUT_TOKEN) {
-          const [docSnap, docSnapAlt] = cfgSnaps;
-          let configFromFirebase: ConfiguracaoSistema | null = null;
-          if (docSnap.exists()) {
-            configFromFirebase = docSnap.data() as ConfiguracaoSistema;
-          } else if (docSnapAlt.exists()) {
-            configFromFirebase = docSnapAlt.data() as ConfiguracaoSistema;
-          }
-
-          if (configFromFirebase) {
-            configFromFirebase = await this.reconstruirConfiguracaoComChunks(configFromFirebase);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(configFromFirebase));
-            }
-            return configFromFirebase;
-          }
-        }
-      } catch (err) {
-        console.warn('[SGE Firebase Sync] Falha ao carregar configuração do Firestore:', err);
-      }
+    if (typeof window !== 'undefined' && Date.now() - this.lastConfigFetchTs < 5000) {
+      const cached = safeParseJson<ConfiguracaoSistema | null>(localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA), null);
+      if (cached) return cached;
     }
 
-    try {
-      if (typeof window !== 'undefined') {
-        return safeParseJson<ConfiguracaoSistema | null>(localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA), null);
+    if (this.configFetchPromise) {
+      return this.configFetchPromise;
+    }
+
+    this.configFetchPromise = (async () => {
+      if (this.canUseFirestore() && firestoreDb) {
+        try {
+          const cfgSnaps = await withTimeout(
+            Promise.all([
+              getDoc(doc(firestoreDb, "configuracao_sistema", "global")),
+              getDoc(doc(firestoreDb, "system_config", "global"))
+            ]),
+            2000
+          );
+
+          if (cfgSnaps !== FIRESTORE_TIMEOUT_TOKEN) {
+            const [docSnap, docSnapAlt] = cfgSnaps;
+            let configFromFirebase: ConfiguracaoSistema | null = null;
+            if (docSnap.exists()) {
+              configFromFirebase = docSnap.data() as ConfiguracaoSistema;
+            } else if (docSnapAlt.exists()) {
+              configFromFirebase = docSnapAlt.data() as ConfiguracaoSistema;
+            }
+
+            if (configFromFirebase) {
+              configFromFirebase = await this.reconstruirConfiguracaoComChunks(configFromFirebase);
+              this.lastConfigFetchTs = Date.now();
+              if (typeof window !== 'undefined') {
+                const serCfg = JSON.stringify(configFromFirebase);
+                if (localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA) !== serCfg) {
+                  localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, serCfg);
+                }
+              }
+              return configFromFirebase;
+            }
+          }
+        } catch (err) {
+          console.warn('[SGE Firebase Sync] Falha ao carregar configuração do Firestore:', err);
+        }
       }
-    } catch {}
-    return null;
+
+      try {
+        if (typeof window !== 'undefined') {
+          return safeParseJson<ConfiguracaoSistema | null>(localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA), null);
+        }
+      } catch {}
+      return null;
+    })();
+
+    try {
+      return await this.configFetchPromise;
+    } finally {
+      this.configFetchPromise = null;
+    }
   }
 
   public async gravarConfiguracaoNoFirestore(config: ConfiguracaoSistema): Promise<boolean> {
@@ -1796,10 +1840,11 @@ class FirebaseSyncEngine {
       getIdFn?: (item: T) => string;
       uploadLocalIfRemoteEmpty?: boolean;
       extraColecoes?: string[];
+      timeoutMs?: number;
     }
   ): Promise<T[]> {
     if (!firestoreDb) return [];
-    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), 6000);
+    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), options?.timeoutMs ?? 3500);
     if (snapRes === FIRESTORE_TIMEOUT_TOKEN) {
       return safeParseJson<T[]>(localStorage.getItem(storageKey), []);
     }
@@ -1865,7 +1910,7 @@ class FirebaseSyncEngine {
     wrapForUploadFn?: (k: string, val: any) => Record<string, any>
   ): Promise<void> {
     if (!firestoreDb) return;
-    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), 6000);
+    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), 3500);
     if (snapRes === FIRESTORE_TIMEOUT_TOKEN) return;
     const snap = snapRes;
     const localMap = safeParseJson<Record<string, any>>(localStorage.getItem(storageKey), {});
@@ -1910,23 +1955,27 @@ class FirebaseSyncEngine {
   /**
    * Download Ultra-Rápido em 3 Ondas Paralelas (com deduplicação de concorrência)
    */
-  public async puxarTudoDoFirebase(forceReload: boolean = false): Promise<{ sucesso: boolean; mensagem: string }> {
+  public async puxarTudoDoFirebase(forceReload: boolean = false, aguardarSecundarias: boolean = false): Promise<{ sucesso: boolean; mensagem: string }> {
     if (!this.canUseFirestore() || !firestoreDb) {
       return { sucesso: false, mensagem: 'Modo offline: utilizando dados guardados no dispositivo.' };
     }
 
     if (this.pullPromise && !forceReload) {
+      if (aguardarSecundarias && this.backgroundWavePromise) {
+        await this.pullPromise;
+        await this.backgroundWavePromise;
+        return { sucesso: true, mensagem: 'Dados remotos sincronizados com sucesso!' };
+      }
       return this.pullPromise;
     }
 
     const executePull = async (): Promise<{ sucesso: boolean; mensagem: string }> => {
       try {
         this.emSincronizacao = true;
-        this.atualizarProgresso(12, 'A conectar em alta velocidade ao Firebase Firestore...');
+        this.atualizarProgresso(18, 'A carregar dados essenciais do Firebase...');
 
         // ============================================================
-        // ONDA 1 (CRÍTICA): Configuração, Escolas e Utilizadores em paralelo
-        // Permite autenticar e abrir o painel em < 500ms num novo dispositivo!
+        // ONDA 1 (CRÍTICA): Configuração, Escolas, Funcionários e Users em paralelo
         // ============================================================
         await Promise.allSettled([
           this.buscarConfiguracaoSistema(),
@@ -1934,83 +1983,84 @@ class FirebaseSyncEngine {
             filterValid: (esc) => Boolean(esc && esc.id && !isDemoEscola(esc)),
             preserveFieldFn: (existing, esc) => this.mergeEscolaRemota(existing, esc),
             uploadLocalIfRemoteEmpty: true,
-            extraColecoes: ["schools"]
+            extraColecoes: ["schools"],
+            timeoutMs: 3000
           }),
           (async () => {
-            const funcs = await this.puxarColecaoArray<Funcionario>("funcionarios", STORAGE_KEYS.FUNCIONARIOS, {
-              filterValid: (f) => Boolean(f && f.id && f.nomeCompleto && !isDemoFunc(f)),
-              preserveFieldFn: (existing, rf) => {
-                const fotoExistente =
-                  existing?.fotoUrl && existing.fotoUrl !== '__idb_media__'
-                    ? existing.fotoUrl
-                    : (existing?.id ? (offlineStorage.obterMidiaEmCache('funcionario', existing.id) || '') : '');
-                const fotoFinal = rf.fotoUrl !== undefined ? rf.fotoUrl : fotoExistente;
-                if (rf.id && rf.fotoUrl !== undefined) {
-                  offlineStorage.definirMidiaEmCache('funcionario', rf.id, rf.fotoUrl);
-                }
-                return {
-                  ...existing,
-                  ...rf,
-                  password: rf.password || existing?.password || '',
-                  fotoUrl: fotoFinal
-                };
-              },
-              uploadLocalIfRemoteEmpty: true,
-              extraColecoes: ["users"]
-            });
+            const [funcsRes, usersSnapRes] = await Promise.allSettled([
+              this.puxarColecaoArray<Funcionario>("funcionarios", STORAGE_KEYS.FUNCIONARIOS, {
+                filterValid: (f) => Boolean(f && f.id && f.nomeCompleto && !isDemoFunc(f)),
+                preserveFieldFn: (existing, rf) => {
+                  const fotoExistente =
+                    existing?.fotoUrl && existing.fotoUrl !== '__idb_media__'
+                      ? existing.fotoUrl
+                      : (existing?.id ? (offlineStorage.obterMidiaEmCache('funcionario', existing.id) || '') : '');
+                  const fotoFinal = rf.fotoUrl !== undefined ? rf.fotoUrl : fotoExistente;
+                  if (rf.id && rf.fotoUrl !== undefined) {
+                    offlineStorage.definirMidiaEmCache('funcionario', rf.id, rf.fotoUrl);
+                  }
+                  return {
+                    ...existing,
+                    ...rf,
+                    password: rf.password || existing?.password || '',
+                    fotoUrl: fotoFinal
+                  };
+                },
+                uploadLocalIfRemoteEmpty: true,
+                extraColecoes: ["users"],
+                timeoutMs: 3000
+              }),
+              firestoreDb ? withTimeout(getDocs(collection(firestoreDb, "users")), 3000) : Promise.resolve(FIRESTORE_TIMEOUT_TOKEN)
+            ]);
 
-            // Complementar com perfis presentes em "users" (em falta ou mais recentes, ex.: Diretores)
-            let listaConsolidada = funcs;
+            let listaConsolidada = funcsRes.status === 'fulfilled' ? funcsRes.value : safeParseJson<Funcionario[]>(localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS), []);
             try {
-              if (firestoreDb) {
-                const snapUsersRes = await withTimeout(getDocs(collection(firestoreDb, "users")), 5000);
-                if (snapUsersRes !== FIRESTORE_TIMEOUT_TOKEN && !snapUsersRes.empty) {
-                  const snapUsers = snapUsersRes;
-                  const mapCons = new Map(listaConsolidada.map(f => [f.id, f]));
-                  const extras: Funcionario[] = [];
-                  let mudou = false;
-                  snapUsers.forEach(d => {
-                    const u = d.data() as Funcionario;
-                    const uid = u?.id || d.id;
-                    if (!u || !u.nomeCompleto || isDemoFunc({ ...u, id: uid })) return;
-                    const uNorm = { ...u, id: uid };
-                    const localExisting = mapCons.get(uid);
-                    if (!localExisting) {
-                      mapCons.set(uid, uNorm);
-                      extras.push(uNorm);
+              const snapUsersRes = usersSnapRes.status === 'fulfilled' ? usersSnapRes.value : FIRESTORE_TIMEOUT_TOKEN;
+              if (snapUsersRes !== FIRESTORE_TIMEOUT_TOKEN && !snapUsersRes.empty) {
+                const mapCons = new Map(listaConsolidada.map(f => [f.id, f]));
+                const extras: Funcionario[] = [];
+                let mudou = false;
+                snapUsersRes.forEach(d => {
+                  const u = d.data() as Funcionario;
+                  const uid = u?.id || d.id;
+                  if (!u || !u.nomeCompleto || isDemoFunc({ ...u, id: uid })) return;
+                  const uNorm = { ...u, id: uid };
+                  const localExisting = mapCons.get(uid);
+                  if (!localExisting) {
+                    mapCons.set(uid, uNorm);
+                    extras.push(uNorm);
+                    mudou = true;
+                  } else {
+                    const tLoc = localExisting.atualizadoEm ? Date.parse(String(localExisting.atualizadoEm)) : 0;
+                    const tRem = uNorm.atualizadoEm ? Date.parse(String(uNorm.atualizadoEm)) : 0;
+                    if (tRem > tLoc + 500) {
+                      const merged = {
+                        ...localExisting,
+                        ...uNorm,
+                        password: uNorm.password || localExisting.password || '',
+                        fotoUrl: uNorm.fotoUrl !== undefined ? uNorm.fotoUrl : localExisting.fotoUrl
+                      };
+                      mapCons.set(uid, merged);
+                      extras.push(merged);
                       mudou = true;
-                    } else {
-                      const tLoc = localExisting.atualizadoEm ? Date.parse(String(localExisting.atualizadoEm)) : 0;
-                      const tRem = uNorm.atualizadoEm ? Date.parse(String(uNorm.atualizadoEm)) : 0;
-                      if (tRem > tLoc + 500) {
-                        const merged = {
-                          ...localExisting,
-                          ...uNorm,
-                          password: uNorm.password || localExisting.password || '',
-                          fotoUrl: uNorm.fotoUrl !== undefined ? uNorm.fotoUrl : localExisting.fotoUrl
-                        };
-                        mapCons.set(uid, merged);
-                        extras.push(merged);
-                        mudou = true;
-                      }
                     }
-                  });
-                  if (mudou) {
-                    listaConsolidada = Array.from(mapCons.values());
-                    const serFuncs = JSON.stringify(listaConsolidada);
-                    localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, serFuncs);
-                    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.FUNCIONARIOS, serFuncs);
-                    invalidateLocalCache(STORAGE_KEYS.FUNCIONARIOS);
-                    if (extras.length > 0) {
-                      await this.gravarLoteDireto("funcionarios", extras.map(e => ({ id: e.id, dados: e })));
-                    }
+                  }
+                });
+                if (mudou) {
+                  listaConsolidada = Array.from(mapCons.values());
+                  const serFuncs = JSON.stringify(listaConsolidada);
+                  localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, serFuncs);
+                  offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.FUNCIONARIOS, serFuncs);
+                  invalidateLocalCache(STORAGE_KEYS.FUNCIONARIOS);
+                  if (extras.length > 0) {
+                    this.gravarLoteDireto("funcionarios", extras.map(e => ({ id: e.id, dados: e }))).catch(() => {});
                   }
                 }
               }
             } catch {}
 
             if (listaConsolidada.length > 0) {
-              await offlineStorage.salvarFuncionariosLoteNoIndexedDB(listaConsolidada);
+              offlineStorage.salvarFuncionariosLoteNoIndexedDB(listaConsolidada).catch(() => {});
             }
             if (listaConsolidada.some(f => f.role === 'AdminGeral' && f.ativo !== false)) {
               localStorage.setItem('sge_admin_configured', 'true');
@@ -2019,36 +2069,19 @@ class FirebaseSyncEngine {
           })()
         ]);
 
-        // Reconciliar Diretores Gerais encontrados com as respectivas escolas no dispositivo e reparar divergências na nuvem
         this.reconciliarDiretoresLocal(true);
-
-        this.atualizarProgresso(45, 'Instituições e utilizadores carregados. A sincronizar dados académicos...');
+        this.atualizarProgresso(55, 'A sincronizar turmas, alunos e pautas...');
         this.agendarNotificacaoRemota(true);
 
         // ============================================================
-        // ONDA 2 (ACADÉMICA): Turmas, Disciplinas, Alunos, Atribuições, Avaliações, Notas em paralelo
+        // ONDA 2 (ACADÉMICA PRINCIPAL): Tudo o que é necessário para operar de imediato
         // ============================================================
         await Promise.allSettled([
-          this.puxarColecaoArray<Turma>("turmas", STORAGE_KEYS.TURMAS, {
-            filterValid: (t) => Boolean(t && t.id),
-            uploadLocalIfRemoteEmpty: true
-          }),
-          this.puxarColecaoArray<any>("disciplinas", STORAGE_KEYS.DISCIPLINAS, {
-            filterValid: (d) => Boolean(d && d.id),
-            uploadLocalIfRemoteEmpty: true
-          }),
-          this.puxarColecaoArray<Aluno>("alunos", STORAGE_KEYS.ALUNOS, {
-            filterValid: (a) => Boolean(a && a.id && !isDemoAluno(a)),
-            uploadLocalIfRemoteEmpty: true
-          }),
-          this.puxarColecaoArray<any>("atribuicoes", STORAGE_KEYS.ATRIBUICOES, {
-            filterValid: (at) => Boolean(at && at.id),
-            uploadLocalIfRemoteEmpty: true
-          }),
-          this.puxarColecaoArray<any>("avaliacoes", STORAGE_KEYS.AVALIACOES, {
-            filterValid: (av) => Boolean(av && av.id),
-            uploadLocalIfRemoteEmpty: true
-          }),
+          this.puxarColecaoArray<Turma>("turmas", STORAGE_KEYS.TURMAS, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("disciplinas", STORAGE_KEYS.DISCIPLINAS, { filterValid: (d) => Boolean(d && d.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<Aluno>("alunos", STORAGE_KEYS.ALUNOS, { filterValid: (a) => Boolean(a && a.id && !isDemoAluno(a)), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("atribuicoes", STORAGE_KEYS.ATRIBUICOES, { filterValid: (at) => Boolean(at && at.id), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<any>("avaliacoes", STORAGE_KEYS.AVALIACOES, { filterValid: (av) => Boolean(av && av.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("notas", STORAGE_KEYS.NOTAS_CONSOLIDADAS, {
             filterValid: (n) => Boolean(n && (n.id || n.alunoId)),
             getIdFn: (n) => n.id || `${n.alunoId}_${n.disciplinaId}_${n.trimestre}_${n.anoLectivo || 'padrao'}`,
@@ -2058,83 +2091,95 @@ class FirebaseSyncEngine {
             filterValid: (n) => Boolean(n && (n.id || n.avaliacaoId)),
             getIdFn: (n) => n.id || `${n.avaliacaoId}_${n.alunoId}`,
             uploadLocalIfRemoteEmpty: true
-          })
-        ]);
-
-        this.atualizarProgresso(80, 'A sincronizar finanças, horários, júris e documentos...');
-        this.agendarNotificacaoRemota();
-
-        // ============================================================
-        // ONDA 3 (COMPLEMENTAR): Finanças, Horários, Assiduidade, Júris, Documentos em paralelo
-        // ============================================================
-        await Promise.allSettled([
-          this.puxarColecaoArray<any>("juris", STORAGE_KEYS.JURIS, { filterValid: (j) => Boolean(j && j.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("termos_exame", STORAGE_KEYS.TERMOS_EXAME, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("mensagens", STORAGE_KEYS.MENSAGENS, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("solicitacoes_apoio", STORAGE_KEYS.SOLICITACOES_APOIO, { filterValid: (s) => Boolean(s && s.id), uploadLocalIfRemoteEmpty: true }),
+          }),
           this.puxarColecaoArray<any>("anos_lectivos_configs", STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, { filterValid: (c) => Boolean(c && c.id) }),
           (async () => {
             if (!firestoreDb) return;
-            const snap = await withTimeout(getDoc(doc(firestoreDb, "configuracao_sistema", "anos_lectivos")), 5000);
+            const snap = await withTimeout(getDoc(doc(firestoreDb, "configuracao_sistema", "anos_lectivos")), 3000);
             if (snap !== FIRESTORE_TIMEOUT_TOKEN && snap.exists() && Array.isArray(snap.data().anos)) {
               const serAnos = JSON.stringify(snap.data().anos);
-              localStorage.setItem(STORAGE_KEYS.ANOS_LECTIVOS, serAnos);
-              offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ANOS_LECTIVOS, serAnos);
-              invalidateLocalCache(STORAGE_KEYS.ANOS_LECTIVOS);
+              if (localStorage.getItem(STORAGE_KEYS.ANOS_LECTIVOS) !== serAnos) {
+                localStorage.setItem(STORAGE_KEYS.ANOS_LECTIVOS, serAnos);
+                offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ANOS_LECTIVOS, serAnos);
+                invalidateLocalCache(STORAGE_KEYS.ANOS_LECTIVOS);
+              }
             }
           })(),
           this.puxarColecaoArray<any>("turnos_configs", STORAGE_KEYS.TURNOS_CONFIGS, { filterValid: (t) => Boolean(t && t.id) }),
           this.puxarColecaoArray<any>("classes_configs", STORAGE_KEYS.CLASSES_CONFIGS, { filterValid: (c) => Boolean(c && c.id) }),
           this.puxarColecaoArray<any>("cursos", STORAGE_KEYS.CURSOS, { filterValid: (c) => Boolean(c && c.id) }),
-          this.puxarColecaoArray<any>("areas_formacao", STORAGE_KEYS.AREAS_FORMACAO, { filterValid: (a) => Boolean(a && a.id) }),
-          this.puxarColecaoArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, { filterValid: (s) => Boolean(s && s.id) }),
           this.puxarColecaoArray<any>("regras_mac", STORAGE_KEYS.REGRAS_MAC, { filterValid: (r) => Boolean(r && r.id) }),
           this.puxarColecaoArray<any>("tipos_avaliacao", STORAGE_KEYS.TIPOS_AVALIACAO, { filterValid: (t) => Boolean(t && t.id) }),
-          this.puxarColecaoArray<any>("solicitacoes_nota", STORAGE_KEYS.SOLICITACOES_NOTA, { filterValid: (s) => Boolean(s && s.id) }),
-          this.puxarColecaoArray<any>("presencas", STORAGE_KEYS.PRESENCAS, {
-            filterValid: (p) => Boolean(p && p.funcionarioId && p.data),
-            getIdFn: (p) => p.id || `${p.funcionarioId}_${p.data}`
-          }),
-          this.puxarColecaoArray<any>("presencas_alunos", STORAGE_KEYS.PRESENCAS_ALUNOS, {
-            filterValid: (p) => Boolean(p && p.alunoId && p.data),
-            getIdFn: (p) => p.id || `${p.alunoId}_${p.data}_${p.tempoLectivo}`
-          }),
-          this.puxarColecaoArray<any>("horarios", STORAGE_KEYS.HORARIOS, { filterValid: (h) => Boolean(h && h.id) }),
-          this.puxarColecaoArray<any>("biblioteca", STORAGE_KEYS.BIBLIOTECA, { filterValid: (b) => Boolean(b && b.id) }),
-          this.puxarColecaoArray<any>("biblioteca_acessos", STORAGE_KEYS.BIBLIOTECA_ACESSOS, { filterValid: (ba) => Boolean(ba && ba.id) }),
-          this.puxarColecaoArray<any>("recibos", STORAGE_KEYS.RECIBOS, { filterValid: (r) => Boolean(r && r.id) }),
-          this.puxarColecaoArray<any>("transacoes_financeiras", STORAGE_KEYS.TRANSACOES_FINANCEIRAS, { filterValid: (t) => Boolean(t && t.id) }),
-          this.puxarColecaoArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, { filterValid: (d) => Boolean(d && d.id) }),
-          this.puxarColecaoArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, { filterValid: (p) => Boolean(p && p.id) }),
-          this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
-          this.puxarColecaoArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, { filterValid: (c) => Boolean(c && c.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, { filterValid: (h) => Boolean(h && h.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
-          this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
-          this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<any>("sessoes_ativas", STORAGE_KEYS.SESSOES_ATIVAS, {
-            filterValid: (s) => Boolean(s && (s.userId || s.id)),
-            getIdFn: (s) => s.userId || s.id
-          }),
-          this.puxarColecaoMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId),
-          this.puxarColecaoMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId),
-          this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId, undefined, (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
-          this.puxarColecaoMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId),
-          this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista })),
-          this.puxarColecaoMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId)
+          this.puxarColecaoArray<any>("horarios", STORAGE_KEYS.HORARIOS, { filterValid: (h) => Boolean(h && h.id) })
         ]);
 
+        // Sistema 100% operacional imediatamente após Onda 2; Onda 3 sincroniza em segundo plano sem bloquear o arranque
         this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
         this.emSincronizacao = false;
-        this.atualizarProgresso(100, 'Sincronização concluída com sucesso!');
+        this.atualizarProgresso(100, 'Sistema pronto! A concluir módulos complementares em segundo plano...');
         this.notificarStatus();
-        this.agendarNotificacaoRemota();
+        this.agendarNotificacaoRemota(true);
+
+        // ============================================================
+        // ONDA 3 (COMPLEMENTAR SILENCIOSA): Finanças, Biblioteca, Júris, Planos, Auditoria
+        // ============================================================
+        const runSecondaryWave = async () => {
+          await Promise.allSettled([
+            this.puxarColecaoArray<any>("juris", STORAGE_KEYS.JURIS, { filterValid: (j) => Boolean(j && j.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("termos_exame", STORAGE_KEYS.TERMOS_EXAME, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("mensagens", STORAGE_KEYS.MENSAGENS, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("solicitacoes_apoio", STORAGE_KEYS.SOLICITACOES_APOIO, { filterValid: (s) => Boolean(s && s.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("areas_formacao", STORAGE_KEYS.AREAS_FORMACAO, { filterValid: (a) => Boolean(a && a.id) }),
+            this.puxarColecaoArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, { filterValid: (s) => Boolean(s && s.id) }),
+            this.puxarColecaoArray<any>("solicitacoes_nota", STORAGE_KEYS.SOLICITACOES_NOTA, { filterValid: (s) => Boolean(s && s.id) }),
+            this.puxarColecaoArray<any>("presencas", STORAGE_KEYS.PRESENCAS, {
+              filterValid: (p) => Boolean(p && p.funcionarioId && p.data),
+              getIdFn: (p) => p.id || `${p.funcionarioId}_${p.data}`
+            }),
+            this.puxarColecaoArray<any>("presencas_alunos", STORAGE_KEYS.PRESENCAS_ALUNOS, {
+              filterValid: (p) => Boolean(p && p.alunoId && p.data),
+              getIdFn: (p) => p.id || `${p.alunoId}_${p.data}_${p.tempoLectivo}`
+            }),
+            this.puxarColecaoArray<any>("biblioteca", STORAGE_KEYS.BIBLIOTECA, { filterValid: (b) => Boolean(b && b.id) }),
+            this.puxarColecaoArray<any>("biblioteca_acessos", STORAGE_KEYS.BIBLIOTECA_ACESSOS, { filterValid: (ba) => Boolean(ba && ba.id) }),
+            this.puxarColecaoArray<any>("recibos", STORAGE_KEYS.RECIBOS, { filterValid: (r) => Boolean(r && r.id) }),
+            this.puxarColecaoArray<any>("transacoes_financeiras", STORAGE_KEYS.TRANSACOES_FINANCEIRAS, { filterValid: (t) => Boolean(t && t.id) }),
+            this.puxarColecaoArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, { filterValid: (d) => Boolean(d && d.id) }),
+            this.puxarColecaoArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, { filterValid: (p) => Boolean(p && p.id) }),
+            this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
+            this.puxarColecaoArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, { filterValid: (c) => Boolean(c && c.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, { filterValid: (h) => Boolean(h && h.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
+            this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
+            this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("sessoes_ativas", STORAGE_KEYS.SESSOES_ATIVAS, {
+              filterValid: (s) => Boolean(s && (s.userId || s.id)),
+              getIdFn: (s) => s.userId || s.id
+            }),
+            this.puxarColecaoMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId),
+            this.puxarColecaoMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId),
+            this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId, undefined, (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
+            this.puxarColecaoMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId),
+            this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista })),
+            this.puxarColecaoMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId)
+          ]);
+          this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+          this.agendarNotificacaoRemota();
+        };
+
+        this.backgroundWavePromise = runSecondaryWave().finally(() => {
+          this.backgroundWavePromise = null;
+        });
+
+        if (aguardarSecundarias) {
+          await this.backgroundWavePromise;
+        }
 
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('sge_sync_notificacao', {
@@ -2273,8 +2318,8 @@ class FirebaseSyncEngine {
             uploadMap(STORAGE_KEYS.DELEGACOES_COBRANCA, "delegacoes_cobranca", (escolaId, lista) => ({ id: escolaId, escolaId, lista }))
           ]);
 
-          // 4. Descarregar estado reconciliado do Firestore
-          await this.puxarTudoDoFirebase(true);
+          // 4. Descarregar estado reconciliado completo do Firestore
+          await this.puxarTudoDoFirebase(true, true);
         }
 
         await offlineStorage.sincronizar();

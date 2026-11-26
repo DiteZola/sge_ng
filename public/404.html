@@ -4,16 +4,26 @@
     <meta charset="utf-8">
     <title>SGE-NG - A carregar...</title>
     <script>
-      // Redirecionamento SPA seguro para GitHub Pages (preserva subpastas /<repo>/ e /docs/)
+      // Redirecionamento SPA seguro para raiz (/), /docs/ e /documentos
       (function () {
         var l = window.location;
-        var base = l.pathname;
-        if (base.indexOf('/docs/') !== -1) {
-          base = base.slice(0, base.indexOf('/docs/') + 6);
+        var path = l.pathname || '/';
+        var base = path;
+        try {
+          if (/\/documentos\/?$/i.test(path)) {
+            sessionStorage.setItem('sge_entry_route', 'documentos');
+          }
+        } catch (e) {}
+        if (/\/documentos\/?$/i.test(path)) {
+          base = path.replace(/\/documentos\/?$/i, '/');
+        } else if (path.indexOf('/docs/') !== -1) {
+          base = path.slice(0, path.indexOf('/docs/') + 6);
+        } else if (/\/docs$/i.test(path)) {
+          base = path + '/';
         } else {
-          base = base.replace(/\/[^/]*$/, '/');
+          base = path.replace(/\/[^/]*$/, '/');
         }
-        l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + base + l.search + l.hash);
+        l.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + (base || '/') + l.search + l.hash);
       })();
     </script>
   </head>
