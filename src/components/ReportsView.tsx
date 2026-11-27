@@ -270,6 +270,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [activeReportTab, setActiveReportTab] = useState<
     'acontecimentos' | 'coordenacao_anual' | 'docente_periodo'
   >('acontecimentos');
+  const [orientacaoPdf, setOrientacaoPdf] = useState<'portrait' | 'landscape'>('portrait');
 
   // Filtro de escola para Admin Geral ('TODAS' por padrão para visão global)
   const [escolaFiltroAdmin, setEscolaFiltroAdmin] = useState<string>(() =>
@@ -1203,7 +1204,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       await downloadElementAsPdf(
         'relatorio-acontecimentos-oficial-doc',
         `Relatorio_Acontecimentos_${escNomeSlug}_${filtroAno}.pdf`,
-        { orientation: 'portrait', scale: 2, marginMm: 10 }
+        { orientation: orientacaoPdf, scale: 2, marginMm: 10 }
       );
     } finally {
       setIsDownloadingPdf(false);
@@ -1214,7 +1215,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     const el = document.getElementById('relatorio-acontecimentos-oficial-doc');
     if (el) {
       imprimirElementoDiretamente(el, 'Relatorio_de_Acontecimentos', {
-        orientation: 'portrait',
+        orientation: orientacaoPdf,
         marginMm: 10
       });
     }
@@ -1347,6 +1348,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <Plus className="w-4 h-4" />
               <span>Novo Relatório de Acontecimento</span>
             </button>
+            <div className="flex items-center space-x-1.5 bg-slate-100 px-2 py-1 rounded-xl border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Folha:</span>
+              <select
+                value={orientacaoPdf}
+                onChange={(e) => setOrientacaoPdf(e.target.value as 'portrait' | 'landscape')}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Orientação da folha para PDF e impressão"
+              >
+                <option value="portrait">Retrato (A4 Vertical)</option>
+                <option value="landscape">Paisagem (A4 Horizontal)</option>
+              </select>
+            </div>
             <button
               type="button"
               onClick={handleExportarExcel}

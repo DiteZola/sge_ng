@@ -30,23 +30,29 @@ interface FeeReceiptsA4GridProps {
   recibos: ReciboEmolumentoA4Item[];
   nomeAtendentePadrao?: string;
   gridId?: string;
+  recibosPorFolha?: number;
 }
 
 export const FeeReceiptsA4Grid: React.FC<FeeReceiptsA4GridProps> = ({
   escola,
   recibos,
   nomeAtendentePadrao = '',
-  gridId = 'recibos-emolumentos-a4-grid'
+  gridId = 'recibos-emolumentos-a4-grid',
+  recibosPorFolha
 }) => {
   const configSistema = useMemo(() => dbService.getConfiguracaoSistema(), []);
+  const porFolha = useMemo(() => {
+    const val = recibosPorFolha ?? dbService.getRecibosEmolumentosPorFolhaA4(escola.id);
+    return [1, 2, 4, 6, 8].includes(val) ? val : 8;
+  }, [recibosPorFolha, escola.id]);
 
   const paginas = useMemo(() => {
     const pages: ReciboEmolumentoA4Item[][] = [];
-    for (let i = 0; i < recibos.length; i += 8) {
-      pages.push(recibos.slice(i, i + 8));
+    for (let i = 0; i < recibos.length; i += porFolha) {
+      pages.push(recibos.slice(i, i + porFolha));
     }
     return pages;
-  }, [recibos]);
+  }, [recibos, porFolha]);
 
   if (recibos.length === 0) {
     return (
@@ -56,6 +62,17 @@ export const FeeReceiptsA4Grid: React.FC<FeeReceiptsA4GridProps> = ({
     );
   }
 
+  const cardMinHeightClass =
+    porFolha === 1
+      ? 'min-h-[600px]'
+      : porFolha === 2
+      ? 'min-h-[460px]'
+      : porFolha === 4
+      ? 'min-h-[340px]'
+      : 'min-h-[240px]';
+
+  const gridColsClass = porFolha === 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2';
+
   return (
     <div id={gridId} data-passes-grid="true" data-doc-root="true" className="space-y-6 documento-oficial-print">
       {paginas.map((paginaRecibos, pageIndex) => (
@@ -64,7 +81,7 @@ export const FeeReceiptsA4Grid: React.FC<FeeReceiptsA4GridProps> = ({
           data-passes-page="true"
           className="bg-white p-2 pb-4 border border-gray-200 shadow-xs rounded-xl print:border-0 print:shadow-none print:p-0 print:pb-3"
         >
-          <div className="passes-sheet-grid grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          <div className={`passes-sheet-grid grid ${gridColsClass} gap-2.5`}>
             {paginaRecibos.map((item) => {
               const nomeAtendente = (item.operadorNome || nomeAtendentePadrao || '').trim() || 'Secretaria / Tesouraria';
               const corPrimaria = escola.corPrimaria || '#1e3a8a';
@@ -72,7 +89,7 @@ export const FeeReceiptsA4Grid: React.FC<FeeReceiptsA4GridProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="bg-white border-2 rounded-lg p-2.5 flex flex-col justify-between min-h-[240px] h-auto text-black select-none print:break-inside-avoid"
+                  className={`bg-white border-2 rounded-lg p-2.5 flex flex-col justify-between ${cardMinHeightClass} h-auto text-black select-none print:break-inside-avoid`}
                   style={{ borderColor: corPrimaria }}
                 >
                   {/* Cabeçalho Oficial: Insígnia + República de Angola + Província/Município + Escola + Recibo Nº */}
@@ -216,6 +233,8 @@ interface FeeReceiptsA4ModalProps {
   todosRecibos: ReciboEmolumentoA4Item[];
   initialSelectedIds?: string[];
   nomeAtendentePadrao?: string;
+  canConfigureA4?: boolean;
+  onChangeRecibosPorFolha?: (qtd: number) => void;
 }
 
 export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
@@ -224,14 +243,21 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
   escola,
   todosRecibos,
   initialSelectedIds,
-  nomeAtendentePadrao = ''
+  nomeAtendentePadrao = '',
+  canConfigureA4 = true,
+  onChangeRecibosPorFolha
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [recibosPorFolha, setRecibosPorFolha] = useState<number>(() =>
+    dbService.getRecibosEmolumentosPorFolhaA4(escola.id)
+  );
+  const [orientacao, setOrientacao] = useState<'portrait' | 'landscape'>('portrait');
   const [selectedIds, setSelectedIds] = useState<string[]>(() => {
+    const inicialQtd = dbService.getRecibosEmolumentosPorFolhaA4(escola.id);
     if (initialSelectedIds && initialSelectedIds.length > 0) {
       return initialSelectedIds;
     }
-    return todosRecibos.slice(0, 8).map((r) => r.id);
+    return todosRecibos.slice(0, inicialQtd).map((r) => r.id);
   });
   const [gerandoPdf, setGerandoPdf] = useState(false);
 
@@ -255,8 +281,14 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
     );
   };
 
-  const selecionarPrimeirosOito = () => {
-    setSelectedIds(recibosFiltrados.slice(0, 8).map((r) => r.id));
+  const selecionarPrimeirosN = () => {
+    setSelectedIds(recibosFiltrados.slice(0, recibosPorFolha).map((r) => r.id));
+  };
+
+  const handleAlterarPorFolha = (qtd: number) => {
+    setRecibosPorFolha(qtd);
+    dbService.salvarRecibosEmolumentosPorFolhaA4(escola.id, qtd);
+    if (onChangeRecibosPorFolha) onChangeRecibosPorFolha(qtd);
   };
 
   const handleBaixarPdf = async () => {
@@ -264,9 +296,9 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
     try {
       await downloadElementAsPdf(
         'modal-recibos-emolumentos-a4-grid',
-        `Recibos_Emolumentos_8porA4_${escola.sigla || 'ESCOLA'}`,
+        `Recibos_Emolumentos_${recibosPorFolha}porA4_${escola.sigla || 'ESCOLA'}`,
         {
-          orientation: 'portrait',
+          orientation: orientacao,
           format: 'a4',
           margins: { top: 8, right: 8, bottom: 12, left: 8 }
         }
@@ -281,9 +313,9 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
     if (el) {
       imprimirElementoDiretamente(
         el,
-        `Recibos de Emolumentos (8 por A4) - ${escola.nomeOficial}`,
+        `Recibos de Emolumentos (${recibosPorFolha} por A4) - ${escola.nomeOficial}`,
         {
-          orientation: 'portrait',
+          orientation: orientacao,
           format: 'a4',
           margins: { top: 8, right: 8, bottom: 12, left: 8 }
         }
@@ -302,16 +334,44 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-black text-gray-900">
-                Emissão em Folha A4 — 8 Recibos de Emolumentos por Folha
+                Emissão em Folha A4 — {recibosPorFolha} Recibo{recibosPorFolha > 1 ? 's' : ''} de Emolumentos por Folha
               </h3>
               <p className="text-xs text-gray-500">
                 Selecione os recibos desejados ({recibosSelecionados.length} selecionados •{' '}
-                {Math.max(1, Math.ceil(recibosSelecionados.length / 8))} folha(s) A4).
+                {Math.max(1, Math.ceil(recibosSelecionados.length / recibosPorFolha))} folha(s) A4).
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {canConfigureA4 && (
+              <div className="flex items-center space-x-1 bg-white border border-gray-300 rounded-xl px-2 py-1">
+                <span className="text-[11px] font-bold text-gray-600 mr-1">Recibos/A4:</span>
+                {[1, 2, 4, 6, 8].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => handleAlterarPorFolha(n)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-black cursor-pointer transition-colors ${
+                      recibosPorFolha === n
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            )}
+            <select
+              value={orientacao}
+              onChange={(e) => setOrientacao(e.target.value as 'portrait' | 'landscape')}
+              className="px-2.5 py-2 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-800 cursor-pointer"
+              title="Orientação da folha A4"
+            >
+              <option value="portrait">Retrato</option>
+              <option value="landscape">Paisagem</option>
+            </select>
             <button
               type="button"
               disabled={gerandoPdf || recibosSelecionados.length === 0}
@@ -319,7 +379,7 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
             >
               <Download className="h-4 w-4" />
-              <span>{gerandoPdf ? 'A gerar PDF...' : 'Baixar PDF (8/Folha A4)'}</span>
+              <span>{gerandoPdf ? 'A gerar PDF...' : `Baixar PDF (${recibosPorFolha}/Folha A4)`}</span>
             </button>
             <button
               type="button"
@@ -358,10 +418,10 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
             <div className="flex items-center justify-between gap-2 mb-3">
               <button
                 type="button"
-                onClick={selecionarPrimeirosOito}
+                onClick={selecionarPrimeirosN}
                 className="flex-1 py-1.5 px-2.5 bg-white border border-gray-300 hover:bg-emerald-50 text-gray-800 rounded-lg text-[11px] font-bold cursor-pointer"
               >
-                Selecionar 8 Recibos
+                Selecionar {recibosPorFolha} Recibo{recibosPorFolha > 1 ? 's' : ''}
               </button>
               <button
                 type="button"
@@ -407,13 +467,14 @@ export const FeeReceiptsA4Modal: React.FC<FeeReceiptsA4ModalProps> = ({
             </div>
           </div>
 
-          {/* Preview Folha A4 (8 por folha) */}
+          {/* Preview Folha A4 configurável */}
           <div className="lg:col-span-8 p-4 overflow-y-auto max-h-[75vh] bg-slate-200">
             <FeeReceiptsA4Grid
               escola={escola}
               recibos={recibosSelecionados}
               nomeAtendentePadrao={nomeAtendentePadrao}
               gridId="modal-recibos-emolumentos-a4-grid"
+              recibosPorFolha={recibosPorFolha}
             />
           </div>
         </div>

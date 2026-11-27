@@ -149,15 +149,31 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
   const [configSistema] = useState(() => dbService.getConfiguracaoSistema());
   const [gerandoPdf, setGerandoPdf] = useState(false);
   const [slotFocadoSugestao, setSlotFocadoSugestao] = useState<number | null>(null);
+  const [recibosPorFolha, setRecibosPorFolha] = useState<number>(() =>
+    dbService.getRecibosMatriculaPorFolhaA4(escola.id)
+  );
+  const [orientacao, setOrientacao] = useState<'portrait' | 'landscape'>('portrait');
 
-  const construirSlotsIniciais = (): ReciboMatriculaSlot[] => {
-    const base: ReciboMatriculaSlot[] = [
-      criarSlotVazio(0, anoPadrao, 'Confirmacao'),
-      criarSlotVazio(1, anoPadrao, 'Confirmacao'),
-      criarSlotVazio(2, anoPadrao, 'Confirmacao')
-    ];
+  const isDirecao = useMemo(() => {
+    const role = currentUser?.role || dbService.getCurrentUser()?.role || '';
+    return [
+      'DiretorGeral',
+      'AdminGeral',
+      'SubdiretorAdministrativo',
+      'SubdirectorAdministrativo',
+      'SubdiretorPedagogico'
+    ].includes(role);
+  }, [currentUser?.role]);
+
+  const construirSlotsIniciais = (porFolhaOverride?: number): ReciboMatriculaSlot[] => {
+    const porFolha = porFolhaOverride ?? recibosPorFolha;
+    const qtdInicial = Math.max(porFolha, initialSlots?.length || 0);
+    const tipoDominante = initialSlots?.[0]?.tipoOperacao || 'Confirmacao';
+    const base: ReciboMatriculaSlot[] = Array.from({ length: qtdInicial }, (_, idx) =>
+      criarSlotVazio(idx, anoPadrao, tipoDominante)
+    );
     if (initialSlots && initialSlots.length > 0) {
-      for (let i = 0; i < Math.min(3, initialSlots.length); i++) {
+      for (let i = 0; i < initialSlots.length; i++) {
         const s = initialSlots[i];
         if (s) {
           base[i] = {
@@ -169,25 +185,45 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
           };
         }
       }
-      const tipoDominante = base[0].tipoOperacao || 'Confirmacao';
-      for (let i = 1; i < 3; i++) {
-        if (!initialSlots[i]) {
-          base[i].tipoOperacao = tipoDominante;
-        }
-      }
     }
     return base;
   };
 
-  const [slots, setSlots] = useState<ReciboMatriculaSlot[]>(construirSlotsIniciais);
+  const [slots, setSlots] = useState<ReciboMatriculaSlot[]>(() => construirSlotsIniciais());
 
   useEffect(() => {
     if (isOpen) {
-      setSlots(construirSlotsIniciais());
+      const porFolhaSalvo = dbService.getRecibosMatriculaPorFolhaA4(escola.id);
+      setRecibosPorFolha(porFolhaSalvo);
+      setSlots(construirSlotsIniciais(porFolhaSalvo));
       setSlotFocadoSugestao(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, initialSlots]);
+  }, [isOpen, initialSlots, escola.id]);
+
+  const handleAlterarRecibosPorFolha = (novoValor: number) => {
+    const valido = dbService.salvarRecibosMatriculaPorFolhaA4(escola.id, novoValor);
+    setRecibosPorFolha(valido);
+    setSlots(prev => {
+      const preenchidos = prev.filter(s => s.nomeCompleto.trim().length > 0);
+      if (prev.length < valido) {
+        const tipoPadrao = prev[0]?.tipoOperacao || 'Confirmacao';
+        const extras = Array.from({ length: valido - prev.length }, (_, i) =>
+          criarSlotVazio(prev.length + i, anoPadrao, tipoPadrao)
+        );
+        return [...prev, ...extras];
+      }
+      if (preenchidos.length <= valido && prev.length > valido) {
+        const tipoPadrao = prev[0]?.tipoOperacao || 'Confirmacao';
+        const lista = [...preenchidos];
+        while (lista.length < valido) {
+          lista.push(criarSlotVazio(lista.length, anoPadrao, tipoPadrao));
+        }
+        return lista.map((s, idx) => ({ ...s, slotIndex: idx }));
+      }
+      return prev;
+    });
+  };
 
   const cursosDisponiveis = useMemo(() => {
     const fromCfg = dbService.getCursos(escola.id).map(c => c.nome).filter(Boolean);
@@ -217,6 +253,15 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
   const slotsAtivos = useMemo(() => {
     return slots.filter(s => s.nomeCompleto.trim().length > 0);
   }, [slots]);
+
+  const paginasRecibos = useMemo(() => {
+    const paginas: ReciboMatriculaSlot[][] = [];
+    const passo = Math.max(1, recibosPorFolha);
+    for (let i = 0; i < slotsAtivos.length; i += passo) {
+      paginas.push(slotsAtivos.slice(i, i + passo));
+    }
+    return paginas;
+  }, [slotsAtivos, recibosPorFolha]);
 
   const atualizarSlot = (idx: number, patch: Partial<ReciboMatriculaSlot>) => {
     setSlots(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
@@ -251,10 +296,10 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
       const sufixo =
         slotsAtivos.length === 1
           ? slotsAtivos[0].nomeCompleto.replace(/\s+/g, '_')
-          : `Lote_${slotsAtivos.length}_Recibos_A4`;
+          : `Lote_${slotsAtivos.length}_Recibos_${recibosPorFolha}porA4`;
       await downloadElementAsPdf(el, `Recibo_Matricula_${sufixo}`, {
         format: 'a4',
-        orientation: 'portrait',
+        orientation: orientacao,
         margins: { top: 6, right: 6, bottom: 6, left: 6 },
         scale: 2.3
       });
@@ -269,37 +314,94 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
       window.print();
       return;
     }
-    imprimirElementoDiretamente(el, 'Recibos de Matrícula e Confirmação (3 por Folha A4)', {
-      format: 'a4',
-      orientation: 'portrait',
-      margins: { top: 6, right: 6, bottom: 6, left: 6 }
-    });
+    imprimirElementoDiretamente(
+      el,
+      `Recibos de Matrícula e Confirmação (${recibosPorFolha} por Folha A4)`,
+      {
+        format: 'a4',
+        orientation: orientacao,
+        margins: { top: 6, right: 6, bottom: 6, left: 6 }
+      }
+    );
   };
 
   if (!isOpen) return null;
 
   const nomeFuncionarioOperador = currentUser?.nomeCompleto || obterNomeDiretorGeral(escola);
+  const duasColunasA4 = recibosPorFolha >= 4;
+  const pageWidthPx = orientacao === 'landscape' ? 1123 : 794;
+  const pageMinHeightPx = orientacao === 'landscape' ? 740 : 1050;
+  const cardMinHeightPx =
+    recibosPorFolha === 1
+      ? orientacao === 'landscape'
+        ? 630
+        : 920
+      : recibosPorFolha === 2
+      ? orientacao === 'landscape'
+        ? 315
+        : 470
+      : recibosPorFolha === 3
+      ? orientacao === 'landscape'
+        ? 210
+        : 315
+      : recibosPorFolha === 4
+      ? orientacao === 'landscape'
+        ? 315
+        : 465
+      : orientacao === 'landscape'
+      ? 205
+      : 310;
 
   return (
     <div className="fixed inset-0 bg-gray-900/75 dark:bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl max-w-5xl w-full p-4 sm:p-6 shadow-2xl space-y-4 my-4 max-h-[95vh] overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl max-w-6xl w-full p-4 sm:p-6 shadow-2xl space-y-4 my-4 max-h-[95vh] overflow-y-auto">
         {/* Cabeçalho do Modal */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-gray-200 dark:border-slate-800 no-print">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b pb-3 border-gray-200 dark:border-slate-800 no-print">
           <div className="flex items-center space-x-2.5">
             <div className="p-2 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-xl shrink-0">
               <FileCheck2 className="h-5 w-5" />
             </div>
             <div>
               <h3 className="text-base font-black text-gray-900 dark:text-white">
-                Recibos de Matrícula e Confirmação — 3 por Folha A4
+                Recibos de Matrícula e Confirmação — {recibosPorFolha} por Folha A4
               </h3>
               <p className="text-xs text-gray-500 dark:text-slate-400">
-                Insira até <strong>3 nomes de alunos</strong> (selecionando alunos cadastrados ou digitando livremente) para baixar todos em uma única folha A4.
+                Preencha até <strong>{slots.length} {slots.length === 1 ? 'aluno' : 'alunos'}</strong> para emitir em {paginasRecibos.length || 1} folha(s) A4 ({recibosPorFolha} por folha).
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center space-x-1.5 bg-gray-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-slate-700">
+              <span className="text-[11px] font-bold text-gray-700 dark:text-slate-300">Orientação:</span>
+              <select
+                value={orientacao}
+                onChange={e => setOrientacao(e.target.value as 'portrait' | 'landscape')}
+                className="text-xs font-bold bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded px-1.5 py-0.5 text-gray-900 dark:text-slate-100"
+              >
+                <option value="portrait">Retrato</option>
+                <option value="landscape">Paisagem</option>
+              </select>
+            </div>
+
+            {isDirecao && (
+              <div className="flex items-center space-x-1.5 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">Por A4:</span>
+                <select
+                  value={recibosPorFolha}
+                  onChange={e => handleAlterarRecibosPorFolha(Number(e.target.value))}
+                  className="text-xs font-black bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded px-1.5 py-0.5 text-indigo-950 dark:text-indigo-100"
+                  title="Configurar quantos recibos cabem em cada folha A4"
+                >
+                  <option value={1}>1 / A4</option>
+                  <option value={2}>2 / A4</option>
+                  <option value={3}>3 / A4</option>
+                  <option value={4}>4 / A4</option>
+                  <option value={6}>6 / A4</option>
+                </select>
+              </div>
+            )}
+
             <button
               type="button"
               disabled={gerandoPdf || slotsAtivos.length === 0}
@@ -333,8 +435,12 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
           </div>
         </div>
 
-        {/* Painel de Inserção dos 3 Nomes (Slots 1, 2 e 3) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 no-print">
+        {/* Painel de Inserção dos Nomes */}
+        <div
+          className={`grid grid-cols-1 md:grid-cols-3 gap-3 no-print ${
+            slots.length > 6 ? 'max-h-72 overflow-y-auto pr-1' : ''
+          }`}
+        >
           {slots.map((slot, idx) => {
             const sugestoes = slot.nomeCompleto.trim()
               ? alunos
@@ -361,7 +467,7 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-black uppercase text-gray-800 dark:text-slate-100 flex items-center space-x-1">
                     <UserPlus className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
-                    <span>Recibo {idx + 1} de 3</span>
+                    <span>Recibo {idx + 1} de {slots.length}</span>
                   </span>
                   <div className="flex items-center space-x-1.5">
                     <select
@@ -521,244 +627,245 @@ export const EnrollmentReceiptSheetModal: React.FC<EnrollmentReceiptSheetModalPr
           <div className="flex items-center space-x-2">
             <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>
-              <strong>Folha A4 (3 em 1):</strong> Cada recibo ocupa 1/3 da folha A4 com guias de corte. Preencha 1, 2 ou 3 nomes acima e clique em <strong>Baixar Folha A4</strong>.
+              <strong>Folha A4 ({recibosPorFolha} em 1 • {orientacao === 'landscape' ? 'Paisagem' : 'Retrato'}):</strong> Os recibos são distribuídos com guias de corte{paginasRecibos.length > 1 ? ` em ${paginasRecibos.length} páginas A4` : ''}.
             </span>
           </div>
           <span className="font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800 shrink-0">
-            {slotsAtivos.length} / 3 preenchidos
+            {slotsAtivos.length} preenchido(s) • {paginasRecibos.length || 1} pág(s)
           </span>
         </div>
 
-        {/* Pré-visualização da Folha A4 (exact width 794px, centrada) */}
+        {/* Pré-visualização da Folha A4 (paginada para suportar lotes) */}
         <div className="border border-gray-300 dark:border-slate-800 rounded-xl p-3 bg-gray-100 dark:bg-slate-950/90 overflow-x-auto">
           {slotsAtivos.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-xl p-10 text-center text-gray-500 dark:text-slate-400 border-2 border-dashed border-gray-300 dark:border-slate-700">
               <CheckCircle2 className="h-10 w-10 text-gray-300 dark:text-slate-600 mx-auto mb-2" />
               <p className="text-sm font-bold text-gray-700 dark:text-slate-200">Insira pelo menos 1 nome acima para gerar o recibo.</p>
               <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                Pode inserir até 3 nomes diferentes para imprimir os 3 recibos na mesma folha A4.
+                Configuração atual: {recibosPorFolha} recibo(s) por folha A4 ({orientacao === 'landscape' ? 'Paisagem' : 'Retrato'}).
               </p>
             </div>
           ) : (
-            <div
-              id="folha-recibos-matricula-a4"
-              data-passes-page="true"
-              className="mx-auto bg-white text-black shadow-sm"
-              style={{
-                width: '794px',
-                minHeight: '1050px',
-                padding: '8px 12px',
-                boxSizing: 'border-box',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'flex-start',
-                gap: '4px'
-              }}
-            >
-              {slotsAtivos.map((slot, renderIdx) => {
-                const ehConfirmacao = slot.tipoOperacao === 'Confirmacao';
-                const mostrarCurso = isSegundoCiclo(slot.classe) && Boolean(slot.curso?.trim());
+            <div id="folha-recibos-matricula-a4" className="space-y-4">
+              {paginasRecibos.map((paginaSlots, pageIdx) => (
+                <div
+                  key={`pagina-recibos-${pageIdx}`}
+                  data-passes-page="true"
+                  className="mx-auto bg-white text-black shadow-sm"
+                  style={{
+                    width: `${pageWidthPx}px`,
+                    minHeight: `${pageMinHeightPx}px`,
+                    padding: duasColunasA4 ? '8px' : '8px 12px',
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  <div className={duasColunasA4 ? 'grid grid-cols-2 gap-2.5' : 'flex flex-col gap-1'}>
+                    {paginaSlots.map((slot, renderIdx) => {
+                      const ehConfirmacao = slot.tipoOperacao === 'Confirmacao';
+                      const mostrarCurso = isSegundoCiclo(slot.classe) && Boolean(slot.curso?.trim());
 
-                return (
-                  <React.Fragment key={`recibo-a4-${slot.slotIndex}`}>
-                    {/* Cartão de 1/3 de Folha A4 (altura adaptável a partir de 320px) */}
-                    <div
-                      className="border-2 border-gray-900 rounded-lg bg-white text-gray-950 font-sans flex flex-col justify-between"
-                      style={{
-                        minHeight: '320px',
-                        padding: '8px 12px',
-                        boxSizing: 'border-box'
-                      }}
-                    >
-                      {/* Cabeçalho Compacto MED */}
-                      <div className="flex items-center justify-between border-b-2 border-gray-900 pb-1.5">
-                        <div className="flex items-center space-x-2.5">
-                          <div className="shrink-0">
-                            {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
-                              <img
-                                src={configSistema.insigniaNacionalUrl}
-                                alt="Insígnia da República de Angola"
-                                className="h-9 w-9 object-contain"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <InsigniaAngola size={34} />
-                            )}
-                          </div>
-                          <div className="leading-tight">
-                            <p className="text-[8.5px] font-black uppercase tracking-wider text-gray-800">
-                              República de Angola • {escola.governoProvincial || `Governo Provincial de ${escola.provincia || 'Luanda'}`}
-                            </p>
-                            <p className="text-[8px] font-bold uppercase text-gray-600">
-                              {escola.gabineteEducacao || 'Gabinete Provincial da Educação'}
-                            </p>
-                            <h4 className="text-[12px] font-black uppercase text-gray-950">
-                              {escola.nomeOficial}
-                            </h4>
-                          </div>
-                        </div>
-
-                        <div className="text-right shrink-0">
-                          <span
-                            className={`inline-block text-[10px] font-black uppercase px-2.5 py-0.5 border border-gray-900 rounded ${
-                              ehConfirmacao ? 'bg-emerald-50 text-emerald-950' : 'bg-blue-50 text-blue-950'
-                            }`}
+                      return (
+                        <React.Fragment key={`recibo-a4-${pageIdx}-${slot.slotIndex}`}>
+                          <div
+                            className="border-2 border-gray-900 rounded-lg bg-white text-gray-950 font-sans flex flex-col justify-between"
+                            style={{
+                              minHeight: `${cardMinHeightPx}px`,
+                              padding: duasColunasA4 ? '6px 8px' : '8px 12px',
+                              boxSizing: 'border-box'
+                            }}
                           >
-                            {ehConfirmacao ? 'RECIBO DE CONFIRMAÇÃO DE MATRÍCULA' : 'RECIBO DE MATRÍCULA'}
-                          </span>
-                          <p className="text-[9.5px] font-bold text-gray-800 mt-0.5">
-                            Ano Lectivo: <span className="font-black">{slot.anoLectivo || '—'}</span>
-                          </p>
-                        </div>
-                      </div>
+                            {/* Cabeçalho Compacto MED */}
+                            <div className="flex items-center justify-between border-b-2 border-gray-900 pb-1">
+                              <div className="flex items-center space-x-2 min-w-0">
+                                <div className="shrink-0">
+                                  {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
+                                    <img
+                                      src={configSistema.insigniaNacionalUrl}
+                                      alt="Insígnia da República de Angola"
+                                      className={duasColunasA4 ? 'h-7 w-7 object-contain' : 'h-9 w-9 object-contain'}
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <InsigniaAngola size={duasColunasA4 ? 26 : 34} />
+                                  )}
+                                </div>
+                                <div className="leading-tight min-w-0">
+                                  <p className={`${duasColunasA4 ? 'text-[7px]' : 'text-[8.5px]'} font-black uppercase tracking-wider text-gray-800 truncate`}>
+                                    República de Angola • {escola.governoProvincial || `Governo Provincial de ${escola.provincia || 'Luanda'}`}
+                                  </p>
+                                  <p className={`${duasColunasA4 ? 'text-[6.5px]' : 'text-[8px]'} font-bold uppercase text-gray-600 truncate`}>
+                                    {escola.gabineteEducacao || 'Gabinete Provincial da Educação'}
+                                  </p>
+                                  <h4 className={`${duasColunasA4 ? 'text-[9.5px]' : 'text-[12px]'} font-black uppercase text-gray-950 truncate`}>
+                                    {escola.nomeOficial}
+                                  </h4>
+                                </div>
+                              </div>
 
-                      {/* Corpo do Recibo */}
-                      <div className="grid grid-cols-12 gap-3 py-1.5 text-[10.5px] leading-snug">
-                        {/* Coluna Esquerda: Identificação do Estudante */}
-                        <div className="col-span-7 space-y-1 border-r border-gray-200 pr-2.5">
-                          <div className="bg-gray-100 border border-gray-300 px-2.5 py-1 rounded flex items-center justify-between">
-                            <div>
-                              <span className="text-[8.5px] uppercase font-bold text-gray-600 block">
-                                N.º Oficial de Matrícula
-                              </span>
-                              <strong className="text-xs font-mono font-black text-blue-950">
-                                {slot.codigoMatricula || '—'}
-                              </strong>
+                              <div className="text-right shrink-0 ml-1">
+                                <span
+                                  className={`inline-block ${duasColunasA4 ? 'text-[7.5px] px-1.5 py-0.5' : 'text-[10px] px-2.5 py-0.5'} font-black uppercase border border-gray-900 rounded ${
+                                    ehConfirmacao ? 'bg-emerald-50 text-emerald-950' : 'bg-blue-50 text-blue-950'
+                                  }`}
+                                >
+                                  {ehConfirmacao ? 'CONFIRMAÇÃO' : 'MATRÍCULA'}
+                                </span>
+                                <p className={`${duasColunasA4 ? 'text-[7.5px]' : 'text-[9.5px]'} font-bold text-gray-800 mt-0.5`}>
+                                  Ano: <span className="font-black">{slot.anoLectivo || '—'}</span>
+                                </p>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <span className="text-[8.5px] uppercase font-bold text-gray-600 block">
-                                N.º de Processo
-                              </span>
-                              <strong className="text-[11px] font-mono font-bold text-gray-900">
-                                {slot.numeroProcesso || slot.codigoMatricula || '—'}
-                              </strong>
+
+                            {/* Corpo do Recibo */}
+                            <div className={`grid grid-cols-12 ${duasColunasA4 ? 'gap-1.5 py-1 text-[8.5px]' : 'gap-3 py-1.5 text-[10.5px]'} leading-snug`}>
+                              {/* Coluna Esquerda: Identificação do Estudante */}
+                              <div className={`col-span-7 space-y-0.5 border-r border-gray-200 ${duasColunasA4 ? 'pr-1.5' : 'pr-2.5'}`}>
+                                <div className="bg-gray-100 border border-gray-300 px-1.5 py-0.5 rounded flex items-center justify-between">
+                                  <div>
+                                    <span className="text-[7px] uppercase font-bold text-gray-600 block">
+                                      N.º Matrícula
+                                    </span>
+                                    <strong className={`${duasColunasA4 ? 'text-[9px]' : 'text-xs'} font-mono font-black text-blue-950`}>
+                                      {slot.codigoMatricula || '—'}
+                                    </strong>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-[7px] uppercase font-bold text-gray-600 block">
+                                      Processo
+                                    </span>
+                                    <strong className={`${duasColunasA4 ? 'text-[8.5px]' : 'text-[11px]'} font-mono font-bold text-gray-900`}>
+                                      {slot.numeroProcesso || slot.codigoMatricula || '—'}
+                                    </strong>
+                                  </div>
+                                </div>
+
+                                <p>
+                                  <span className="text-gray-600 font-semibold">Estudante: </span>
+                                  <strong className={`uppercase text-gray-950 ${duasColunasA4 ? 'text-[9px]' : 'text-[11px]'}`}>{slot.nomeCompleto}</strong>
+                                </p>
+                                <p>
+                                  <span className="text-gray-600 font-semibold">Doc. (BI): </span>
+                                  <strong className="font-mono">{slot.documentoId || '—'}</strong>
+                                </p>
+                                <p className="whitespace-normal break-words">
+                                  <span className="text-gray-600 font-semibold">
+                                    {inferirGeneroPorNomeOuParentesco(slot.encarregadoNome) === 'F' ? 'Encarregada: ' : 'Encarregado: '}
+                                  </span>
+                                  <strong>{slot.encarregadoNome || '—'}</strong>
+                                  {slot.encarregadoTelefone && slot.encarregadoTelefone !== '—'
+                                    ? ` (${slot.encarregadoTelefone})`
+                                    : ''}
+                                </p>
+                              </div>
+
+                              {/* Coluna Direita: Enquadramento Escolar */}
+                              <div className="col-span-5 bg-gray-50 border border-gray-200 rounded p-1.5 space-y-0.5 min-w-0">
+                                {ehConfirmacao && slot.classeAnterior && (
+                                  <p className={duasColunasA4 ? 'text-[8px]' : 'text-[10px]'}>
+                                    <span className="text-gray-500 font-semibold">Anterior: </span>
+                                    <strong>
+                                      {slot.classeAnterior === 'Iniciação'
+                                        ? 'Iniciação'
+                                        : `${slot.classeAnterior} Classe`}
+                                    </strong>
+                                  </p>
+                                )}
+                                <p>
+                                  <span className="text-gray-600 font-semibold">
+                                    {ehConfirmacao ? 'Classe Confirmada: ' : 'Classe: '}
+                                  </span>
+                                  <strong className="text-emerald-900 font-black">
+                                    {slot.classe
+                                      ? slot.classe === 'Iniciação'
+                                        ? 'Iniciação'
+                                        : `${slot.classe} Classe`
+                                      : '—'}
+                                  </strong>
+                                </p>
+                                <p>
+                                  <span className="text-gray-600 font-semibold">Turma & Sala: </span>
+                                  <strong>
+                                    {slot.turmaNome || '—'}
+                                    {slot.sala ? ` (${slot.sala})` : ''}
+                                  </strong>
+                                </p>
+                                <p>
+                                  <span className="text-gray-600 font-semibold">Turno: </span>
+                                  <strong>{slot.turno || 'Manhã'}</strong>
+                                </p>
+                                {mostrarCurso && (
+                                  <p className="whitespace-normal break-words">
+                                    <span className="text-gray-600 font-semibold">Curso: </span>
+                                    <strong className="text-purple-950">{slot.curso}</strong>
+                                  </p>
+                                )}
+                                <p>
+                                  <span className="text-gray-600 font-semibold">Situação: </span>
+                                  <strong className="text-emerald-800">{slot.valorTaxa || 'Regularizada'}</strong>
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Rodapé: Assinaturas + QR Code */}
+                            <div className="border-t border-gray-300 pt-1">
+                              <div className={`grid grid-cols-3 gap-2 items-end text-center ${duasColunasA4 ? 'text-[7.5px]' : 'text-[9.5px]'}`}>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-gray-800">{obterTituloEncarregado(undefined, slot.encarregadoNome)}</p>
+                                  <div className={`w-full max-w-[140px] border-b border-black mx-auto ${duasColunasA4 ? 'mt-3' : 'mt-5'} mb-0.5`} />
+                                  <p className={`${duasColunasA4 ? 'text-[7px]' : 'text-[9px]'} font-semibold text-gray-800 whitespace-normal break-words`}>
+                                    {slot.encarregadoNome && slot.encarregadoNome !== '—'
+                                      ? slot.encarregadoNome
+                                      : ' '}
+                                  </p>
+                                </div>
+
+                                <div className="flex flex-col items-center justify-center">
+                                  <OfficialQrCode
+                                    value={gerarPayloadQrDocumento({
+                                      docType: ehConfirmacao ? 'COMPROVATIVO_CONFIRMACAO' : 'COMPROVATIVO_MATRICULA',
+                                      escolaId: escola.id,
+                                      docRef: slot.codigoMatricula || slot.nomeCompleto,
+                                      alunoId: slot.alunoId || `manual-${slot.slotIndex}`,
+                                      alunoNome: slot.nomeCompleto,
+                                      anoLectivo: slot.anoLectivo
+                                    })}
+                                    size={duasColunasA4 ? 30 : 42}
+                                  />
+                                </div>
+
+                                <div className="min-w-0">
+                                  <p className="font-bold text-gray-800">A Direcção da Escola</p>
+                                  <div className={`w-full max-w-[140px] border-b border-black mx-auto ${duasColunasA4 ? 'mt-3' : 'mt-5'} mb-0.5`} />
+                                  <p className={`${duasColunasA4 ? 'text-[7px]' : 'text-[9px]'} font-semibold text-gray-800 whitespace-normal break-words`}>
+                                    {slot.atendenteNome || nomeFuncionarioOperador}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className={`text-center ${duasColunasA4 ? 'text-[6.5px]' : 'text-[8px]'} text-gray-500 mt-0.5`}>
+                                Emitido aos {formatarDataHoraAngolana(slot.dataEmissao)}
+                                {escola.municipio || escola.provincia
+                                  ? ` • ${[escola.municipio, escola.provincia].filter(Boolean).join(', ')}`
+                                  : ''}
+                              </div>
                             </div>
                           </div>
 
-                          <p>
-                            <span className="text-gray-600 font-semibold">Nome do Estudante: </span>
-                            <strong className="uppercase text-gray-950 text-[11px]">{slot.nomeCompleto}</strong>
-                          </p>
-                          <p>
-                            <span className="text-gray-600 font-semibold">Documento (BI / Cédula): </span>
-                            <strong className="font-mono">{slot.documentoId || '—'}</strong>
-                          </p>
-                          <p className="whitespace-normal break-words">
-                            <span className="text-gray-600 font-semibold">
-                              {inferirGeneroPorNomeOuParentesco(slot.encarregadoNome) === 'F' ? 'Encarregada: ' : 'Encarregado: '}
-                            </span>
-                            <strong>{slot.encarregadoNome || '—'}</strong>
-                            {slot.encarregadoTelefone && slot.encarregadoTelefone !== '—'
-                              ? ` (${slot.encarregadoTelefone})`
-                              : ''}
-                          </p>
-                        </div>
-
-                        {/* Coluna Direita: Enquadramento Escolar */}
-                        <div className="col-span-5 bg-gray-50 border border-gray-200 rounded p-2 space-y-1 min-w-0">
-                          {ehConfirmacao && slot.classeAnterior && (
-                            <p className="text-[10px]">
-                              <span className="text-gray-500 font-semibold">Classe Anterior: </span>
-                              <strong>
-                                {slot.classeAnterior === 'Iniciação'
-                                  ? 'Iniciação'
-                                  : `${slot.classeAnterior} Classe`}
-                              </strong>
-                            </p>
+                          {/* Linha de corte entre recibos em coluna única */}
+                          {!duasColunasA4 && renderIdx < paginaSlots.length - 1 && (
+                            <div className="flex items-center justify-center space-x-2 text-[8.5px] text-gray-400 select-none py-0.5">
+                              <Scissors className="h-3 w-3 shrink-0" />
+                              <span className="border-b border-dashed border-gray-400 flex-1" />
+                              <span className="uppercase tracking-widest font-semibold">Recortar aqui</span>
+                              <span className="border-b border-dashed border-gray-400 flex-1" />
+                            </div>
                           )}
-                          <p>
-                            <span className="text-gray-600 font-semibold">
-                              {ehConfirmacao ? 'Classe Confirmada: ' : 'Classe Matriculada: '}
-                            </span>
-                            <strong className="text-emerald-900 font-black">
-                              {slot.classe
-                                ? slot.classe === 'Iniciação'
-                                  ? 'Iniciação'
-                                  : `${slot.classe} Classe`
-                                : '—'}
-                            </strong>
-                          </p>
-                          <p>
-                            <span className="text-gray-600 font-semibold">Turma & Sala: </span>
-                            <strong>
-                              {slot.turmaNome || '—'}
-                              {slot.sala ? ` (Sala ${slot.sala})` : ''}
-                            </strong>
-                          </p>
-                          <p>
-                            <span className="text-gray-600 font-semibold">Turno: </span>
-                            <strong>{slot.turno || 'Manhã'}</strong>
-                          </p>
-                          {mostrarCurso && (
-                            <p className="whitespace-normal break-words">
-                              <span className="text-gray-600 font-semibold">Curso: </span>
-                              <strong className="text-purple-950">{slot.curso}</strong>
-                            </p>
-                          )}
-                          <p>
-                            <span className="text-gray-600 font-semibold">Situação / Taxa: </span>
-                            <strong className="text-emerald-800">{slot.valorTaxa || 'Regularizada'}</strong>
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Rodapé: Assinaturas (Título em cima -> Linha -> Nome por baixo) + QR Code */}
-                      <div className="border-t border-gray-300 pt-1.5">
-                        <div className="grid grid-cols-3 gap-3 items-end text-center text-[9.5px]">
-                          <div className="min-w-0">
-                            <p className="font-bold text-gray-800">{obterTituloEncarregado(undefined, slot.encarregadoNome)}</p>
-                            <div className="w-full max-w-[160px] border-b border-black mx-auto mt-5 mb-0.5" />
-                            <p className="text-[9px] font-semibold text-gray-800 whitespace-normal break-words">
-                              {slot.encarregadoNome && slot.encarregadoNome !== '—'
-                                ? slot.encarregadoNome
-                                : ' '}
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col items-center justify-center">
-                            <OfficialQrCode
-                              value={gerarPayloadQrDocumento({
-                                docType: ehConfirmacao ? 'COMPROVATIVO_CONFIRMACAO' : 'COMPROVATIVO_MATRICULA',
-                                escolaId: escola.id,
-                                docRef: slot.codigoMatricula || slot.nomeCompleto,
-                                alunoId: slot.alunoId || `manual-${slot.slotIndex}`,
-                                alunoNome: slot.nomeCompleto,
-                                anoLectivo: slot.anoLectivo
-                              })}
-                              size={42}
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <p className="font-bold text-gray-800">A Direcção da Escola</p>
-                            <div className="w-full max-w-[160px] border-b border-black mx-auto mt-5 mb-0.5" />
-                            <p className="text-[9px] font-semibold text-gray-800 whitespace-normal break-words">
-                              {slot.atendenteNome || nomeFuncionarioOperador}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="text-center text-[8px] text-gray-500 mt-1">
-                          Emitido aos {formatarDataHoraAngolana(slot.dataEmissao)}
-                          {escola.municipio || escola.provincia
-                            ? ` • ${[escola.municipio, escola.provincia].filter(Boolean).join(', ')}`
-                            : ''}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Linha de corte entre recibos */}
-                    {renderIdx < slotsAtivos.length - 1 && (
-                      <div className="flex items-center justify-center space-x-2 text-[8.5px] text-gray-400 select-none py-0.5">
-                        <Scissors className="h-3 w-3 shrink-0" />
-                        <span className="border-b border-dashed border-gray-400 flex-1" />
-                        <span className="uppercase tracking-widest font-semibold">Recortar aqui</span>
-                        <span className="border-b border-dashed border-gray-400 flex-1" />
-                      </div>
-                    )}
-                  </React.Fragment>
-                );
-              })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

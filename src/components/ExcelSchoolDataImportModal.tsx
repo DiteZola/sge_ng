@@ -1,26 +1,42 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { 
-  FileSpreadsheet, 
-  Upload, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Eye, 
-  Database, 
-  Calendar, 
-  Users, 
-  Layers, 
-  BookOpen, 
-  ShieldCheck, 
+import {
+  FileSpreadsheet,
+  Upload,
+  CheckCircle2,
+  AlertTriangle,
+  Eye,
+  Database,
+  Calendar,
+  Layers,
+  ShieldCheck,
   Download,
   X,
-  HelpCircle,
-  Clock
+  Building2
 } from 'lucide-react';
-import { Aluno, Turma, Disciplina, Escola, AnoLectivoConfig } from '../types';
+import { Aluno, Turma, Disciplina, Escola, AnoLectivoConfig, Funcionario, NotaTrimestralConsolidada } from '../types';
 import { dbService } from '../services/storage';
-import { downloadExcelFile } from '../utils/curriculoAngola';
-import { normalizarClasse, CLASSES_ENSINO_PRIMARIO, CLASSES_PRIMEIRO_CICLO, CLASSES_SEGUNDO_CICLO } from '../services/academicHierarchyService';
+import { firebaseSyncEngine } from '../services/firebaseSyncEngine';
+import { normalizarClasse } from '../services/academicHierarchyService';
+import {
+  TipoFolhaExcelImport,
+  extrairLinhasComCabecalhoAutomatico,
+  classificarFolhaExcel,
+  obterCampoFlexivel,
+  obterCampoBrutoFlexivel,
+  converterValorDataExcel,
+  converterNumeroNotaExcel,
+  normalizarClasseImportacao,
+  inferirNivelEnsinoPorClasse,
+  normalizarTurnoImportacao,
+  normalizarGeneroImportacao,
+  normalizarAnoLectivoImportacao,
+  normalizarRoleImportacao,
+  normalizarTextoComparacao,
+  ALIASES_ALUNO,
+  ALIASES_FUNCIONARIO,
+  ALIASES_NOTA
+} from '../utils/flexibleExcelImport';
 
 interface ExcelSchoolDataImportModalProps {
   isOpen: boolean;
@@ -33,10 +49,26 @@ interface SheetPreviewData {
   sheetName: string;
   rowCount: number;
   columns: string[];
-  sampleRows: any[];
-  tipoDetectado: 'Alunos' | 'Turmas' | 'Disciplinas' | 'AnoLectivo' | 'Outro';
+  sampleRows: Record<string, any>[];
+  allRows: Record<string, any>[];
+  headerRowIndex: number;
+  tipoDetectado: TipoFolhaExcelImport;
+  escolaDetectada?: string;
+  anoDetectado?: string;
+  turmaDetectada?: string;
+  classeDetectada?: string;
   selecionado: boolean;
 }
+
+const TIPOS_FOLHA_OPCOES: { value: TipoFolhaExcelImport; label: string }[] = [
+  { value: 'Alunos', label: 'Alunos / Matrículas' },
+  { value: 'Turmas', label: 'Turmas' },
+  { value: 'Disciplinas', label: 'Disciplinas' },
+  { value: 'Funcionarios', label: 'Funcionários / RH' },
+  { value: 'Notas', label: 'Notas / Pautas' },
+  { value: 'AnoLectivo', label: 'Ano Lectivo' },
+  { value: 'Desconhecido', label: 'Ignorar Folha' }
+];
 
 export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProps> = ({
   isOpen,
@@ -44,77 +76,81 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
   escola,
   onImportacaoConcluida
 }) => {
-  const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState('');
   const [loading, setLoading] = useState(false);
   const [sheets, setSheets] = useState<SheetPreviewData[]>([]);
   const [selectedSheetIndex, setSelectedSheetIndex] = useState(0);
-  const [workbookRaw, setWorkbookRaw] = useState<XLSX.WorkBook | null>(null);
 
-  // Configurações do Ano Letivo associado
+  // Configurações flexíveis do Ano Letivo e origem
   const [anoLetivoAlvo, setAnoLetivoAlvo] = useState(escola.anoLectivoActivo || '');
-  const [definirComoAtivo, setDefinirComoAtivo] = useState(true);
+  const [escolaOrigemDetectada, setEscolaOrigemDetectada] = useState('');
+  const [definirComoAtivo, setDefinirComoAtivo] = useState(false);
+  const [respeitarVagasTurma, setRespeitarVagasTurma] = useState(true);
   const [dataInicioAno, setDataInicioAno] = useState('2025-09-01');
   const [dataFimAno, setDataFimAno] = useState('2026-07-31');
 
-  // Confirmação e Validação de Tipos
   const [confirmouTiposDados, setConfirmouTiposDados] = useState(false);
   const [confirmouAnoLetivo, setConfirmouAnoLetivo] = useState(true);
   const [feedback, setFeedback] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
 
   if (!isOpen) return null;
 
-  // Carregar e processar ficheiro Excel (.xlsx / .xls)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
     setLoading(true);
-    setFile(uploadedFile);
     setFileName(uploadedFile.name);
     setFeedback(null);
 
     try {
       const buffer = await uploadedFile.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-      setWorkbookRaw(wb);
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+
+      let escolaEncontrada = '';
+      let anoEncontradoGlobal = '';
 
       const parsedSheets: SheetPreviewData[] = wb.SheetNames.map(sheetName => {
         const ws = wb.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json<any>(ws);
-        const columns = json.length > 0 ? Object.keys(json[0]) : [];
+        const parsed = extrairLinhasComCabecalhoAutomatico(XLSX, ws);
+        const tipoDetectado = classificarFolhaExcel(sheetName, parsed.headers);
 
-        // Detectar tipo pelo nome da folha ou colunas
-        const sLower = sheetName.toLowerCase();
-        let tipoDetectado: SheetPreviewData['tipoDetectado'] = 'Outro';
-        if (sLower.includes('alun') || sLower.includes('estudant') || columns.some(c => c.toLowerCase().includes('bi') || c.toLowerCase().includes('matricula'))) {
-          tipoDetectado = 'Alunos';
-        } else if (sLower.includes('turm') || columns.some(c => c.toLowerCase().includes('sala') || c.toLowerCase().includes('turno'))) {
-          tipoDetectado = 'Turmas';
-        } else if (sLower.includes('disc') || sLower.includes('matriz') || columns.some(c => c.toLowerCase().includes('carga') || c.toLowerCase().includes('sigla'))) {
-          tipoDetectado = 'Disciplinas';
-        } else if (sLower.includes('ano') || sLower.includes('calend') || columns.some(c => c.toLowerCase().includes('lectivo') || c.toLowerCase().includes('letivo'))) {
-          tipoDetectado = 'AnoLectivo';
+        if (!escolaEncontrada && parsed.metadados.escolaDetectada) {
+          escolaEncontrada = parsed.metadados.escolaDetectada;
+        }
+        if (!anoEncontradoGlobal && parsed.metadados.anoLectivoDetectado) {
+          anoEncontradoGlobal = parsed.metadados.anoLectivoDetectado;
         }
 
         return {
           sheetName,
-          rowCount: json.length,
-          columns,
-          sampleRows: json.slice(0, 15),
+          rowCount: parsed.rows.length,
+          columns: parsed.headers,
+          sampleRows: parsed.rows.slice(0, 15),
+          allRows: parsed.rows,
+          headerRowIndex: parsed.headerRowIndex,
           tipoDetectado,
-          selecionado: true
+          escolaDetectada: parsed.metadados.escolaDetectada,
+          anoDetectado: parsed.metadados.anoLectivoDetectado,
+          turmaDetectada: parsed.metadados.turmaDetectada,
+          classeDetectada: parsed.metadados.classeDetectada,
+          selecionado: tipoDetectado !== 'Desconhecido' && parsed.rows.length > 0
         };
       });
 
       setSheets(parsedSheets);
+      setSelectedSheetIndex(0);
+      setEscolaOrigemDetectada(escolaEncontrada);
 
-      // Se encontrou dados de Ano Letivo no Excel, sugerir
       const folhaAno = parsedSheets.find(s => s.tipoDetectado === 'AnoLectivo');
-      if (folhaAno && folhaAno.sampleRows.length > 0) {
-        const primeiro = folhaAno.sampleRows[0];
-        const anoEncontrado = primeiro.AnoLectivo || primeiro.anoLectivo || primeiro.Ano || primeiro.ano;
-        if (anoEncontrado) setAnoLetivoAlvo(String(anoEncontrado));
+      if (folhaAno && folhaAno.allRows.length > 0) {
+        const primeiro = folhaAno.allRows[0];
+        const rot = obterCampoFlexivel(primeiro, ['Rotulo', 'AnoLectivo', 'Ano Lectivo', 'Ano Letivo', 'Ano']);
+        if (rot) anoEncontradoGlobal = normalizarAnoLectivoImportacao(rot, anoEncontradoGlobal);
+      }
+
+      if (anoEncontradoGlobal) {
+        setAnoLetivoAlvo(anoEncontradoGlobal);
       }
 
       setLoading(false);
@@ -125,93 +161,79 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
     }
   };
 
-  // Alternar seleção de folha
   const handleToggleSheet = (index: number) => {
-    setSheets(prev => prev.map((s, idx) => idx === index ? { ...s, selecionado: !s.selecionado } : s));
+    setSheets(prev => prev.map((s, idx) => (idx === index ? { ...s, selecionado: !s.selecionado } : s)));
   };
 
-  // Descarregar modelo oficial pré-formatado com várias folhas
+  const handleAlterarTipoSheet = (index: number, novoTipo: TipoFolhaExcelImport) => {
+    setSheets(prev =>
+      prev.map((s, idx) =>
+        idx === index ? { ...s, tipoDetectado: novoTipo, selecionado: novoTipo !== 'Desconhecido' } : s
+      )
+    );
+  };
+
   const handleBaixarModeloExemplo = () => {
     const wb = XLSX.utils.book_new();
-
-    // 1. Folha Ano Lectivo
-    const wsAno = XLSX.utils.json_to_sheet([
-      {
-        Rotulo: '2025/2026',
-        DataInicio: '2025-09-01',
-        DataFim: '2026-07-31',
-        Estado: 'Aberto',
-        Descricao: 'Ano Lectivo Oficial MED Angola'
-      }
-    ]);
-    XLSX.utils.book_append_sheet(wb, wsAno, 'Ano_Lectivo');
-
-    // 2. Folha Turmas
-    const wsTurmas = XLSX.utils.json_to_sheet([
-      { Nome: '7ª A', Classe: '7ª', NivelEnsino: 'ICiclo', Turno: 'Manhã', Sala: 'Sala 01', Capacidade: 45, AnoLectivo: '2025/2026', Curso: 'Geral' },
-      { Nome: '10ª CFB-1', Classe: '10ª', NivelEnsino: 'IICiclo', Turno: 'Tarde', Sala: 'Sala 04', Capacidade: 40, AnoLectivo: '2025/2026', Curso: 'Ciências Físicas e Biológicas (PUNIV)' },
-      { Nome: '1ª Primária A', Classe: '1ª', NivelEnsino: 'Primario', Turno: 'Manhã', Sala: 'Sala 02', Capacidade: 35, AnoLectivo: '2025/2026', Curso: 'Ensino Primário Geral' }
-    ]);
-    XLSX.utils.book_append_sheet(wb, wsTurmas, 'Turmas');
-
-    // 3. Folha Alunos
-    const wsAlunos = XLSX.utils.json_to_sheet([
-      {
-        NumeroOrdem: 1,
-        CodigoMatricula: 'MED-2025-001',
-        NomeCompleto: 'António Domingos Manuel',
-        Genero: 'M',
-        DataNascimento: '2010-04-12',
-        BI: '005432198LA045',
-        Naturalidade: 'Luanda',
-        ProvinciaOrigem: 'Luanda',
-        Telefone: '923456789',
-        Encarregado: 'Manuel Domingos',
-        TelefoneEncarregado: '912345678',
-        Classe: '7ª',
-        TurmaNome: '7ª A',
-        Estado: 'Ativo'
-      },
-      {
-        NumeroOrdem: 2,
-        CodigoMatricula: 'MED-2025-002',
-        NomeCompleto: 'Beatriz Teresa Kwanza',
-        Genero: 'F',
-        DataNascimento: '2008-09-23',
-        BI: '008912345LA041',
-        Naturalidade: 'Benguela',
-        ProvinciaOrigem: 'Benguela',
-        Telefone: '934567890',
-        Encarregado: 'Teresa Kwanza',
-        TelefoneEncarregado: '923112233',
-        Classe: '10ª',
-        TurmaNome: '10ª CFB-1',
-        Estado: 'Ativo'
-      }
-    ]);
-    XLSX.utils.book_append_sheet(wb, wsAlunos, 'Alunos');
-
-    // 4. Folha Disciplinas
-    const wsDisciplinas = XLSX.utils.json_to_sheet([
-      { Nome: 'Língua Portuguesa', Sigla: 'LP', Codigo: 'LP-MED', CargaHoraria: 5, Componente: 'Geral', Classes: '7ª, 8ª, 9ª', Ciclo: 'Iº Ciclo' },
-      { Nome: 'Matemática', Sigla: 'MAT', Codigo: 'MAT-MED', CargaHoraria: 5, Componente: 'Geral', Classes: '7ª, 8ª, 9ª', Ciclo: 'Iº Ciclo' },
-      { Nome: 'Física', Sigla: 'FIS', Codigo: 'FIS-10', CargaHoraria: 4, Componente: 'Específica', Classes: '10ª, 11ª, 12ª', Ciclo: 'IIº Ciclo' },
-      { Nome: 'Química', Sigla: 'QUI', Codigo: 'QUI-10', CargaHoraria: 4, Componente: 'Específica', Classes: '10ª, 11ª, 12ª', Ciclo: 'IIº Ciclo' }
-    ]);
-    XLSX.utils.book_append_sheet(wb, wsDisciplinas, 'Disciplinas');
-
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet([
+        {
+          Rotulo: escola.anoLectivoActivo || '2025/2026',
+          DataInicio: '2025-09-01',
+          DataFim: '2026-07-31',
+          Estado: 'Aberto',
+          Descricao: 'Ano Lectivo Oficial MED Angola'
+        }
+      ]),
+      'Ano_Lectivo'
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet([
+        { Nome: '7ª A', Classe: '7ª', NivelEnsino: 'ICiclo', Turno: 'Manhã', Sala: 'Sala 01', Capacidade: 45, AnoLectivo: escola.anoLectivoActivo || '2025/2026', Curso: 'Geral' },
+        { Nome: '10ª CFB-1', Classe: '10ª', NivelEnsino: 'IICiclo', Turno: 'Tarde', Sala: 'Sala 04', Capacidade: 40, AnoLectivo: escola.anoLectivoActivo || '2025/2026', Curso: 'Ciências Físicas e Biológicas (PUNIV)' }
+      ]),
+      'Turmas'
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet([
+        {
+          NumeroOrdem: 1,
+          CodigoMatricula: 'MED-2025-001',
+          NomeCompleto: 'António Domingos Manuel',
+          Genero: 'M',
+          DataNascimento: '2010-04-12',
+          BI: '005432198LA045',
+          Telefone: '923456789',
+          Encarregado: 'Manuel Domingos',
+          TelefoneEncarregado: '912345678',
+          Classe: '7ª',
+          TurmaNome: '7ª A',
+          Estado: 'Ativo'
+        }
+      ]),
+      'Alunos'
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet([
+        { Nome: 'Língua Portuguesa', Sigla: 'LP', Codigo: 'LP-MED', CargaHoraria: 5, Componente: 'Geral', Classes: '7ª, 8ª, 9ª' },
+        { Nome: 'Matemática', Sigla: 'MAT', Codigo: 'MAT-MED', CargaHoraria: 5, Componente: 'Geral', Classes: '7ª, 8ª, 9ª' }
+      ]),
+      'Disciplinas'
+    );
     XLSX.writeFile(wb, 'Modelo_Oficial_Importacao_Escolar_MED_Angola.xlsx');
   };
 
-  // Executar a importação definitiva e confirmação no sistema
   const handleConfirmarImportacao = () => {
-    if (!workbookRaw || sheets.length === 0) {
-      setFeedback({ tipo: 'erro', texto: 'Por favor, selecione primeiro um ficheiro Excel válido.' });
+    if (sheets.length === 0) {
+      setFeedback({ tipo: 'erro', texto: 'Por favor, carregue primeiro um ficheiro Excel válido.' });
       return;
     }
-
     if (!confirmouTiposDados) {
-      setFeedback({ tipo: 'erro', texto: 'Por favor, confirme a verificação dos tipos de dados antes de prosseguir.' });
+      setFeedback({ tipo: 'erro', texto: 'Por favor, confirme a validação dos tipos de dados antes de prosseguir.' });
       return;
     }
 
@@ -219,47 +241,54 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
 
     try {
       const escolaId = escola.id;
+      const anoAlvoNorm = normalizarAnoLectivoImportacao(anoLetivoAlvo, escola.anoLectivoActivo);
       let totalAlunos = 0;
       let totalTurmas = 0;
       let totalDisciplinas = 0;
-      let anoLetivoCadastrado = false;
+      let totalFuncionarios = 0;
+      let totalNotas = 0;
+      let totalDuplicadosIgnorados = 0;
+      let totalIgnoradosSemVaga = 0;
 
-      // 1. Processar Folha Ano Lectivo
+      // 1. Ano Lectivo
       const folhaAno = sheets.find(s => s.selecionado && s.tipoDetectado === 'AnoLectivo');
-      if (folhaAno) {
-        const ws = workbookRaw.Sheets[folhaAno.sheetName];
-        const dataAno = XLSX.utils.sheet_to_json<any>(ws);
-        if (dataAno.length > 0) {
-          const item = dataAno[0];
-          const rotulo = item.Rotulo || item.rotulo || anoLetivoAlvo;
+      let anoCadastrado = false;
+      if (folhaAno && folhaAno.allRows.length > 0) {
+        const item = folhaAno.allRows[0];
+        const rotulo = normalizarAnoLectivoImportacao(
+          obterCampoFlexivel(item, ['Rotulo', 'AnoLectivo', 'Ano Lectivo', 'Ano Letivo', 'Ano']),
+          anoAlvoNorm
+        );
+        const dtIni = converterValorDataExcel(obterCampoBrutoFlexivel(item, ['DataInicio', 'Data Início', 'Inicio'])) || dataInicioAno;
+        const dtFim = converterValorDataExcel(obterCampoBrutoFlexivel(item, ['DataFim', 'Data Fim', 'Fim'])) || dataFimAno;
+        if (rotulo) {
           const novaConfigAno: AnoLectivoConfig = {
             id: `ano-${escolaId}-${rotulo.replace(/\//g, '-')}`,
             escolaId,
-            rotulo: rotulo,
-            dataInicio: item.DataInicio || item.dataInicio || dataInicioAno,
-            dataFim: item.DataFim || item.dataFim || dataFimAno,
+            rotulo,
+            dataInicio: dtIni,
+            dataFim: dtFim,
             estado: 'Aberto',
             trimestres: [
-              { trimestre: '1º Trimestre', nome: 'Iº Trimestre', dataInicio: item.DataInicio || dataInicioAno, dataFim: '2025-12-15', estado: 'Aberto' },
+              { trimestre: '1º Trimestre', nome: 'Iº Trimestre', dataInicio: dtIni, dataFim: '2025-12-15', estado: 'Aberto' },
               { trimestre: '2º Trimestre', nome: 'IIº Trimestre', dataInicio: '2026-01-05', dataFim: '2026-04-10', estado: 'Aberto' },
-              { trimestre: '3º Trimestre', nome: 'IIIº Trimestre', dataInicio: '2026-04-20', dataFim: item.DataFim || dataFimAno, estado: 'Aberto' }
+              { trimestre: '3º Trimestre', nome: 'IIIº Trimestre', dataInicio: '2026-04-20', dataFim: dtFim, estado: 'Aberto' }
             ],
             criadoEm: new Date().toISOString(),
-            descricao: 'Importado e Homologado via Folha Excel pelo Diretor'
+            descricao: `Importado via Excel${escolaOrigemDetectada ? ` (Origem: ${escolaOrigemDetectada})` : ''}`
           };
           dbService.salvarAnoLectivoConfig(novaConfigAno);
-          anoLetivoCadastrado = true;
+          anoCadastrado = true;
         }
       }
 
-      // Se não tinha folha específica de ano letivo, garantir que o ano selecionado no modal é registrado
-      if (!anoLetivoCadastrado && anoLetivoAlvo) {
+      if (!anoCadastrado && anoAlvoNorm) {
         const anosExistentes = dbService.getAnosLectivos(escolaId);
-        if (!anosExistentes.includes(anoLetivoAlvo)) {
+        if (!anosExistentes.includes(anoAlvoNorm)) {
           const novaConfigAno: AnoLectivoConfig = {
-            id: `ano-${escolaId}-${anoLetivoAlvo.replace(/\//g, '-')}`,
+            id: `ano-${escolaId}-${anoAlvoNorm.replace(/\//g, '-')}`,
             escolaId,
-            rotulo: anoLetivoAlvo,
+            rotulo: anoAlvoNorm,
             dataInicio: dataInicioAno,
             dataFim: dataFimAno,
             estado: 'Aberto',
@@ -269,177 +298,452 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
               { trimestre: '3º Trimestre', nome: 'IIIº Trimestre', dataInicio: '2026-04-20', dataFim: dataFimAno, estado: 'Aberto' }
             ],
             criadoEm: new Date().toISOString(),
-            descricao: 'Criado e Validado via Importador Excel Oficial'
+            descricao: 'Criado via Importador Flexível Excel'
           };
           dbService.salvarAnoLectivoConfig(novaConfigAno);
         }
       }
 
-      // 2. Se marcado para definir como ano letivo ativo
-      if (definirComoAtivo && anoLetivoAlvo) {
-        const escolaAtualizada = { ...escola, anoLectivoActivo: anoLetivoAlvo };
-        dbService.salvarEscola(escolaAtualizada);
+      if (definirComoAtivo && anoAlvoNorm) {
+        dbService.salvarEscola({ ...escola, anoLectivoActivo: anoAlvoNorm });
       }
 
-      // 3. Processar Turmas
-      const folhaTurmas = sheets.find(s => s.selecionado && s.tipoDetectado === 'Turmas');
-      const mapaTurmasCriadas: Record<string, string> = {}; // Nome da turma -> ID
+      // 2. Preparar coleções base
+      const turmasExistentes = [...dbService.getTurmas()];
+      const alunosExistentes = [...dbService.getAlunos()];
+      const discExistentes = [...dbService.getDisciplinas()];
+      const funcsExistentes = [...dbService.getFuncionariosBruto()];
+      const notasExistentes = [...dbService.getNotasConsolidadas()];
 
-      if (folhaTurmas) {
-        const ws = workbookRaw.Sheets[folhaTurmas.sheetName];
-        const dataTurmas = XLSX.utils.sheet_to_json<any>(ws);
-        const turmasExistentes = dbService.getTurmas();
+      const ensureTurma = (
+        nomeTurmaRaw: string,
+        classeRaw: string,
+        turnoRaw: string,
+        cursoRaw: string,
+        salaRaw: string,
+        anoRow: string,
+        capacidadeRaw?: number
+      ): Turma | null => {
+        const classeNorm = normalizarClasse(normalizarClasseImportacao(classeRaw || '1ª'));
+        const anoT = normalizarAnoLectivoImportacao(anoRow, anoAlvoNorm);
+        const nomeFinal = (nomeTurmaRaw || '').trim() || `${classeNorm} A`;
 
-        for (const row of dataTurmas) {
-          const nomeTurma = (row.Nome || row.nome || row.Turma || '').toString().trim();
-          if (!nomeTurma) continue;
+        const found = turmasExistentes.find(
+          t =>
+            t.escolaId === escolaId &&
+            normalizarTextoComparacao(t.nome) === normalizarTextoComparacao(nomeFinal) &&
+            (!anoT || !t.anoLectivo || t.anoLectivo === anoT)
+        );
+        if (found) return found;
 
-          const classe = normalizarClasse((row.Classe || row.classe || '7ª').toString());
-          const nivel = row.NivelEnsino || row.nivelEnsino || (['1ª', '2ª', '3ª', '4ª', '5ª', '6ª', 'Iniciação'].includes(classe) ? 'Primario' : ['7ª', '8ª', '9ª'].includes(classe) ? 'ICiclo' : 'IICiclo');
-          const turno = (row.Turno || row.turno || 'Manhã') as any;
-          const sala = (row.Sala || row.sala || 'Sala 01').toString();
-          const capacidade = Number(row.Capacidade || row.capacidade || 45);
-          const curso = (row.Curso || row.curso || (['10ª', '11ª', '12ª', '13ª'].includes(classe) ? 'Ciências Físicas e Biológicas (PUNIV)' : 'Geral')).toString();
+        const novaT: Turma = {
+          id: `turma-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          escolaId,
+          nome: nomeFinal,
+          classe: classeNorm,
+          nivelEnsino: inferirNivelEnsinoPorClasse(classeNorm),
+          turno: normalizarTurnoImportacao(turnoRaw),
+          sala: salaRaw || 'Sala 01',
+          capacidade: capacidadeRaw || 45,
+          capacidadeMaxima: capacidadeRaw || 45,
+          anoLectivo: anoT,
+          curso: cursoRaw || (['10ª', '11ª', '12ª', '13ª'].includes(classeNorm) ? 'Ciências Físicas e Biológicas (PUNIV)' : 'Ensino Geral')
+        };
+        turmasExistentes.push(novaT);
+        firebaseSyncEngine.salvarTurma(novaT);
+        totalTurmas++;
+        return novaT;
+      };
 
-          const idTurma = `turma-imp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-          const novaTurma: Turma = {
-            id: idTurma,
-            escolaId,
-            nome: nomeTurma,
-            classe,
-            nivelEnsino: nivel as any,
-            turno,
-            sala,
-            capacidade,
-            anoLectivo: anoLetivoAlvo,
-            curso
-          };
+      const ensureDisciplina = (nomeDiscRaw: string, classeNorm?: string): Disciplina | null => {
+        const nomeD = (nomeDiscRaw || '').trim();
+        if (!nomeD || nomeD === '—') return null;
+        const found = discExistentes.find(
+          d => (!d.escolaId || d.escolaId === escolaId) && normalizarTextoComparacao(d.nome) === normalizarTextoComparacao(nomeD)
+        );
+        if (found) return found;
+        const novaD: Disciplina = {
+          id: `disc-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          escolaId,
+          nome: nomeD,
+          sigla: nomeD.substring(0, 3).toUpperCase(),
+          codigo: `${nomeD.substring(0, 3).toUpperCase()}-MED`,
+          cargaHorariaSemanal: 4,
+          componente: 'Geral' as any,
+          nivelEnsino: inferirNivelEnsinoPorClasse(classeNorm || '10ª'),
+          classe: classeNorm || undefined,
+          classes: classeNorm ? [classeNorm] : undefined,
+          anoLectivo: anoAlvoNorm
+        };
+        discExistentes.push(novaD);
+        firebaseSyncEngine.salvarDisciplina(novaD);
+        totalDisciplinas++;
+        return novaD;
+      };
 
-          const idx = turmasExistentes.findIndex(t => t.escolaId === escolaId && t.nome.toLowerCase() === nomeTurma.toLowerCase() && t.anoLectivo === anoLetivoAlvo);
-          if (idx >= 0) {
-            turmasExistentes[idx] = { ...turmasExistentes[idx], ...novaTurma, id: turmasExistentes[idx].id };
-            mapaTurmasCriadas[nomeTurma.toLowerCase()] = turmasExistentes[idx].id;
-          } else {
-            turmasExistentes.push(novaTurma);
-            mapaTurmasCriadas[nomeTurma.toLowerCase()] = idTurma;
-          }
-          totalTurmas++;
+      // 3. Turmas
+      for (const sheet of sheets.filter(s => s.selecionado && s.tipoDetectado === 'Turmas')) {
+        for (const row of sheet.allRows) {
+          const nomeT = obterCampoFlexivel(row, ['Nome da Turma', 'Nome', 'Turma', 'Designação', 'turmaNome']);
+          const classeT = obterCampoFlexivel(row, ['Classe', 'classe', 'ClasseID', 'Ano Escolar']) || sheet.classeDetectada || '1ª';
+          if (!nomeT && !classeT) continue;
+          const turnoT = obterCampoFlexivel(row, ['Turno', 'Período', 'turno', 'periodo']);
+          const salaT = obterCampoFlexivel(row, ['Sala', 'Sala de Aula', 'sala']);
+          const capT = Number(obterCampoFlexivel(row, ['Capacidade', 'Capacidade Máxima', 'Vagas', 'capacidade'])) || 45;
+          const cursoT = obterCampoFlexivel(row, ['Curso', 'Curso / Área', 'Especialidade', 'curso']);
+          const anoT = obterCampoFlexivel(row, ['Ano Lectivo', 'Ano Letivo', 'AnoLectivo']) || sheet.anoDetectado || anoAlvoNorm;
+          ensureTurma(nomeT, classeT, turnoT, cursoT, salaT, anoT, capT);
         }
-        dbService.salvarTurmas(turmasExistentes);
       }
 
-      // 4. Processar Alunos
-      const folhaAlunos = sheets.find(s => s.selecionado && s.tipoDetectado === 'Alunos');
-      if (folhaAlunos) {
-        const ws = workbookRaw.Sheets[folhaAlunos.sheetName];
-        const dataAlunos = XLSX.utils.sheet_to_json<any>(ws);
-        const alunosExistentes = dbService.getAlunos();
-        const turmasDisponiveis = dbService.getTurmas().filter(t => t.escolaId === escolaId);
+      // 4. Disciplinas
+      for (const sheet of sheets.filter(s => s.selecionado && s.tipoDetectado === 'Disciplinas')) {
+        for (const row of sheet.allRows) {
+          const nomeDisc = obterCampoFlexivel(row, ['Disciplina', 'Nome', 'Nome da Disciplina', 'Cadeira']);
+          if (!nomeDisc) continue;
+          const classesStr = obterCampoFlexivel(row, ['Classes', 'Classe', 'classes', 'classe']);
+          const classesArray = classesStr
+            ? classesStr.split(/[,;]/).map(c => normalizarClasse(normalizarClasseImportacao(c.trim()))).filter(Boolean)
+            : [];
+          const existing = discExistentes.find(
+            d => (!d.escolaId || d.escolaId === escolaId) && normalizarTextoComparacao(d.nome) === normalizarTextoComparacao(nomeDisc)
+          );
+          if (!existing) {
+            const novaDisc: Disciplina = {
+              id: `disc-imp-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              escolaId,
+              nome: nomeDisc,
+              sigla: obterCampoFlexivel(row, ['Sigla', 'sigla']) || nomeDisc.substring(0, 3).toUpperCase(),
+              codigo: obterCampoFlexivel(row, ['Codigo', 'Código', 'codigo']) || `${nomeDisc.substring(0, 3).toUpperCase()}-MED`,
+              cargaHorariaSemanal: Number(obterCampoFlexivel(row, ['CargaHoraria', 'Carga Horária', 'cargaHoraria'])) || 4,
+              componente: (obterCampoFlexivel(row, ['Componente', 'componente']) || 'Geral') as any,
+              nivelEnsino: inferirNivelEnsinoPorClasse(classesArray[0] || '7ª'),
+              classe: classesArray[0] || undefined,
+              classes: classesArray.length > 0 ? classesArray : undefined,
+              ciclo: obterCampoFlexivel(row, ['Ciclo', 'ciclo']) || 'Geral',
+              anoLectivo: anoAlvoNorm
+            };
+            discExistentes.push(novaDisc);
+            firebaseSyncEngine.salvarDisciplina(novaDisc);
+            totalDisciplinas++;
+          }
+        }
+      }
 
-        for (const row of dataAlunos) {
-          const nomeAluno = (row.NomeCompleto || row.nomeCompleto || row.Nome || row.nome || '').toString().trim();
+      // 5. Funcionários
+      for (const sheet of sheets.filter(s => s.selecionado && s.tipoDetectado === 'Funcionarios')) {
+        for (const row of sheet.allRows) {
+          const nomeF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.nomeCompleto);
+          if (!nomeF) continue;
+          const biF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.numeroBI).replace(/\*\*\*.*?\*\*\*/g, '').trim();
+          const agenteF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.numeroAgente);
+          const emailF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.email).replace(/\*\*\*.*?\*\*\*/g, '').trim();
+          const telF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.telefone).replace(/\*\*\*.*?\*\*\*/g, '').trim();
+          const cargoF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.cargo) || 'Professor';
+          const roleF = normalizarRoleImportacao(obterCampoFlexivel(row, ALIASES_FUNCIONARIO.role), cargoF);
+          if (roleF === 'AdminGeral') continue;
+          const dnF = converterValorDataExcel(obterCampoBrutoFlexivel(row, ALIASES_FUNCIONARIO.dataNascimento)) || '1990-01-01';
+          const admF = converterValorDataExcel(obterCampoBrutoFlexivel(row, ALIASES_FUNCIONARIO.dataAdmissao)) || new Date().toISOString().split('T')[0];
+
+          const existente = funcsExistentes.find(
+            f =>
+              f.escolaId === escolaId &&
+              ((biF && f.numeroBI && normalizarTextoComparacao(f.numeroBI) === normalizarTextoComparacao(biF)) ||
+                (agenteF && f.numeroAgente && normalizarTextoComparacao(f.numeroAgente) === normalizarTextoComparacao(agenteF)) ||
+                normalizarTextoComparacao(f.nomeCompleto) === normalizarTextoComparacao(nomeF))
+          );
+          if (existente) {
+            totalDuplicadosIgnorados++;
+            continue;
+          }
+
+          const novoFunc: Funcionario = {
+            id: `func-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            escolaId,
+            nomeCompleto: nomeF,
+            numeroBI: biF || `BI-${Date.now().toString().slice(-6)}`,
+            numeroAgente: agenteF || undefined,
+            genero: normalizarGeneroImportacao(obterCampoFlexivel(row, ALIASES_FUNCIONARIO.genero)),
+            dataNascimento: dnF,
+            telefone: telF,
+            email: emailF || `${normalizarTextoComparacao(nomeF).replace(/\s+/g, '.')}@escola.gov.ao`,
+            cargo: cargoF,
+            role: roleF,
+            ehProfessor: roleF === 'Professor' || ['sim', 'true', '1'].includes(normalizarTextoComparacao(obterCampoFlexivel(row, ALIASES_FUNCIONARIO.ehProfessor))),
+            ehAdministrativoQueLeciona: false,
+            fotoUrl: '',
+            habilitacoes: obterCampoFlexivel(row, ALIASES_FUNCIONARIO.habilitacoes) || 'Licenciatura',
+            especialidade: obterCampoFlexivel(row, ALIASES_FUNCIONARIO.especialidade) || undefined,
+            dataAdmissao: admF,
+            ativo: true,
+            statusConta: 'Ativa',
+            atualizadoEm: new Date().toISOString()
+          };
+          funcsExistentes.push(novoFunc);
+          firebaseSyncEngine.salvarFuncionariosLote([novoFunc]);
+          totalFuncionarios++;
+        }
+      }
+
+      // 6. Alunos
+      const ocupacaoPorTurma = new Map<string, number>();
+      alunosExistentes
+        .filter(a => a.escolaId === escolaId && a.estado !== 'Desistente' && a.estado !== 'Transferido')
+        .forEach(a => {
+          if (a.turmaId) ocupacaoPorTurma.set(a.turmaId, (ocupacaoPorTurma.get(a.turmaId) || 0) + 1);
+        });
+
+      for (const sheet of sheets.filter(s => s.selecionado && s.tipoDetectado === 'Alunos')) {
+        for (let rIdx = 0; rIdx < sheet.allRows.length; rIdx++) {
+          const row = sheet.allRows[rIdx];
+          const nomeAluno = obterCampoFlexivel(row, ALIASES_ALUNO.nomeCompleto);
           if (!nomeAluno) continue;
 
-          const classe = normalizarClasse((row.Classe || row.classe || '7ª').toString());
-          const turmaNome = (row.TurmaNome || row.turmaNome || row.Turma || row.turma || '').toString().trim();
+          const anoAluno = normalizarAnoLectivoImportacao(
+            obterCampoFlexivel(row, ALIASES_ALUNO.anoLectivo) || sheet.anoDetectado,
+            anoAlvoNorm
+          );
+          const classe = normalizarClasse(
+            normalizarClasseImportacao(obterCampoFlexivel(row, ALIASES_ALUNO.classe) || sheet.classeDetectada || '1ª')
+          );
+          const turmaNome = obterCampoFlexivel(row, ALIASES_ALUNO.turmaNome) || sheet.turmaDetectada || '';
+          const curso = obterCampoFlexivel(row, ALIASES_ALUNO.curso);
+          const turno = obterCampoFlexivel(row, ALIASES_ALUNO.turno);
+          const sala = obterCampoFlexivel(row, ALIASES_ALUNO.sala);
+          const turmaObj = ensureTurma(turmaNome, classe, turno, curso, sala, anoAluno);
+          const turmaId = turmaObj?.id || '';
 
-          // Encontrar turma ID correspondente dentro da própria escola
-          let turmaId = mapaTurmasCriadas[turmaNome.toLowerCase()];
-          if (!turmaId) {
-            const encontrada = turmasDisponiveis.find(t => t.nome.toLowerCase() === turmaNome.toLowerCase());
-            turmaId = encontrada ? encontrada.id : turmasDisponiveis[0]?.id || '';
+          const codMatRaw = obterCampoFlexivel(row, ALIASES_ALUNO.codigoMatricula);
+          const biRaw = obterCampoFlexivel(row, ALIASES_ALUNO.numeroBI);
+          const dataNascRaw = converterValorDataExcel(obterCampoBrutoFlexivel(row, ALIASES_ALUNO.dataNascimento));
+          const estadoRaw = (obterCampoFlexivel(row, ALIASES_ALUNO.estado) || 'Ativo') as Aluno['estado'];
+
+          const duplicadoExistente = alunosExistentes.find(a => {
+            if (a.escolaId !== escolaId) return false;
+            if (codMatRaw && a.codigoMatricula && normalizarTextoComparacao(a.codigoMatricula) === normalizarTextoComparacao(codMatRaw)) return true;
+            if (biRaw && biRaw !== 'S/Doc' && a.numeroBI && normalizarTextoComparacao(a.numeroBI) === normalizarTextoComparacao(biRaw)) return true;
+            if (
+              normalizarTextoComparacao(a.nomeCompleto) === normalizarTextoComparacao(nomeAluno) &&
+              (!anoAluno || !a.anoLectivo || a.anoLectivo === anoAluno) &&
+              (!dataNascRaw || !a.dataNascimento || a.dataNascimento === dataNascRaw)
+            ) {
+              return true;
+            }
+            return false;
+          });
+
+          if (duplicadoExistente) {
+            totalDuplicadosIgnorados++;
+            continue;
+          }
+
+          if (respeitarVagasTurma && turmaObj && estadoRaw !== 'Desistente' && estadoRaw !== 'Transferido') {
+            const cap = Math.max(1, Number(turmaObj.capacidade || turmaObj.capacidadeMaxima || 45));
+            const ocup = ocupacaoPorTurma.get(turmaObj.id) || 0;
+            if (ocup >= cap) {
+              totalIgnoradosSemVaga++;
+              continue;
+            }
+            ocupacaoPorTurma.set(turmaObj.id, ocup + 1);
           }
 
           const novoAluno: Aluno = {
-            id: `aluno-imp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            id: `aluno-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             escolaId,
-            codigoMatricula: (row.CodigoMatricula || row.codigoMatricula || `MED-${Date.now()}`).toString(),
-            numeroOrdem: Number(row.NumeroOrdem || row.numeroOrdem || totalAlunos + 1),
+            codigoMatricula: codMatRaw || `MED-${Date.now().toString().slice(-6)}-${totalAlunos + 1}`,
+            numeroProcesso: codMatRaw || `PROC-${Date.now().toString().slice(-6)}-${totalAlunos + 1}`,
+            numeroOrdem: Number(obterCampoFlexivel(row, ALIASES_ALUNO.numeroOrdem)) || totalAlunos + 1,
             nomeCompleto: nomeAluno,
-            genero: (row.Genero || row.genero || 'M').toString().toUpperCase().startsWith('F') ? 'F' : 'M',
-            dataNascimento: (row.DataNascimento || row.dataNascimento || '').toString().trim(),
-            naturalidade: (row.Naturalidade || row.naturalidade || '').toString().trim(),
-            provinciaOrigem: (row.ProvinciaOrigem || row.provinciaOrigem || '').toString().trim(),
-            numeroBI: (row.BI || row.numeroBI || '').toString().trim(),
-            telefone: (row.Telefone || row.telefone || '').toString().trim(),
-            fotoUrl: (row.Foto || row.fotoUrl || '').toString().trim(),
-            encarregadoNome: (row.Encarregado || row.encarregadoNome || '').toString().trim(),
+            genero: normalizarGeneroImportacao(obterCampoFlexivel(row, ALIASES_ALUNO.genero)),
+            dataNascimento: dataNascRaw || '2014-01-01',
+            naturalidade: obterCampoFlexivel(row, ALIASES_ALUNO.naturalidade) || 'Luanda',
+            provinciaOrigem: obterCampoFlexivel(row, ALIASES_ALUNO.provinciaOrigem) || escola.provincia || 'Luanda',
+            numeroBI: biRaw || 'S/Doc',
+            numeroDocumento: biRaw || undefined,
+            telefone: obterCampoFlexivel(row, ALIASES_ALUNO.telefone),
+            fotoUrl: '',
+            nomePai: obterCampoFlexivel(row, ALIASES_ALUNO.nomePai) || undefined,
+            nomeMae: obterCampoFlexivel(row, ALIASES_ALUNO.nomeMae) || undefined,
+            encarregadoNome: obterCampoFlexivel(row, ALIASES_ALUNO.encarregadoNome) || 'Encarregado de Educação',
             encarregadoParentesco: 'Encarregado',
-            encarregadoTelefone: (row.TelefoneEncarregado || row.encarregadoTelefone || '').toString().trim(),
-            estado: 'Ativo',
+            encarregadoTelefone: obterCampoFlexivel(row, ALIASES_ALUNO.encarregadoTelefone),
+            estado: estadoRaw,
             turmaId,
             classeId: classe,
-            anoLectivo: anoLetivoAlvo || escola.anoLectivoActivo || '',
-            anoMatricula: anoLetivoAlvo || escola.anoLectivoActivo || '',
+            curso: curso || turmaObj?.curso,
+            turno: normalizarTurnoImportacao(turno),
+            anoLectivo: anoAluno,
+            anoMatricula: anoAluno,
             propinaStatus: 'Regularizada',
             historicoAnterior: [],
-            cadastradoEm: new Date().toISOString().split('T')[0]
+            cadastradoEm: new Date().toISOString().split('T')[0],
+            atualizadoEm: new Date().toISOString()
           };
 
-          const idx = alunosExistentes.findIndex(a => a.escolaId === escolaId && (a.codigoMatricula === novoAluno.codigoMatricula || (novoAluno.numeroBI && a.numeroBI === novoAluno.numeroBI)));
-          if (idx >= 0) {
-            alunosExistentes[idx] = { ...alunosExistentes[idx], ...novoAluno, id: alunosExistentes[idx].id };
-          } else {
-            alunosExistentes.push(novoAluno);
-          }
+          alunosExistentes.push(novoAluno);
+          firebaseSyncEngine.salvarAluno(novoAluno);
           totalAlunos++;
         }
-        dbService.salvarAlunos(alunosExistentes);
       }
 
-      // 5. Processar Disciplinas
-      const folhaDisciplinas = sheets.find(s => s.selecionado && s.tipoDetectado === 'Disciplinas');
-      if (folhaDisciplinas) {
-        const ws = workbookRaw.Sheets[folhaDisciplinas.sheetName];
-        const dataDisc = XLSX.utils.sheet_to_json<any>(ws);
-        const discExistentes = dbService.getDisciplinas();
+      // 7. Notas
+      for (const sheet of sheets.filter(s => s.selecionado && s.tipoDetectado === 'Notas')) {
+        for (const row of sheet.allRows) {
+          const alunoNome = obterCampoFlexivel(row, ALIASES_NOTA.alunoNome);
+          const matAluno = obterCampoFlexivel(row, ALIASES_NOTA.codigoMatricula);
+          const biAluno = obterCampoFlexivel(row, ALIASES_NOTA.numeroBI);
+          const discNome = obterCampoFlexivel(row, ALIASES_NOTA.disciplinaNome);
+          if ((!alunoNome && !matAluno) || !discNome) continue;
 
-        for (const row of dataDisc) {
-          const nomeDisc = (row.Nome || row.nome || '').toString().trim();
-          if (!nomeDisc) continue;
+          const anoNota = normalizarAnoLectivoImportacao(
+            obterCampoFlexivel(row, ALIASES_NOTA.anoLectivo) || sheet.anoDetectado,
+            anoAlvoNorm
+          );
+          const classeNota = normalizarClasse(
+            normalizarClasseImportacao(obterCampoFlexivel(row, ALIASES_NOTA.classe) || sheet.classeDetectada || '1ª')
+          );
+          const turmaNomeNota = obterCampoFlexivel(row, ALIASES_NOTA.turmaNome) || sheet.turmaDetectada || '';
 
-          const classesStr = (row.Classes || row.classes || '').toString();
-          const classesArray = classesStr ? classesStr.split(/[,;]/).map((c: string) => normalizarClasse(c.trim())).filter(Boolean) : [];
-          const ciclo = (row.Ciclo || row.ciclo || 'Geral').toString();
+          let alunoTarget = alunosExistentes.find(
+            a =>
+              a.escolaId === escolaId &&
+              ((matAluno && a.codigoMatricula && normalizarTextoComparacao(a.codigoMatricula) === normalizarTextoComparacao(matAluno)) ||
+                (biAluno && a.numeroBI && normalizarTextoComparacao(a.numeroBI) === normalizarTextoComparacao(biAluno)) ||
+                (alunoNome && normalizarTextoComparacao(a.nomeCompleto) === normalizarTextoComparacao(alunoNome)))
+          );
 
-          const novaDisc: Disciplina = {
-            id: `disc-imp-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            escolaId,
-            nome: nomeDisc,
-            sigla: (row.Sigla || row.sigla || nomeDisc.substring(0, 3).toUpperCase()).toString(),
-            codigo: (row.Codigo || row.codigo || `${nomeDisc.substring(0, 3).toUpperCase()}-MED`).toString(),
-            cargaHorariaSemanal: Number(row.CargaHoraria || row.cargaHoraria || 4),
-            componente: (row.Componente || row.componente || 'Geral') as any,
-            nivelEnsino: (row.NivelEnsino || row.nivelEnsino || 'ICiclo') as any,
-            classe: classesArray[0] || undefined,
-            classes: classesArray.length > 0 ? classesArray : undefined,
-            ciclo
+          if (!alunoTarget && alunoNome) {
+            const turmaResolvida = ensureTurma(turmaNomeNota, classeNota, 'Manhã', '', 'Sala 01', anoNota);
+            alunoTarget = {
+              id: `aluno-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              escolaId,
+              codigoMatricula: matAluno || `MED-${Date.now().toString().slice(-6)}`,
+              numeroOrdem: alunosExistentes.length + 1,
+              nomeCompleto: alunoNome,
+              genero: 'M',
+              dataNascimento: '2014-01-01',
+              naturalidade: 'Luanda',
+              provinciaOrigem: escola.provincia || 'Luanda',
+              numeroBI: biAluno || 'S/Doc',
+              telefone: '',
+              fotoUrl: '',
+              encarregadoNome: 'Encarregado de Educação',
+              encarregadoParentesco: 'Encarregado',
+              encarregadoTelefone: '',
+              estado: 'Ativo',
+              turmaId: turmaResolvida?.id || '',
+              classeId: classeNota || turmaResolvida?.classe || '1ª',
+              anoLectivo: anoNota,
+              propinaStatus: 'Regularizada',
+              historicoAnterior: [],
+              cadastradoEm: new Date().toISOString().split('T')[0],
+              atualizadoEm: new Date().toISOString()
+            };
+            alunosExistentes.push(alunoTarget);
+            firebaseSyncEngine.salvarAluno(alunoTarget);
+            totalAlunos++;
+          }
+
+          if (!alunoTarget) continue;
+          const discTarget = ensureDisciplina(discNome, alunoTarget.classeId || classeNota);
+          if (!discTarget) continue;
+
+          const gravarNota = (trim: '1' | '2' | '3', mac?: number, npp?: number, npt?: number, mtRaw?: number, ne?: number, mf?: number) => {
+            const vals = [mac, npp, npt].filter((v): v is number => v !== undefined);
+            const mtCalc = mtRaw !== undefined ? mtRaw : vals.length > 0 ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)) : mf;
+            if (mtCalc === undefined && mac === undefined && npp === undefined && npt === undefined && ne === undefined) return;
+            const notaId = `${alunoTarget!.id}_${discTarget.id}_${trim}_${anoNota || 'padrao'}`;
+            const idxN = notasExistentes.findIndex(
+              n =>
+                n.id === notaId ||
+                (n.alunoId === alunoTarget!.id && n.disciplinaId === discTarget.id && String(n.trimestre).includes(trim) && (!anoNota || !n.anoLectivo || n.anoLectivo === anoNota))
+            );
+            const novaNota: NotaTrimestralConsolidada = {
+              ...(idxN >= 0 ? notasExistentes[idxN] : {}),
+              id: idxN >= 0 ? notasExistentes[idxN].id : notaId,
+              escolaId,
+              alunoId: alunoTarget!.id,
+              turmaId: alunoTarget!.turmaId,
+              disciplinaId: discTarget.id,
+              disciplinaNome: discTarget.nome,
+              trimestre: trim as any,
+              anoLectivo: anoNota,
+              mac: mac ?? 0,
+              npp,
+              npt: npt ?? 0,
+              mediaTrimestral: mtCalc ?? 0,
+              notaExame: trim === '3' ? ne : undefined,
+              notaFinal: mf ?? mtCalc ?? 0,
+              faltas: idxN >= 0 ? (notasExistentes[idxN].faltas ?? 0) : 0,
+              validadaPelaDirecao: idxN >= 0 ? Boolean(notasExistentes[idxN].validadaPelaDirecao) : false,
+              atualizadoEm: new Date().toISOString()
+            };
+            if (idxN >= 0) notasExistentes[idxN] = novaNota;
+            else notasExistentes.push(novaNota);
+            firebaseSyncEngine.salvarNotasConsolidadasLote([novaNota]);
+            totalNotas++;
           };
 
-          const idx = discExistentes.findIndex(d => d.escolaId === escolaId && d.nome.toLowerCase() === nomeDisc.toLowerCase());
-          if (idx >= 0) {
-            discExistentes[idx] = { ...discExistentes[idx], ...novaDisc, id: discExistentes[idx].id };
+          const trimSingle = obterCampoFlexivel(row, ALIASES_NOTA.trimestre);
+          const mt1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt1));
+          const mac1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac1));
+          const npp1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp1));
+          const npt1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt1));
+          const mt2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt2));
+          const mac2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac2));
+          const npp2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp2));
+          const npt2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt2));
+          const mt3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt3));
+          const mac3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac3));
+          const npp3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp3));
+          const npt3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt3));
+          const neVal = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.ne));
+          const mfVal = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mf));
+
+          const temMultiTrim = [mt1, mac1, npt1, mt2, mac2, npt2, mt3, mac3, npt3].some(v => v !== undefined);
+          if (temMultiTrim) {
+            gravarNota('1', mac1, npp1, npt1, mt1);
+            gravarNota('2', mac2, npp2, npt2, mt2);
+            gravarNota('3', mac3, npp3, npt3, mt3, neVal, mfVal);
           } else {
-            discExistentes.push(novaDisc);
+            const tDigit: '1' | '2' | '3' = trimSingle.includes('2') ? '2' : trimSingle.includes('3') ? '3' : '1';
+            gravarNota(
+              tDigit,
+              converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac)),
+              converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp)),
+              converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt)),
+              converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt)),
+              neVal,
+              mfVal
+            );
           }
-          totalDisciplinas++;
         }
-        dbService.salvarDisciplinas(discExistentes);
       }
 
-      // Registrar auditoria
+      dbService.salvarTurmas(turmasExistentes);
+      dbService.salvarAlunos(alunosExistentes);
+      dbService.salvarDisciplinas(discExistentes);
+      if (totalFuncionarios > 0) dbService.salvarFuncionarios(funcsExistentes);
+      if (totalNotas > 0) dbService.salvarNotasConsolidadas(notasExistentes);
+
+      const extras = [
+        totalDuplicadosIgnorados > 0 ? `${totalDuplicadosIgnorados} duplicado(s) ignorado(s)` : '',
+        totalIgnoradosSemVaga > 0 ? `${totalIgnoradosSemVaga} sem vaga na turma` : ''
+      ].filter(Boolean);
+      const sufixo = extras.length > 0 ? ` (${extras.join('; ')})` : '';
+
       dbService.registarLog(
-        'Importação Excel Homologada',
-        `Diretor importou e homologou dados do Ano Letivo ${anoLetivoAlvo}: ${totalAlunos} estudantes, ${totalTurmas} turmas e ${totalDisciplinas} disciplinas integradas.`
+        'Importação Excel Flexível',
+        `Ano ${anoAlvoNorm}: ${totalAlunos} alunos, ${totalTurmas} turmas, ${totalDisciplinas} disciplinas, ${totalFuncionarios} funcionários, ${totalNotas} notas${sufixo}.`
       );
 
       setLoading(false);
       onImportacaoConcluida(
-        `Importação concluída e reconhecida pelo sistema! Ano Letivo ${anoLetivoAlvo} atualizado: ${totalAlunos} alunos, ${totalTurmas} turmas e ${totalDisciplinas} disciplinas processadas com sucesso.`
+        `Importação flexível concluída (${anoAlvoNorm})! ${totalAlunos} aluno(s), ${totalTurmas} turma(s), ${totalDisciplinas} disciplina(s), ${totalFuncionarios} funcionário(s) e ${totalNotas} nota(s)${sufixo}.`
       );
       onClose();
     } catch (err: any) {
-      console.error('Falha na homologação:', err);
+      console.error('Falha na importação flexível:', err);
       setFeedback({ tipo: 'erro', texto: `Erro ao integrar dados: ${err.message || 'Erro inesperado'}` });
       setLoading(false);
     }
@@ -450,7 +754,6 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
   return (
     <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-6 overflow-y-auto">
       <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-5xl w-full border-2 border-blue-600 dark:border-blue-500 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
-        
         {/* CABEÇALHO */}
         <div className="p-4 sm:p-6 bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-900 text-white flex items-center justify-between gap-3">
           <div className="flex items-center space-x-3 min-w-0">
@@ -459,17 +762,20 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base sm:text-lg font-black tracking-tight">Importação & Homologação Escolar via Excel</h2>
+                <h2 className="text-base sm:text-lg font-black tracking-tight">
+                  Importação Flexível de Dados Escolares via Excel
+                </h2>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-400 text-blue-950">
-                  Direção & Administração
+                  Outras Escolas & Anos
                 </span>
               </div>
               <p className="text-xs text-blue-100 mt-0.5">
-                Adicione dados escolares e de um ano letivo a partir de um ficheiro com um ou vários livros com pré-visualização e validação de tipos
+                Reconhecimento automático de cabeçalhos, colunas variantes, datas Excel, alunos, turmas, funcionários e notas de outros estabelecimentos ou anos lectivos.
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer shrink-0"
           >
@@ -477,12 +783,10 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
           </button>
         </div>
 
-        {/* CORPO MODAL COM SCROLL */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
-
-          {/* ÁREA DE UPLOAD E MODELO */}
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-5">
+          {/* UPLOAD E MODELO */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 border-2 border-dashed border-blue-300 dark:border-blue-700 hover:border-blue-500 dark:hover:border-blue-500 rounded-2xl p-5 text-center bg-blue-50/50 dark:bg-blue-950/30 transition-colors">
+            <div className="md:col-span-2 border-2 border-dashed border-blue-300 dark:border-blue-700 hover:border-blue-500 rounded-2xl p-5 text-center bg-blue-50/50 dark:bg-blue-950/30 transition-colors">
               <input
                 type="file"
                 id="excelFileInput"
@@ -490,10 +794,7 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                 onChange={handleFileUpload}
                 className="hidden"
               />
-              <label
-                htmlFor="excelFileInput"
-                className="cursor-pointer flex flex-col items-center justify-center space-y-2"
-              >
+              <label htmlFor="excelFileInput" className="cursor-pointer flex flex-col items-center justify-center space-y-2">
                 <div className="p-3 bg-blue-600 text-white rounded-xl shadow-md">
                   <Upload className="w-6 h-6" />
                 </div>
@@ -502,21 +803,20 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                     {fileName ? `Ficheiro carregado: ${fileName}` : 'Clique para carregar livro Excel (.xlsx / .xls)'}
                   </span>
                   <span className="text-[11px] text-gray-500 dark:text-slate-400">
-                    Suporte a múltiplos livros/folhas: Ano Lectivo, Turmas, Alunos, Disciplinas
+                    Deteta automaticamente folhas de Alunos, Turmas, Disciplinas, Funcionários, Notas e Ano Lectivo
                   </span>
                 </div>
               </label>
             </div>
 
-            {/* BOTÃO PARA BAIXAR MODELO MED */}
             <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex flex-col justify-between space-y-3">
               <div>
                 <span className="text-xs font-black text-slate-800 dark:text-slate-100 flex items-center space-x-1.5">
                   <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Modelo de Exemplo MED</span>
+                  <span>Modelo de Referência</span>
                 </span>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                  Descarregue o modelo com as 4 folhas oficiais prontas para preenchimento.
+                  Descarregue um exemplo estruturado ou importe diretamente ficheiros de outras escolas.
                 </p>
               </div>
               <button
@@ -530,94 +830,105 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             </div>
           </div>
 
-          {/* FEEDBACK MENSAGEM */}
+          {escolaOrigemDetectada && (
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs flex items-center gap-2 text-indigo-900 dark:text-indigo-200">
+              <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                <strong>Escola de Origem Detetada no Ficheiro:</strong> {escolaOrigemDetectada} (será integrada em{' '}
+                <strong>{escola.nomeOficial}</strong>)
+              </span>
+            </div>
+          )}
+
           {feedback && (
-            <div className={`p-4 rounded-xl text-xs font-bold flex items-center space-x-2 ${
-              feedback.tipo === 'sucesso'
-                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
-                : 'bg-red-100 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-300 dark:border-red-800'
-            }`}>
+            <div
+              className={`p-4 rounded-xl text-xs font-bold flex items-center space-x-2 ${
+                feedback.tipo === 'sucesso'
+                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  : 'bg-red-100 text-red-900 border border-red-300'
+              }`}
+            >
               {feedback.tipo === 'sucesso' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
               <span>{feedback.texto}</span>
             </div>
           )}
 
-          {/* PARÂMETROS E ANO LETIVO HOMOLOGADO */}
-          <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
+          {/* PARÂMETROS ANO LETIVO */}
+          <div className="bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
               <div className="flex items-center space-x-2">
                 <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <h4 className="text-xs font-black uppercase text-slate-800 dark:text-slate-100 tracking-wider">
-                  Parâmetros de Reconhecimento do Ano Letivo
+                  Ano Lectivo de Destino & Regras
                 </h4>
               </div>
-              <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-950/60 px-2.5 py-0.5 rounded-full">
-                Sincronização Ativa
-              </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Rótulo do Ano Letivo</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Ano Lectivo Alvo</label>
                 <input
                   type="text"
                   value={anoLetivoAlvo}
-                  onChange={(e) => setAnoLetivoAlvo(e.target.value)}
-                  placeholder="Ex: 2025/2026"
-                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl font-black bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                  onChange={e => setAnoLetivoAlvo(e.target.value)}
+                  placeholder="Ex: 2024/2025"
+                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl font-black bg-white dark:bg-slate-900"
                 />
               </div>
-
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Início das Aulas</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Início do Ano</label>
                 <input
                   type="date"
                   value={dataInicioAno}
-                  onChange={(e) => setDataInicioAno(e.target.value)}
-                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-xs"
+                  onChange={e => setDataInicioAno(e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900"
                 />
               </div>
-
               <div>
-                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Término do Ano</label>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Fim do Ano</label>
                 <input
                   type="date"
                   value={dataFimAno}
-                  onChange={(e) => setDataFimAno(e.target.value)}
-                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 text-xs"
+                  onChange={e => setDataFimAno(e.target.value)}
+                  className="w-full p-2 border border-gray-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900"
                 />
               </div>
-
-              <div className="flex items-center sm:pt-5">
+              <div className="flex flex-col justify-center gap-1.5 pt-2">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={definirComoAtivo}
-                    onChange={(e) => setDefinirComoAtivo(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-slate-600"
+                    onChange={e => setDefinirComoAtivo(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded"
                   />
-                  <span className="text-xs font-bold text-gray-800 dark:text-slate-200">Definir como Ano Activo</span>
+                  <span className="text-[11px] font-bold">Definir como Ano Activo</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={respeitarVagasTurma}
+                    onChange={e => setRespeitarVagasTurma(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded"
+                  />
+                  <span className="text-[11px] font-bold">Validar Lotação de Turmas</span>
                 </label>
               </div>
             </div>
           </div>
 
-          {/* FOLHAS DETETADAS NO LIVRO EXCEL */}
+          {/* FOLHAS DETETADAS */}
           {sheets.length > 0 && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-black uppercase text-slate-800 dark:text-slate-100 tracking-wider flex items-center space-x-1.5">
-                    <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <span>Livros e Folhas Detectadas no Ficheiro ({sheets.length})</span>
-                  </h4>
-                  <p className="text-[11px] text-gray-500 dark:text-slate-400">
-                    Selecione as folhas que deseja validar e pré-visualizar antes da homologação
-                  </p>
-                </div>
+              <div>
+                <h4 className="text-xs font-black uppercase text-slate-800 dark:text-slate-100 tracking-wider flex items-center space-x-1.5">
+                  <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span>Folhas Detectadas no Ficheiro ({sheets.length})</span>
+                </h4>
+                <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                  Pode ajustar manualmente o tipo de qualquer folha caso o ficheiro externo utilize nomes diferentes.
+                </p>
               </div>
 
-              {/* TABS DE FOLHAS */}
               <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-slate-800 pb-2">
                 {sheets.map((s, idx) => (
                   <div
@@ -625,74 +936,76 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
                     className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
                       selectedSheetIndex === idx
                         ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
-                        : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
+                        : 'bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 border-gray-200 dark:border-slate-700'
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={s.selecionado}
                       onChange={() => handleToggleSheet(idx)}
-                      className="w-3.5 h-3.5 rounded border-gray-300 dark:border-slate-600 cursor-pointer"
-                      title="Incluir esta folha na importação"
+                      className="w-3.5 h-3.5 rounded cursor-pointer"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSheetIndex(idx)}
-                      className="cursor-pointer flex items-center space-x-1.5"
-                    >
+                    <button type="button" onClick={() => setSelectedSheetIndex(idx)} className="cursor-pointer flex items-center space-x-1.5">
                       <span>{s.sheetName}</span>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                        selectedSheetIndex === idx ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300'
-                      }`}>
-                        {s.rowCount} linhas
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                          selectedSheetIndex === idx ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {s.rowCount}
                       </span>
                     </button>
                   </div>
                 ))}
               </div>
 
-              {/* PRÉ-VISUALIZAÇÃO DA FOLHA ATIVA E VALIDAÇÃO DE TIPOS */}
               {folhaAtiva && (
                 <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 shadow-xs">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Eye className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                      <span className="text-xs font-black text-gray-900 dark:text-white">
-                        Pré-visualização dos Dados: <span className="text-blue-700 dark:text-blue-400 font-mono font-bold">{folhaAtiva.sheetName}</span>
+                      <span className="text-xs font-black">
+                        Folha: <span className="text-blue-700 dark:text-blue-400 font-mono">{folhaAtiva.sheetName}</span>
                       </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                        Tipo: {folhaAtiva.tipoDetectado}
+                      <span className="text-[10px] text-slate-500">
+                        (Cabeçalho na linha {folhaAtiva.headerRowIndex + 1})
                       </span>
                     </div>
-                    <span className="text-[11px] text-gray-500 dark:text-slate-400">
-                      Mostrando primeiras 15 linhas de {folhaAtiva.rowCount} registos
-                    </span>
+
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="font-bold text-slate-600 dark:text-slate-400">Mapear como:</span>
+                      <select
+                        value={folhaAtiva.tipoDetectado}
+                        onChange={e => handleAlterarTipoSheet(selectedSheetIndex, e.target.value as TipoFolhaExcelImport)}
+                        className="px-2.5 py-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 font-bold text-indigo-900 dark:text-indigo-200 text-xs"
+                      >
+                        {TIPOS_FOLHA_OPCOES.map(op => (
+                          <option key={op.value} value={op.value}>
+                            {op.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  {/* TABELA DE PRÉ-VISUALIZAÇÃO */}
                   <div className="overflow-x-auto max-h-60 border border-gray-200 dark:border-slate-700 rounded-xl">
                     <table className="w-full text-[11px] text-left">
-                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-black uppercase text-[10px] tracking-wider border-b border-gray-200 dark:border-slate-700 sticky top-0">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-black uppercase text-[10px] border-b border-gray-200 dark:border-slate-700 sticky top-0">
                         <tr>
-                          <th className="p-2 w-8 text-center bg-slate-100 dark:bg-slate-800">#</th>
+                          <th className="p-2 w-8 text-center">#</th>
                           {folhaAtiva.columns.map((col, cIdx) => (
-                            <th key={cIdx} className="p-2 whitespace-nowrap bg-slate-100 dark:bg-slate-800">
-                              <div className="flex flex-col">
-                                <span>{col}</span>
-                                <span className="text-[9px] font-normal text-slate-500 dark:text-slate-400 lowercase">
-                                  {col.toLowerCase().includes('data') ? '(data)' : col.toLowerCase().includes('bi') ? '(texto/bi)' : col.toLowerCase().includes('numero') || col.toLowerCase().includes('capacidade') ? '(número)' : '(texto)'}
-                                </span>
-                              </div>
+                            <th key={cIdx} className="p-2 whitespace-nowrap">
+                              {col}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
                         {folhaAtiva.sampleRows.map((row, rIdx) => (
                           <tr key={rIdx} className="hover:bg-blue-50/50 dark:hover:bg-slate-800/70">
-                            <td className="p-2 text-center text-gray-400 dark:text-slate-500 font-mono font-bold">{rIdx + 1}</td>
+                            <td className="p-2 text-center text-gray-400 font-mono font-bold">{rIdx + 1}</td>
                             {folhaAtiva.columns.map((col, cIdx) => (
-                              <td key={cIdx} className="p-2 whitespace-nowrap text-gray-700 dark:text-slate-200 font-medium">
+                              <td key={cIdx} className="p-2 whitespace-nowrap text-gray-700 dark:text-slate-200">
                                 {String(row[col] ?? '')}
                               </td>
                             ))}
@@ -706,78 +1019,66 @@ export const ExcelSchoolDataImportModal: React.FC<ExcelSchoolDataImportModalProp
             </div>
           )}
 
-          {/* CHECKBOXES DE CONFIRMAÇÃO EXIGIDA PELO DIRETOR */}
-          <div className="p-4 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl space-y-3">
-            <div className="flex items-center space-x-2 text-amber-900 dark:text-amber-300 font-black text-xs uppercase tracking-wider">
+          {/* VALIDAÇÃO */}
+          <div className="p-4 bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl space-y-2 text-xs">
+            <div className="flex items-center space-x-2 text-amber-900 dark:text-amber-300 font-black uppercase tracking-wider">
               <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span>Validação e Reconhecimento Oficial no Sistema SGE-NG</span>
+              <span>Confirmação de Importação Segura</span>
             </div>
-
-            <div className="space-y-2 text-xs">
-              <label className="flex items-start space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={confirmouTiposDados}
-                  onChange={(e) => setConfirmouTiposDados(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded border-amber-400 mt-0.5 cursor-pointer"
-                />
-                <span className="text-gray-800 dark:text-slate-200 font-medium">
-                  <strong>Confirmo a pré-visualização e os tipos de dados:</strong> Verifiquei as colunas, nomes, números de BI, turmas, classes e disciplinas conforme as normas do Ministério da Educação.
-                </span>
-              </label>
-
-              <label className="flex items-start space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={confirmouAnoLetivo}
-                  onChange={(e) => setConfirmouAnoLetivo(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded border-amber-400 mt-0.5 cursor-pointer"
-                />
-                <span className="text-gray-800 dark:text-slate-200 font-medium">
-                  <strong>Homologação do Ano Letivo ({anoLetivoAlvo}):</strong> Confirmo que os dados a importar serão vinculados e reconhecidos com integridade no ano letivo estipulado.
-                </span>
-              </label>
-            </div>
+            <label className="flex items-start space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={confirmouTiposDados}
+                onChange={e => setConfirmouTiposDados(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded mt-0.5 cursor-pointer"
+              />
+              <span className="text-gray-800 dark:text-slate-200 font-medium">
+                <strong>Confirmo a pré-visualização e mapeamento das folhas:</strong> duplicados existentes serão ignorados automaticamente e as datas/colunas reconhecidas serão integradas nesta escola.
+              </span>
+            </label>
+            <label className="flex items-start space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={confirmouAnoLetivo}
+                onChange={e => setConfirmouAnoLetivo(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded mt-0.5 cursor-pointer"
+              />
+              <span className="text-gray-800 dark:text-slate-200 font-medium">
+                <strong>Associar registos ao Ano Lectivo {anoLetivoAlvo || escola.anoLectivoActivo}.</strong>
+              </span>
+            </label>
           </div>
-
         </div>
 
-        {/* RODAPÉ COM AÇÕES */}
+        {/* RODAPÉ */}
         <div className="p-4 sm:p-5 bg-gray-50 dark:bg-slate-800/80 border-t border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-xs text-gray-500 dark:text-slate-400 flex items-center space-x-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>Registo auditado e assinado digitalmente na trilha de segurança do SGE.</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Compatível com livros exportados do SGE-NG ou de outras escolas/anos.</span>
           </div>
-
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              className="px-4 py-2 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-xl text-xs font-bold cursor-pointer"
             >
               Cancelar
             </button>
-
             <button
               type="button"
-              disabled={loading || !workbookRaw || !confirmouTiposDados}
+              disabled={loading || sheets.length === 0 || !confirmouTiposDados}
               onClick={handleConfirmarImportacao}
               className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center space-x-2 shadow-md transition-all ${
-                loading || !workbookRaw || !confirmouTiposDados
-                  ? 'bg-gray-300 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer hover:shadow-lg'
+                loading || sheets.length === 0 || !confirmouTiposDados
+                  ? 'bg-gray-300 dark:bg-slate-700 text-gray-500 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
               }`}
             >
-              {loading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Database className="w-4 h-4" />
-              )}
-              <span>Confirmar e Homologar no Sistema</span>
+              {loading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Database className="w-4 h-4" />}
+              <span>Importar para {escola.sigla || escola.nomeOficial}</span>
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

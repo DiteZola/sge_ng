@@ -16,6 +16,7 @@ export type UserRole =
   | 'Bibliotecario'
   | 'Estagiario'
   | 'TecnicoTI'
+  | 'AuxiliarLimpeza'
   | 'Encarregado';
 
 export type NivelEnsino = 
@@ -90,6 +91,8 @@ export interface Escola {
   // Configurações de Emissão de Passes e Boletins (Diretor)
   layoutBoletinsPadrao?: '1_por_folha' | '2_por_folha' | '4_por_folha';
   layoutPassesPadrao?: '8_por_folha' | 'individual';
+  recibosMatriculaPorFolhaA4?: number;
+  recibosEmolumentosPorFolhaA4?: number;
   corTemaPasses?: 'azul' | 'verde' | 'bordo' | 'ouro' | 'cinza_escuro' | string;
   corPrimaria?: string; // ex: "#1e3a8a"
   corSecundaria?: string; // ex: "#d97706"
@@ -1003,6 +1006,8 @@ export interface ConfiguracaoFinanceiraEscola {
   bancoNome?: string;
   delegacoesCobranca?: DelegacaoCobrancaFinanceira[];
   emolumentosPersonalizados?: ItemEmolumentoConfig[];
+  recibosMatriculaPorFolhaA4?: number;
+  recibosEmolumentosPorFolhaA4?: number;
   atualizadoEm?: string;
 }
 
@@ -2267,5 +2272,88 @@ export interface AtaProvaRegistro {
   criadoEm: string;
   atualizadoEm?: string;
 }
+
+export type CategoriaGrupoFerias = 'Administrativo' | 'AuxiliarLimpeza';
+
+export type EstadoFeriasItem = 'Planeada' | 'Aprovada' | 'Em_Curso' | 'Concluida' | 'Adiada' | 'Cancelada';
+
+export interface MapaFeriasItem {
+  id: string;
+  escolaId: string;
+  anoLectivo: string;
+  funcionarioId: string;
+  funcionarioNome: string;
+  numeroAgente?: string;
+  cargo: string;
+  role: UserRole;
+  grupoCategoria: CategoriaGrupoFerias;
+  mesPrevisto: string; // Ex: '2026-08' ou 'Agosto'
+  dataInicio: string; // YYYY-MM-DD
+  dataFim: string; // YYYY-MM-DD
+  diasUteis: number;
+  substitutoId?: string;
+  substitutoNome?: string;
+  estado: EstadoFeriasItem;
+  observacoes?: string;
+  criadoPorId: string;
+  criadoPorNome: string;
+  aprovadoPorNome?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export type CategoriaMaterialLimpeza =
+  | 'Detergentes & Desinfetantes'
+  | 'Lixívia & Álcool'
+  | 'Vassouras, Rodos & Baldes'
+  | 'Sacos de Lixo & Descartáveis'
+  | 'Papel Higiénico & Toalhas'
+  | 'Equipamento de Proteção (Luvas/Máscaras)'
+  | 'Outros Materiais';
+
+export type UnidadeMedidaLimpeza = 'Unidade' | 'Litro' | 'Caixa' | 'Pacote' | 'Rolo' | 'Galão' | 'Quilograma';
+
+export interface MaterialLimpezaItem {
+  id: string;
+  escolaId: string;
+  codigo?: string;
+  nome: string;
+  categoria: CategoriaMaterialLimpeza;
+  unidade: UnidadeMedidaLimpeza;
+  quantidadeAtual: number;
+  quantidadeMinima: number;
+  localArmazenamento?: string;
+  fornecedor?: string;
+  observacoes?: string;
+  ultimoMovimentoEm?: string;
+  criadoPorId?: string;
+  criadoPorNome?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
+export type TipoMovimentoEstoqueLimpeza = 'Entrada' | 'Saida' | 'Ajuste';
+
+export interface MovimentoEstoqueLimpeza {
+  id: string;
+  escolaId: string;
+  materialId: string;
+  materialNome: string;
+  unidade: string;
+  tipo: TipoMovimentoEstoqueLimpeza;
+  quantidade: number;
+  quantidadeAnterior: number;
+  quantidadeNova: number;
+  data: string; // YYYY-MM-DD
+  setorDestino?: string;
+  motivo: string;
+  responsavelId: string;
+  responsavelNome: string;
+  responsavelRole: UserRole;
+  observacoes?: string;
+  criadoEm: string;
+  atualizadoEm?: string;
+}
+
 
 

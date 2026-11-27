@@ -126,6 +126,8 @@ export const ProvasFiscalizacaoView: React.FC<ProvasFiscalizacaoViewProps> = ({
   );
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
   const [feedback, setFeedback] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
+  const [orientacaoHorarioMapa, setOrientacaoHorarioMapa] = useState<'landscape' | 'portrait'>('landscape');
+  const [orientacaoAta, setOrientacaoAta] = useState<'portrait' | 'landscape'>('portrait');
 
   // Filtros
   const [busca, setBusca] = useState('');
@@ -1205,7 +1207,7 @@ export const ProvasFiscalizacaoView: React.FC<ProvasFiscalizacaoViewProps> = ({
     const ok = await downloadElementAsPdf(
       'provas-horario-a4',
       `Horario_Provas_${escola.sigla || escola.nomeOficial}_${anoActivo.replace('/', '-')}`,
-      { orientation: 'landscape', format: 'a4', marginMm: 8 }
+      { orientation: orientacaoHorarioMapa, format: 'a4', marginMm: 8 }
     );
     if (ok) mostrarFeedback('sucesso', 'Horário de Provas em PDF descarregado.');
   };
@@ -1244,7 +1246,7 @@ export const ProvasFiscalizacaoView: React.FC<ProvasFiscalizacaoViewProps> = ({
     const ok = await downloadElementAsPdf(
       'provas-mapa-fiscalizacao-a4',
       `Escala_Fiscalizacao_Provas_${escola.sigla || escola.nomeOficial}_${anoActivo.replace('/', '-')}`,
-      { orientation: 'landscape', format: 'a4', marginMm: 8 }
+      { orientation: orientacaoHorarioMapa, format: 'a4', marginMm: 8 }
     );
     if (ok) mostrarFeedback('sucesso', 'Escala e Mapa de Fiscalização de Provas em PDF descarregado.');
   };
@@ -1299,7 +1301,7 @@ export const ProvasFiscalizacaoView: React.FC<ProvasFiscalizacaoViewProps> = ({
       const ok = await downloadElementAsPdf(
         'provas-ata-individual-a4',
         `Ata_Prova_${ata.disciplinaNome.replace(/\s+/g, '_')}_${ata.turmaNome.replace(/\s+/g, '_')}_${ata.dataProva}`,
-        { orientation: 'portrait', format: 'a4', marginMm: 10 }
+        { orientation: orientacaoAta, format: 'a4', marginMm: 10 }
       );
       if (ok) mostrarFeedback('sucesso', 'Ata oficial da prova em PDF descarregada.');
     }, 120);
@@ -1439,6 +1441,17 @@ export const ProvasFiscalizacaoView: React.FC<ProvasFiscalizacaoViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {(abaAtiva === 'horarios' || abaAtiva === 'mapas') && (
+            <select
+              value={orientacaoHorarioMapa}
+              onChange={(e) => setOrientacaoHorarioMapa(e.target.value as 'landscape' | 'portrait')}
+              className="px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200"
+              title="Orientação da folha A4 para PDF"
+            >
+              <option value="landscape">Paisagem (A4 Horizontal)</option>
+              <option value="portrait">Retrato (A4 Vertical)</option>
+            </select>
+          )}
           {abaAtiva === 'horarios' && (
             <>
               <button
@@ -1480,14 +1493,25 @@ export const ProvasFiscalizacaoView: React.FC<ProvasFiscalizacaoViewProps> = ({
             </>
           )}
           {abaAtiva === 'atas' && (
-            <button
-              type="button"
-              onClick={handleBaixarAtasExcel}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer whitespace-nowrap"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Exportar Atas XLSX</span>
-            </button>
+            <>
+              <select
+                value={orientacaoAta}
+                onChange={(e) => setOrientacaoAta(e.target.value as 'portrait' | 'landscape')}
+                className="px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200"
+                title="Orientação da folha A4 da Ata"
+              >
+                <option value="portrait">Ata: Retrato (A4 Vertical)</option>
+                <option value="landscape">Ata: Paisagem (A4 Horizontal)</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleBaixarAtasExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer whitespace-nowrap"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Exportar Atas XLSX</span>
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -4,6 +4,9 @@ import {
   RegraCalculoMAC, 
   AvaliacaoCriada, 
   NotaEstudante, 
+  NotaTrimestralConsolidada,
+  ComissaoJuri,
+  Turma,
   Aluno 
 } from '../types';
 
@@ -312,9 +315,9 @@ export function calcularNotaTrimestralDinamica(
   const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
 
   // Se a Prova do Professor (NPP) estiver desativada nas configurações escolares:
-  // Apenas a Prova Trimestral (PT / NPT) é considerada: MT = (MAC + PT) / 2
+  // Apenas MAC e a Prova Trimestral (PT / NPT) são consideradas: MT = (MAC + PT) / 2
   if (!nppAtivo) {
-    const ptVal = npt !== undefined ? npt : (npp !== undefined ? npp : mac);
+    const ptVal = npt !== undefined && npt >= 0 ? npt : mac;
     const mt = (mac + ptVal) / 2;
     return {
       mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
@@ -621,6 +624,244 @@ export function obterObservacaoPautaGeral(
   }
   return { texto: 'Reprovado', totalNegativas, categoria: 'Reprovado' };
 }
+
+export interface ResumoAproveitamentoPautaGeral {
+  totalMatriculados: number;
+  totalAvaliados: number;
+  aprovados: number;
+  recurso: number;
+  reprovados: number;
+  desistentesOuTransferidos: number;
+  semNotas: number;
+  taxaAprovacao: number;
+  taxaInsucesso: number;
+  mediaNotas: number;
+}
+
+/**
+ * Motor Canónico de Taxa de Aproveitamento alinhado 100% com as Pautas Gerais:
+ * - Consolida as notas por disciplina e trimestre/ano de cada estudante;
+ * - Respeita se a Prova do Professor (NPP) está ativa ou desativada;
+ * - Aplica deliberações homologadas da Comissão de Júri quando existentes;
+ * - Classifica cada estudante pela regra oficial `obterObservacaoPautaGeral`;
+ * - Calcula `% Aprovação = Aprovados / Avaliados Efectivos * 100` (coerente com as Pautas Gerais).
+ */
+export function calcularAproveitamentoPautaGeralAlunos(params: {
+  alunos: Aluno[];
+  notasConsolidadas: NotaTrimestralConsolidada[];
+  turmas?: Turma[];
+  regrasMAC?: RegraCalculoMAC[];
+  juris?: ComissaoJuri[];
+  trimestreFiltro?: '1' | '2' | '3' | 'anual';
+  anoLectivo?: string;
+  nppAtivo?: boolean;
+  escolaId?: string;
+}): ResumoAproveitamentoPautaGeral {
+  const {
+    alunos,
+    notasConsolidadas,
+    turmas = [],
+    regrasMAC = [],
+    juris = [],
+    trimestreFiltro = 'anual',
+    anoLectivo,
+    nppAtivo = true,
+    escolaId,
+  } = params;
+
+  const turmasById = new Map<string, Turma>();
+  for (const t of turmas) {
+    if (t?.id) turmasById.set(t.id, t);
+  }
+
+  const notasDoEscopo = notasConsolidadas.filter((n) => {
+    if (escolaId && escolaId !== 'todas' && n.escolaId && n.escolaId !== escolaId) return false;
+    if (anoLectivo && anoLectivo !== 'todos' && n.anoLectivo && n.anoLectivo !== anoLectivo) return false;
+    if (trimestreFiltro !== 'anual' && String(n.trimestre) !== String(trimestreFiltro)) return false;
+    return true;
+  });
+
+  const notasPorAluno = new Map<string, NotaTrimestralConsolidada[]>();
+  for (const n of notasDoEscopo) {
+    if (!n.alunoId) continue;
+    const arr = notasPorAluno.get(n.alunoId);
+    if (arr) arr.push(n);
+    else notasPorAluno.set(n.alunoId, [n]);
+  }
+
+  const obterRegraAluno = (classe?: string, nivel?: NivelEnsino): RegraCalculoMAC | undefined => {
+    const clLower = (classe || '').trim().toLowerCase();
+    return (
+      regrasMAC.find((r) => (!escolaId || r.escolaId === escolaId) && clLower && (r.classe || '').trim().toLowerCase() === clLower) ||
+      regrasMAC.find((r) => (!escolaId || r.escolaId === escolaId) && nivel && r.nivelEnsino === nivel) ||
+      regrasMAC[0]
+    );
+  };
+
+  let aprovados = 0;
+  let recurso = 0;
+  let reprovados = 0;
+  let desistentesOuTransferidos = 0;
+  let semNotas = 0;
+  let somaMediasAlunos = 0;
+  let countMediasAlunos = 0;
+
+  for (const al of alunos) {
+    const turmaAl = turmasById.get(al.turmaId);
+    const classeAl = turmaAl?.classe || al.classeId || '7ª';
+    const nivelAl = turmaAl?.nivelEnsino;
+    const regra = obterRegraAluno(classeAl, nivelAl);
+
+    if (al.estado === 'Desistente' || al.estado === 'Transferido') {
+      desistentesOuTransferidos++;
+      continue;
+    }
+
+    const notasAl = notasPorAluno.get(al.id) || [];
+    const porDisciplina = new Map<string, NotaTrimestralConsolidada[]>();
+    for (const n of notasAl) {
+      const key = (n.disciplinaId || n.disciplinaNome || '').trim();
+      if (!key) continue;
+      const list = porDisciplina.get(key);
+      if (list) list.push(n);
+      else porDisciplina.set(key, [n]);
+    }
+
+    const mediasPorDisc = new Map<string, number>();
+
+    porDisciplina.forEach((recs, discKey) => {
+      if (trimestreFiltro !== 'anual') {
+        const rec = recs[0];
+        if (!rec) return;
+        const pt = typeof rec.npt === 'number' ? rec.npt : (typeof rec.provaTrimestral === 'number' ? rec.provaTrimestral : undefined);
+        const temInputs = typeof rec.mac === 'number' || typeof pt === 'number' || (nppAtivo && typeof rec.npp === 'number');
+        if (typeof rec.mediaTrimestral === 'number' && !isNaN(rec.mediaTrimestral) && nppAtivo) {
+          mediasPorDisc.set(discKey, rec.mediaTrimestral);
+        } else if (temInputs) {
+          const calc = calcularNotaTrimestralDinamica(
+            typeof rec.mac === 'number' ? rec.mac : 0,
+            nppAtivo && typeof rec.npp === 'number' ? rec.npp : undefined,
+            pt,
+            regra,
+            Number(rec.trimestre) || Number(trimestreFiltro) || 1,
+            classeAl,
+            nppAtivo
+          );
+          mediasPorDisc.set(discKey, calc.mediaTrimestral);
+        } else if (typeof rec.notaFinal === 'number' && !isNaN(rec.notaFinal)) {
+          mediasPorDisc.set(discKey, rec.notaFinal);
+        }
+      } else {
+        const resolveTri = (tri: string): number | null => {
+          const rec = recs.find((r) => String(r.trimestre) === tri);
+          if (!rec) return null;
+          const pt = typeof rec.npt === 'number' ? rec.npt : (typeof rec.provaTrimestral === 'number' ? rec.provaTrimestral : undefined);
+          const temInputs = typeof rec.mac === 'number' || typeof pt === 'number' || (nppAtivo && typeof rec.npp === 'number');
+          if (temInputs) {
+            return calcularNotaTrimestralDinamica(
+              typeof rec.mac === 'number' ? rec.mac : 0,
+              nppAtivo && typeof rec.npp === 'number' ? rec.npp : undefined,
+              pt,
+              regra,
+              Number(tri),
+              classeAl,
+              nppAtivo
+            ).mediaTrimestral;
+          }
+          const cand = rec.mediaTrimestral ?? rec.notaFinal;
+          return typeof cand === 'number' && !isNaN(cand) ? cand : null;
+        };
+
+        const mt1 = resolveTri('1');
+        const mt2 = resolveTri('2');
+        const mt3 = resolveTri('3');
+        const mts = [mt1, mt2, mt3].filter((v): v is number => v !== null && !isNaN(v));
+        const recFinal = recs.find((r) => String(r.trimestre) === '3') || recs[recs.length - 1];
+        const exame = typeof recFinal?.notaExame === 'number' ? recFinal.notaExame : undefined;
+
+        if (mts.length === 3 && (isClasseFinal(classeAl, regra) || typeof exame === 'number')) {
+          mediasPorDisc.set(
+            discKey,
+            calcularMediaFinal3Trimestre(mt1!, mt2!, mt3!, exame, regra, classeAl).mediaFinal
+          );
+        } else if (mts.length === 3) {
+          mediasPorDisc.set(
+            discKey,
+            calcularMediaFinal3Trimestre(mt1!, mt2!, mt3!, undefined, regra, classeAl).mediaFinal
+          );
+        } else if (mts.length > 0) {
+          const avg = mts.reduce((a, b) => a + b, 0) / mts.length;
+          mediasPorDisc.set(discKey, Math.round(avg * 10) / 10);
+        } else if (typeof recFinal?.notaFinal === 'number' && !isNaN(recFinal.notaFinal)) {
+          mediasPorDisc.set(discKey, recFinal.notaFinal);
+        }
+      }
+    });
+
+    const juriAl = juris.find(
+      (j) =>
+        (j.pautaHomologada || j.estado === 'Validada') &&
+        (!anoLectivo || !j.anoLectivo || j.anoLectivo === anoLectivo) &&
+        (j.turmasIds?.includes(al.turmaId) || (classeAl && j.classe === classeAl))
+    );
+    const deliberacao = juriAl?.deliberacoes?.[al.id];
+
+    if (deliberacao?.notasAlteradas && deliberacao.notasAlteradas.length > 0) {
+      deliberacao.notasAlteradas.forEach((alt) => {
+        if (typeof alt.novaNota === 'number' && !isNaN(alt.novaNota)) {
+          const altKey = (alt.disciplinaId || alt.disciplinaNome || '').trim();
+          if (altKey) mediasPorDisc.set(altKey, alt.novaNota);
+        }
+      });
+    }
+
+    const mediasDisciplinas = Array.from(mediasPorDisc.values());
+
+    const obs = obterObservacaoPautaGeral(mediasDisciplinas, classeAl, al.estado, regra);
+    let categoriaFinal = obs.categoria;
+
+    if (deliberacao?.decisao === 'Aprovar') {
+      categoriaFinal = 'Aprovado';
+    } else if (deliberacao?.decisao === 'Recurso') {
+      categoriaFinal = 'Recurso';
+    } else if (deliberacao?.decisao === 'Nao_Aprovar') {
+      categoriaFinal = 'Reprovado';
+    }
+
+    if (categoriaFinal === 'Pendente') {
+      semNotas++;
+    } else {
+      if (categoriaFinal === 'Aprovado') aprovados++;
+      else if (categoriaFinal === 'Recurso') recurso++;
+      else if (categoriaFinal === 'Reprovado') reprovados++;
+
+      if (mediasDisciplinas.length > 0) {
+        const mediaAl = mediasDisciplinas.reduce((a, b) => a + b, 0) / mediasDisciplinas.length;
+        somaMediasAlunos += mediaAl;
+        countMediasAlunos++;
+      }
+    }
+  }
+
+  const totalAvaliados = aprovados + recurso + reprovados;
+  const taxaAprovacao = totalAvaliados > 0 ? Math.round((aprovados / totalAvaliados) * 100) : 0;
+  const taxaInsucesso = totalAvaliados > 0 ? Math.round(((recurso + reprovados) / totalAvaliados) * 100) : 0;
+  const mediaNotas = countMediasAlunos > 0 ? Math.round((somaMediasAlunos / countMediasAlunos) * 10) / 10 : 0;
+
+  return {
+    totalMatriculados: alunos.length,
+    totalAvaliados,
+    aprovados,
+    recurso,
+    reprovados,
+    desistentesOuTransferidos,
+    semNotas,
+    taxaAprovacao,
+    taxaInsucesso,
+    mediaNotas,
+  };
+}
+
 
 
 

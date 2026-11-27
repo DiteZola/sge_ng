@@ -66,7 +66,8 @@ const STAFF_GERAL_ROLES = new Set([
   'Bibliotecario',
   'Tesoureiro',
   'TecnicoTI',
-  'Estagiario'
+  'Estagiario',
+  'AuxiliarLimpeza'
 ]);
 
 export interface DispararNotificacaoParams {

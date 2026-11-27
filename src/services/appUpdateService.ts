@@ -157,16 +157,16 @@ class AppUpdateService {
       } catch {}
     }
 
-    // Verificação periódica + foco + reconexão (indispensável para Safari/iOS e Firefox)
+    // Verificação periódica + foco + reconexão (indispensável para Safari/iOS e Firefox e atualização rápida em todos os dispositivos online)
     setTimeout(() => {
       this.verificarAtualizacaoAgora().catch(() => {});
-    }, 4500);
+    }, 1500);
 
     setInterval(() => {
-      if (typeof navigator === 'undefined' || navigator.onLine) {
+      if ((typeof navigator === 'undefined' || navigator.onLine) && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
         this.verificarAtualizacaoAgora().catch(() => {});
       }
-    }, 5 * 60 * 1000);
+    }, 90 * 1000);
 
     window.addEventListener('online', () => {
       this.verificarAtualizacaoAgora().catch(() => {});

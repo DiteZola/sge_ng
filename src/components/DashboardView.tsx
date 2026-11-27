@@ -69,7 +69,7 @@ const ParentStudentReportView = React.lazy(() =>
   import('./ParentStudentReportView').then((m) => ({ default: m.ParentStudentReportView }))
 );
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
-import { obterInformacaoEscala } from '../services/macEngine';
+import { obterInformacaoEscala, calcularAproveitamentoPautaGeralAlunos } from '../services/macEngine';
 import { normalizarClasse, TODAS_CLASSES_OFICIAIS_MED } from '../services/academicHierarchyService';
 import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import {
@@ -83,7 +83,8 @@ import {
   TesoureiroDashboard,
   BibliotecarioDashboard,
   EstagiarioDashboard,
-  TecnicoTIDashboard
+  TecnicoTIDashboard,
+  AuxiliarLimpezaDashboard
 } from './RoleDashboards';
 
 interface DashboardViewProps {
@@ -270,6 +271,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const isBibliotecario = role === 'Bibliotecario';
   const isEstagiario = role === 'Estagiario';
   const isTecnicoTI = role === 'TecnicoTI';
+  const isAuxiliarLimpeza = role === 'AuxiliarLimpeza';
   const isEncarregado = role === 'Encarregado';
 
   const visibilidadeUsuario = useMemo(
@@ -352,13 +354,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .sort((a, b) => (a.media / a.escala) - (b.media / b.escala));
   }, [alunosComNota, melhoresAlunos]);
 
-  const taxaAprovacaoEscola = useMemo(() => {
-    return alunosComNota.length > 0
-      ? Math.round((alunosComNota.filter(a => a.isAprovado).length / alunosComNota.length) * 100)
-      : 0;
-  }, [alunosComNota]);
+  const regrasMACDash = useMemo(() => dbService.obterRegrasMAC(), [syncTick]);
+  const jurisTodasDash = useMemo(() => dbService.getJuris(), [syncTick]);
 
-  // Estatísticas Nacionais Reais para o Administrador Geral (com normalização Primário 0-10 vs Secundário 0-20)
+  const resumoPautaEscola = useMemo(() => {
+    return calcularAproveitamentoPautaGeralAlunos({
+      alunos,
+      notasConsolidadas,
+      turmas,
+      regrasMAC: regrasMACDash,
+      juris: jurisTodasDash,
+      trimestreFiltro: 'anual',
+      anoLectivo: escola.anoLectivoActivo || 'todos',
+      nppAtivo: escola.nppAtivo !== false,
+      escolaId: escola.id
+    });
+  }, [alunos, notasConsolidadas, turmas, regrasMACDash, jurisTodasDash, escola.anoLectivoActivo, escola.nppAtivo, escola.id]);
+
+  const taxaAprovacaoEscola = resumoPautaEscola.taxaAprovacao;
+
+  // Estatísticas Nacionais Reais para o Administrador Geral (coerente com as Pautas Gerais)
   const estatisticasNacionaisAproveitamento = useMemo(() => {
     if (!todasNotasConsolidadas || todasNotasConsolidadas.length === 0) {
       return {
@@ -369,28 +384,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       };
     }
 
-    const alunosMap = new Map<string, Aluno>();
-    todosAlunos.forEach(a => alunosMap.set(a.id, a));
-    const turmasMap = new Map<string, Turma>();
-    todasTurmas.forEach(t => turmasMap.set(t.id, t));
+    let somaMedias = 0;
+    let totalAvaliados = 0;
+    let totalAprovados = 0;
 
-    let somaNorm20 = 0;
-    let positivas = 0;
-    let totalLancamentos = 0;
-
-    todasNotasConsolidadas.forEach(n => {
-      const val = typeof n.notaFinal === 'number' ? n.notaFinal : (typeof (n as any).mediaTrimestral === 'number' ? (n as any).mediaTrimestral : null);
-      if (val === null || isNaN(val) || val < 0) return;
-      const al = alunosMap.get(n.alunoId);
-      const tm = turmasMap.get(n.turmaId || al?.turmaId || '');
-      const escala = obterInformacaoEscala(tm?.classe || al?.classeId);
-      const norm20 = escala.escalaMaxima === 10 ? val * 2 : val;
-      somaNorm20 += norm20;
-      if (val >= escala.notaAprovacao) positivas++;
-      totalLancamentos++;
+    todasEscolas.forEach(esc => {
+      const alunosEsc = todosAlunos.filter(a => a.escolaId === esc.id);
+      const turmasEsc = todasTurmas.filter(t => t.escolaId === esc.id);
+      const resEsc = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosEsc,
+        notasConsolidadas: todasNotasConsolidadas,
+        turmas: turmasEsc,
+        regrasMAC: regrasMACDash,
+        juris: jurisTodasDash,
+        trimestreFiltro: 'anual',
+        anoLectivo: esc.anoLectivoActivo || 'todos',
+        nppAtivo: esc.nppAtivo !== false,
+        escolaId: esc.id
+      });
+      if (resEsc.totalAvaliados > 0) {
+        totalAvaliados += resEsc.totalAvaliados;
+        totalAprovados += resEsc.aprovados;
+        somaMedias += resEsc.mediaNotas * resEsc.totalAvaliados;
+      }
     });
 
-    if (totalLancamentos === 0) {
+    if (totalAvaliados === 0) {
       return {
         mediaNacional: '—',
         taxaAprovacao: '0%',
@@ -399,16 +418,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       };
     }
 
-    const media = (somaNorm20 / totalLancamentos).toFixed(1);
-    const taxa = `${Math.round((positivas / totalLancamentos) * 100)}%`;
+    const media = (somaMedias / totalAvaliados).toFixed(1);
+    const taxa = `${Math.round((totalAprovados / totalAvaliados) * 100)}%`;
 
     return {
       mediaNacional: media,
       taxaAprovacao: taxa,
       temDados: true,
-      totalLancamentos
+      totalLancamentos: totalAvaliados
     };
-  }, [todasNotasConsolidadas, todosAlunos, todasTurmas]);
+  }, [todasEscolas, todosAlunos, todasTurmas, todasNotasConsolidadas, regrasMACDash, jurisTodasDash]);
 
   // RESUMO GERAL CONSOLIDADO DA REDE ESCOLAR (Exclusivo Administrador Geral — Todas as Escolas sem navegação individual)
   const resumoGeralRede = useMemo(() => {
@@ -459,31 +478,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         anosDaEsc.some(c => c.estado === 'Aberto')
       );
 
-      // Notas da escola (normalizadas para escala /20 para comparação justa)
-      const notasEsc = todasNotasConsolidadas.filter(
-        n => n.escolaId === esc.id || alunosIdsSet.has(n.alunoId) || turmasIdsSet.has(n.turmaId)
-      );
-      let somaEsc20 = 0;
-      let countEscNotas = 0;
-      let posEsc = 0;
-      notasEsc.forEach(n => {
-        const val = typeof n.notaFinal === 'number' ? n.notaFinal : (typeof (n as any).mediaTrimestral === 'number' ? (n as any).mediaTrimestral : null);
-        if (val === null || isNaN(val) || val < 0) return;
-        const al = alunosMap.get(n.alunoId);
-        const tm = turmasMap.get(n.turmaId || al?.turmaId || '');
-        const escala = obterInformacaoEscala(tm?.classe || al?.classeId);
-        const norm20 = escala.escalaMaxima === 10 ? val * 2 : val;
-        somaEsc20 += norm20;
-        if (val >= escala.notaAprovacao) posEsc++;
-        countEscNotas++;
+      // Notas da escola alinhadas 100% com as Pautas Gerais
+      const resEscPauta = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosEsc,
+        notasConsolidadas: todasNotasConsolidadas,
+        turmas: turmasEsc,
+        regrasMAC: regrasMACDash,
+        juris: jurisTodasDash,
+        trimestreFiltro: 'anual',
+        anoLectivo: esc.anoLectivoActivo || 'todos',
+        nppAtivo: esc.nppAtivo !== false,
+        escolaId: esc.id
       });
+      const countEscNotas = resEscPauta.totalAvaliados;
+      const posEsc = resEscPauta.aprovados;
+      const somaEsc20 = resEscPauta.mediaNotas * resEscPauta.totalAvaliados;
 
       somaNorm20Rede += somaEsc20;
       totalNotasRede += countEscNotas;
       totalPositivasRede += posEsc;
 
-      const mediaEscola20 = countEscNotas > 0 ? Number((somaEsc20 / countEscNotas).toFixed(1)) : null;
-      const taxaAprovacaoEscola = countEscNotas > 0 ? Math.round((posEsc / countEscNotas) * 100) : null;
+      const mediaEscola20 = countEscNotas > 0 ? Number(resEscPauta.mediaNotas.toFixed(1)) : null;
+      const taxaAprovacaoEscola = countEscNotas > 0 ? resEscPauta.taxaAprovacao : null;
 
       // Assiduidade da escola (Alunos + Funcionários)
       const presAlEsc = presencasAlunosAll.filter(p => p.escolaId === esc.id || turmasIdsSet.has(p.turmaId) || alunosIdsSet.has(p.alunoId));
@@ -3773,6 +3789,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {isBibliotecario && <BibliotecarioDashboard {...sharedRoleProps} />}
       {isEstagiario && <EstagiarioDashboard {...sharedRoleProps} />}
       {isTecnicoTI && <TecnicoTIDashboard {...sharedRoleProps} />}
+      {isAuxiliarLimpeza && <AuxiliarLimpezaDashboard {...sharedRoleProps} />}
 
       {/* ========================================================================= */}
       {/* 4. PAINEL DO ENCARREGADO DE EDUCAÇÃO (PORTAL DOS PAIS)                     */}

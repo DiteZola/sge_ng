@@ -88,7 +88,10 @@ const STORAGE_KEYS = {
   FINANCAS_PESSOAIS: 'sge_financas_pessoais',
   HORARIOS_PROVAS: 'sge_horarios_provas',
   MAPAS_FISCALIZACAO: 'sge_mapas_fiscalizacao',
-  ATAS_PROVAS: 'sge_atas_provas'
+  ATAS_PROVAS: 'sge_atas_provas',
+  MAPAS_FERIAS: 'sge_mapas_ferias',
+  ESTOQUE_LIMPEZA: 'sge_estoque_limpeza',
+  MOVIMENTOS_LIMPEZA: 'sge_movimentos_limpeza'
 };
 
 const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
@@ -198,6 +201,7 @@ class FirebaseSyncEngine {
   private processingQueuePromise: Promise<void> | null = null;
   private queueDirtyDuringFlush = false;
   private retryAttemptCount = 0;
+  private lastBackgroundPullTs = 0;
   private syncChannel: BroadcastChannel | null = null;
 
   constructor() {
@@ -929,17 +933,30 @@ class FirebaseSyncEngine {
       this.notificarStatus();
     });
 
-    // Retry periódico em segundo plano para garantir que nenhuma alteração local fica por subir ao Firebase
+    // Retry periódico em segundo plano: envia pendências offline e reconcilia atualizações remotas
     setInterval(() => {
-      if (this.canUseFirestore() && offlineStorage.obterTotalPendentes() > 0) {
+      if (!this.canUseFirestore()) return;
+      if (offlineStorage.obterTotalPendentes() > 0) {
         this.processarPendenciasOffline();
+      }
+      const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+      if (isAuth && Date.now() - this.lastBackgroundPullTs > 60000) {
+        this.iniciarEscutasEmTempoReal();
+        this.puxarTudoDoFirebase(false).catch(() => {});
       }
     }, 25000);
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && this.canUseFirestore() && offlineStorage.obterTotalPendentes() > 0) {
-          this.processarPendenciasOffline();
+        if (document.visibilityState === 'visible' && this.canUseFirestore()) {
+          if (offlineStorage.obterTotalPendentes() > 0) {
+            this.processarPendenciasOffline();
+          }
+          const isAuth = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
+          if (isAuth && Date.now() - this.lastBackgroundPullTs > 25000) {
+            this.iniciarEscutasEmTempoReal();
+            this.puxarTudoDoFirebase(false).catch(() => {});
+          }
         }
       });
     }
@@ -1124,11 +1141,13 @@ class FirebaseSyncEngine {
           }
         }
       }
-      if (!fromCache && remotosValidos.length > 0) {
-        if (!jaSincronizouAntes) {
+      if (!fromCache && (remotosValidos.length > 0 || jaSincronizouAntes)) {
+        if (!jaSincronizouAntes && remotosValidos.length > 0) {
           localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
         }
-        this.registrarIdsSincronizados(colecao, Array.from(mapRemote.keys()));
+        try {
+          localStorage.setItem(`sge_synced_ids_${colecao}`, JSON.stringify(Array.from(mapRemote.keys())));
+        } catch {}
       }
     }
 
@@ -1190,7 +1209,8 @@ class FirebaseSyncEngine {
             invalidateLocalCache(storageKey);
           }
 
-          if (remotos.length > 0 || removedIds.size > 0) {
+          const jaSincronizouAntes = localStorage.getItem(`sge_remote_synced_${colecao}`) === 'true';
+          if (remotos.length > 0 || removedIds.size > 0 || (!snapshot.metadata.fromCache && jaSincronizouAntes)) {
             const rawBefore = localStorage.getItem(storageKey);
             const aplicados = this.aplicarSnapshotArray(
               storageKey,
@@ -1225,20 +1245,65 @@ class FirebaseSyncEngine {
       if (!firestoreDb) return;
       try {
         const unsub = onSnapshot(collection(firestoreDb, colecao), (snapshot) => {
-          if (snapshot.empty) return;
+          const jaSincronizouAntes = localStorage.getItem(`sge_remote_synced_${colecao}`) === 'true';
+          if (snapshot.empty && (snapshot.metadata.fromCache || !jaSincronizouAntes)) return;
+
           const localMap = safeParseJson<Record<string, any>>(localStorage.getItem(storageKey), {});
           const pendentes = offlineStorage.obterPendencias().filter(p => p.entidade === colecao);
           const pendingMap = new Map(pendentes.map(p => [p.docId || p.dados?.id, p]));
           let changed = false;
 
+          // Remoções em tempo real via docChanges
+          snapshot.docChanges().forEach(change => {
+            if (change.type === 'removed') {
+              const rawRemoved = change.doc.data();
+              const mapKey = docToKeyFn ? docToKeyFn(change.doc.id, rawRemoved) : change.doc.id;
+              const pend = pendingMap.get(change.doc.id) || pendingMap.get(mapKey);
+              if (!pend || pend.acao === 'ELIMINAR') {
+                if (mapKey in localMap) {
+                  delete localMap[mapKey];
+                  changed = true;
+                }
+              }
+            }
+          });
+
+          const remoteKeys = new Set<string>();
           snapshot.forEach(d => {
             const rawData = d.data();
             const mapKey = docToKeyFn ? docToKeyFn(d.id, rawData) : d.id;
+            remoteKeys.add(mapKey);
             const pend = pendingMap.get(d.id) || pendingMap.get(mapKey);
             if (pend && pend.acao !== 'ELIMINAR') return;
-            localMap[mapKey] = unwrapFn ? unwrapFn(rawData) : rawData;
-            changed = true;
+
+            const unwrapped = unwrapFn ? unwrapFn(rawData) : rawData;
+            const localVal = localMap[mapKey];
+            const tLocal = localVal && typeof localVal === 'object' && localVal.atualizadoEm ? Date.parse(String(localVal.atualizadoEm)) : NaN;
+            const tRemote = rawData && typeof rawData === 'object' && rawData.atualizadoEm ? Date.parse(String(rawData.atualizadoEm)) : NaN;
+            if (!isNaN(tLocal) && !isNaN(tRemote) && tLocal > tRemote + 500) {
+              return;
+            }
+            if (JSON.stringify(localVal) !== JSON.stringify(unwrapped)) {
+              localMap[mapKey] = unwrapped;
+              changed = true;
+            }
           });
+
+          if (!snapshot.metadata.fromCache && jaSincronizouAntes) {
+            const prevKeys = new Set(safeParseJson<string[]>(localStorage.getItem(`sge_synced_map_keys_${colecao}`), []));
+            for (const k of Object.keys(localMap)) {
+              if (!remoteKeys.has(k) && prevKeys.has(k)) {
+                const pend = pendingMap.get(k);
+                if (!pend || pend.acao === 'ELIMINAR') {
+                  delete localMap[k];
+                  changed = true;
+                }
+              }
+            }
+            try {
+              localStorage.setItem(`sge_synced_map_keys_${colecao}`, JSON.stringify(Array.from(remoteKeys)));
+            } catch {}
+          }
 
           if (changed) {
             try {
@@ -1246,7 +1311,9 @@ class FirebaseSyncEngine {
               localStorage.setItem(storageKey, serMap);
               offlineStorage.gravarChaveNoIndexedDB(storageKey, serMap);
               invalidateLocalCache(storageKey);
-              localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+              if (!snapshot.empty) {
+                localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
+              }
             } catch {}
             this.agendarNotificacaoRemota();
           }
@@ -1455,6 +1522,9 @@ class FirebaseSyncEngine {
       registrarEscutaArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, (h) => Boolean(h && h.id));
       registrarEscutaArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, (m) => Boolean(m && m.id));
       registrarEscutaArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, (a) => Boolean(a && a.id));
+      registrarEscutaArray<any>("mapas_ferias", STORAGE_KEYS.MAPAS_FERIAS, (f) => Boolean(f && f.id));
+      registrarEscutaArray<any>("estoque_limpeza", STORAGE_KEYS.ESTOQUE_LIMPEZA, (m) => Boolean(m && m.id));
+      registrarEscutaArray<any>("movimentos_estoque_limpeza", STORAGE_KEYS.MOVIMENTOS_LIMPEZA, (mv) => Boolean(mv && mv.id));
 
       registrarEscutaMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId);
       registrarEscutaMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId);
@@ -1844,7 +1914,7 @@ class FirebaseSyncEngine {
     }
   ): Promise<T[]> {
     if (!firestoreDb) return [];
-    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), options?.timeoutMs ?? 3500);
+    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), options?.timeoutMs ?? 6500);
     if (snapRes === FIRESTORE_TIMEOUT_TOKEN) {
       return safeParseJson<T[]>(localStorage.getItem(storageKey), []);
     }
@@ -1859,8 +1929,9 @@ class FirebaseSyncEngine {
 
     const getId = options?.getIdFn || ((i: T) => i.id);
     const deveSubirLocais = options?.uploadLocalIfRemoteEmpty !== false;
+    const jaSincronizouAntes = localStorage.getItem(`sge_remote_synced_${colecao}`) === 'true';
 
-    if (remotos.length > 0) {
+    if (remotos.length > 0 || (!snap.metadata.fromCache && jaSincronizouAntes)) {
       let itensParaSubir: T[] = [];
       const aplicados = this.aplicarSnapshotArray(
         storageKey,
@@ -1885,8 +1956,16 @@ class FirebaseSyncEngine {
       return aplicados;
     } else if (deveSubirLocais) {
       const locais = safeParseJson<T[]>(localStorage.getItem(storageKey), []);
-      const validos = options?.filterValid ? locais.filter(options.filterValid) : locais;
-      if (validos.length > 0) {
+      const pendentesDel = new Set(
+        offlineStorage.obterPendencias()
+          .filter(p => p.entidade === colecao && p.acao === 'ELIMINAR')
+          .map(p => p.docId || p.dados?.id)
+          .filter(Boolean)
+      );
+      const validos = (options?.filterValid ? locais.filter(options.filterValid) : locais).filter(
+        v => !pendentesDel.has(getId(v))
+      );
+      if (validos.length > 0 && !snap.metadata.fromCache) {
         const lote = validos
           .map(v => ({ id: getId(v), dados: v }))
           .filter(entry => Boolean(entry.id));
@@ -1910,13 +1989,16 @@ class FirebaseSyncEngine {
     wrapForUploadFn?: (k: string, val: any) => Record<string, any>
   ): Promise<void> {
     if (!firestoreDb) return;
-    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), 3500);
+    const snapRes = await withTimeout(getDocs(collection(firestoreDb, colecao)), 6500);
     if (snapRes === FIRESTORE_TIMEOUT_TOKEN) return;
     const snap = snapRes;
     const localMap = safeParseJson<Record<string, any>>(localStorage.getItem(storageKey), {});
     const pendentes = offlineStorage.obterPendencias().filter(p => p.entidade === colecao);
     const pendingMap = new Map(pendentes.map(p => [p.docId || p.dados?.id, p]));
+    const jaSincronizouAntes = localStorage.getItem(`sge_remote_synced_${colecao}`) === 'true';
+    const previouslySyncedKeys = new Set(safeParseJson<string[]>(localStorage.getItem(`sge_synced_map_keys_${colecao}`), []));
     const remoteKeys = new Set<string>();
+    const missingButUnsynced: Array<[string, any]> = [];
 
     snap.forEach(d => {
       const rawData = d.data();
@@ -1924,28 +2006,53 @@ class FirebaseSyncEngine {
       remoteKeys.add(mapKey);
       const pend = pendingMap.get(d.id) || pendingMap.get(mapKey);
       if (pend && pend.acao !== 'ELIMINAR') return; // preserva alteração local pendente
-      localMap[mapKey] = unwrapFn ? unwrapFn(rawData) : rawData;
+      const unwrapped = unwrapFn ? unwrapFn(rawData) : rawData;
+      const localVal = localMap[mapKey];
+      const tLocal = localVal && typeof localVal === 'object' && localVal.atualizadoEm ? Date.parse(String(localVal.atualizadoEm)) : NaN;
+      const tRemote = rawData && typeof rawData === 'object' && rawData.atualizadoEm ? Date.parse(String(rawData.atualizadoEm)) : NaN;
+      if (!isNaN(tLocal) && !isNaN(tRemote) && tLocal > tRemote + 500) {
+        missingButUnsynced.push([mapKey, localVal]);
+        return;
+      }
+      localMap[mapKey] = unwrapped;
     });
 
-    // Subir chaves que só existem localmente no dispositivo e ainda não estão no Firestore
     if (!snap.metadata.fromCache) {
-      const faltandoNoFirebase = Object.entries(localMap).filter(([k]) => !remoteKeys.has(k));
-      if (faltandoNoFirebase.length > 0) {
-        const lote = faltandoNoFirebase.map(([k, v]) => ({
+      for (const [k, v] of Object.entries(localMap)) {
+        if (!remoteKeys.has(k)) {
+          const pend = pendingMap.get(k);
+          const removidoRemotamente = jaSincronizouAntes && previouslySyncedKeys.has(k) && (!pend || pend.acao === 'ELIMINAR');
+          if (removidoRemotamente) {
+            delete localMap[k];
+          } else if (!pend || pend.acao !== 'ELIMINAR') {
+            missingButUnsynced.push([k, v]);
+          }
+        }
+      }
+
+      if (missingButUnsynced.length > 0) {
+        const lote = missingButUnsynced.map(([k, v]) => ({
           id: k,
           dados: wrapForUploadFn ? wrapForUploadFn(k, v) : (typeof v === 'object' && v !== null ? { ...v, id: v.id || k } : { id: k, valor: v })
         }));
         await this.gravarLoteDireto(colecao, lote);
+        lote.forEach(item => remoteKeys.add(item.id));
       }
+
+      try {
+        localStorage.setItem(`sge_synced_map_keys_${colecao}`, JSON.stringify(Array.from(remoteKeys)));
+      } catch {}
     }
 
-    if (Object.keys(localMap).length > 0) {
+    if (Object.keys(localMap).length > 0 || jaSincronizouAntes) {
       try {
         const serMap = JSON.stringify(localMap);
-        localStorage.setItem(storageKey, serMap);
-        offlineStorage.gravarChaveNoIndexedDB(storageKey, serMap);
-        invalidateLocalCache(storageKey);
-        if (!snap.empty) {
+        if (localStorage.getItem(storageKey) !== serMap) {
+          localStorage.setItem(storageKey, serMap);
+          offlineStorage.gravarChaveNoIndexedDB(storageKey, serMap);
+          invalidateLocalCache(storageKey);
+        }
+        if (!snap.empty && !snap.metadata.fromCache) {
           localStorage.setItem(`sge_remote_synced_${colecao}`, 'true');
         }
       } catch {}
@@ -2079,18 +2186,20 @@ class FirebaseSyncEngine {
         await Promise.allSettled([
           this.puxarColecaoArray<Turma>("turmas", STORAGE_KEYS.TURMAS, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("disciplinas", STORAGE_KEYS.DISCIPLINAS, { filterValid: (d) => Boolean(d && d.id), uploadLocalIfRemoteEmpty: true }),
-          this.puxarColecaoArray<Aluno>("alunos", STORAGE_KEYS.ALUNOS, { filterValid: (a) => Boolean(a && a.id && !isDemoAluno(a)), uploadLocalIfRemoteEmpty: true }),
+          this.puxarColecaoArray<Aluno>("alunos", STORAGE_KEYS.ALUNOS, { filterValid: (a) => Boolean(a && a.id && !isDemoAluno(a)), uploadLocalIfRemoteEmpty: true, timeoutMs: 8500 }),
           this.puxarColecaoArray<any>("atribuicoes", STORAGE_KEYS.ATRIBUICOES, { filterValid: (at) => Boolean(at && at.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("avaliacoes", STORAGE_KEYS.AVALIACOES, { filterValid: (av) => Boolean(av && av.id), uploadLocalIfRemoteEmpty: true }),
           this.puxarColecaoArray<any>("notas", STORAGE_KEYS.NOTAS_CONSOLIDADAS, {
             filterValid: (n) => Boolean(n && (n.id || n.alunoId)),
             getIdFn: (n) => n.id || `${n.alunoId}_${n.disciplinaId}_${n.trimestre}_${n.anoLectivo || 'padrao'}`,
-            uploadLocalIfRemoteEmpty: true
+            uploadLocalIfRemoteEmpty: true,
+            timeoutMs: 8500
           }),
           this.puxarColecaoArray<any>("notas_estudantes", STORAGE_KEYS.NOTAS, {
             filterValid: (n) => Boolean(n && (n.id || n.avaliacaoId)),
             getIdFn: (n) => n.id || `${n.avaliacaoId}_${n.alunoId}`,
-            uploadLocalIfRemoteEmpty: true
+            uploadLocalIfRemoteEmpty: true,
+            timeoutMs: 8500
           }),
           this.puxarColecaoArray<any>("anos_lectivos_configs", STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, { filterValid: (c) => Boolean(c && c.id) }),
           (async () => {
@@ -2114,6 +2223,7 @@ class FirebaseSyncEngine {
         ]);
 
         // Sistema 100% operacional imediatamente após Onda 2; Onda 3 sincroniza em segundo plano sem bloquear o arranque
+        this.lastBackgroundPullTs = Date.now();
         this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
         this.emSincronizacao = false;
         this.atualizarProgresso(100, 'Sistema pronto! A concluir módulos complementares em segundo plano...');
@@ -2155,6 +2265,9 @@ class FirebaseSyncEngine {
             this.puxarColecaoArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, { filterValid: (h) => Boolean(h && h.id), uploadLocalIfRemoteEmpty: true }),
             this.puxarColecaoArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
             this.puxarColecaoArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("mapas_ferias", STORAGE_KEYS.MAPAS_FERIAS, { filterValid: (f) => Boolean(f && f.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("estoque_limpeza", STORAGE_KEYS.ESTOQUE_LIMPEZA, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+            this.puxarColecaoArray<any>("movimentos_estoque_limpeza", STORAGE_KEYS.MOVIMENTOS_LIMPEZA, { filterValid: (mv) => Boolean(mv && mv.id), uploadLocalIfRemoteEmpty: true }),
             this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
             this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
             this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
@@ -2308,6 +2421,12 @@ class FirebaseSyncEngine {
             uploadArray(STORAGE_KEYS.TIPOS_COORDENACAO, "tipos_coordenacao"),
             uploadArray(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, "relatorios_pedagogicos"),
             uploadArray(STORAGE_KEYS.PLANOS_ATIVIDADES, "planos_atividades"),
+            uploadArray(STORAGE_KEYS.HORARIOS_PROVAS, "horarios_provas"),
+            uploadArray(STORAGE_KEYS.MAPAS_FISCALIZACAO, "mapas_fiscalizacao"),
+            uploadArray(STORAGE_KEYS.ATAS_PROVAS, "atas_provas"),
+            uploadArray(STORAGE_KEYS.MAPAS_FERIAS, "mapas_ferias"),
+            uploadArray(STORAGE_KEYS.ESTOQUE_LIMPEZA, "estoque_limpeza"),
+            uploadArray(STORAGE_KEYS.MOVIMENTOS_LIMPEZA, "movimentos_estoque_limpeza"),
             uploadArray(STORAGE_KEYS.DELEGACOES_PODERES, "delegacoes_poderes"),
             uploadArray(STORAGE_KEYS.ACOES_DELEGADAS_LOGS, "acoes_delegadas_logs"),
             uploadArray(STORAGE_KEYS.AUDITORIA, "auditoria"),
@@ -3433,6 +3552,30 @@ class FirebaseSyncEngine {
 
   public async eliminarAtaProva(id: string): Promise<boolean> {
     return this.eliminarDocumentoDireto("atas_provas", id, undefined, `Eliminação de ata de prova ${id}`);
+  }
+
+  public async salvarMapaFerias(item: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("mapas_ferias", item.id, item, undefined, `Mapa de Férias ${item.funcionarioNome || item.id}`);
+  }
+
+  public async eliminarMapaFerias(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("mapas_ferias", id, undefined, `Eliminação de férias ${id}`);
+  }
+
+  public async salvarMaterialLimpeza(item: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("estoque_limpeza", item.id, item, undefined, `Material de Limpeza ${item.nome || item.id}`);
+  }
+
+  public async eliminarMaterialLimpeza(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("estoque_limpeza", id, undefined, `Eliminação de material de limpeza ${id}`);
+  }
+
+  public async salvarMovimentoLimpeza(mov: any): Promise<boolean> {
+    return this.gravarDocumentoDireto("movimentos_estoque_limpeza", mov.id, mov, undefined, `Movimento Limpeza ${mov.materialNome || mov.id}`);
+  }
+
+  public async eliminarMovimentoLimpeza(id: string): Promise<boolean> {
+    return this.eliminarDocumentoDireto("movimentos_estoque_limpeza", id, undefined, `Eliminação de movimento de limpeza ${id}`);
   }
 
   public async eliminarDadosAnoLectivoCascata(

@@ -457,7 +457,10 @@ export function aplicarNotasAdministrativas(params: {
   const trimStr = String(trimestre) as Trimestre;
   const anoLectivo = turma.anoLectivo || escola.anoLectivoActivo || '';
   const escalaMaxima = obterEscalaMaximaPorNivel(turma.nivelEnsino, turma.classe);
-  const provaProfessorAtiva = Boolean(escola.nppAtivo);
+  const provaProfessorAtiva = escola.nppAtivo !== false;
+  if (alvoTipo === 'NPP' && !provaProfessorAtiva) {
+    return { aplicadasCount: 0 };
+  }
   const ehClasseFinal = isClasseFinal(turma.classe, regraVigente);
   const agoraIso = new Date().toISOString();
   const dataHoje = agoraIso.split('T')[0];
@@ -580,7 +583,7 @@ export function aplicarNotasAdministrativas(params: {
           : notaFinalItem
         : existente?.mac ?? resMac.macCalculada;
 
-    const nppVal = alvoTipo === 'NPP' ? notaFinalItem : existente?.npp;
+    const nppVal = provaProfessorAtiva ? (alvoTipo === 'NPP' ? notaFinalItem : existente?.npp) : undefined;
     const existentePt = existente
       ? (typeof existente.npt === 'number'
           ? existente.npt

@@ -30,7 +30,12 @@ import {
   FileCheck2,
   ClipboardList,
   Send,
-  CalendarCheck
+  CalendarCheck,
+  Sparkles,
+  CalendarDays,
+  PackageCheck,
+  ArrowDownCircle,
+  ArrowUpCircle
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -763,6 +768,26 @@ export const SubdiretorAdministrativoDashboard: React.FC<SharedRoleDashboardProp
               >
                 <CalendarCheck className="h-4 w-4 text-amber-700 dark:text-amber-400 shrink-0" />
                 <span>Plano de Atividades</span>
+              </button>
+            )}
+            {podeVerModulo('estoque_limpeza') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('estoque_limpeza')}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <PackageCheck className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <span>Estoque de Limpeza</span>
+              </button>
+            )}
+            {podeVerModulo('mapa_ferias') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('mapa_ferias')}
+                className="px-3.5 py-2 text-xs font-bold text-purple-900 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarDays className="h-4 w-4 text-purple-700 dark:text-purple-400 shrink-0" />
+                <span>Mapa de Férias</span>
               </button>
             )}
           </>
@@ -2377,6 +2402,221 @@ export const TecnicoTIDashboard: React.FC<SharedRoleDashboardProps> = ({
             </div>
           </div>
         )}
+
+        <RecentNoticesCard mensagens={mensagens} onNavigateComunicacao={() => onNavigate('comunicacao')} />
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// 11. PAINEL DO AUXILIAR DE LIMPEZA
+// ============================================================================
+export const AuxiliarLimpezaDashboard: React.FC<SharedRoleDashboardProps> = ({
+  escola,
+  currentUser,
+  mensagens,
+  configSistema,
+  onNavigate
+}) => {
+  const vis = useMemo(() => dbService.getVisibilidadeEfetivaUsuario(currentUser, escola), [currentUser, escola]);
+  const podeVerModulo = (tabId: string) => vis.irrestrito || !vis.modulosBloqueados.has(tabId);
+
+  const materiais = useMemo(() => dbService.getMateriaisLimpeza(escola.id), [escola.id]);
+  const movimentos = useMemo(
+    () => dbService.getMovimentosLimpeza(escola.id).slice(0, 6),
+    [escola.id]
+  );
+  const minhasFerias = useMemo(
+    () =>
+      dbService
+        .getMapasFerias(escola.id)
+        .filter((f) => f.funcionarioId === currentUser.id && f.estado !== 'Cancelada')
+        .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio)),
+    [escola.id, currentUser.id]
+  );
+
+  const totalMateriais = materiais.length;
+  const totalUnidades = materiais.reduce((acc, m) => acc + Number(m.quantidadeAtual || 0), 0);
+  const materiaisAlerta = materiais.filter(
+    (m) => Number(m.quantidadeAtual || 0) <= Number(m.quantidadeMinima || 0)
+  );
+  const proximaFerias = minhasFerias[0];
+
+  return (
+    <div className="space-y-5">
+      <RoleHeaderCard
+        badge={currentUser.cargo || 'Auxiliar de Limpeza'}
+        badgeClass="bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 border-teal-200 dark:border-teal-800"
+        title={`Higiene, Manutenção & Estoque de Limpeza · ${escola.nomeOficial}`}
+        subtitle="Consulte e movimente o estoque de materiais de limpeza, verifique alertas de reposição, acompanhe o seu mapa de férias e comunicados internos."
+        configSistema={configSistema}
+        escola={escola}
+        actions={
+          <>
+            {podeVerModulo('estoque_limpeza') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('estoque_limpeza')}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <PackageCheck className="h-4 w-4 shrink-0" />
+                <span>Movimentar Estoque</span>
+              </button>
+            )}
+            {podeVerModulo('mapa_ferias') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('mapa_ferias')}
+                className="px-3.5 py-2 text-xs font-bold text-purple-900 dark:text-purple-200 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <CalendarDays className="h-4 w-4 shrink-0" />
+                <span>Mapa de Férias</span>
+              </button>
+            )}
+            {podeVerModulo('calendario_escolar') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('calendario_escolar')}
+                className="px-3.5 py-2 text-xs font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                <span>Calendário Escolar</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onNavigate('minhas_financas')}
+              className="px-3.5 py-2 text-xs font-bold text-emerald-900 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Wallet className="h-4 w-4 shrink-0" />
+              <span>Minhas Finanças</span>
+            </button>
+          </>
+        }
+      />
+
+      {/* 4 Indicadores Principais */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+            <span>Itens no Catálogo</span>
+            <Sparkles className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+          </div>
+          <p className="text-2xl font-black text-slate-900 dark:text-white mt-1.5">{totalMateriais}</p>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">Materiais de limpeza registados</span>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+            <span>Unidades Disponíveis</span>
+            <PackageCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-1.5">{totalUnidades}</p>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">Stock físico atual na escola</span>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+            <span>Alertas de Stock</span>
+            <AlertTriangle className={`h-4 w-4 ${materiaisAlerta.length > 0 ? 'text-rose-600' : 'text-emerald-600'}`} />
+          </div>
+          <p className={`text-2xl font-black mt-1.5 ${materiaisAlerta.length > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+            {materiaisAlerta.length}
+          </p>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            {materiaisAlerta.length > 0 ? 'Abaixo ou no stock mínimo' : 'Todos os níveis normais'}
+          </span>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+            <span>As Minhas Férias</span>
+            <CalendarDays className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+          </div>
+          <p className="text-lg font-black text-purple-800 dark:text-purple-300 mt-1.5 truncate">
+            {proximaFerias
+              ? `${proximaFerias.dataInicio.split('-').reverse().join('/')} → ${proximaFerias.dataFim.split('-').reverse().join('/')}`
+              : 'Sem escala definida'}
+          </p>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            {proximaFerias ? `Estado: ${proximaFerias.estado.replace('_', ' ')}` : 'Consulte o Mapa de Férias'}
+          </span>
+        </div>
+      </div>
+
+      {/* Painéis Inferiores */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <PackageCheck className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+              <span>Últimas Movimentações & Materiais em Atenção</span>
+            </h3>
+            {podeVerModulo('estoque_limpeza') && (
+              <button
+                type="button"
+                onClick={() => onNavigate('estoque_limpeza')}
+                className="text-xs font-bold text-teal-700 dark:text-teal-400 hover:underline cursor-pointer"
+              >
+                Abrir Estoque →
+              </button>
+            )}
+          </div>
+
+          {materiaisAlerta.length > 0 && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 space-y-1.5">
+              <p className="text-xs font-bold text-rose-800 dark:text-rose-200 flex items-center space-x-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span>Materiais a necessitar reposição:</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {materiaisAlerta.slice(0, 6).map((m) => (
+                  <span
+                    key={m.id}
+                    className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-700 text-[11px] font-bold text-rose-800 dark:text-rose-200"
+                  >
+                    {m.nome}: {m.quantidadeAtual} {m.unidade}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {movimentos.length === 0 ? (
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/60 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg text-center text-xs text-slate-500 dark:text-slate-400">
+              Ainda não foram registadas movimentações no estoque de limpeza.
+            </div>
+          ) : (
+            <div className="space-y-2 text-xs">
+              {movimentos.map((mov) => (
+                <div
+                  key={mov.id}
+                  className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center space-x-2 min-w-0">
+                    {mov.tipo === 'Entrada' ? (
+                      <ArrowDownCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <ArrowUpCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {mov.materialNome} · {mov.tipo} ({mov.quantidade} {mov.unidade})
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        Por: {mov.responsavelNome} {mov.motivo ? `· ${mov.motivo}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 shrink-0">
+                    {mov.data.split('-').reverse().join('/')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <RecentNoticesCard mensagens={mensagens} onNavigateComunicacao={() => onNavigate('comunicacao')} />
       </div>

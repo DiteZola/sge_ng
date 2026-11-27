@@ -164,6 +164,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
   // Notificações
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [erroModalFuncionario, setErroModalFuncionario] = useState<string | null>(null);
   const emitirFeedback = (msg: string) => {
     setFeedback(msg);
     setTimeout(() => setFeedback(null), 4000);
@@ -290,6 +291,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   };
 
   const abrirModalNovoFuncionario = () => {
+    setErroModalFuncionario(null);
     setEditingFuncionarioId(null);
     setNomeCompleto('');
     setNumeroBI('');
@@ -345,6 +347,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
   };
 
   const abrirModalEditarFuncionario = (func: Funcionario) => {
+    setErroModalFuncionario(null);
     setEditingFuncionarioId(func.id);
     setNomeCompleto(func.nomeCompleto || '');
     setNumeroBI(func.numeroBI || func.bi || func.numeroDocumento || '');
@@ -401,7 +404,50 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
   const handleCreateFuncionario = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nomeCompleto.trim() || !cargo.trim() || !email.trim()) return;
+    setErroModalFuncionario(null);
+    if (!nomeCompleto.trim() || !cargo.trim() || !email.trim()) {
+      setErroModalFuncionario('Por favor, preencha os campos obrigatórios: Nome Completo, Cargo e Email Institucional.');
+      return;
+    }
+
+    const normTxt = (v?: string) =>
+      String(v || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    const normDoc = (v?: string) => String(v || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const normDigits = (v?: string) => String(v || '').replace(/\D/g, '');
+
+    const docNovo = normDoc(numeroBI);
+    const emailNovo = email.trim().toLowerCase();
+    const telNovo = normDigits(telefone);
+    const mecNovo = normTxt(numeroMecanografico);
+    const nomeNovo = normTxt(nomeCompleto);
+    const nascNovo = String(dataNascimento || '').trim();
+
+    const duplicadoFunc = funcionariosDaEscola.find(f => {
+      if (editingFuncionarioId && f.id === editingFuncionarioId) return false;
+      const fDoc = normDoc(f.numeroDocumento || f.numeroBI || f.bi);
+      if (docNovo && fDoc && docNovo === fDoc) return true;
+      if (emailNovo && (f.email || '').trim().toLowerCase() === emailNovo) return true;
+      const fMec = normTxt(f.numeroAgente || (f as any).numeroMecanografico);
+      if (mecNovo && fMec && mecNovo === fMec) return true;
+      const fTel = normDigits(f.telefone);
+      if (telNovo.length >= 7 && fTel.length >= 7 && telNovo === fTel) return true;
+      if (normTxt(f.nomeCompleto) === nomeNovo && nascNovo && String(f.dataNascimento || '').trim() === nascNovo) {
+        return true;
+      }
+      return false;
+    });
+
+    if (duplicadoFunc) {
+      setErroModalFuncionario(
+        `Já existe um funcionário cadastrado com dados idênticos (${duplicadoFunc.nomeCompleto} • ${duplicadoFunc.cargo || 'Colaborador'} • ${duplicadoFunc.email}). Verifique o Nº de BI, Email, Telefone, Nº Mecanográfico ou Data de Nascimento.`
+      );
+      return;
+    }
 
     const funcExistente = editingFuncionarioId ? funcionarios.find(f => f.id === editingFuncionarioId) : null;
 
@@ -1177,15 +1223,81 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => setShowModalPdfPresencas(true)}
-                    className="flex items-center space-x-1.5 px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
-                    title="Baixar Folha de Assiduidade / Livro de Ponto em formato PDF institucional"
-                  >
-                    <Printer className="h-3.5 w-3.5" />
-                    <span>Baixar Livro de Ponto (PDF)</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowModalPdfPresencas(true)}
+                      className="flex items-center space-x-1.5 px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                      title="Baixar Folha de Assiduidade / Livro de Ponto em formato PDF institucional"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      <span>Baixar Livro de Ponto (PDF)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const listaBase = filteredFuncionarios.filter(f => {
+                          if (categoriaPontoFiltro === 'docentes') return f.ehProfessor || f.ehAdministrativoQueLeciona || f.role === 'Professor';
+                          if (categoriaPontoFiltro === 'administrativos') return !f.ehProfessor && f.role !== 'Professor';
+                          return true;
+                        });
+                        const rows = listaBase.map((func, idx) => {
+                          const numAgente = func.numeroAgente || (func as any).numeroMecanografico || '—';
+                          if (tipoPeriodoPonto === 'intervalo') {
+                            const regs = assiduidade.filter(
+                              a => a.funcionarioId === func.id && a.data >= dataSelecionada && a.data <= dataFimSelecionada
+                            );
+                            const pres = regs.filter(r => r.estado === 'Presente').length;
+                            const fj = regs.filter(r => r.estado === 'Falta_Justificada').length;
+                            const fi = regs.filter(r => r.estado === 'Falta_Injustificada').length;
+                            const totalRegs = pres + fj + fi;
+                            const assidPercent = totalRegs > 0 ? Math.round((pres / totalRegs) * 100) : 100;
+                            return {
+                              'Nº': idx + 1,
+                              'Nº de Agente': numAgente,
+                              'Nome Completo': func.nomeCompleto,
+                              'Cargo / Função': func.cargo || func.role,
+                              'Nº do B.I.': func.numeroBI || '—',
+                              'Presenças': pres,
+                              'Faltas Justificadas': fj,
+                              'Faltas Injustificadas': fi,
+                              '% Assiduidade': `${assidPercent}%`
+                            };
+                          }
+                          const regHoje = assiduidade.find(a => a.funcionarioId === func.id && a.data === dataSelecionada);
+                          const estadoTxt = regHoje?.estado === 'Presente'
+                            ? 'Presente'
+                            : regHoje?.estado === 'Falta_Justificada'
+                              ? 'Falta Justificada'
+                              : regHoje?.estado === 'Falta_Injustificada'
+                                ? 'Falta Injustificada'
+                                : 'Por Marcar';
+                          return {
+                            'Nº': idx + 1,
+                            'Nº de Agente': numAgente,
+                            'Nome Completo': func.nomeCompleto,
+                            'Cargo / Função': func.cargo || func.role,
+                            'Nº do B.I.': func.numeroBI || '—',
+                            'Data': dataSelecionada,
+                            'Estado / Assiduidade': estadoTxt,
+                            'Justificativa': regHoje?.justificativa || ''
+                          };
+                        });
+                        const wb = XLSX.utils.book_new();
+                        const ws = XLSX.utils.json_to_sheet(rows);
+                        XLSX.utils.book_append_sheet(wb, ws, 'Faltas_Funcionarios');
+                        const sufixo = tipoPeriodoPonto === 'intervalo' ? `${dataSelecionada}_a_${dataFimSelecionada}` : dataSelecionada;
+                        XLSX.writeFile(wb, `Relatorio_Faltas_Funcionarios_${sufixo}.xlsx`);
+                        emitirFeedback('Relatório de faltas dos funcionários exportado em Excel com Nº de Agente.');
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                      title="Exportar Relatório de Faltas em Excel com Nº de Agente"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      <span>Exportar Faltas (Excel)</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1273,6 +1385,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-gray-100 text-gray-700 font-semibold border-b border-gray-200">
                   <tr>
+                    <th className="p-3">Nº de Agente</th>
                     <th className="p-3">Funcionário</th>
                     <th className="p-3">Cargo / Função</th>
                     <th className="p-3">Telefone</th>
@@ -1293,6 +1406,9 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
 
                     return (
                       <tr key={`${func.id}-${func.escolaId || ''}-${func.numeroBI || ''}`} className="hover:bg-gray-50/70">
+                        <td className="p-3 font-mono font-bold text-indigo-800">
+                          {func.numeroAgente || (func as any).numeroMecanografico || '—'}
+                        </td>
                         <td className="p-3 font-bold text-gray-900 flex items-center space-x-2.5">
                           {func.fotoUrl && func.fotoUrl.trim() !== '' ? (
                             <img src={func.fotoUrl} alt={func.nomeCompleto} className="h-7 w-7 rounded-full object-cover border shrink-0" />
@@ -1427,6 +1543,18 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
             </div>
 
             <form onSubmit={handleCreateFuncionario} className="space-y-5 text-xs">
+              {erroModalFuncionario && (
+                <div className="p-3 bg-red-50 border border-red-300 text-red-900 rounded-xl text-xs font-bold flex items-center justify-between gap-2">
+                  <span>{erroModalFuncionario}</span>
+                  <button
+                    type="button"
+                    onClick={() => setErroModalFuncionario(null)}
+                    className="text-red-700 hover:text-red-950 font-black px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               {/* FOTOGRAFIA OFICIAL TIPO PASSE */}
               <div className="bg-gray-50/80 p-4 rounded-xl border border-gray-200">
                 <label className="font-bold text-gray-800 block mb-2">Fotografia Oficial do Funcionário (Tipo Passe)</label>
@@ -1829,6 +1957,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                       <option value="Bibliotecario">Bibliotecário (Biblioteca Escolar & Gestão do Acervo)</option>
                       <option value="TecnicoTI">Técnico de Informática (Suporte Técnico, Backups & Segurança TI)</option>
                       <option value="Estagiario">Estagiário (Apoio Pedagógico & Administrativo sob Delegação)</option>
+                      <option value="AuxiliarLimpeza">Auxiliar de Limpeza (Higiene, Manutenção & Estoque de Limpeza)</option>
                       <option value="DiretorGeral">Diretor Geral (Direção Executiva Institucional)</option>
                     </select>
                   </div>
@@ -2702,6 +2831,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     <thead>
                       <tr className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 uppercase text-[10px]">
                         <th className="p-2 border border-gray-300 w-8 text-center">N.º</th>
+                        <th className="p-2 border border-gray-300 w-24">N.º Agente</th>
                         <th className="p-2 border border-gray-300">Nome Completo do Funcionário</th>
                         <th className="p-2 border border-gray-300">Cargo / Função</th>
                         <th className="p-2 border border-gray-300 w-24">N.º do B.I.</th>
@@ -2726,6 +2856,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                         return (
                           <tr key={`print-func-int-${func.id}`} className={index % 2 === 1 ? 'bg-gray-50/50' : 'bg-white'}>
                             <td className="p-2 border border-gray-300 text-center font-bold">{index + 1}</td>
+                            <td className="p-2 border border-gray-300 font-mono text-[10px] font-bold text-gray-800">{func.numeroAgente || (func as any).numeroMecanografico || '—'}</td>
                             <td className="p-2 border border-gray-300 font-bold text-gray-900">{func.nomeCompleto}</td>
                             <td className="p-2 border border-gray-300 text-gray-700">
                               {func.cargo}
@@ -2753,6 +2884,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                     <thead>
                       <tr className="bg-gray-100 text-gray-900 font-bold border-b border-gray-300 uppercase text-[10px]">
                         <th className="p-2 border border-gray-300 w-10 text-center">N.º</th>
+                        <th className="p-2 border border-gray-300 w-24">N.º Agente</th>
                         <th className="p-2 border border-gray-300">Nome Completo do Funcionário</th>
                         <th className="p-2 border border-gray-300">Cargo / Função</th>
                         <th className="p-2 border border-gray-300 w-28">N.º do B.I.</th>
@@ -2769,6 +2901,7 @@ export const HumanResourcesView: React.FC<HumanResourcesViewProps> = ({
                         return (
                           <tr key={`print-func-${func.id}`} className={index % 2 === 1 ? 'bg-gray-50/50' : 'bg-white'}>
                             <td className="p-2 border border-gray-300 text-center font-bold">{index + 1}</td>
+                            <td className="p-2 border border-gray-300 font-mono text-[10px] font-bold text-gray-800">{func.numeroAgente || (func as any).numeroMecanografico || '—'}</td>
                             <td className="p-2 border border-gray-300 font-bold text-gray-900">{func.nomeCompleto}</td>
                             <td className="p-2 border border-gray-300 text-gray-700">
                               {func.cargo}

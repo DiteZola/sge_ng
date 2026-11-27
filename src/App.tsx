@@ -165,6 +165,8 @@ const StatisticsView = lazyResilient(() => import('./components/StatisticsView')
 const GuidedTourModal = lazyResilient(() => import('./components/GuidedTourModal').then(m => ({ default: m.GuidedTourModal })), 'Guia do Sistema');
 const MinhasFinancasView = lazyResilient(() => import('./components/MinhasFinancasView').then(m => ({ default: m.MinhasFinancasView })), 'Minhas Finanças');
 const ProvasFiscalizacaoView = lazyResilient(() => import('./components/ProvasFiscalizacaoView').then(m => ({ default: m.ProvasFiscalizacaoView })), 'Provas e Fiscalização');
+const CleaningStockView = lazyResilient(() => import('./components/CleaningStockView').then(m => ({ default: m.CleaningStockView })), 'Estoque de Limpeza');
+const VacationMapView = lazyResilient(() => import('./components/VacationMapView').then(m => ({ default: m.VacationMapView })), 'Mapa de Férias');
 
 export default function App() {
   const { isDark } = useTheme();
@@ -690,6 +692,8 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'patrimonio',
+      'estoque_limpeza',
+      'mapa_ferias',
       'usuarios_perfis',
       'configuracoes',
       'auditoria_logs',
@@ -740,6 +744,8 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'patrimonio',
+      'estoque_limpeza',
+      'mapa_ferias',
       'usuarios_perfis',
       'configuracoes',
       'auditoria_logs',
@@ -852,6 +858,8 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'patrimonio',
+      'estoque_limpeza',
+      'mapa_ferias',
       'meu_perfil',
       'estudantes',
       'financeiro',
@@ -879,6 +887,8 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'patrimonio',
+      'estoque_limpeza',
+      'mapa_ferias',
       'meu_perfil',
       'estudantes',
       'financeiro',
@@ -933,6 +943,7 @@ export default function App() {
       'pagamentos',
       'minhas_financas',
       'biblioteca',
+      'mapa_ferias',
       'meu_perfil',
       'academico',
       'estudantes',
@@ -966,6 +977,7 @@ export default function App() {
       'relatorios_financeiros',
       'minhas_financas',
       'biblioteca',
+      'mapa_ferias',
       'usuarios_perfis',
       'auditoria_logs',
       'meu_perfil',
@@ -1000,6 +1012,7 @@ export default function App() {
       'pagamentos',
       'minhas_financas',
       'biblioteca',
+      'mapa_ferias',
       'meu_perfil',
       'academico',
       'estudantes',
@@ -1066,6 +1079,7 @@ export default function App() {
       'relatorios_financeiros',
       'minhas_financas',
       'biblioteca',
+      'mapa_ferias',
       'usuarios_perfis',
       'meu_perfil',
       'comunicacao',
@@ -1100,6 +1114,7 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'patrimonio',
+      'mapa_ferias',
       'meu_perfil',
       'comunicacao'
     ],
@@ -1109,6 +1124,7 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'horarios',
+      'mapa_ferias',
       'meu_perfil',
       'comunicacao'
     ],
@@ -1119,6 +1135,7 @@ export default function App() {
       'presencas',
       'minhas_financas',
       'biblioteca',
+      'mapa_ferias',
       'meu_perfil',
       'comunicacao'
     ],
@@ -1133,10 +1150,20 @@ export default function App() {
       'minhas_financas',
       'biblioteca',
       'patrimonio',
+      'mapa_ferias',
       'meu_perfil',
       'comunicacao',
       'relatorios',
       'estatisticas'
+    ],
+    AuxiliarLimpeza: [
+      'dashboard',
+      'estoque_limpeza',
+      'mapa_ferias',
+      'calendario_escolar',
+      'comunicacao',
+      'minhas_financas',
+      'meu_perfil'
     ]
   };
 
@@ -2344,11 +2371,26 @@ export default function App() {
                 />
               )}
 
-              {/* 6. OUTROS: Património Escolar */}
+              {/* 6. OUTROS: Património Escolar, Estoque de Limpeza e Mapa de Férias */}
               {activeTab === 'patrimonio' && (
                 <PatrimonyView
                   escola={escola}
                   currentUser={effectiveUser}
+                />
+              )}
+
+              {activeTab === 'estoque_limpeza' && (
+                <CleaningStockView
+                  escola={escola}
+                  currentUser={effectiveUser}
+                />
+              )}
+
+              {activeTab === 'mapa_ferias' && (
+                <VacationMapView
+                  escola={escola}
+                  currentUser={effectiveUser}
+                  funcionarios={funcionariosDaEscola}
                 />
               )}
 

@@ -11,7 +11,7 @@
         "numeroBI": { "type": "string", "maxLength": 50 },
         "telefone": { "type": "string", "maxLength": 50 },
         "cargo": { "type": "string", "maxLength": 100 },
-        "role": { "type": "string", "enum": ["AdminGeral", "DiretorGeral", "SubdiretorPedagogico", "SubdirectorAdministrativo", "SubdiretorAdministrativo", "Professor", "Secretaria", "Encarregado"] },
+        "role": { "type": "string", "enum": ["AdminGeral", "DiretorGeral", "SubdiretorPedagogico", "SubdirectorAdministrativo", "SubdiretorAdministrativo", "CoordenadorPedagogico", "ChefeSecretaria", "Secretario", "SecretarioEscolar", "CoordenadorTurno", "CoordenadorDisciplina", "Professor", "Secretaria", "Tesoureiro", "Bibliotecario", "Estagiario", "TecnicoTI", "AuxiliarLimpeza", "Encarregado"] },
         "escolaId": { "type": "string", "maxLength": 128 },
         "password": { "type": "string", "maxLength": 500 },
         "ativo": { "type": "boolean" },
@@ -31,7 +31,9 @@
         "provincia": { "type": "string", "maxLength": 100 },
         "municipio": { "type": "string", "maxLength": 100 },
         "ativo": { "type": "boolean" },
-        "anoLectivoActivo": { "type": "string", "maxLength": 50 }
+        "anoLectivoActivo": { "type": "string", "maxLength": 50 },
+        "recibosMatriculaPorFolhaA4": { "type": "number" },
+        "recibosEmolumentosPorFolhaA4": { "type": "number" }
       },
       "required": ["id", "nomeOficial"]
     },
@@ -333,6 +335,53 @@
         "estado": { "type": "string", "enum": ["Rascunho", "Finalizada"] }
       },
       "required": ["id", "escolaId", "anoLectivo", "mapaFiscalizacaoId", "estado"]
+    },
+    "VacationScheduleItem": {
+      "title": "VacationScheduleItem",
+      "description": "Registo de férias no Mapa de Férias dos funcionários administrativos e auxiliares de limpeza",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "anoLectivo": { "type": "string", "maxLength": 32 },
+        "funcionarioId": { "type": "string", "maxLength": 128 },
+        "funcionarioNome": { "type": "string", "maxLength": 200 },
+        "grupoCategoria": { "type": "string", "enum": ["Administrativo", "AuxiliarLimpeza"] },
+        "dataInicio": { "type": "string", "maxLength": 32 },
+        "dataFim": { "type": "string", "maxLength": 32 },
+        "estado": { "type": "string", "enum": ["Planeada", "Aprovada", "Em_Curso", "Concluida", "Adiada", "Cancelada"] }
+      },
+      "required": ["id", "escolaId", "anoLectivo", "funcionarioId", "dataInicio", "dataFim"]
+    },
+    "CleaningMaterial": {
+      "title": "CleaningMaterial",
+      "description": "Material ou consumível cadastrado no estoque de limpeza escolar",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 200 },
+        "categoria": { "type": "string", "maxLength": 120 },
+        "unidade": { "type": "string", "maxLength": 60 },
+        "quantidadeAtual": { "type": "number" },
+        "quantidadeMinima": { "type": "number" }
+      },
+      "required": ["id", "escolaId", "nome", "quantidadeAtual"]
+    },
+    "CleaningStockMovement": {
+      "title": "CleaningStockMovement",
+      "description": "Movimento de entrada, saída ou ajuste no estoque de materiais de limpeza",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "escolaId": { "type": "string", "maxLength": 128 },
+        "materialId": { "type": "string", "maxLength": 128 },
+        "tipo": { "type": "string", "enum": ["Entrada", "Saida", "Ajuste"] },
+        "quantidade": { "type": "number" },
+        "data": { "type": "string", "maxLength": 32 },
+        "responsavelId": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "escolaId", "materialId", "tipo", "quantidade", "data"]
     }
   },
   "firestore": {
@@ -419,6 +468,18 @@
     "/atas_provas/{ataId}": {
       "schema": "ExamMinute",
       "description": "Atas de provas com ocorrências e presenças"
+    },
+    "/mapas_ferias/{feriasId}": {
+      "schema": "VacationScheduleItem",
+      "description": "Mapa de férias de funcionários administrativos e auxiliares de limpeza"
+    },
+    "/estoque_limpeza/{materialId}": {
+      "schema": "CleaningMaterial",
+      "description": "Estoque de materiais de limpeza gerido pelo Subdiretor Administrativo e Auxiliares de Limpeza"
+    },
+    "/movimentos_estoque_limpeza/{movimentoId}": {
+      "schema": "CleaningStockMovement",
+      "description": "Histórico de entradas, saídas e ajustes de materiais de limpeza"
     }
   }
 }

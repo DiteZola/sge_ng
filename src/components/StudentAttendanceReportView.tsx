@@ -1699,6 +1699,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                 <thead className="bg-gray-100 text-gray-700 font-bold border-b border-gray-200 uppercase text-[11px]">
                   <tr>
                     <th className="p-3 w-12 text-center">Nº</th>
+                    <th className="p-3">Nº Agente</th>
                     <th className="p-3">Professor / Funcionário</th>
                     <th className="p-3">Cargo / Função</th>
                     <th className="p-3 w-44">Estado em {dataPontoDocentes.split('-').reverse().join('/')}</th>
@@ -1708,7 +1709,7 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                 <tbody className="divide-y divide-gray-200">
                   {equipeDaEscola.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-8 text-center text-gray-500 font-medium">
+                      <td colSpan={6} className="p-8 text-center text-gray-500 font-medium">
                         Nenhum professor ou funcionário encontrado.
                       </td>
                     </tr>
@@ -1722,6 +1723,9 @@ export const StudentAttendanceReportView: React.FC<StudentAttendanceReportViewPr
                       return (
                         <tr key={func.id} className="hover:bg-gray-50/80">
                           <td className="p-3 text-center font-mono font-bold text-gray-700">{idx + 1}</td>
+                          <td className="p-3 font-mono font-bold text-indigo-800">
+                            {func.numeroAgente || (func as any).numeroMecanografico || '—'}
+                          </td>
                           <td className="p-3">
                             <div className="flex items-center space-x-2.5">
                               {func.fotoUrl && func.fotoUrl.trim() !== '' ? (

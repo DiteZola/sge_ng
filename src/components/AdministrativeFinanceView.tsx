@@ -155,6 +155,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     setConfigFinanceira(dbService.getConfiguracaoFinanceira(escola.id));
     setEmolumentosCustomizados(dbService.getEmolumentosPersonalizados(escola.id));
     setDelegacoesLista(dbService.getDelegacoesCobranca(escola.id));
+    setRecibosMatriculaPorFolha(dbService.getRecibosMatriculaPorFolhaA4(escola.id));
+    setRecibosEmolumentosPorFolha(dbService.getRecibosEmolumentosPorFolhaA4(escola.id));
   }, [escola.id, escola.anoLectivoActivo]);
 
   // Estados de feedback
@@ -169,6 +171,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [emolIdEdit, setEmolIdEdit] = useState<string | null>(null);
   const [emolNome, setEmolNome] = useState('');
   const [emolValorKz, setEmolValorKz] = useState<number>(5000);
+  const [emolValorTexto, setEmolValorTexto] = useState<string>('5000');
   const [emolPeriodicidade, setEmolPeriodicidade] = useState<'Unico' | 'Mensal' | 'Anual' | 'Por_Solicitacao'>('Por_Solicitacao');
   const [emolNiveis, setEmolNiveis] = useState<Array<'Todos' | 'Primario' | 'ICiclo' | 'IICiclo'>>(['Todos']);
   const [emolClasses, setEmolClasses] = useState<string[]>(['Todas']);
@@ -182,6 +185,22 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [emolumentoParaExcluirId, setEmolumentoParaExcluirId] = useState<string | null>(null);
   const [patrimonioParaEliminar, setPatrimonioParaEliminar] = useState<{ id: string; nome: string } | null>(null);
 
+  // Configuração de Recibos por Folha A4 (Matrícula/Confirmação e Emolumentos/Propinas)
+  const [recibosMatriculaPorFolha, setRecibosMatriculaPorFolha] = useState<number>(() =>
+    dbService.getRecibosMatriculaPorFolhaA4(escola.id)
+  );
+  const [recibosEmolumentosPorFolha, setRecibosEmolumentosPorFolha] = useState<number>(() =>
+    dbService.getRecibosEmolumentosPorFolhaA4(escola.id)
+  );
+
+  // Relatório Financeiro (Resumido vs Detalhado + Período / Ano Completo + Orientação)
+  const [relatorioTipo, setRelatorioTipo] = useState<'resumido' | 'detalhado'>('resumido');
+  const [relatorioEscopo, setRelatorioEscopo] = useState<'ano_completo' | 'periodo'>('ano_completo');
+  const [relatorioDataInicio, setRelatorioDataInicio] = useState<string>(() => `${new Date().toISOString().slice(0, 7)}-01`);
+  const [relatorioDataFim, setRelatorioDataFim] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [relatorioOrientacao, setRelatorioOrientacao] = useState<'portrait' | 'landscape'>('portrait');
+  const [isExportingRelPdf, setIsExportingRelPdf] = useState(false);
+
   // Modais
   const [showNovoPagamentoModal, setShowNovoPagamentoModal] = useState(false);
   const [showNovaDespesaModal, setShowNovaDespesaModal] = useState(false);
@@ -189,6 +208,13 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [reciboParaImprimir, setReciboParaImprimir] = useState<TransacaoFinanceira | null>(null);
   const [selectedRecibosA4Ids, setSelectedRecibosA4Ids] = useState<string[]>([]);
   const [showRecibosA4Modal, setShowRecibosA4Modal] = useState(false);
+
+  const parseValorLivre = (raw: string | number): number => {
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+    const limpo = String(raw || '').trim().replace(/\s+/g, '').replace(',', '.');
+    const n = Number(limpo);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : 0;
+  };
 
   const MESES_ANO_LETIVO_PADRAO = [
     'Setembro', 'Outubro', 'Novembro', 'Dezembro',
@@ -453,6 +479,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   const [revLocalDestino, setRevLocalDestino] = useState<string>('');
   const [revObs, setRevObs] = useState('');
   const [isExportingPatPdf, setIsExportingPatPdf] = useState(false);
+  const [patrimonioOrientacaoPdf, setPatrimonioOrientacaoPdf] = useState<'portrait' | 'landscape'>('landscape');
 
   const handleBaixarPdfPatrimonioFin = async () => {
     const el = document.getElementById('financeiro-patrimonio-inventario-pdf');
@@ -462,7 +489,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       const sigla = (escola.sigla || escola.nomeOficial || 'SGE').replace(/[^a-zA-Z0-9_-]/g, '_');
       const ano = (escola.anoLectivoActivo || new Date().getFullYear().toString()).replace(/[^a-zA-Z0-9_-]/g, '_');
       await downloadElementAsPdf(el, `Inventario_Patrimonio_${sigla}_${ano}.pdf`, {
-        orientation: 'landscape',
+        orientation: patrimonioOrientacaoPdf,
         format: 'a4',
         marginMm: 10
       });
@@ -553,6 +580,19 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     setShowEditarPagamentoModal(true);
   };
 
+  const sincronizarStatusDividaAluno = (alunoIdAlvo?: string, listaTransacoesAtual?: TransacaoFinanceira[]) => {
+    if (!alunoIdAlvo) return;
+    const al = alunos.find(a => a.id === alunoIdAlvo);
+    if (!al || al.propinaStatus === 'Isento' || al.estado === 'Desistente' || al.estado === 'Transferido') return;
+    const det = obterDetalhesDividaAluno(al, listaTransacoesAtual);
+    const novoStatus: Aluno['propinaStatus'] = !det.ehDevedor && det.saldoAnualRestante <= 0.01 ? 'Regularizada' : 'Pendente';
+    if (al.propinaStatus !== novoStatus) {
+      const atualizado: Aluno = { ...al, propinaStatus: novoStatus, escolaId: al.escolaId || escola.id };
+      dbService.salvarAluno(atualizado);
+      if (onSalvarAluno) onSalvarAluno(atualizado);
+    }
+  };
+
   const handleSalvarEdicaoPagamento = (e: React.FormEvent) => {
     e.preventDefault();
     if (!transacaoParaEditar) return;
@@ -574,7 +614,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     );
 
     if (sucesso) {
-      setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
+      const atualizadas = dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo);
+      setTransacoes(atualizadas);
+      sincronizarStatusDividaAluno(transacaoParaEditar.alunoId, atualizadas);
       setShowEditarPagamentoModal(false);
       setTransacaoParaEditar(null);
       notificar(`Recibo N.º ${transacaoParaEditar.numeroRecibo} editado e auditado com sucesso.`);
@@ -605,13 +647,16 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       notificar('O motivo da anulação/eliminação do pagamento é obrigatório.');
       return;
     }
+    const alunoIdAfetado = transacaoParaEliminar.alunoId;
     const sucesso = dbService.eliminarTransacaoFinanceira(
       transacaoParaEliminar.id,
       currentUser.nomeCompleto,
       motivoEliminarPagamento.trim()
     );
     if (sucesso) {
-      setTransacoes(dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo));
+      const atualizadas = dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo);
+      setTransacoes(atualizadas);
+      sincronizarStatusDividaAluno(alunoIdAfetado, atualizadas);
       setShowEliminarPagamentoModal(false);
       setTransacaoParaEliminar(null);
       notificar(`Recibo N.º ${transacaoParaEliminar.numeroRecibo} eliminado/anulado com sucesso.`);
@@ -676,7 +721,30 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   }, [alunos, escola.id, escola.anoLectivoActivo, mostrarTodosAnosPagamento, modalPagFiltroClasse, modalPagBuscaAluno, turmas]);
 
   // Cálculo real e transparente de dívidas com base EXCLUSIVA nos emolumentos cadastrados aplicáveis à Classe & Nível Académico
-  const obterDetalhesDividaAluno = (aluno: Aluno) => {
+  const obterDetalhesDividaAluno = (aluno: Aluno, transacoesLista: TransacaoFinanceira[] = transacoes) => {
+    if (aluno.estado === 'Desistente' || aluno.estado === 'Transferido') {
+      return {
+        valorMensalidade: 0,
+        totalPagoPropinas: 0,
+        valorAnualTotal: 0,
+        saldoAnualRestante: 0,
+        valorPagoNaParcelaAtual: 0,
+        faltaPagarParcelaAtual: 0,
+        saldoDevedor: 0,
+        mesesCompletosPagos: 0,
+        temPagamentoParcial: false,
+        itensPendentes: [] as Array<{
+          emolumento: ItemEmolumentoConfig;
+          previstoTotal: number;
+          pago: number;
+          restante: number;
+          proximaParcela: number;
+          parcial: boolean;
+        }>,
+        ehDevedor: false
+      };
+    }
+
     const turma = turmas.find(t => t.id === aluno.turmaId);
     const classeKey = aluno.classeId || turma?.classe || '';
     const emolumentosAluno = emolumentosAtivosRegistrados.filter(e => emolumentoAplicaAoAluno(e, classeKey));
@@ -702,38 +770,40 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       const ehMensal = emol.periodicidade === 'Mensal' || emol.nome.toLowerCase().includes('propina');
       if (ehMensal && valorMensalidadeRef === 0) valorMensalidadeRef = unitario;
 
-      const pagamentosItem = transacoes.filter(
+      const pagamentosItem = transacoesLista.filter(
         t =>
           t.status === 'Confirmado' &&
           t.alunoId === aluno.id &&
           ((t.emolumentoId && t.emolumentoId === emol.id) ||
             t.tipo.trim().toLowerCase() === emol.nome.trim().toLowerCase())
       );
-      const pagoItem = pagamentosItem.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
+      const pagoItem = Math.round(pagamentosItem.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0) * 100) / 100;
 
       let previstoItem = 0;
       if (ehMensal && (emol.obrigatorio || emol.nome.toLowerCase().includes('propina'))) {
         previstoItem = unitario * totalMesesLetivos;
       } else if (emol.obrigatorio) {
         previstoItem = unitario;
-      } else if (pagoItem > 0 && pagoItem < unitario) {
+      } else if (pagoItem > 0 && pagoItem < unitario - 0.01) {
         // Emolumento facultativo com pagamento parcial iniciado mantém dívida até liquidação total
         previstoItem = unitario;
       }
 
+      previstoItem = Math.round(previstoItem * 100) / 100;
       if (previstoItem <= 0) return;
 
       valorAnualTotal += previstoItem;
       totalPagoAplicavel += Math.min(pagoItem, previstoItem);
-      const restanteItem = Math.max(0, previstoItem - pagoItem);
+      const restanteBruto = previstoItem - pagoItem;
+      const restanteItem = restanteBruto <= 0.01 ? 0 : Math.round(restanteBruto * 100) / 100;
 
       if (restanteItem > 0) {
         const pagoNaParcela = unitario > 0 ? pagoItem % unitario : 0;
-        const ehParcial = pagoNaParcela > 0 || (pagoItem > 0 && pagoItem < previstoItem && !ehMensal);
+        const ehParcial = pagoNaParcela > 0.01 || (pagoItem > 0 && pagoItem < previstoItem - 0.01 && !ehMensal);
         if (ehParcial) temPagamentoParcial = true;
         const proximaParcela =
-          pagoNaParcela > 0
-            ? unitario - pagoNaParcela
+          pagoNaParcela > 0.01
+            ? Math.max(0, Math.round((unitario - pagoNaParcela) * 100) / 100)
             : Math.min(unitario, restanteItem);
 
         itensPendentes.push({
@@ -747,13 +817,14 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       }
     });
 
-    const saldoAnualRestante = Math.max(0, valorAnualTotal - totalPagoAplicavel);
+    const saldoBruto = valorAnualTotal - totalPagoAplicavel;
+    const saldoAnualRestante = saldoBruto <= 0.01 ? 0 : Math.round(saldoBruto * 100) / 100;
     if (itensPendentes.length > 0) {
       faltaPagarParcelaAtual = itensPendentes[0].proximaParcela;
     }
 
-    const mesesCompletosPagos = valorMensalidadeRef > 0 ? Math.floor(totalPagoAplicavel / valorMensalidadeRef) : 0;
-    const quitouTotalidade = emolumentosAluno.length > 0 && valorAnualTotal > 0 && saldoAnualRestante === 0;
+    const mesesCompletosPagos = valorMensalidadeRef > 0 ? Math.floor((totalPagoAplicavel + 0.01) / valorMensalidadeRef) : 0;
+    const quitouTotalidade = emolumentosAluno.length > 0 && valorAnualTotal > 0 && saldoAnualRestante <= 0;
     const temRegraObrigatoria = valorAnualTotal > 0;
 
     const ehDevedor =
@@ -766,7 +837,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     return {
       valorMensalidade: valorMensalidadeRef,
       totalPagoPropinas: totalPagoAplicavel,
-      valorAnualTotal,
+      valorAnualTotal: Math.round(valorAnualTotal * 100) / 100,
       saldoAnualRestante,
       valorPagoNaParcelaAtual: itensPendentes[0]?.pago || 0,
       faltaPagarParcelaAtual,
@@ -807,6 +878,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
 
     return alunosDaEscola.filter(aluno => {
       if (aluno.propinaStatus === 'Isento') return false;
+      if (aluno.estado === 'Desistente' || aluno.estado === 'Transferido') return false;
       if (filtroTurmaDevedor !== 'TODAS' && aluno.turmaId !== filtroTurmaDevedor) return false;
 
       const turmaDoAluno = turmas.find(t => t.id === aluno.turmaId);
@@ -893,10 +965,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     }
 
     const saldoCtx = calcularSaldoEmolumentoAluno(aluno.id, emolConfig, pagTipoEhMensal ? pagMes : undefined);
-    const acumulado = saldoCtx.jaPago + pagValor;
-    const restantePos = Math.max(0, saldoCtx.valorPrevisto - acumulado);
+    const acumulado = Math.round((saldoCtx.jaPago + pagValor) * 100) / 100;
+    const restantePos = Math.max(0, Math.round((saldoCtx.valorPrevisto - acumulado) * 100) / 100);
     const modalidadeFinal: 'Total' | 'Parcial' =
-      pagModalidade === 'Parcial' || restantePos > 0 ? 'Parcial' : 'Total';
+      restantePos > 0.01 || pagModalidade === 'Parcial' ? 'Parcial' : 'Total';
 
     const numeroRecibo = `REC-${new Date().getFullYear()}-${String(transacoes.length + 1).padStart(4, '0')}`;
     const obsFinal = minhaDelegacao
@@ -938,16 +1010,16 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     const novasTransacoes = dbService.getTransacoesFinanceiras(escola.id, escola.anoLectivoActivo);
     setTransacoes(novasTransacoes);
 
-    // Atualiza propinaStatus considerando saldo restante real após este pagamento
-    const prevDet = obterDetalhesDividaAluno(aluno);
-    const novoSaldoAnualEstimado = Math.max(0, prevDet.saldoAnualRestante - pagValor);
+    // Atualiza propinaStatus considerando o saldo real recalculado após o pagamento
+    const detApos = obterDetalhesDividaAluno(aluno, novasTransacoes);
     const quitouTodasDividas =
-      modalidadeFinal === 'Total' &&
-      (pagQuitacaoTotal || (prevDet.valorAnualTotal > 0 && novoSaldoAnualEstimado === 0));
+      aluno.propinaStatus === 'Isento' ||
+      pagQuitacaoTotal ||
+      (!detApos.ehDevedor && detApos.saldoAnualRestante <= 0.01);
 
     const alunoAtualizado: Aluno = {
       ...aluno,
-      propinaStatus: quitouTodasDividas ? 'Regularizada' : 'Pendente',
+      propinaStatus: aluno.propinaStatus === 'Isento' ? 'Isento' : quitouTodasDividas ? 'Regularizada' : 'Pendente',
       escolaId: aluno.escolaId || escola.id
     };
     dbService.salvarAluno(alunoAtualizado);
@@ -989,8 +1061,9 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       setErroModalEmolumento('Por favor, informe o nome do emolumento.');
       return;
     }
-    if (emolValorKz <= 0) {
-      setErroModalEmolumento('O valor padrão do emolumento deve ser maior que zero.');
+    const valorFinal = parseValorLivre(emolValorTexto || emolValorKz);
+    if (valorFinal <= 0 || Number.isNaN(valorFinal)) {
+      setErroModalEmolumento('Informe um valor válido superior a 0 Kz (aceita qualquer valor inteiro ou decimal).');
       return;
     }
     if (emolNiveis.length === 0) {
@@ -1006,7 +1079,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       id: emolIdEdit || `emol-${Date.now()}`,
       escolaId: escola.id,
       nome: emolNome.trim(),
-      valorPadraoKz: emolValorKz,
+      valorPadraoKz: valorFinal,
       periodicidade: emolPeriodicidade,
       niveisAcademicos: emolNiveis,
       classesAbrangidas: emolClasses,
@@ -1026,11 +1099,12 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
     setEmolIdEdit(null);
     setEmolNome('');
     setEmolValorKz(5000);
+    setEmolValorTexto('5000');
     setEmolNiveis(['Todos']);
     setEmolClasses(['Todas']);
     setEmolPermitirParcial(true);
     setEmolDescricao('');
-    notificar(`Emolumento "${item.nome}" configurado e validado com sucesso!`);
+    notificar(`Emolumento "${item.nome}" (${item.valorPadraoKz.toLocaleString('pt-AO')} Kz) configurado e validado com sucesso!`);
   };
 
   const handleExcluirEmolumento = (id: string) => {
@@ -1160,8 +1234,17 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
   // Salvar Configurações Financeiras
   const handleSalvarConfigFinanceira = (e: React.FormEvent) => {
     e.preventDefault();
-    dbService.salvarConfiguracaoFinanceira(configFinanceira);
-    notificar('Tabela de propinas, taxas e parâmetros bancários atualizados com sucesso.');
+    const matQtd = dbService.salvarRecibosMatriculaPorFolhaA4(escola.id, recibosMatriculaPorFolha);
+    const emolQtd = dbService.salvarRecibosEmolumentosPorFolhaA4(escola.id, recibosEmolumentosPorFolha);
+    const novaConfig: ConfiguracaoFinanceiraEscola = {
+      ...configFinanceira,
+      recibosMatriculaPorFolhaA4: matQtd,
+      recibosEmolumentosPorFolhaA4: emolQtd,
+      atualizadoEm: new Date().toISOString()
+    };
+    dbService.salvarConfiguracaoFinanceira(novaConfig);
+    setConfigFinanceira(novaConfig);
+    notificar('Tabela de propinas, taxas, recibos por folha A4 e parâmetros bancários atualizados com sucesso.');
   };
 
   // Dados para gráficos (Recharts)
@@ -1555,7 +1638,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 <span>
                   {selectedRecibosA4Ids.length > 0
                     ? `Folha A4 (${selectedRecibosA4Ids.length} Recibos)`
-                    : '8 Recibos / Folha A4'}
+                    : `${recibosEmolumentosPorFolha} Recibos / Folha A4`}
                 </span>
               </button>
               <button
@@ -2087,6 +2170,15 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   className="pl-9 pr-3 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-600 w-64"
                 />
               </div>
+              <select
+                value={patrimonioOrientacaoPdf}
+                onChange={(e) => setPatrimonioOrientacaoPdf(e.target.value as 'portrait' | 'landscape')}
+                className="px-2.5 py-2 border border-gray-300 rounded-lg text-xs font-bold bg-white text-gray-800 cursor-pointer"
+                title="Orientação da folha do inventário"
+              >
+                <option value="landscape">Paisagem</option>
+                <option value="portrait">Retrato</option>
+              </select>
               <button
                 type="button"
                 onClick={handleBaixarPdfPatrimonioFin}
@@ -2524,6 +2616,63 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
             </div>
           </div>
 
+          {/* Configuração de Recibos por Folha A4 (Matrícula & Emolumentos) */}
+          <div className="space-y-3 pt-3 border-t border-gray-100">
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                Configuração de Emissão de Recibos em Folha A4
+              </h4>
+              <p className="text-[11px] text-gray-500">
+                Defina quantos recibos devem caber por folha A4 na impressão e exportação em PDF de Matrículas/Confirmações e Propinas/Emolumentos.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+                <label className="block text-xs font-bold text-blue-950">
+                  Recibos de Matrícula / Confirmação por Folha A4
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 3, 4, 6].map((qtd) => (
+                    <button
+                      key={`cfg-mat-a4-${qtd}`}
+                      type="button"
+                      onClick={() => setRecibosMatriculaPorFolha(qtd)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black border cursor-pointer transition-colors ${
+                        recibosMatriculaPorFolha === qtd
+                          ? 'bg-blue-700 text-white border-blue-800 shadow-xs'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-100'
+                      }`}
+                    >
+                      {qtd} / A4
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+                <label className="block text-xs font-bold text-emerald-950">
+                  Recibos de Propinas & Emolumentos por Folha A4
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 4, 6, 8].map((qtd) => (
+                    <button
+                      key={`cfg-emol-a4-${qtd}`}
+                      type="button"
+                      onClick={() => setRecibosEmolumentosPorFolha(qtd)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black border cursor-pointer transition-colors ${
+                        recibosEmolumentosPorFolha === qtd
+                          ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {qtd} / A4
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end pt-4 border-t border-gray-200">
             <button
               type="submit"
@@ -2561,6 +2710,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   setEmolIdEdit(null);
                   setEmolNome('');
                   setEmolValorKz(5000);
+                  setEmolValorTexto('5000');
                   setEmolPeriodicidade('Por_Solicitacao');
                   setEmolNiveis(['Todos']);
                   setEmolClasses(['Todas']);
@@ -2617,6 +2767,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                                 setEmolIdEdit(null);
                                 setEmolNome('');
                                 setEmolValorKz(5000);
+                                setEmolValorTexto('5000');
                                 setEmolPeriodicidade('Por_Solicitacao');
                                 setEmolNiveis(['Todos']);
                                 setEmolClasses(['Todas']);
@@ -2712,6 +2863,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                             setEmolIdEdit(emol.id);
                             setEmolNome(emol.nome);
                             setEmolValorKz(emol.valorPadraoKz);
+                            setEmolValorTexto(String(emol.valorPadraoKz ?? ''));
                             setEmolPeriodicidade(emol.periodicidade);
                             setEmolNiveis(emol.niveisAcademicos && emol.niveisAcademicos.length > 0 ? emol.niveisAcademicos : ['Todos']);
                             setEmolClasses(emol.classesAbrangidas || ['Todas']);
@@ -2886,71 +3038,574 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
       )}
 
       {/* ========================================== */}
-      {/* ABA 7: BALANÇO & ESTATÍSTICAS              */}
+      {/* ABA 7: RELATÓRIO FINANCEIRO & BALANÇO      */}
       {/* ========================================== */}
-      {activeSubTab === 'relatorios' && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Balanço Financeiro & Contabilístico Oficial</h3>
-              <p className="text-xs text-gray-500">Relatório consolidado de prestação de contas do estabelecimento de ensino</p>
+      {activeSubTab === 'relatorios' && (() => {
+        const parseDataRegistro = (raw?: string): Date | null => {
+          if (!raw) return null;
+          const s = String(raw).trim();
+          const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (iso) {
+            const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T12:00:00`);
+            return isNaN(d.getTime()) ? null : d;
+          }
+          const pt = s.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if (pt) {
+            const d = new Date(`${pt[3]}-${pt[2]}-${pt[1]}T12:00:00`);
+            return isNaN(d.getTime()) ? null : d;
+          }
+          const fallback = new Date(s);
+          return isNaN(fallback.getTime()) ? null : fallback;
+        };
+
+        const dtInicio = relatorioEscopo === 'periodo' && relatorioDataInicio
+          ? new Date(`${relatorioDataInicio}T00:00:00`)
+          : null;
+        const dtFim = relatorioEscopo === 'periodo' && relatorioDataFim
+          ? new Date(`${relatorioDataFim}T23:59:59`)
+          : null;
+
+        const estaNoPeriodo = (dataStr?: string) => {
+          if (relatorioEscopo === 'ano_completo') return true;
+          const d = parseDataRegistro(dataStr);
+          if (!d) return false;
+          if (dtInicio && d < dtInicio) return false;
+          if (dtFim && d > dtFim) return false;
+          return true;
+        };
+
+        const transacoesRelatorio = transacoes.filter(
+          (t) => t.status === 'Confirmado' && estaNoPeriodo(t.dataHora)
+        );
+        const despesasRelatorio = despesas.filter((d) => estaNoPeriodo(d.dataHora));
+
+        const totalReceitasRel = transacoesRelatorio.reduce((acc, t) => acc + (t.valorTotalKz || t.valorKz || 0), 0);
+        const totalDespesasRel = despesasRelatorio.reduce((acc, d) => acc + (d.valorKz || 0), 0);
+        const saldoRel = totalReceitasRel - totalDespesasRel;
+
+        const receitasPorEmolumento = Object.entries(
+          transacoesRelatorio.reduce<Record<string, { qtd: number; total: number }>>((acc, t) => {
+            const k = (t.tipo || 'Outros').trim();
+            if (!acc[k]) acc[k] = { qtd: 0, total: 0 };
+            acc[k].qtd += 1;
+            acc[k].total += (t.valorTotalKz || t.valorKz || 0);
+            return acc;
+          }, {})
+        ).sort((a, b) => b[1].total - a[1].total);
+
+        const receitasPorMetodo = Object.entries(
+          transacoesRelatorio.reduce<Record<string, { qtd: number; total: number }>>((acc, t) => {
+            const k = (t.metodoPagamento || 'Numerário / Cash').trim();
+            if (!acc[k]) acc[k] = { qtd: 0, total: 0 };
+            acc[k].qtd += 1;
+            acc[k].total += (t.valorTotalKz || t.valorKz || 0);
+            return acc;
+          }, {})
+        ).sort((a, b) => b[1].total - a[1].total);
+
+        const despesasPorCategoria = Object.entries(
+          despesasRelatorio.reduce<Record<string, { qtd: number; total: number }>>((acc, d) => {
+            const k = (d.categoria || 'Outras Despesas').trim();
+            if (!acc[k]) acc[k] = { qtd: 0, total: 0 };
+            acc[k].qtd += 1;
+            acc[k].total += (d.valorKz || 0);
+            return acc;
+          }, {})
+        ).sort((a, b) => b[1].total - a[1].total);
+
+        const periodoDescricao =
+          relatorioEscopo === 'ano_completo'
+            ? `Ano Lectivo Completo (${escola.anoLectivoActivo || 'Actual'})`
+            : `Período de ${relatorioDataInicio || '—'} a ${relatorioDataFim || '—'}`;
+
+        const handleExportarRelatorioPdf = async () => {
+          const el = document.getElementById('financeiro-relatorio-oficial-pdf');
+          if (!el || isExportingRelPdf) return;
+          setIsExportingRelPdf(true);
+          try {
+            const sigla = (escola.sigla || 'ESCOLA').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const tipoNome = relatorioTipo === 'detalhado' ? 'Detalhado' : 'Resumido';
+            await downloadElementAsPdf(el, `Relatorio_Financeiro_${tipoNome}_${sigla}.pdf`, {
+              orientation: relatorioOrientacao,
+              format: 'a4',
+              marginMm: 10
+            });
+            notificar(`Relatório Financeiro (${tipoNome}) exportado em PDF com sucesso!`);
+          } catch (err) {
+            console.error('Erro PDF relatório financeiro:', err);
+            window.print();
+          } finally {
+            setIsExportingRelPdf(false);
+          }
+        };
+
+        const handleExportarRelatorioExcel = async () => {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.utils.book_new();
+
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet([
+              {
+                'Instituição': escola.nomeOficial,
+                'Ano Lectivo': escola.anoLectivoActivo || '',
+                'Modalidade': relatorioTipo === 'detalhado' ? 'Detalhado' : 'Resumido',
+                'Âmbito': periodoDescricao,
+                'Total Receitas (Kz)': totalReceitasRel,
+                'Total Despesas (Kz)': totalDespesasRel,
+                'Saldo Líquido (Kz)': saldoRel,
+                'Dívida Activa Estimada (Kz)': totalEmDividaEstimado,
+                'Nº de Devedores': devedores.length,
+                'Qtd. Recibos': transacoesRelatorio.length,
+                'Qtd. Despesas': despesasRelatorio.length
+              }
+            ]),
+            'Resumo_Financeiro'
+          );
+
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet(
+              receitasPorEmolumento.length > 0
+                ? receitasPorEmolumento.map(([emol, info]) => ({
+                    'Emolumento / Taxa': emol,
+                    'Qtd. Cobranças': info.qtd,
+                    'Total Arrecadado (Kz)': info.total
+                  }))
+                : [{ 'Info': 'Sem receitas no período selecionado' }]
+            ),
+            'Receitas_Por_Emolumento'
+          );
+
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.json_to_sheet(
+              despesasPorCategoria.length > 0
+                ? despesasPorCategoria.map(([cat, info]) => ({
+                    'Categoria de Despesa': cat,
+                    'Qtd. Lançamentos': info.qtd,
+                    'Total Despendido (Kz)': info.total
+                  }))
+                : [{ 'Info': 'Sem despesas no período selecionado' }]
+            ),
+            'Despesas_Por_Categoria'
+          );
+
+          if (relatorioTipo === 'detalhado') {
+            XLSX.utils.book_append_sheet(
+              wb,
+              XLSX.utils.json_to_sheet(
+                transacoesRelatorio.length > 0
+                  ? transacoesRelatorio.map((t) => ({
+                      'Recibo': t.numeroRecibo,
+                      'Data/Hora': t.dataHora,
+                      'Estudante': t.alunoNome,
+                      'Matrícula': t.codigoMatricula || '',
+                      'Classe / Turma': t.turmaNome || t.classe || '',
+                      'Emolumento': t.tipo,
+                      'Referência': t.mesReferencia || '',
+                      'Modalidade': t.modalidadePagamento || 'Total',
+                      'Método': t.metodoPagamento,
+                      'Operador': t.operadorNome,
+                      'Valor (Kz)': t.valorTotalKz || t.valorKz || 0
+                    }))
+                  : [{ 'Info': 'Sem recibos no período' }]
+              ),
+              'Detalhes_Receitas'
+            );
+
+            XLSX.utils.book_append_sheet(
+              wb,
+              XLSX.utils.json_to_sheet(
+                despesasRelatorio.length > 0
+                  ? despesasRelatorio.map((d) => ({
+                      'Data/Hora': d.dataHora,
+                      'Categoria': d.categoria,
+                      'Descrição': d.descricao,
+                      'Beneficiário': d.beneficiario || '',
+                      'Método': d.metodoPagamento || '',
+                      'Registado Por': d.registadoPorNome || '',
+                      'Valor (Kz)': d.valorKz || 0
+                    }))
+                  : [{ 'Info': 'Sem despesas no período' }]
+              ),
+              'Detalhes_Despesas'
+            );
+          }
+
+          const sigla = (escola.sigla || 'ESCOLA').replace(/[^a-zA-Z0-9_-]/g, '_');
+          const tipoNome = relatorioTipo === 'detalhado' ? 'Detalhado' : 'Resumido';
+          XLSX.writeFile(wb, `Relatorio_Financeiro_${tipoNome}_${sigla}.xlsx`);
+          notificar(`Relatório Financeiro (${tipoNome}) exportado em Excel (.xlsx)!`);
+        };
+
+        return (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-6 space-y-6">
+            {/* Barra de Configuração e Exportação */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">
+                  Relatório & Balanço Financeiro Oficial
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Escolha entre relatório resumido ou detalhado, por período específico ou ano lectivo completo.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={relatorioOrientacao}
+                  onChange={(e) => setRelatorioOrientacao(e.target.value as 'portrait' | 'landscape')}
+                  className="px-2.5 py-2 border border-gray-300 rounded-xl text-xs font-bold bg-white text-gray-800 cursor-pointer"
+                  title="Orientação da folha"
+                >
+                  <option value="portrait">Retrato</option>
+                  <option value="landscape">Paisagem</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('financeiro-relatorio-oficial-pdf');
+                    if (el) {
+                      imprimirElementoDiretamente(
+                        el,
+                        `Relatorio_Financeiro_${relatorioTipo}_${escola.sigla || 'ESCOLA'}`,
+                        { orientation: relatorioOrientacao, format: 'a4', marginMm: 10 }
+                      );
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Imprimir</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isExportingRelPdf}
+                  onClick={handleExportarRelatorioPdf}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>{isExportingRelPdf ? 'A gerar PDF...' : 'Baixar PDF'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportarRelatorioExcel}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <FileText className="h-4 w-4" />
+                  <span>Excel (XLSX)</span>
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => window.print()}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+
+            {/* Filtros de Tipo e Período */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl grid grid-cols-1 md:grid-cols-12 gap-3 items-end no-print text-xs">
+              <div className="md:col-span-3">
+                <label className="block font-bold text-slate-700 mb-1">Tipo de Relatório</label>
+                <div className="grid grid-cols-2 gap-1 bg-white p-1 border border-slate-300 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setRelatorioTipo('resumido')}
+                    className={`py-1.5 rounded-md font-bold cursor-pointer transition-colors ${
+                      relatorioTipo === 'resumido' ? 'bg-blue-700 text-white' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Resumido
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRelatorioTipo('detalhado')}
+                    className={`py-1.5 rounded-md font-bold cursor-pointer transition-colors ${
+                      relatorioTipo === 'detalhado' ? 'bg-blue-700 text-white' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Detalhado
+                  </button>
+                </div>
+              </div>
+
+              <div className="md:col-span-4">
+                <label className="block font-bold text-slate-700 mb-1">Período de Análise</label>
+                <div className="grid grid-cols-2 gap-1 bg-white p-1 border border-slate-300 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setRelatorioEscopo('ano_completo')}
+                    className={`py-1.5 rounded-md font-bold cursor-pointer transition-colors ${
+                      relatorioEscopo === 'ano_completo' ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Ano Lectivo Completo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRelatorioEscopo('periodo')}
+                    className={`py-1.5 rounded-md font-bold cursor-pointer transition-colors ${
+                      relatorioEscopo === 'periodo' ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Por Período
+                  </button>
+                </div>
+              </div>
+
+              {relatorioEscopo === 'periodo' && (
+                <>
+                  <div className="md:col-span-2">
+                    <label className="block font-bold text-slate-700 mb-1">Data Início</label>
+                    <input
+                      type="date"
+                      value={relatorioDataInicio}
+                      onChange={(e) => setRelatorioDataInicio(e.target.value)}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block font-bold text-slate-700 mb-1">Data Fim</label>
+                    <input
+                      type="date"
+                      value={relatorioDataFim}
+                      onChange={(e) => setRelatorioDataFim(e.target.value)}
+                      className="w-full p-2 bg-white border border-slate-300 rounded-lg font-bold text-slate-800"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Documento Imprimível / Exportável */}
+            <div
+              id="financeiro-relatorio-oficial-pdf"
+              data-doc-root="true"
+              className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-5 documento-oficial-print print:bg-white print:border-0"
             >
-              <Printer className="h-4 w-4" />
-              <span>Imprimir Balanço</span>
-            </button>
-          </div>
-
-          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-4">
-            <div className="text-center space-y-1">
-              <div className="flex justify-center mb-2">
-                {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
-                  <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-14 w-14 object-contain mx-auto" />
-                ) : (
-                  <InsigniaAngola size={56} />
-                )}
-              </div>
-              <p className="text-xs font-extrabold uppercase tracking-widest text-amber-600">República de Angola</p>
-              <h4 className="text-sm font-black text-slate-900">{escola.nomeOficial}</h4>
-              <p className="text-xs text-slate-600">Subdirecção Administrativa • Balanço do Ano Lectivo {escola.anoLectivoActivo}</p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200">
-              <div className="p-4 bg-white rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase block">Total Arrecadado</span>
-                <span className="text-xl font-black text-emerald-700">{totalReceitas.toLocaleString('pt-AO')} Kz</span>
-              </div>
-              <div className="p-4 bg-white rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase block">Total Despendido</span>
-                <span className="text-xl font-black text-rose-700">{totalDespesas.toLocaleString('pt-AO')} Kz</span>
-              </div>
-              <div className="p-4 bg-white rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase block">Superávite / Saldo</span>
-                <span className="text-xl font-black text-blue-900">{saldoEmCaixa.toLocaleString('pt-AO')} Kz</span>
-              </div>
-            </div>
-
-            <div className="pt-4 text-xs text-slate-600 space-y-2">
-              <p><strong>Observações Contabilísticas:</strong> Todas as receitas foram arrecadadas mediante a emissão de recibos numerados sequencialmente em conformidade com as normas administrativas vigentes. As despesas de gerador e material possuem comprovativos anexos em arquivo físico na secretaria da instituição.</p>
-              <div className="pt-8 flex justify-between text-center">
-                <div>
-                  <div className="w-48 border-t border-slate-400 mx-auto" />
-                  <p className="pt-1 font-bold">{currentUser.nomeCompleto}</p>
-                  <p className="text-[10px] text-slate-500">O Subdirector Administrativo</p>
+              <div data-pdf-fixed-header="true" data-pdf-center-insignia="true" className="text-center space-y-1">
+                <div className="flex justify-center mb-2">
+                  {configSistema.insigniaNacionalUrl && configSistema.insigniaNacionalUrl.trim() !== '' ? (
+                    <img src={configSistema.insigniaNacionalUrl} alt="Insígnia" className="h-14 w-14 object-contain mx-auto" />
+                  ) : (
+                    <InsigniaAngola size={56} />
+                  )}
                 </div>
-                <div>
-                  <div className="w-48 border-t border-slate-400 mx-auto" />
-                  <p className="pt-1 font-bold">{escola.diretorGeralNome || 'Diretor Geral'}</p>
-                  <p className="text-[10px] text-slate-500">O Director Geral da Instituição</p>
+                <p className="text-xs font-extrabold uppercase tracking-widest text-amber-600">República de Angola</p>
+                <h4 className="text-sm font-black text-slate-900 uppercase">{escola.nomeOficial}</h4>
+                <p className="text-xs font-bold uppercase text-slate-800">
+                  RELATÓRIO FINANCEIRO {relatorioTipo === 'detalhado' ? 'DETALHADO' : 'RESUMIDO'}
+                </p>
+                <p className="text-xs text-slate-600">
+                  Subdirecção Administrativa • {periodoDescricao}
+                </p>
+              </div>
+
+              {/* KPIs Consolidados */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-4 border-t border-slate-200">
+                <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Total Arrecadado ({transacoesRelatorio.length} recibos)</span>
+                  <span className="text-lg font-black text-emerald-700">{totalReceitasRel.toLocaleString('pt-AO')} Kz</span>
+                </div>
+                <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Total Despendido ({despesasRelatorio.length} saídas)</span>
+                  <span className="text-lg font-black text-rose-700">{totalDespesasRel.toLocaleString('pt-AO')} Kz</span>
+                </div>
+                <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Saldo Líquido do Período</span>
+                  <span className={`text-lg font-black ${saldoRel >= 0 ? 'text-blue-900' : 'text-rose-700'}`}>
+                    {saldoRel.toLocaleString('pt-AO')} Kz
+                  </span>
+                </div>
+                <div className="p-3.5 bg-white rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block">Dívida Activa ({devedores.length} alunos)</span>
+                  <span className="text-lg font-black text-amber-800">{totalEmDividaEstimado.toLocaleString('pt-AO')} Kz</span>
                 </div>
               </div>
+
+              {/* Quadros Resumo por Rubrica, Método e Categoria */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                  <h5 className="text-xs font-black uppercase text-emerald-800 border-b border-slate-100 pb-1.5">
+                    Receitas por Emolumento / Rubrica
+                  </h5>
+                  {receitasPorEmolumento.length === 0 ? (
+                    <p className="text-xs text-slate-500 py-2">Sem cobranças registadas neste período.</p>
+                  ) : (
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-[10px] uppercase text-slate-500 border-b">
+                        <tr>
+                          <th className="py-1.5">Emolumento</th>
+                          <th className="py-1.5 text-center">Qtd</th>
+                          <th className="py-1.5 text-right">Valor Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {receitasPorEmolumento.map(([nome, info]) => (
+                          <tr key={`rel-em-${nome}`}>
+                            <td className="py-1.5 font-semibold text-slate-800">{nome}</td>
+                            <td className="py-1.5 text-center text-slate-600">{info.qtd}</td>
+                            <td className="py-1.5 text-right font-mono font-bold text-emerald-700">
+                              {info.total.toLocaleString('pt-AO')} Kz
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {receitasPorMetodo.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
+                      {receitasPorMetodo.map(([metodo, info]) => (
+                        <span key={`rel-met-${metodo}`} className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-700">
+                          {metodo}: <strong>{info.total.toLocaleString('pt-AO')} Kz</strong> ({info.qtd})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                  <h5 className="text-xs font-black uppercase text-rose-800 border-b border-slate-100 pb-1.5">
+                    Despesas por Categoria
+                  </h5>
+                  {despesasPorCategoria.length === 0 ? (
+                    <p className="text-xs text-slate-500 py-2">Sem despesas registadas neste período.</p>
+                  ) : (
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-[10px] uppercase text-slate-500 border-b">
+                        <tr>
+                          <th className="py-1.5">Categoria</th>
+                          <th className="py-1.5 text-center">Qtd</th>
+                          <th className="py-1.5 text-right">Valor Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {despesasPorCategoria.map(([cat, info]) => (
+                          <tr key={`rel-cat-${cat}`}>
+                            <td className="py-1.5 font-semibold text-slate-800">{cat}</td>
+                            <td className="py-1.5 text-center text-slate-600">{info.qtd}</td>
+                            <td className="py-1.5 text-right font-mono font-bold text-rose-700">
+                              {info.total.toLocaleString('pt-AO')} Kz
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+              {/* Secção Detalhada: Movimentos Discriminados */}
+              {relatorioTipo === 'detalhado' && (
+                <div className="space-y-4">
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                    <h5 className="text-xs font-black uppercase text-slate-900 border-b border-slate-200 pb-1.5">
+                      Detalhamento de Receitas & Recibos ({transacoesRelatorio.length})
+                    </h5>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px] text-left">
+                        <thead className="bg-slate-50 text-[10px] uppercase text-slate-600 border-b">
+                          <tr>
+                            <th className="py-2 px-2">Recibo</th>
+                            <th className="py-2 px-2">Data</th>
+                            <th className="py-2 px-2">Estudante / Turma</th>
+                            <th className="py-2 px-2">Emolumento</th>
+                            <th className="py-2 px-2">Método</th>
+                            <th className="py-2 px-2 text-right">Valor (Kz)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {transacoesRelatorio.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="py-4 text-center text-slate-500">
+                                Nenhum pagamento encontrado no período selecionado.
+                              </td>
+                            </tr>
+                          ) : (
+                            transacoesRelatorio.map((t) => (
+                              <tr key={`det-rec-${t.id}`}>
+                                <td className="py-1.5 px-2 font-mono font-bold text-blue-800">{t.numeroRecibo}</td>
+                                <td className="py-1.5 px-2 text-slate-600">{t.dataHora}</td>
+                                <td className="py-1.5 px-2 font-semibold text-slate-900">
+                                  {t.alunoNome} <span className="text-[10px] text-slate-500">({t.turmaNome || t.classe || '—'})</span>
+                                </td>
+                                <td className="py-1.5 px-2 text-slate-800">
+                                  {t.tipo}{t.mesReferencia ? ` (${t.mesReferencia})` : ''}
+                                  {t.modalidadePagamento === 'Parcial' && (
+                                    <span className="ml-1 text-[9px] font-bold text-amber-700">[Parcial]</span>
+                                  )}
+                                </td>
+                                <td className="py-1.5 px-2 text-slate-600">{t.metodoPagamento}</td>
+                                <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-700">
+                                  {(t.valorTotalKz || t.valorKz || 0).toLocaleString('pt-AO')} Kz
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
+                    <h5 className="text-xs font-black uppercase text-slate-900 border-b border-slate-200 pb-1.5">
+                      Detalhamento de Despesas ({despesasRelatorio.length})
+                    </h5>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px] text-left">
+                        <thead className="bg-slate-50 text-[10px] uppercase text-slate-600 border-b">
+                          <tr>
+                            <th className="py-2 px-2">Data</th>
+                            <th className="py-2 px-2">Categoria</th>
+                            <th className="py-2 px-2">Descrição</th>
+                            <th className="py-2 px-2">Beneficiário</th>
+                            <th className="py-2 px-2 text-right">Valor (Kz)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {despesasRelatorio.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-4 text-center text-slate-500">
+                                Nenhuma despesa encontrada no período selecionado.
+                              </td>
+                            </tr>
+                          ) : (
+                            despesasRelatorio.map((d) => (
+                              <tr key={`det-desp-${d.id}`}>
+                                <td className="py-1.5 px-2 text-slate-600">{d.dataHora}</td>
+                                <td className="py-1.5 px-2 font-semibold text-slate-800">{d.categoria}</td>
+                                <td className="py-1.5 px-2 text-slate-700">{d.descricao}</td>
+                                <td className="py-1.5 px-2 text-slate-600">{d.beneficiario || '—'}</td>
+                                <td className="py-1.5 px-2 text-right font-mono font-bold text-rose-700">
+                                  {(d.valorKz || 0).toLocaleString('pt-AO')} Kz
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 text-xs text-slate-600 space-y-2">
+                <p>
+                  <strong>Observações Contabilísticas:</strong> Todas as receitas foram arrecadadas mediante a emissão de recibos numerados sequencialmente em conformidade com as normas administrativas vigentes. As despesas possuem comprovativos anexos em arquivo físico na secretaria da instituição.
+                </p>
+                <div data-pdf-fixed-signatures="true" className="pt-8 flex justify-between text-center">
+                  <div>
+                    <div className="w-48 border-t border-slate-400 mx-auto" />
+                    <p className="pt-1 font-bold">{currentUser.nomeCompleto}</p>
+                    <p className="text-[10px] text-slate-500">O Subdirector Administrativo</p>
+                  </div>
+                  <div>
+                    <div className="w-48 border-t border-slate-400 mx-auto" />
+                    <p className="pt-1 font-bold">{obterNomeDiretorGeral(escola)}</p>
+                    <p className="text-[10px] text-slate-500">{obterTituloDiretorGeral(escola)}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ========================================== */}
       {/* MODAL: REGISTAR NOVO PAGAMENTO             */}
@@ -3028,7 +3683,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                       setPagTipo(alvo.nome.trim() as TipoPagamentoEscolar);
                       const ctx = calcularSaldoEmolumentoAluno(idAluno, alvo, pagMes);
                       const totalAlvo = ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto;
-                      setPagValor(pagModalidade === 'Parcial' ? Math.max(500, Math.round(totalAlvo / 2)) : totalAlvo);
+                      setPagValor(pagModalidade === 'Parcial' ? Math.max(1, Math.round((totalAlvo / 2) * 100) / 100) : totalAlvo);
                     }
                   }}
                   className="w-full p-2.5 border border-gray-300 rounded-lg font-bold text-gray-800 focus:ring-2 focus:ring-blue-600"
@@ -3068,7 +3723,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                         const ctx = calcularSaldoEmolumentoAluno(pagAlunoId, emObj, ehM ? pagMes : undefined);
                         const totalAlvo = ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto;
                         if (emObj.permitirPagamentoParcial === false) setPagModalidade('Total');
-                        setPagValor(pagModalidade === 'Parcial' && emObj.permitirPagamentoParcial !== false ? Math.max(500, Math.round(totalAlvo / 2)) : totalAlvo);
+                        setPagValor(pagModalidade === 'Parcial' && emObj.permitirPagamentoParcial !== false ? Math.max(1, Math.round((totalAlvo / 2) * 100) / 100) : totalAlvo);
                       }
                     }}
                     className="w-full p-2 border border-gray-300 rounded-lg font-bold"
@@ -3104,7 +3759,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                       if (emolumentoSelecionadoModal) {
                         const ctx = calcularSaldoEmolumentoAluno(pagAlunoId, emolumentoSelecionadoModal, novoMes);
                         const totalAlvo = ctx.saldoRestante > 0 ? ctx.saldoRestante : ctx.valorPrevisto;
-                        setPagValor(pagModalidade === 'Parcial' ? Math.max(500, Math.round(totalAlvo / 2)) : totalAlvo);
+                        setPagValor(pagModalidade === 'Parcial' ? Math.max(1, Math.round((totalAlvo / 2) * 100) / 100) : totalAlvo);
                       }
                     }}
                     disabled={!pagTipoEhMensal}
@@ -3127,7 +3782,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   pagTipoEhMensal ? pagMes : undefined
                 );
                 const permiteParcial = emolumentoSelecionadoModal.permitirPagamentoParcial !== false;
-                const restanteAposEste = Math.max(0, ctxSaldo.valorPrevisto - (ctxSaldo.jaPago + (Number(pagValor) || 0)));
+                const restanteAposEste = Math.max(0, Math.round((ctxSaldo.valorPrevisto - (ctxSaldo.jaPago + (Number(pagValor) || 0))) * 100) / 100);
 
                 return (
                   <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
@@ -3159,7 +3814,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                           setPagModalidade('Parcial');
                           setPagQuitacaoTotal(false);
                           const ref = ctxSaldo.saldoRestante > 0 ? ctxSaldo.saldoRestante : ctxSaldo.valorPrevisto;
-                          setPagValor(Math.max(500, Math.round(ref / 2)));
+                          setPagValor(Math.max(1, Math.round((ref / 2) * 100) / 100));
                         }}
                         className={`py-1.5 px-3 rounded-lg border text-xs font-bold cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                           pagModalidade === 'Parcial'
@@ -3195,9 +3850,10 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                   <input
                     type="number"
                     required
-                    min={1}
+                    min={0.01}
+                    step="any"
                     value={pagValor}
-                    onChange={(e) => setPagValor(Number(e.target.value))}
+                    onChange={(e) => setPagValor(parseValorLivre(e.target.value))}
                     className="w-full p-2 border border-gray-300 rounded-lg font-black text-emerald-700 text-sm"
                   />
                 </div>
@@ -3659,7 +4315,7 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
         </div>
       )}
 
-      {/* MODAL: EMISSÃO DE RECIBOS EM FOLHA A4 (8 POR FOLHA) */}
+      {/* MODAL: EMISSÃO DE RECIBOS EM FOLHA A4 (CONFIGURÁVEL) */}
       <FeeReceiptsA4Modal
         isOpen={showRecibosA4Modal}
         onClose={() => setShowRecibosA4Modal(false)}
@@ -3684,6 +4340,8 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
           }))}
         initialSelectedIds={selectedRecibosA4Ids}
         nomeAtendentePadrao={currentUser.nomeCompleto}
+        canConfigureA4={isDirecao}
+        onChangeRecibosPorFolha={(qtd) => setRecibosEmolumentosPorFolha(qtd)}
       />
 
       {/* MODAL: NOVA DELEGAÇÃO DE COBRANÇA FINANCEIRA */}
@@ -3905,12 +4563,16 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                     Valor Padrão (Kwanzas - Kz) *
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     required
-                    min="100"
-                    step="500"
-                    value={emolValorKz}
-                    onChange={(e) => setEmolValorKz(Math.max(0, parseInt(e.target.value) || 0))}
+                    value={emolValorTexto}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/[^0-9.,]/g, '');
+                      setEmolValorTexto(raw);
+                      setEmolValorKz(parseValorLivre(raw));
+                    }}
+                    placeholder="Ex: 500, 1250.50 ou 15000"
                     className="w-full p-2.5 border border-gray-300 rounded-lg font-mono font-bold text-emerald-800"
                   />
                 </div>
@@ -4138,11 +4800,11 @@ export const AdministrativeFinanceView: React.FC<AdministrativeFinanceViewProps>
                 <label className="block font-bold text-gray-700 mb-1">Valor Arrecadado (Kz) *</label>
                 <input
                   type="number"
-                  min="0"
-                  step="100"
+                  min="0.01"
+                  step="any"
                   required
                   value={editValor}
-                  onChange={(e) => setEditValor(Math.max(0, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setEditValor(parseValorLivre(e.target.value))}
                   className="w-full p-2.5 border border-gray-300 rounded-xl font-bold text-sm text-emerald-700"
                 />
               </div>

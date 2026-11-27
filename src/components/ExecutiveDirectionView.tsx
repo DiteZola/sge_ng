@@ -1215,7 +1215,8 @@ export const ExecutiveDirectionView: React.FC<ExecutiveDirectionViewProps> = ({
           { id: 'Tesoureiro', label: 'Tesoureiro' },
           { id: 'Bibliotecario', label: 'Bibliotecário' },
           { id: 'Estagiario', label: 'Estagiário' },
-          { id: 'TecnicoTI', label: 'Técnico de TI' }
+          { id: 'TecnicoTI', label: 'Técnico de TI' },
+          { id: 'AuxiliarLimpeza', label: 'Auxiliar de Limpeza' }
         ];
 
         const DADOS_SENSIVEIS_INFO: {

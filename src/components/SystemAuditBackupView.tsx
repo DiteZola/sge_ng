@@ -757,6 +757,24 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
     notificar('Cópia de segurança JSON de todo o Sistema Nacional transferida com sucesso.');
   };
 
+  const handleExportFuncionariosAlunosNotasExcel = async () => {
+    await dbService.exportarFuncionariosAlunosNotasExcel(isAdminGeral ? undefined : escola.id);
+    notificar(
+      isAdminGeral
+        ? 'Livro Excel completo (Funcionários, Alunos e Notas) do Sistema transferido com sucesso.'
+        : `Livro Excel completo (Funcionários, Alunos e Notas) de ${escola.sigla || escola.nomeOficial} transferido com sucesso.`
+    );
+  };
+
+  const handleExportFuncionariosAlunosNotasJSON = () => {
+    dbService.exportarFuncionariosAlunosNotasJSON(isAdminGeral ? undefined : escola.id);
+    notificar(
+      isAdminGeral
+        ? 'Ficheiro JSON completo (Funcionários, Alunos e Notas) do Sistema transferido com sucesso.'
+        : `Ficheiro JSON completo (Funcionários, Alunos e Notas) de ${escola.sigla || escola.nomeOficial} transferido com sucesso.`
+    );
+  };
+
   // Importar / Restaurar Backup JSON (Suporta Completo e Incremental)
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2165,7 +2183,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
               </p>
             </div>
 
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdminGeral ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               {/* 1. Alunos e Notas */}
               <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/40 hover:bg-blue-50 transition-colors flex flex-col justify-between">
                 <div>
@@ -2204,7 +2222,38 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </button>
               </div>
 
-              {/* 3. Escola Completa */}
+              {/* 3. Pacote Unificado: Funcionários, Alunos e Notas */}
+              <div className="p-4 rounded-xl border-2 border-purple-200 bg-purple-50/50 hover:bg-purple-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-purple-800 bg-purple-100 px-2 py-0.5 rounded-full">
+                    {isAdminGeral ? 'Sistema Completo' : 'Dados da Escola'}
+                  </span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Funcionários, Alunos & Notas</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Exportação unificada completa dos recursos humanos, estudantes e todas as notas em Excel ou JSON.
+                  </p>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleExportFuncionariosAlunosNotasExcel}
+                    className="py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1 shadow-xs cursor-pointer transition-all"
+                  >
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    <span>Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportFuncionariosAlunosNotasJSON}
+                    className="py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>JSON</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Escola Completa */}
               <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50 transition-colors flex flex-col justify-between">
                 <div>
                   <span className="text-[10px] font-black uppercase text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Instituição Ativa</span>
@@ -2223,7 +2272,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </button>
               </div>
 
-              {/* 4. Sistema Completo (Exclusivo Admin Geral) */}
+              {/* 5. Sistema Completo (Exclusivo Admin Geral) */}
               {isAdminGeral && (
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
                   <div>
@@ -3213,6 +3262,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 <option value="Professor">Professor</option>
                 <option value="Secretaria">Secretaria</option>
                 <option value="ChefeSecretaria">Chefe de Secretaria</option>
+                <option value="AuxiliarLimpeza">Auxiliar de Limpeza</option>
                 <option value="Encarregado">Encarregado</option>
               </select>
 
@@ -3647,6 +3697,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                             r === 'CoordenadorPedagogico' ? 'Coordenador Pedagógico' :
                             r === 'CoordenadorTurno' ? 'Coordenador de Turno' :
                             r === 'Secretaria' ? 'Técnico de Secretaria' :
+                            r === 'AuxiliarLimpeza' ? 'Auxiliar de Limpeza' :
                             r === 'ChefeSecretaria' ? 'Chefe de Secretaria' : 'Encarregado'
                           );
                         }}
@@ -3659,6 +3710,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                         <option value="CoordenadorTurno">Coordenador de Turno</option>
                         <option value="SubdiretorPedagogico">Subdiretor Pedagógico</option>
                         <option value="SubdirectorAdministrativo">Subdirector Administrativo</option>
+                        <option value="AuxiliarLimpeza">Auxiliar de Limpeza</option>
                         <option value="DiretorGeral">Diretor Geral</option>
                         {isAdminGeral && <option value="AdminGeral">Administrador Geral</option>}
                         <option value="Encarregado">Encarregado</option>
@@ -3778,7 +3830,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
               </p>
             </div>
 
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdminGeral ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               {/* 1. Alunos com Todas as Notas */}
               <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50/40 hover:bg-emerald-50 transition-colors flex flex-col justify-between">
                 <div>
@@ -3817,7 +3869,38 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </button>
               </div>
 
-              {/* 3. Escola Completa */}
+              {/* 3. Pacote Unificado: Funcionários, Alunos e Notas */}
+              <div className="p-4 rounded-xl border-2 border-purple-200 bg-purple-50/50 hover:bg-purple-50 transition-colors flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-purple-800 bg-purple-100 px-2 py-0.5 rounded-full">
+                    {isAdminGeral ? 'Sistema Completo' : 'Dados da Escola'}
+                  </span>
+                  <h4 className="text-xs font-bold text-gray-900 mt-2">Funcionários, Alunos & Notas</h4>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                    Livro completo com quadros de funcionários, alunos e todas as notas em Excel (.xlsx) ou JSON (.json).
+                  </p>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleExportFuncionariosAlunosNotasExcel}
+                    className="py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportFuncionariosAlunosNotasJSON}
+                    className="py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>JSON</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Escola Completa */}
               <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/40 hover:bg-blue-50 transition-colors flex flex-col justify-between">
                 <div>
                   <span className="text-[10px] font-black uppercase text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Instituição Ativa</span>
@@ -3836,7 +3919,7 @@ export const SystemAuditBackupView: React.FC<SystemAuditBackupViewProps> = ({
                 </button>
               </div>
 
-              {/* 4. Todo o Sistema Completo (Exclusivo Admin Geral) */}
+              {/* 5. Todo o Sistema Completo (Exclusivo Admin Geral) */}
               {isAdminGeral && (
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors flex flex-col justify-between">
                   <div>

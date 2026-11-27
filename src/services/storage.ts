@@ -76,9 +76,33 @@ import {
   DadosFinancasPessoaisUsuario,
   HorarioProvaItem,
   MapaFiscalizacaoProva,
-  AtaProvaRegistro
+  AtaProvaRegistro,
+  MapaFeriasItem,
+  MaterialLimpezaItem,
+  MovimentoEstoqueLimpeza,
+  CategoriaMaterialLimpeza,
+  UnidadeMedidaLimpeza,
+  TipoMovimentoEstoqueLimpeza
 } from '../types';
 import { isClasseFinal } from './macEngine';
+import {
+  extrairLinhasComCabecalhoAutomatico,
+  classificarFolhaExcel,
+  obterCampoFlexivel,
+  obterCampoBrutoFlexivel,
+  converterValorDataExcel,
+  converterNumeroNotaExcel,
+  normalizarClasseImportacao,
+  normalizarTurnoImportacao,
+  normalizarGeneroImportacao,
+  normalizarAnoLectivoImportacao,
+  normalizarRoleImportacao,
+  normalizarTextoComparacao,
+  inferirNivelEnsinoPorClasse,
+  ALIASES_ALUNO,
+  ALIASES_FUNCIONARIO,
+  ALIASES_NOTA
+} from '../utils/flexibleExcelImport';
 import {
   getCachedLocal,
   setCachedLocalEntry,
@@ -146,6 +170,9 @@ const STORAGE_KEYS = {
   HORARIOS_PROVAS: 'sge_horarios_provas',
   MAPAS_FISCALIZACAO: 'sge_mapas_fiscalizacao',
   ATAS_PROVAS: 'sge_atas_provas',
+  MAPAS_FERIAS: 'sge_mapas_ferias',
+  ESTOQUE_LIMPEZA: 'sge_estoque_limpeza',
+  MOVIMENTOS_LIMPEZA: 'sge_movimentos_limpeza',
 };
 
 export const DEFAULT_CURSOS: CursoConfig[] = [
@@ -1122,7 +1149,10 @@ const COLECOES_BACKUP_INCREMENTAL_META: Array<{
   { colecao: 'coordenacoes', rotulo: 'Coordenações Escolares', storageKey: STORAGE_KEYS.COORDENACOES },
   { colecao: 'tiposCoordenacaoPersonalizados', rotulo: 'Tipos de Coordenação Personalizados', storageKey: STORAGE_KEYS.TIPOS_COORDENACAO },
   { colecao: 'relatoriosPedagogicos', rotulo: 'Relatórios Pedagógicos Formais', storageKey: STORAGE_KEYS.RELATORIOS_PEDAGOGICOS },
-  { colecao: 'planosAtividades', rotulo: 'Planos de Atividades e Eventos', storageKey: STORAGE_KEYS.PLANOS_ATIVIDADES }
+  { colecao: 'planosAtividades', rotulo: 'Planos de Atividades e Eventos', storageKey: STORAGE_KEYS.PLANOS_ATIVIDADES },
+  { colecao: 'mapasFerias', rotulo: 'Mapas de Férias (RH & Limpeza)', storageKey: STORAGE_KEYS.MAPAS_FERIAS },
+  { colecao: 'materiaisLimpeza', rotulo: 'Estoque de Materiais de Limpeza', storageKey: STORAGE_KEYS.ESTOQUE_LIMPEZA },
+  { colecao: 'movimentosLimpeza', rotulo: 'Movimentos de Estoque de Limpeza', storageKey: STORAGE_KEYS.MOVIMENTOS_LIMPEZA }
 ];
 
 function hashDeterministicoSge(valor: unknown): string {
@@ -1222,7 +1252,11 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     relatoriosAcontecimentos: getLocal<RelatorioAcontecimento[]>(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, []),
     coordenacoes: getLocal<CoordenacaoEscolar[]>(STORAGE_KEYS.COORDENACOES, []),
     tiposCoordenacaoPersonalizados: getLocal<TipoCoordenacaoPersonalizada[]>(STORAGE_KEYS.TIPOS_COORDENACAO, []),
-    relatoriosPedagogicos: getLocal<RelatorioPedagogicoFormal[]>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, [])
+    relatoriosPedagogicos: getLocal<RelatorioPedagogicoFormal[]>(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, []),
+    planosAtividades: getLocal<AtividadePlanoEscolar[]>(STORAGE_KEYS.PLANOS_ATIVIDADES, []),
+    mapasFerias: getLocal<MapaFeriasItem[]>(STORAGE_KEYS.MAPAS_FERIAS, []),
+    materiaisLimpeza: getLocal<MaterialLimpezaItem[]>(STORAGE_KEYS.ESTOQUE_LIMPEZA, []),
+    movimentosLimpeza: getLocal<MovimentoEstoqueLimpeza[]>(STORAGE_KEYS.MOVIMENTOS_LIMPEZA, [])
   };
 
   const colecoesFiltradasPorEscola = new Set([
@@ -1232,6 +1266,10 @@ function coletarSnapshotEstadoAtualParaIncremental(escolaId?: string) {
     'coordenacoes',
     'tiposCoordenacaoPersonalizados',
     'relatoriosPedagogicos',
+    'planosAtividades',
+    'mapasFerias',
+    'materiaisLimpeza',
+    'movimentosLimpeza',
     'funcionarios',
     'avaliacoes',
     'notasConsolidadas',
@@ -2527,6 +2565,7 @@ export const dbService = {
     removerPorAnoEsc<HorarioProvaItem>(STORAGE_KEYS.HORARIOS_PROVAS, 'horarios_provas', (h) => turmasRemovidasIds.has(h.turmaId));
     removerPorAnoEsc<MapaFiscalizacaoProva>(STORAGE_KEYS.MAPAS_FISCALIZACAO, 'mapas_fiscalizacao', (m) => turmasRemovidasIds.has(m.turmaId));
     removerPorAnoEsc<AtaProvaRegistro>(STORAGE_KEYS.ATAS_PROVAS, 'atas_provas', (a) => turmasRemovidasIds.has(a.turmaId));
+    removerPorAnoEsc<MapaFeriasItem>(STORAGE_KEYS.MAPAS_FERIAS, 'mapas_ferias');
 
     // Limpar Histórico Completo dos alunos removidos e entradas do ano nos restantes
     const histMap = getLocal<Record<string, HistoricoEscolarCompleto>>(STORAGE_KEYS.HISTORICO_COMPLETO, DEFAULT_HISTORICO_COMPLETO);
@@ -4837,6 +4876,10 @@ export const dbService = {
     const esc = escolaId ? dbService.getEscolaPorId(escolaId) : dbService.getEscolaAtiva();
     return esc?.nppAtivo !== undefined ? esc.nppAtivo : true;
   },
+  isProvaProfessorAtiva: (escola?: Escola | null): boolean => {
+    if (escola) return escola.nppAtivo !== false;
+    return dbService.obterNPPAtivo();
+  },
   salvarNPPAtivo: (escolaId: string, nppAtivo: boolean) => {
     const escolas = dbService.getEscolas();
     const idx = escolas.findIndex(e => e.id === escolaId);
@@ -4844,9 +4887,47 @@ export const dbService = {
       escolas[idx].nppAtivo = nppAtivo;
       escolas[idx].atualizadoEm = new Date().toISOString();
       setLocal(STORAGE_KEYS.ESCOLAS, escolas);
+      offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.ESCOLAS, JSON.stringify(escolas));
       firebaseSyncEngine.salvarEscola(escolas[idx]);
       dbService.registarLog('Configuração Pedagógica', `Uso de Prova do Professor (NPP) ${nppAtivo ? 'ATIVADO' : 'DESATIVADO'} para o cálculo trimestral.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+      }
     }
+  },
+  getRecibosMatriculaPorFolhaA4: (escolaId?: string): number => {
+    const esc = escolaId ? dbService.getEscolaPorId(escolaId) : dbService.getEscolaAtiva();
+    const cfg = esc?.id ? dbService.getConfiguracaoFinanceira(esc.id) : undefined;
+    const raw = Number(cfg?.recibosMatriculaPorFolhaA4 ?? esc?.recibosMatriculaPorFolhaA4 ?? 3);
+    return [1, 2, 3, 4, 6].includes(raw) ? raw : 3;
+  },
+  salvarRecibosMatriculaPorFolhaA4: (escolaId: string, qtd: number): number => {
+    const valid = [1, 2, 3, 4, 6].includes(Number(qtd)) ? Number(qtd) : 3;
+    const cfg = dbService.getConfiguracaoFinanceira(escolaId);
+    dbService.salvarConfiguracaoFinanceira({ ...cfg, recibosMatriculaPorFolhaA4: valid });
+    const esc = dbService.getEscolaPorId(escolaId);
+    if (esc) {
+      dbService.salvarEscola({ ...esc, recibosMatriculaPorFolhaA4: valid });
+    }
+    dbService.registarLog('Configuração de Recibos', `Quantidade de recibos de matrícula/confirmação por folha A4 definida para ${valid}.`);
+    return valid;
+  },
+  getRecibosEmolumentosPorFolhaA4: (escolaId?: string): number => {
+    const esc = escolaId ? dbService.getEscolaPorId(escolaId) : dbService.getEscolaAtiva();
+    const cfg = esc?.id ? dbService.getConfiguracaoFinanceira(esc.id) : undefined;
+    const raw = Number(cfg?.recibosEmolumentosPorFolhaA4 ?? esc?.recibosEmolumentosPorFolhaA4 ?? 8);
+    return [1, 2, 4, 6, 8].includes(raw) ? raw : 8;
+  },
+  salvarRecibosEmolumentosPorFolhaA4: (escolaId: string, qtd: number): number => {
+    const valid = [1, 2, 4, 6, 8].includes(Number(qtd)) ? Number(qtd) : 8;
+    const cfg = dbService.getConfiguracaoFinanceira(escolaId);
+    dbService.salvarConfiguracaoFinanceira({ ...cfg, recibosEmolumentosPorFolhaA4: valid });
+    const esc = dbService.getEscolaPorId(escolaId);
+    if (esc) {
+      dbService.salvarEscola({ ...esc, recibosEmolumentosPorFolhaA4: valid });
+    }
+    dbService.registarLog('Configuração de Recibos', `Quantidade de recibos de propinas/emolumentos por folha A4 definida para ${valid}.`);
+    return valid;
   },
 
   // Reordenação de Entidades Escolares
@@ -5536,16 +5617,20 @@ export const dbService = {
   // 1. Exportar Alunos com Todas as Notas em Excel (.xlsx)
   exportarAlunosComNotasExcel: async (escolaId?: string) => {
     const XLSX = await import('xlsx');
-    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
-    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
     const nppAtivo = escola?.nppAtivo !== false;
-    
-    const alunos = isEscolaEspecifica 
-      ? dbService.getAlunos().filter(a => a.escolaId === escolaId) 
+
+    const alunos = isEscolaEspecifica
+      ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId)
       : dbService.getAlunos();
     const turmas = dbService.getTurmas();
-    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? escolaId : escola?.id);
+    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? effectiveEscolaId : escola?.id);
     const notasConsolidadas = dbService.getNotasConsolidadas();
 
     const linhasAlunos: any[] = [];
@@ -5646,12 +5731,16 @@ export const dbService = {
 
   // 2. Exportar Alunos com Todas as Notas em JSON (.json)
   exportarAlunosComNotasJSON: (escolaId?: string) => {
-    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
-    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
-    const alunos = isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === escolaId) : dbService.getAlunos();
-    const turmas = isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === escolaId) : dbService.getTurmas();
-    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? escolaId : escola?.id);
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const alunos = isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAlunos();
+    const turmas = isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas();
+    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? effectiveEscolaId : escola?.id);
     const notasConsolidadas = dbService.getNotasConsolidadas();
 
     const dadosExportacao = {
@@ -5717,12 +5806,17 @@ export const dbService = {
   // 3. Exportar Quadro Completo de Funcionários em Excel (.xlsx)
   exportarFuncionariosCompletosExcel: async (escolaId?: string) => {
     const XLSX = await import('xlsx');
-    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
-    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
-    const funcs = isEscolaEspecifica
-      ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId || (escola?.diretorGeralId && f.id === escola.diretorGeralId))
-      : dbService.getFuncionarios();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const funcs = (isEscolaEspecifica
+      ? dbService.getFuncionarios().filter(f => f.escolaId === effectiveEscolaId || (escola?.diretorGeralId && f.id === escola.diretorGeralId))
+      : dbService.getFuncionarios()
+    ).filter(f => !nonAdmin || !isAdminGeralUserObj(f));
 
     const operadorAtual = dbService.getCurrentUser();
     const vis = dbService.getVisibilidadeEfetivaUsuario(operadorAtual, escola);
@@ -5833,12 +5927,17 @@ export const dbService = {
 
   // 4. Exportar Quadro Completo de Funcionários em JSON (.json)
   exportarFuncionariosCompletosJSON: (escolaId?: string) => {
-    const isEscolaEspecifica = Boolean(escolaId && escolaId !== 'todas');
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
     const todasEscolas = dbService.getEscolas();
-    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === escolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
-    const funcs = isEscolaEspecifica 
-      ? dbService.getFuncionarios().filter(f => f.escolaId === escolaId) 
-      : dbService.getFuncionarios();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const funcs = (isEscolaEspecifica
+      ? dbService.getFuncionarios().filter(f => f.escolaId === effectiveEscolaId)
+      : dbService.getFuncionarios()
+    ).filter(f => !nonAdmin || !isAdminGeralUserObj(f));
 
     const dadosExportacao = {
       tipo: 'SGE_QUADRO_FUNCIONARIOS_COMPLETO',
@@ -5859,6 +5958,218 @@ export const dbService = {
     a.click();
     URL.revokeObjectURL(url);
     dbService.registarLog('Backup JSON', `Arquivo JSON do quadro de funcionários (${sigla}) exportado com sucesso.`);
+  },
+
+  // 4B. Exportação Unificada: Funcionários, Alunos e Notas em Excel (.xlsx) - Escopo estrito da escola para Diretor
+  exportarFuncionariosAlunosNotasExcel: async (escolaId?: string) => {
+    const XLSX = await import('xlsx');
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+    const nppAtivo = escola?.nppAtivo !== false;
+
+    const alunos = isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAlunos();
+    const turmas = isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas();
+    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? effectiveEscolaId : escola?.id);
+    const funcs = (isEscolaEspecifica
+      ? dbService.getFuncionarios().filter(f => f.escolaId === effectiveEscolaId || (escola?.diretorGeralId && f.id === escola.diretorGeralId))
+      : dbService.getFuncionarios()
+    ).filter(f => !isAdminGeralUserObj(f));
+    const notasConsolidadas = dbService.getNotasConsolidadas();
+
+    const wb = XLSX.utils.book_new();
+
+    // Aba 1: Resumo Institucional
+    const resumo = [{
+      'Instituição Escolar': isEscolaEspecifica ? (escola?.nomeOficial || effectiveEscolaId) : 'Rede Nacional Completa',
+      'Sigla': escola?.sigla || 'SGE-NG',
+      'Código SIGE / MEC': escola?.codigoSIGE || escola?.codigoMEC || escola?.id || '',
+      'Ano Lectivo Activo': escola?.anoLectivoActivo || '—',
+      'Data de Exportação': new Date().toLocaleDateString('pt-AO'),
+      'Total de Funcionários': funcs.length,
+      'Total de Estudantes': alunos.length,
+      'Total de Turmas': turmas.length
+    }];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), 'Resumo Escolar');
+
+    // Aba 2: Quadro Completo de Funcionários
+    const funcsRows = funcs.map(f => ({
+      'Instituição Escolar': todasEscolas.find(e => e.id === f.escolaId)?.nomeOficial || escola?.nomeOficial || '',
+      'ID Funcionário': f.id,
+      'Nº de Agente': f.numeroAgente || '—',
+      'Nome Completo': f.nomeCompleto,
+      'Gênero': f.genero === 'M' ? 'Masculino' : 'Feminino',
+      'Data de Nascimento': f.dataNascimento || '—',
+      'Nº Bilhete de Identidade (BI)': f.numeroBI || '—',
+      'NIF': f.nif || f.numeroBI || '—',
+      'Cargo / Função': f.cargo,
+      'Papel no Sistema (Role)': f.role,
+      'Categoria Profissional MED': f.categoriaProfissional || '—',
+      'É Professor': f.ehProfessor ? 'Sim' : 'Não',
+      'Tipo de Contrato': f.tipoContrato || 'Efetivo',
+      'Situação Funcional': f.situacaoFuncional || 'Ativo',
+      'Data de Admissão': f.dataAdmissao || '—',
+      'Formação Académica': f.grauAcademico || f.habilitacoes || '—',
+      'Especialidade': f.especialidade || '—',
+      'Telefone': f.telefone || '—',
+      'Email': f.email || '—',
+      'IBAN': f.iban || '—',
+      'Status Conta': f.statusConta || 'Ativa'
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(funcsRows.length > 0 ? funcsRows : [{ Info: 'Sem funcionários registados' }]), 'Funcionários');
+
+    // Aba 3: Alunos Completos
+    const alunosRows = alunos.map((a, idx) => {
+      const t = turmas.find(tr => tr.id === a.turmaId);
+      const escA = todasEscolas.find(e => e.id === a.escolaId) || escola;
+      return {
+        'Instituição Escolar': escA?.nomeOficial || '',
+        'Ano Lectivo': a.anoLectivo || t?.anoLectivo || escA?.anoLectivoActivo || '',
+        'ID': a.id,
+        'Nº de Processo / Matrícula': a.codigoMatricula || a.id,
+        'Nº de Ordem': a.numeroOrdem || idx + 1,
+        'Nome Completo': a.nomeCompleto,
+        'Gênero': a.genero === 'M' ? 'Masculino' : 'Feminino',
+        'Data de Nascimento': a.dataNascimento || '—',
+        'Bilhete de Identidade / Cédula': a.numeroBI || a.numeroDocumento || '—',
+        'Classe': t?.classe || a.classeId || '—',
+        'Turma': t?.nome || a.turmaId || '—',
+        'Curso / Área': a.curso || t?.curso || 'Ensino Geral',
+        'Turno': t?.periodo || t?.turno || a.turno || 'Manhã',
+        'Sala': t?.sala || a.sala || '—',
+        'Estado da Matrícula': a.estado || 'Ativo',
+        'Filiação - Pai': a.nomePai || '—',
+        'Filiação - Mãe': a.nomeMae || '—',
+        'Encarregado de Educação': a.encarregadoNome || a.nomeEncarregado || '—',
+        'Telefone Encarregado': a.encarregadoTelefone || a.telefone || '—',
+        'Telefone': a.telefone || '—',
+        'Endereço Residencial': a.residencia || a.bairro || '—'
+      };
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(alunosRows.length > 0 ? alunosRows : [{ Info: 'Sem alunos registados' }]), 'Alunos');
+
+    // Aba 4: Notas Completas por Disciplina
+    const notasRows: any[] = [];
+    alunos.forEach(a => {
+      const t = turmas.find(tr => tr.id === a.turmaId);
+      const escA = todasEscolas.find(e => e.id === a.escolaId) || escola;
+      const classeAluno = t?.classe || a.classeId || '';
+      const ehFinal = isClasseFinal(classeAluno);
+      const notasAluno = notasConsolidadas.filter(n => n.alunoId === a.id);
+      const discList = disciplinas.filter(d => !d.classes || d.classes.length === 0 || d.classes.includes(classeAluno));
+      (discList.length > 0 ? discList : disciplinas).forEach(d => {
+        const n1 = notasAluno.find(n => n.disciplinaId === d.id && String(n.trimestre).includes('1'));
+        const n2 = notasAluno.find(n => n.disciplinaId === d.id && String(n.trimestre).includes('2'));
+        const n3 = notasAluno.find(n => n.disciplinaId === d.id && String(n.trimestre).includes('3'));
+        const mt1 = n1?.mediaTrimestral ?? n1?.notaFinal;
+        const mt2 = n2?.mediaTrimestral ?? n2?.notaFinal;
+        const mt3 = n3?.mediaTrimestral ?? n3?.notaFinal;
+        const mtsValidos = [mt1, mt2, mt3].filter((v): v is number => v !== undefined && v !== null);
+        const mdf = mtsValidos.length > 0 ? Number((mtsValidos.reduce((x, y) => x + y, 0) / mtsValidos.length).toFixed(1)) : 0;
+        const ne = ehFinal ? (n3?.notaExame ?? null) : null;
+        const mf = ehFinal && ne !== null ? Number((mdf * 0.4 + ne * 0.6).toFixed(1)) : mdf;
+
+        const row: Record<string, any> = {
+          'Instituição Escolar': escA?.nomeOficial || '',
+          'Ano Lectivo': a.anoLectivo || t?.anoLectivo || escA?.anoLectivoActivo || '',
+          'Nº Processo': a.codigoMatricula || a.id,
+          'Nome do Estudante': a.nomeCompleto,
+          'BI / Cédula': a.numeroBI || a.numeroDocumento || '—',
+          'Classe': classeAluno || '—',
+          'Turma': t?.nome || a.turmaId || '—',
+          'Disciplina': d.nome,
+          '1T - MAC': n1?.mac ?? '—'
+        };
+        if (nppAtivo) row['1T - NPP'] = n1?.npp ?? '—';
+        row['1T - PT'] = n1?.npt ?? '—';
+        row['1T - MT'] = mt1 ?? '—';
+        row['2T - MAC'] = n2?.mac ?? '—';
+        if (nppAtivo) row['2T - NPP'] = n2?.npp ?? '—';
+        row['2T - PT'] = n2?.npt ?? '—';
+        row['2T - MT'] = mt2 ?? '—';
+        row['3T - MAC'] = n3?.mac ?? '—';
+        if (nppAtivo) row['3T - NPP'] = n3?.npp ?? '—';
+        row['3T - PT'] = n3?.npt ?? '—';
+        row['3T - MT'] = mt3 ?? '—';
+        row['MDF'] = mdf > 0 ? mdf : '—';
+        row['NE (Exame)'] = ehFinal && ne !== null ? ne : '—';
+        row['MF (Final)'] = mf > 0 ? mf : '—';
+        row['Resultado'] = mf > 0 ? (mf >= 10 ? 'Aprovado' : 'Não Transita') : 'Pendente';
+        notasRows.push(row);
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(notasRows.length > 0 ? notasRows : [{ Info: 'Sem notas lançadas' }]), 'Notas e Pautas');
+
+    const sigla = isEscolaEspecifica ? (escola?.sigla || 'Escola') : 'Rede_Nacional';
+    const dataHoje = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `SGE_Funcionarios_Alunos_Notas_${sigla}_${dataHoje}.xlsx`);
+    dbService.registarLog('Exportação Excel', `Pacote completo Funcionários, Alunos e Notas (${sigla}) exportado em Excel.`);
+  },
+
+  // 4C. Exportação Unificada: Funcionários, Alunos e Notas em JSON (.json) - Escopo estrito da escola para Diretor
+  exportarFuncionariosAlunosNotasJSON: (escolaId?: string) => {
+    const nonAdmin = isSessaoAutenticadaNaoAdminGeral();
+    const effectiveEscolaId = nonAdmin
+      ? (escolaId && escolaId !== 'todas' ? escolaId : dbService.getEscolaAtiva().id)
+      : escolaId;
+    const isEscolaEspecifica = Boolean(effectiveEscolaId && effectiveEscolaId !== 'todas');
+    const todasEscolas = dbService.getEscolas();
+    const escola = (isEscolaEspecifica ? todasEscolas.find(e => e.id === effectiveEscolaId) : dbService.getEscolaAtiva()) || todasEscolas[0];
+
+    const alunos = isEscolaEspecifica ? dbService.getAlunos().filter(a => a.escolaId === effectiveEscolaId) : dbService.getAlunos();
+    const alunosIds = new Set(alunos.map(a => a.id));
+    const turmas = isEscolaEspecifica ? dbService.getTurmas().filter(t => t.escolaId === effectiveEscolaId) : dbService.getTurmas();
+    const disciplinas = dbService.getDisciplinas(isEscolaEspecifica ? effectiveEscolaId : escola?.id);
+    const funcs = (isEscolaEspecifica
+      ? dbService.getFuncionarios().filter(f => f.escolaId === effectiveEscolaId || (escola?.diretorGeralId && f.id === escola.diretorGeralId))
+      : dbService.getFuncionarios()
+    ).filter(f => !isAdminGeralUserObj(f));
+    const notasConsolidadas = isEscolaEspecifica
+      ? dbService.getNotasConsolidadas().filter(nc => !(nc as any).escolaId || (nc as any).escolaId === effectiveEscolaId || alunosIds.has(nc.alunoId))
+      : dbService.getNotasConsolidadas();
+    const avaliacoesIds = new Set(
+      (isEscolaEspecifica ? dbService.getAvaliacoes().filter(av => av.escolaId === effectiveEscolaId) : dbService.getAvaliacoes()).map(av => av.id)
+    );
+    const notasDetalhadas = isEscolaEspecifica
+      ? dbService.getNotas().filter(n => avaliacoesIds.has(n.avaliacaoId) || alunosIds.has(n.alunoId))
+      : dbService.getNotas();
+
+    const payload = {
+      tipo: 'SGE_FUNCIONARIOS_ALUNOS_NOTAS_COMPLETO',
+      escopo: isEscolaEspecifica ? 'ESCOLA' : 'SISTEMA_COMPLETO',
+      versao: '2.6',
+      dataExportacao: new Date().toISOString(),
+      escolaAlvo: isEscolaEspecifica && escola
+        ? { id: escola.id, nomeOficial: escola.nomeOficial, sigla: escola.sigla, anoLectivoActivo: escola.anoLectivoActivo }
+        : { id: 'todas', nomeOficial: 'Rede Nacional Completa' },
+      resumo: {
+        totalFuncionarios: funcs.length,
+        totalAlunos: alunos.length,
+        totalTurmas: turmas.length,
+        totalNotasConsolidadas: notasConsolidadas.length
+      },
+      funcionarios: funcs,
+      turmas,
+      disciplinas,
+      alunos,
+      notasConsolidadas,
+      notas: notasDetalhadas
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const sigla = isEscolaEspecifica ? (escola?.sigla || 'Escola') : 'Rede_Nacional';
+    const dataHoje = new Date().toISOString().split('T')[0];
+    a.download = `SGE_Funcionarios_Alunos_Notas_${sigla}_${dataHoje}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    dbService.registarLog('Backup JSON', `Pacote JSON Funcionários, Alunos e Notas (${sigla}) exportado com sucesso.`);
   },
 
   // 5. Exportar Escola Completa em Excel (.xlsx) com Múltiplas Abas Oficiais
@@ -6235,88 +6546,386 @@ export const dbService = {
     dbService.gerarBackupJSON('todas');
   },
 
-  // Importar Dados do Excel
-  importarExcel: async (file: File): Promise<{ sucesso: boolean; mensagem: string; contadores?: any }> => {
+  // Importar Dados do Excel (Motor Flexível Multi-Escolas e Multi-Anos Letivos)
+  importarExcel: async (
+    file: File,
+    opcoes?: { anoLectivoDestino?: string; escolaIdDestino?: string }
+  ): Promise<{ sucesso: boolean; mensagem: string; contadores?: any }> => {
     try {
       const XLSX = await import('xlsx');
       const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+
+      const escolaAtiva = (opcoes?.escolaIdDestino ? dbService.getEscolaPorId(opcoes.escolaIdDestino) : null) || dbService.getEscolaAtiva();
+      const anoDestinoBase = opcoes?.anoLectivoDestino || escolaAtiva?.anoLectivoActivo || '';
 
       let alunosImportados = 0;
       let turmasImportadas = 0;
+      let funcionariosImportados = 0;
+      let disciplinasImportadas = 0;
+      let notasImportadas = 0;
 
-      // Importar aba Alunos
-      if (wb.SheetNames.includes('Alunos')) {
-        const wsAlunos = wb.Sheets['Alunos'];
-        const dataAlunos = XLSX.utils.sheet_to_json<any>(wsAlunos);
-        const alunosExistentes = dbService.getAlunos();
+      const alunosExistentes = [...dbService.getAlunos()];
+      const turmasExistentes = [...dbService.getTurmas()];
+      const disciplinasExistentes = [...dbService.getDisciplinas(escolaAtiva.id)];
+      const funcionariosExistentes = [...dbService.getFuncionariosBruto()];
+      const notasExistentes = [...dbService.getNotasConsolidadas()];
 
-        for (const row of dataAlunos) {
-          if (!row.NomeCompleto && !row.nomeCompleto) continue;
-          const novoAluno: Aluno = {
-            id: row.ID || `aluno-imp-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            codigoMatricula: row.CodigoMatricula || row.codigoMatricula || `MED-${Date.now()}`,
-            numeroOrdem: Number(row.NumeroOrdem || row.numeroOrdem || 1),
-            nomeCompleto: row.NomeCompleto || row.nomeCompleto,
-            genero: (row.Genero || row.genero || 'M').toUpperCase() === 'F' ? 'F' : 'M',
-            dataNascimento: row.DataNascimento || row.dataNascimento || '2015-01-01',
-            naturalidade: row.Naturalidade || row.naturalidade || 'Luanda',
-            provinciaOrigem: row.ProvinciaOrigem || row.provinciaOrigem || 'Luanda',
-            numeroBI: row.BI || row.numeroBI || '000000000LA000',
-            telefone: row.Telefone || row.telefone || '',
-            fotoUrl: '',
-            encarregadoNome: row.Encarregado || row.encarregadoNome || 'Encarregado de Educação',
-            encarregadoParentesco: 'Encarregado',
-            encarregadoTelefone: row.TelefoneEncarregado || row.encarregadoTelefone || '',
-            estado: (row.Estado || row.estado || 'Ativo') as any,
-            turmaId: row.TurmaID || row.turmaId || 'turma-1a',
-            classeId: row.Classe || row.classeId || '1ª',
-            escolaId: dbService.getEscolaAtiva().id,
-            propinaStatus: 'Regularizada',
-            historicoAnterior: [],
-            cadastradoEm: new Date().toISOString().split('T')[0]
-          };
+      const ensureTurma = (nomeTurmaRaw: string, classeRaw: string, turnoRaw: string, cursoRaw: string, salaRaw: string, anoRow: string): Turma | null => {
+        const nomeT = (nomeTurmaRaw || '').trim();
+        const classeNorm = normalizarClasseImportacao(classeRaw) || '1ª';
+        const anoT = normalizarAnoLectivoImportacao(anoRow, anoDestinoBase);
+        if (!nomeT && !classeNorm) return null;
+        const nomeFinal = nomeT || `${classeNorm} A`;
 
-          const idx = alunosExistentes.findIndex(a => a.id === novoAluno.id || a.codigoMatricula === novoAluno.codigoMatricula);
-          if (idx >= 0) alunosExistentes[idx] = novoAluno;
-          else alunosExistentes.push(novoAluno);
-          alunosImportados++;
+        const found = turmasExistentes.find(
+          t =>
+            t.escolaId === escolaAtiva.id &&
+            normalizarTextoComparacao(t.nome) === normalizarTextoComparacao(nomeFinal) &&
+            (!classeNorm || normalizarTextoComparacao(t.classe) === normalizarTextoComparacao(classeNorm)) &&
+            (!anoT || !t.anoLectivo || t.anoLectivo === anoT)
+        );
+        if (found) return found;
+
+        const created: Turma = {
+          id: `turma-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          escolaId: escolaAtiva.id,
+          nome: nomeFinal,
+          classe: classeNorm,
+          nivelEnsino: inferirNivelEnsinoPorClasse(classeNorm),
+          curso: cursoRaw || 'Ensino Geral',
+          turno: normalizarTurnoImportacao(turnoRaw),
+          sala: salaRaw || 'Sala 01',
+          capacidadeMaxima: 45,
+          anoLectivo: anoT
+        };
+        turmasExistentes.push(created);
+        firebaseSyncEngine.salvarTurma(created);
+        turmasImportadas++;
+        return created;
+      };
+
+      const ensureDisciplina = (nomeDiscRaw: string, classeNorm?: string): Disciplina | null => {
+        const nomeD = (nomeDiscRaw || '').trim();
+        if (!nomeD || nomeD === '—') return null;
+        const found = disciplinasExistentes.find(
+          d => normalizarTextoComparacao(d.nome) === normalizarTextoComparacao(nomeD)
+        );
+        if (found) return found;
+        const created: Disciplina = {
+          id: `disc-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          escolaId: escolaAtiva.id,
+          nome: nomeD,
+          sigla: nomeD.slice(0, 3).toUpperCase(),
+          codigo: nomeD.slice(0, 3).toUpperCase(),
+          cargaHorariaSemanal: 4,
+          nivelEnsino: inferirNivelEnsinoPorClasse(classeNorm || '10ª'),
+          classes: classeNorm ? [classeNorm] : [],
+          anoLectivo: anoDestinoBase
+        };
+        disciplinasExistentes.push(created);
+        firebaseSyncEngine.salvarDisciplina(created);
+        disciplinasImportadas++;
+        return created;
+      };
+
+      const folhasAnalisadas = wb.SheetNames.map(sheetName => {
+        const ws = wb.Sheets[sheetName];
+        const parsed = extrairLinhasComCabecalhoAutomatico(XLSX, ws);
+        const tipo = classificarFolhaExcel(sheetName, parsed.headers);
+        return { sheetName, tipo, ...parsed };
+      });
+
+      // Ordem estratégica: Turmas -> Disciplinas -> Funcionários -> Alunos -> Notas
+      const ordem: Record<string, number> = {
+        AnoLectivo: 1,
+        Turmas: 2,
+        Disciplinas: 3,
+        Funcionarios: 4,
+        Alunos: 5,
+        Notas: 6,
+        Desconhecido: 7
+      };
+      folhasAnalisadas.sort((a, b) => (ordem[a.tipo] || 9) - (ordem[b.tipo] || 9));
+
+      for (const folha of folhasAnalisadas) {
+        if (folha.rows.length === 0 || folha.tipo === 'Desconhecido') continue;
+        const anoFolha = folha.metadados.anoLectivoDetectado || anoDestinoBase;
+
+        if (folha.tipo === 'Turmas') {
+          for (const row of folha.rows) {
+            const nomeT = obterCampoFlexivel(row, ['Nome da Turma', 'Nome', 'Turma', 'Designação']);
+            const classeT = normalizarClasseImportacao(obterCampoFlexivel(row, ['Classe', 'classe', 'ClasseID'])) || '1ª';
+            if (!nomeT) continue;
+            const turnoT = obterCampoFlexivel(row, ['Turno', 'Período', 'turno', 'periodo']);
+            const cursoT = obterCampoFlexivel(row, ['Curso', 'Curso / Área', 'curso']);
+            const salaT = obterCampoFlexivel(row, ['Sala', 'sala', 'Sala de Aula']);
+            const anoT = normalizarAnoLectivoImportacao(obterCampoFlexivel(row, ['Ano Lectivo', 'Ano Letivo', 'anoLectivo']), anoFolha);
+            ensureTurma(nomeT, classeT, turnoT, cursoT, salaT, anoT);
+          }
+        } else if (folha.tipo === 'Disciplinas') {
+          for (const row of folha.rows) {
+            const nomeD = obterCampoFlexivel(row, ['Disciplina', 'Nome', 'Nome da Disciplina', 'Cadeira']);
+            if (!nomeD) continue;
+            const classeD = normalizarClasseImportacao(obterCampoFlexivel(row, ['Classe', 'classe']));
+            ensureDisciplina(nomeD, classeD);
+          }
+        } else if (folha.tipo === 'Funcionarios') {
+          for (const row of folha.rows) {
+            const nomeF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.nomeCompleto);
+            if (!nomeF) continue;
+            const biF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.numeroBI).replace(/\*\*\*.*?\*\*\*/g, '').trim();
+            const agenteF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.numeroAgente);
+            const emailF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.email).replace(/\*\*\*.*?\*\*\*/g, '').trim();
+            const telF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.telefone).replace(/\*\*\*.*?\*\*\*/g, '').trim();
+            const cargoF = obterCampoFlexivel(row, ALIASES_FUNCIONARIO.cargo) || 'Professor';
+            const roleF = normalizarRoleImportacao(obterCampoFlexivel(row, ALIASES_FUNCIONARIO.role), cargoF);
+            if (roleF === 'AdminGeral') continue;
+            const dnF = converterValorDataExcel(obterCampoBrutoFlexivel(row, ALIASES_FUNCIONARIO.dataNascimento)) || '1990-01-01';
+            const admF = converterValorDataExcel(obterCampoBrutoFlexivel(row, ALIASES_FUNCIONARIO.dataAdmissao)) || new Date().toISOString().split('T')[0];
+
+            const existenteIdx = funcionariosExistentes.findIndex(
+              f =>
+                f.escolaId === escolaAtiva.id &&
+                ((biF && f.numeroBI && normalizarTextoComparacao(f.numeroBI) === normalizarTextoComparacao(biF)) ||
+                  (agenteF && f.numeroAgente && normalizarTextoComparacao(f.numeroAgente) === normalizarTextoComparacao(agenteF)) ||
+                  normalizarTextoComparacao(f.nomeCompleto) === normalizarTextoComparacao(nomeF))
+            );
+            const baseExist = existenteIdx >= 0 ? funcionariosExistentes[existenteIdx] : null;
+            const funcObj: Funcionario = {
+              ...(baseExist || {}),
+              id: baseExist?.id || `func-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              escolaId: escolaAtiva.id,
+              nomeCompleto: nomeF,
+              numeroBI: biF || baseExist?.numeroBI || `BI-${Date.now().toString().slice(-6)}`,
+              numeroAgente: agenteF || baseExist?.numeroAgente,
+              genero: normalizarGeneroImportacao(obterCampoFlexivel(row, ALIASES_FUNCIONARIO.genero)),
+              dataNascimento: dnF,
+              telefone: telF || baseExist?.telefone || '',
+              email: emailF || baseExist?.email || `${normalizarTextoComparacao(nomeF).replace(/\s+/g, '.')}@escola.gov.ao`,
+              cargo: cargoF,
+              role: roleF,
+              ehProfessor: roleF === 'Professor' || ['sim', 'true', '1'].includes(normalizarTextoComparacao(obterCampoFlexivel(row, ALIASES_FUNCIONARIO.ehProfessor))),
+              ehAdministrativoQueLeciona: baseExist?.ehAdministrativoQueLeciona ?? false,
+              fotoUrl: baseExist?.fotoUrl ?? '',
+              habilitacoes: obterCampoFlexivel(row, ALIASES_FUNCIONARIO.habilitacoes) || baseExist?.habilitacoes || 'Licenciatura',
+              especialidade: obterCampoFlexivel(row, ALIASES_FUNCIONARIO.especialidade) || baseExist?.especialidade,
+              dataAdmissao: admF,
+              ativo: true,
+              statusConta: baseExist?.statusConta || 'Ativa',
+              atualizadoEm: new Date().toISOString()
+            };
+            if (existenteIdx >= 0) funcionariosExistentes[existenteIdx] = funcObj;
+            else funcionariosExistentes.push(funcObj);
+            firebaseSyncEngine.salvarFuncionariosLote([funcObj]);
+            funcionariosImportados++;
+          }
+        } else if (folha.tipo === 'Alunos') {
+          for (let rIdx = 0; rIdx < folha.rows.length; rIdx++) {
+            const row = folha.rows[rIdx];
+            const nomeA = obterCampoFlexivel(row, ALIASES_ALUNO.nomeCompleto);
+            if (!nomeA) continue;
+
+            const biA = obterCampoFlexivel(row, ALIASES_ALUNO.numeroBI);
+            const matA = obterCampoFlexivel(row, ALIASES_ALUNO.codigoMatricula);
+            const anoA = normalizarAnoLectivoImportacao(obterCampoFlexivel(row, ALIASES_ALUNO.anoLectivo), anoFolha);
+            const classeA = normalizarClasseImportacao(obterCampoFlexivel(row, ALIASES_ALUNO.classe) || folha.metadados.classeDetectada || '1ª');
+            const turmaNomeA = obterCampoFlexivel(row, ALIASES_ALUNO.turmaNome) || folha.metadados.turmaDetectada || '';
+            const cursoA = obterCampoFlexivel(row, ALIASES_ALUNO.curso) || 'Ensino Geral';
+            const turnoA = obterCampoFlexivel(row, ALIASES_ALUNO.turno) || 'Manhã';
+            const salaA = obterCampoFlexivel(row, ALIASES_ALUNO.sala) || 'Sala 01';
+            const turmaResolvida = ensureTurma(turmaNomeA, classeA, turnoA, cursoA, salaA, anoA);
+            const dnA = converterValorDataExcel(obterCampoBrutoFlexivel(row, ALIASES_ALUNO.dataNascimento)) || '2014-01-01';
+
+            const idxExist = alunosExistentes.findIndex(
+              a =>
+                a.escolaId === escolaAtiva.id &&
+                ((matA && a.codigoMatricula && normalizarTextoComparacao(a.codigoMatricula) === normalizarTextoComparacao(matA)) ||
+                  (biA && a.numeroBI && normalizarTextoComparacao(a.numeroBI) === normalizarTextoComparacao(biA)) ||
+                  (normalizarTextoComparacao(a.nomeCompleto) === normalizarTextoComparacao(nomeA) && a.anoLectivo === anoA))
+            );
+            const baseExist = idxExist >= 0 ? alunosExistentes[idxExist] : null;
+            const novoAluno: Aluno = {
+              ...(baseExist || {}),
+              id: baseExist?.id || `aluno-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              codigoMatricula: matA || baseExist?.codigoMatricula || `MED-${Date.now().toString().slice(-6)}-${rIdx + 1}`,
+              numeroProcesso: matA || baseExist?.numeroProcesso,
+              numeroOrdem: Number(obterCampoFlexivel(row, ALIASES_ALUNO.numeroOrdem)) || baseExist?.numeroOrdem || rIdx + 1,
+              nomeCompleto: nomeA,
+              genero: normalizarGeneroImportacao(obterCampoFlexivel(row, ALIASES_ALUNO.genero)),
+              dataNascimento: dnA,
+              naturalidade: obterCampoFlexivel(row, ALIASES_ALUNO.naturalidade) || baseExist?.naturalidade || 'Luanda',
+              provinciaOrigem: obterCampoFlexivel(row, ALIASES_ALUNO.provinciaOrigem) || baseExist?.provinciaOrigem || escolaAtiva.provincia || 'Luanda',
+              numeroBI: biA || baseExist?.numeroBI || 'S/Doc',
+              telefone: obterCampoFlexivel(row, ALIASES_ALUNO.telefone) || baseExist?.telefone || '',
+              fotoUrl: baseExist?.fotoUrl || '',
+              nomePai: obterCampoFlexivel(row, ALIASES_ALUNO.nomePai) || baseExist?.nomePai,
+              nomeMae: obterCampoFlexivel(row, ALIASES_ALUNO.nomeMae) || baseExist?.nomeMae,
+              encarregadoNome: obterCampoFlexivel(row, ALIASES_ALUNO.encarregadoNome) || baseExist?.encarregadoNome || 'Encarregado de Educação',
+              encarregadoParentesco: baseExist?.encarregadoParentesco || 'Encarregado',
+              encarregadoTelefone: obterCampoFlexivel(row, ALIASES_ALUNO.encarregadoTelefone) || baseExist?.encarregadoTelefone || '',
+              estado: (obterCampoFlexivel(row, ALIASES_ALUNO.estado) || baseExist?.estado || 'Ativo') as any,
+              turmaId: turmaResolvida?.id || baseExist?.turmaId || '',
+              classeId: classeA || turmaResolvida?.classe || baseExist?.classeId || '1ª',
+              curso: cursoA || turmaResolvida?.curso || baseExist?.curso,
+              turno: normalizarTurnoImportacao(turnoA),
+              escolaId: escolaAtiva.id,
+              anoLectivo: anoA,
+              propinaStatus: baseExist?.propinaStatus || 'Regularizada',
+              historicoAnterior: baseExist?.historicoAnterior || [],
+              cadastradoEm: baseExist?.cadastradoEm || new Date().toISOString().split('T')[0],
+              atualizadoEm: new Date().toISOString()
+            };
+
+            if (idxExist >= 0) alunosExistentes[idxExist] = novoAluno;
+            else alunosExistentes.push(novoAluno);
+            firebaseSyncEngine.salvarAluno(novoAluno);
+            alunosImportados++;
+          }
+        } else if (folha.tipo === 'Notas') {
+          for (const row of folha.rows) {
+            const alunoNome = obterCampoFlexivel(row, ALIASES_NOTA.alunoNome);
+            const matAluno = obterCampoFlexivel(row, ALIASES_NOTA.codigoMatricula);
+            const biAluno = obterCampoFlexivel(row, ALIASES_NOTA.numeroBI);
+            const discNome = obterCampoFlexivel(row, ALIASES_NOTA.disciplinaNome);
+            if ((!alunoNome && !matAluno) || !discNome) continue;
+
+            const anoNota = normalizarAnoLectivoImportacao(obterCampoFlexivel(row, ALIASES_NOTA.anoLectivo), anoFolha);
+            const classeNota = normalizarClasseImportacao(obterCampoFlexivel(row, ALIASES_NOTA.classe) || folha.metadados.classeDetectada || '');
+            const turmaNomeNota = obterCampoFlexivel(row, ALIASES_NOTA.turmaNome) || folha.metadados.turmaDetectada || '';
+
+            let alunoTarget = alunosExistentes.find(
+              a =>
+                a.escolaId === escolaAtiva.id &&
+                ((matAluno && a.codigoMatricula && normalizarTextoComparacao(a.codigoMatricula) === normalizarTextoComparacao(matAluno)) ||
+                  (biAluno && a.numeroBI && normalizarTextoComparacao(a.numeroBI) === normalizarTextoComparacao(biAluno)) ||
+                  (alunoNome && normalizarTextoComparacao(a.nomeCompleto) === normalizarTextoComparacao(alunoNome)))
+            );
+
+            if (!alunoTarget && alunoNome) {
+              const tResolvida = ensureTurma(turmaNomeNota || `${classeNota || '1ª'} A`, classeNota || '1ª', 'Manhã', 'Ensino Geral', 'Sala 01', anoNota);
+              alunoTarget = {
+                id: `aluno-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                codigoMatricula: matAluno || `MED-${Date.now().toString().slice(-6)}`,
+                numeroOrdem: alunosExistentes.length + 1,
+                nomeCompleto: alunoNome,
+                genero: 'M',
+                dataNascimento: '2014-01-01',
+                naturalidade: 'Luanda',
+                provinciaOrigem: escolaAtiva.provincia || 'Luanda',
+                numeroBI: biAluno || 'S/Doc',
+                telefone: '',
+                fotoUrl: '',
+                encarregadoNome: 'Encarregado de Educação',
+                encarregadoParentesco: 'Encarregado',
+                encarregadoTelefone: '',
+                estado: 'Ativo',
+                turmaId: tResolvida?.id || '',
+                classeId: classeNota || tResolvida?.classe || '1ª',
+                escolaId: escolaAtiva.id,
+                anoLectivo: anoNota,
+                propinaStatus: 'Regularizada',
+                historicoAnterior: [],
+                cadastradoEm: new Date().toISOString().split('T')[0],
+                atualizadoEm: new Date().toISOString()
+              };
+              alunosExistentes.push(alunoTarget);
+              firebaseSyncEngine.salvarAluno(alunoTarget);
+              alunosImportados++;
+            }
+
+            if (!alunoTarget) continue;
+            const discTarget = ensureDisciplina(discNome, alunoTarget.classeId || classeNota);
+            if (!discTarget) continue;
+
+            const gravarNotaTrimestre = (trim: '1' | '2' | '3', mac?: number, npp?: number, npt?: number, mtRaw?: number, ne?: number, mf?: number) => {
+              const valores = [mac, npp, npt].filter((v): v is number => v !== undefined);
+              const mtCalc = mtRaw !== undefined ? mtRaw : (valores.length > 0 ? Number((valores.reduce((a, b) => a + b, 0) / valores.length).toFixed(1)) : mf);
+              if (mtCalc === undefined && mac === undefined && npp === undefined && npt === undefined && ne === undefined) return;
+              const notaId = `${alunoTarget!.id}_${discTarget.id}_${trim}_${anoNota || 'padrao'}`;
+              const idxN = notasExistentes.findIndex(
+                n => n.id === notaId || (n.alunoId === alunoTarget!.id && n.disciplinaId === discTarget.id && String(n.trimestre).includes(trim) && (!anoNota || !n.anoLectivo || n.anoLectivo === anoNota))
+              );
+              const novaNota: NotaTrimestralConsolidada = {
+                ...(idxN >= 0 ? notasExistentes[idxN] : {}),
+                id: idxN >= 0 ? notasExistentes[idxN].id : notaId,
+                escolaId: escolaAtiva.id,
+                alunoId: alunoTarget!.id,
+                turmaId: alunoTarget!.turmaId,
+                disciplinaId: discTarget.id,
+                disciplinaNome: discTarget.nome,
+                trimestre: trim as any,
+                anoLectivo: anoNota,
+                mac: mac ?? 0,
+                npp,
+                npt: npt ?? 0,
+                mediaTrimestral: mtCalc ?? 0,
+                notaExame: trim === '3' ? ne : undefined,
+                notaFinal: mf ?? mtCalc ?? 0,
+                faltas: idxN >= 0 ? (notasExistentes[idxN].faltas ?? 0) : 0,
+                validadaPelaDirecao: idxN >= 0 ? Boolean(notasExistentes[idxN].validadaPelaDirecao) : false,
+                atualizadoEm: new Date().toISOString()
+              };
+              if (idxN >= 0) notasExistentes[idxN] = novaNota;
+              else notasExistentes.push(novaNota);
+              firebaseSyncEngine.salvarNotasConsolidadasLote([novaNota]);
+              notasImportadas++;
+            };
+
+            const trimSingle = obterCampoFlexivel(row, ALIASES_NOTA.trimestre);
+            const mt1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt1));
+            const mac1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac1));
+            const npp1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp1));
+            const npt1 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt1));
+            const mt2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt2));
+            const mac2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac2));
+            const npp2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp2));
+            const npt2 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt2));
+            const mt3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt3));
+            const mac3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac3));
+            const npp3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp3));
+            const npt3 = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt3));
+            const neVal = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.ne));
+            const mfVal = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mf));
+
+            const temMultiTrim = [mt1, mac1, npt1, mt2, mac2, npt2, mt3, mac3, npt3].some(v => v !== undefined);
+            if (temMultiTrim) {
+              gravarNotaTrimestre('1', mac1, npp1, npt1, mt1);
+              gravarNotaTrimestre('2', mac2, npp2, npt2, mt2);
+              gravarNotaTrimestre('3', mac3, npp3, npt3, mt3, neVal, mfVal);
+            } else {
+              const tDigit: '1' | '2' | '3' = trimSingle.includes('2') ? '2' : trimSingle.includes('3') ? '3' : '1';
+              const macS = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mac));
+              const nppS = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npp));
+              const nptS = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.npt));
+              const mtS = converterNumeroNotaExcel(obterCampoBrutoFlexivel(row, ALIASES_NOTA.mt));
+              gravarNotaTrimestre(tDigit, macS, nppS, nptS, mtS, neVal, mfVal);
+            }
+          }
         }
-        setLocal(STORAGE_KEYS.ALUNOS, alunosExistentes);
       }
 
-      // Importar aba Turmas
-      if (wb.SheetNames.includes('Turmas')) {
-        const wsTurmas = wb.Sheets['Turmas'];
-        const dataTurmas = XLSX.utils.sheet_to_json<any>(wsTurmas);
-        const turmasExistentes = dbService.getTurmas();
+      setLocal(STORAGE_KEYS.ALUNOS, alunosExistentes);
+      setLocal(STORAGE_KEYS.TURMAS, turmasExistentes);
+      setLocal(STORAGE_KEYS.DISCIPLINAS, disciplinasExistentes);
+      setLocal(STORAGE_KEYS.FUNCIONARIOS, funcionariosExistentes);
+      setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, notasExistentes);
 
-        for (const row of dataTurmas) {
-          if (!row.nome && !row.Nome) continue;
-          const novaTurma: Turma = {
-            id: row.id || row.ID || `turma-imp-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            escolaId: dbService.getEscolaAtiva().id,
-            nome: row.nome || row.Nome,
-            classe: row.classe || row.Classe || '1ª',
-            nivelEnsino: row.nivelEnsino || row.NivelEnsino || 'Primario',
-            turno: row.turno || row.Turno || 'Manhã',
-            sala: row.sala || row.Sala || 'Sala 1',
-            anoLectivo: row.anoLectivo || row.AnoLectivo || dbService.getEscolaAtiva()?.anoLectivoActivo || ''
-          };
-          const idx = turmasExistentes.findIndex(t => t.id === novaTurma.id);
-          if (idx >= 0) turmasExistentes[idx] = novaTurma;
-          else turmasExistentes.push(novaTurma);
-          turmasImportadas++;
-        }
-        setLocal(STORAGE_KEYS.TURMAS, turmasExistentes);
-      }
-
-      dbService.registarLog('Importação Excel', `Ficheiro importado com sucesso: ${alunosImportados} alunos e ${turmasImportadas} turmas processadas.`);
+      dbService.registarLog(
+        'Importação Excel Flexível',
+        `Ficheiro "${file.name}" importado: ${alunosImportados} alunos, ${turmasImportadas} turmas, ${funcionariosImportados} funcionários, ${disciplinasImportadas} disciplinas e ${notasImportadas} notas.`
+      );
 
       return {
         sucesso: true,
-        mensagem: `Importação realizada com sucesso! Foram cadastrados/atualizados ${alunosImportados} alunos e ${turmasImportadas} turmas.`,
-        contadores: { alunosImportados, turmasImportadas }
+        mensagem: `Importação flexível concluída! ${alunosImportados} aluno(s), ${turmasImportadas} turma(s), ${funcionariosImportados} funcionário(s), ${disciplinasImportadas} disciplina(s) e ${notasImportadas} nota(s) processados.`,
+        contadores: {
+          alunosImportados,
+          turmasImportadas,
+          funcionariosImportados,
+          disciplinasImportadas,
+          notasImportadas
+        }
       };
     } catch (err: any) {
       console.error('Erro na importação Excel:', err);
@@ -6847,6 +7456,9 @@ export const dbService = {
       mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.HORARIOS_PROVAS, data.horariosProvas);
       mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.MAPAS_FISCALIZACAO, data.mapasFiscalizacao);
       mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ATAS_PROVAS, data.atasProvas);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.MAPAS_FERIAS, data.mapasFerias);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.ESTOQUE_LIMPEZA, data.materiaisLimpeza);
+      mergeColecaoPorEscolaOuIntegral(STORAGE_KEYS.MOVIMENTOS_LIMPEZA, data.movimentosLimpeza);
       if (data.financasPessoais && typeof data.financasPessoais === 'object' && !modoMergeEscola) {
         mergeMapaEscolar(STORAGE_KEYS.FINANCAS_PESSOAIS, data.financasPessoais);
       }
@@ -7111,6 +7723,9 @@ export const dbService = {
       horariosProvas: isEscolaEspecifica ? dbService.getHorariosProvas(effectiveEscolaId) : dbService.getHorariosProvas(),
       mapasFiscalizacao: isEscolaEspecifica ? dbService.getMapasFiscalizacao(effectiveEscolaId) : dbService.getMapasFiscalizacao(),
       atasProvas: isEscolaEspecifica ? dbService.getAtasProvas(effectiveEscolaId) : dbService.getAtasProvas(),
+      mapasFerias: isEscolaEspecifica ? dbService.getMapasFerias(effectiveEscolaId) : dbService.getMapasFerias(),
+      materiaisLimpeza: isEscolaEspecifica ? dbService.getMateriaisLimpeza(effectiveEscolaId) : dbService.getMateriaisLimpeza(),
+      movimentosLimpeza: isEscolaEspecifica ? dbService.getMovimentosLimpeza(effectiveEscolaId) : dbService.getMovimentosLimpeza(),
       financasPessoais: !isEscolaEspecifica && !nonAdmin ? getLocal<Record<string, any>>(STORAGE_KEYS.FINANCAS_PESSOAIS, {}) : undefined,
       calendarioEscolar,
       calendariosPorEscola,
@@ -9597,6 +10212,196 @@ export const dbService = {
     firebaseSyncEngine.eliminarAtaProva(id);
     dbService.registarLog('Ata de Prova', `Ata removida (${alvo.turmaNome} - ${alvo.disciplinaNome}).`, alvo.escolaId);
     return true;
+  },
+
+  // ============================================================================
+  // MAPA DE FÉRIAS (PESSOAL ADMINISTRATIVO & AUXILIARES DE LIMPEZA)
+  // ============================================================================
+  getMapasFerias: (escolaId?: string, anoLectivo?: string): MapaFeriasItem[] => {
+    const lista = getLocal<MapaFeriasItem[]>(STORAGE_KEYS.MAPAS_FERIAS, []);
+    return [...lista]
+      .filter(f => {
+        if (escolaId && escolaId !== 'todas' && escolaId !== 'TODAS' && f.escolaId !== escolaId) return false;
+        if (anoLectivo && anoLectivo !== 'todos' && anoLectivo !== 'TODOS' && f.anoLectivo !== anoLectivo) return false;
+        return true;
+      })
+      .sort((a, b) => (a.dataInicio || '').localeCompare(b.dataInicio || '') || (a.funcionarioNome || '').localeCompare(b.funcionarioNome || '', 'pt-AO'));
+  },
+
+  salvarMapaFerias: (item: MapaFeriasItem): MapaFeriasItem => {
+    const lista = getLocal<MapaFeriasItem[]>(STORAGE_KEYS.MAPAS_FERIAS, []);
+    const agora = new Date().toISOString();
+    const itemFinal: MapaFeriasItem = {
+      ...item,
+      criadoEm: item.criadoEm || agora,
+      atualizadoEm: agora
+    };
+    const idx = lista.findIndex(f => f.id === itemFinal.id);
+    if (idx >= 0) lista[idx] = itemFinal;
+    else lista.push(itemFinal);
+    setLocal(STORAGE_KEYS.MAPAS_FERIAS, lista);
+    firebaseSyncEngine.salvarMapaFerias(itemFinal);
+    dbService.registarLog(
+      'Mapa de Férias',
+      `Férias de ${itemFinal.funcionarioNome} (${itemFinal.grupoCategoria}) de ${itemFinal.dataInicio} até ${itemFinal.dataFim} — Estado: ${itemFinal.estado}.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  eliminarMapaFerias: (id: string): boolean => {
+    const lista = getLocal<MapaFeriasItem[]>(STORAGE_KEYS.MAPAS_FERIAS, []);
+    const alvo = lista.find(f => f.id === id);
+    if (!alvo) return false;
+    setLocal(STORAGE_KEYS.MAPAS_FERIAS, lista.filter(f => f.id !== id));
+    firebaseSyncEngine.eliminarMapaFerias(id);
+    dbService.registarLog('Mapa de Férias', `Registo de férias removido (${alvo.funcionarioNome}).`, alvo.escolaId);
+    return true;
+  },
+
+  // ============================================================================
+  // ESTOQUE DE MATERIAIS DE LIMPEZA (SUBDIRETOR ADMIN + AUXILIARES DE LIMPEZA)
+  // ============================================================================
+  getMateriaisLimpeza: (escolaId?: string): MaterialLimpezaItem[] => {
+    const lista = getLocal<MaterialLimpezaItem[]>(STORAGE_KEYS.ESTOQUE_LIMPEZA, []);
+    return [...lista]
+      .filter(m => !escolaId || escolaId === 'todas' || escolaId === 'TODAS' || m.escolaId === escolaId)
+      .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-AO'));
+  },
+
+  salvarMaterialLimpeza: (item: MaterialLimpezaItem): MaterialLimpezaItem => {
+    const lista = getLocal<MaterialLimpezaItem[]>(STORAGE_KEYS.ESTOQUE_LIMPEZA, []);
+    const agora = new Date().toISOString();
+    const itemFinal: MaterialLimpezaItem = {
+      ...item,
+      quantidadeAtual: Math.max(0, Number(item.quantidadeAtual || 0)),
+      quantidadeMinima: Math.max(0, Number(item.quantidadeMinima || 0)),
+      criadoEm: item.criadoEm || agora,
+      atualizadoEm: agora
+    };
+    const idx = lista.findIndex(m => m.id === itemFinal.id);
+    if (idx >= 0) lista[idx] = itemFinal;
+    else lista.unshift(itemFinal);
+    setLocal(STORAGE_KEYS.ESTOQUE_LIMPEZA, lista);
+    firebaseSyncEngine.salvarMaterialLimpeza(itemFinal);
+    dbService.registarLog(
+      'Estoque de Limpeza',
+      `Material "${itemFinal.nome}" (${itemFinal.categoria}) guardado — Quantidade: ${itemFinal.quantidadeAtual} ${itemFinal.unidade}.`,
+      itemFinal.escolaId
+    );
+    return itemFinal;
+  },
+
+  eliminarMaterialLimpeza: (id: string): boolean => {
+    const lista = getLocal<MaterialLimpezaItem[]>(STORAGE_KEYS.ESTOQUE_LIMPEZA, []);
+    const alvo = lista.find(m => m.id === id);
+    if (!alvo) return false;
+    setLocal(STORAGE_KEYS.ESTOQUE_LIMPEZA, lista.filter(m => m.id !== id));
+    firebaseSyncEngine.eliminarMaterialLimpeza(id);
+    dbService.registarLog('Estoque de Limpeza', `Material "${alvo.nome}" removido do catálogo de limpeza.`, alvo.escolaId);
+    return true;
+  },
+
+  getMovimentosLimpeza: (escolaId?: string, materialId?: string): MovimentoEstoqueLimpeza[] => {
+    const lista = getLocal<MovimentoEstoqueLimpeza[]>(STORAGE_KEYS.MOVIMENTOS_LIMPEZA, []);
+    return [...lista]
+      .filter(mv => {
+        if (escolaId && escolaId !== 'todas' && escolaId !== 'TODAS' && mv.escolaId !== escolaId) return false;
+        if (materialId && mv.materialId !== materialId) return false;
+        return true;
+      })
+      .sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.criadoEm || '').localeCompare(a.criadoEm || ''));
+  },
+
+  registarMovimentoLimpeza: (params: {
+    escolaId: string;
+    materialId: string;
+    tipo: TipoMovimentoEstoqueLimpeza;
+    quantidade: number;
+    data?: string;
+    setorDestino?: string;
+    motivo: string;
+    responsavelId: string;
+    responsavelNome: string;
+    responsavelRole: UserRole;
+    observacoes?: string;
+  }): { sucesso: boolean; mensagem: string; material?: MaterialLimpezaItem; movimento?: MovimentoEstoqueLimpeza } => {
+    const materiais = getLocal<MaterialLimpezaItem[]>(STORAGE_KEYS.ESTOQUE_LIMPEZA, []);
+    const idx = materiais.findIndex(m => m.id === params.materialId);
+    if (idx < 0) {
+      return { sucesso: false, mensagem: 'Material de limpeza não encontrado no estoque.' };
+    }
+    const mat = materiais[idx];
+    const qtdAtual = Number(mat.quantidadeAtual || 0);
+    const qtdMov = Number(params.quantidade || 0);
+    if (!Number.isFinite(qtdMov) || qtdMov < 0 || (params.tipo !== 'Ajuste' && qtdMov <= 0)) {
+      return { sucesso: false, mensagem: 'Informe uma quantidade válida maior que zero.' };
+    }
+
+    let qtdNova = qtdAtual;
+    if (params.tipo === 'Entrada') {
+      qtdNova = Math.round((qtdAtual + qtdMov) * 100) / 100;
+    } else if (params.tipo === 'Saida') {
+      if (qtdMov > qtdAtual) {
+        return {
+          sucesso: false,
+          mensagem: `Quantidade insuficiente em estoque (${qtdAtual} ${mat.unidade} disponíveis para "${mat.nome}").`
+        };
+      }
+      qtdNova = Math.round((qtdAtual - qtdMov) * 100) / 100;
+    } else {
+      qtdNova = Math.max(0, Math.round(qtdMov * 100) / 100);
+    }
+
+    const agora = new Date().toISOString();
+    const matAtualizado: MaterialLimpezaItem = {
+      ...mat,
+      quantidadeAtual: qtdNova,
+      ultimoMovimentoEm: agora,
+      atualizadoEm: agora
+    };
+    materiais[idx] = matAtualizado;
+    setLocal(STORAGE_KEYS.ESTOQUE_LIMPEZA, materiais);
+    firebaseSyncEngine.salvarMaterialLimpeza(matAtualizado);
+
+    const movimento: MovimentoEstoqueLimpeza = {
+      id: `mov-limp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      escolaId: params.escolaId || mat.escolaId,
+      materialId: mat.id,
+      materialNome: mat.nome,
+      unidade: mat.unidade,
+      tipo: params.tipo,
+      quantidade: qtdMov,
+      quantidadeAnterior: qtdAtual,
+      quantidadeNova: qtdNova,
+      data: params.data || agora.split('T')[0],
+      setorDestino: params.setorDestino?.trim() || undefined,
+      motivo: params.motivo.trim() || (params.tipo === 'Entrada' ? 'Reposição de estoque' : params.tipo === 'Saida' ? 'Consumo de limpeza' : 'Acerto de inventário'),
+      responsavelId: params.responsavelId,
+      responsavelNome: params.responsavelNome,
+      responsavelRole: params.responsavelRole,
+      observacoes: params.observacoes?.trim() || undefined,
+      criadoEm: agora,
+      atualizadoEm: agora
+    };
+
+    const movs = getLocal<MovimentoEstoqueLimpeza[]>(STORAGE_KEYS.MOVIMENTOS_LIMPEZA, []);
+    movs.unshift(movimento);
+    setLocal(STORAGE_KEYS.MOVIMENTOS_LIMPEZA, movs);
+    firebaseSyncEngine.salvarMovimentoLimpeza(movimento);
+
+    dbService.registarLog(
+      'Movimento de Estoque de Limpeza',
+      `${params.tipo} de ${qtdMov} ${mat.unidade} em "${mat.nome}" por ${params.responsavelNome} (${qtdAtual} → ${qtdNova}).`,
+      matAtualizado.escolaId
+    );
+
+    return {
+      sucesso: true,
+      mensagem: `Movimento (${params.tipo}) registado! Saldo atual de "${mat.nome}": ${qtdNova} ${mat.unidade}.`,
+      material: matAtualizado,
+      movimento
+    };
   }
 };
 

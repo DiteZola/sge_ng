@@ -40,6 +40,7 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola, currentUse
   const [movObs, setMovObs] = useState<string>('');
   const [patrimonioToast, setPatrimonioToast] = useState<string | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [orientacaoPdf, setOrientacaoPdf] = useState<'landscape' | 'portrait'>('landscape');
 
   // Form State
   const [codigoTombo, setCodigoTombo] = useState('');
@@ -214,7 +215,7 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola, currentUse
       const sigla = (escola.sigla || escola.nomeOficial || 'SGE').replace(/[^a-zA-Z0-9_-]/g, '_');
       const ano = (escola.anoLectivoActivo || new Date().getFullYear().toString()).replace(/[^a-zA-Z0-9_-]/g, '_');
       await downloadElementAsPdf(el, `Inventario_Patrimonio_${sigla}_${ano}.pdf`, {
-        orientation: 'landscape',
+        orientation: orientacaoPdf,
         format: 'a4',
         marginMm: 10
       });
@@ -234,7 +235,7 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola, currentUse
     const el = document.getElementById('patrimonio-inventario-pdf');
     if (el) {
       imprimirElementoDiretamente(el, `Inventário Patrimonial - ${escola.nomeOficial}`, {
-        orientation: 'landscape',
+        orientation: orientacaoPdf,
         format: 'a4',
         marginMm: 10
       });
@@ -272,6 +273,15 @@ export const PatrimonyView: React.FC<PatrimonyViewProps> = ({ escola, currentUse
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0 no-print">
+            <select
+              value={orientacaoPdf}
+              onChange={(e) => setOrientacaoPdf(e.target.value as 'landscape' | 'portrait')}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-800"
+              title="Orientação da folha A4 do inventário"
+            >
+              <option value="landscape">Paisagem (A4 Horizontal)</option>
+              <option value="portrait">Retrato (A4 Vertical)</option>
+            </select>
             <button
               type="button"
               onClick={handleBaixarPdfInventario}

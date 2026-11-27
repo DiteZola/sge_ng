@@ -47,7 +47,11 @@ import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import { InsigniaAngola } from '../constants/insignia';
 import { downloadElementAsPdf, imprimirElementoDiretamente } from '../utils/pdfGenerator';
 import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
-import { obterInformacaoEscala } from '../services/macEngine';
+import {
+  obterInformacaoEscala,
+  calcularAproveitamentoPautaGeralAlunos,
+  calcularNotaTrimestralDinamica
+} from '../services/macEngine';
 import { hojeAngolano, formatarDataHoraAngolana } from '../utils/dateFormat';
 
 type SubAbaEstatistica =
@@ -105,6 +109,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
 
   const [configSistema, setConfigSistema] = useState(() => dbService.getConfiguracaoSistema());
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [orientacaoPdf, setOrientacaoPdf] = useState<'portrait' | 'landscape'>('portrait');
   const [statsFeedback, setStatsFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -506,45 +511,39 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     });
   }, [notas, alunosFiltrados, filtroAno, filtroTrimestre, filtroDisciplinaId, docenteAlvo, turmasCoordenadasIds, paresTurmaDisciplinaDocente, disciplinasDocenteIds]);
 
-  // Indicadores Centrais (KPIs)
+  const regrasMAC = useMemo(() => dbService.obterRegrasMAC(), []);
+  const jurisTodos = useMemo(() => dbService.getJuris(), []);
+  const nppAtivoEfetivo = isVisaoRedeTodas ? true : escolaExibida.nppAtivo !== false;
+  const triFiltroCanonical: '1' | '2' | '3' | 'anual' =
+    filtroTrimestre === '1' || filtroTrimestre === '2' || filtroTrimestre === '3' ? filtroTrimestre : 'anual';
+  const anoFiltroCanonical = !filtroAno || filtroAno === 'TODOS' ? 'todos' : filtroAno;
+
+  // Indicadores Centrais (KPIs) — 100% Coerentes com as Pautas Gerais
   const metricasGlobais = useMemo(() => {
     const totalMatriculados = alunosFiltrados.length;
     const matriculadosM = alunosFiltrados.filter(a => a.genero === 'M').length;
     const matriculadosF = alunosFiltrados.filter(a => a.genero === 'F').length;
 
-    const desistentes = alunosFiltrados.filter(a => a.estado === 'Desistente' || a.estado === 'Transferido').length;
-    const taxaAbandono = totalMatriculados > 0 ? ((desistentes / totalMatriculados) * 100).toFixed(1) : '0.0';
-
-    // Alunos avaliados e suas médias
-    const mediasAlunos: { alunoId: string; media: number; aprovado: boolean }[] = [];
-    let somaMediasGerais = 0;
-
-    alunosFiltrados.forEach(aluno => {
-      if (aluno.estado === 'Desistente') return;
-      const turma = turmas.find(t => t.id === aluno.turmaId);
-      const escala = obterInformacaoEscala(turma?.classe || aluno.classeId);
-      const notasAluno = notasFiltradas.filter(n => n.alunoId === aluno.id);
-
-      if (notasAluno.length > 0) {
-        const soma = notasAluno.reduce((acc, n) => {
-          const val = n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0;
-          return acc + val;
-        }, 0);
-        const media = soma / notasAluno.length;
-        mediasAlunos.push({
-          alunoId: aluno.id,
-          media,
-          aprovado: media >= escala.notaAprovacao
-        });
-        somaMediasGerais += media;
-      }
+    const resumoPauta = calcularAproveitamentoPautaGeralAlunos({
+      alunos: alunosFiltrados,
+      notasConsolidadas: notasFiltradas,
+      turmas: turmasFiltradas,
+      regrasMAC,
+      juris: jurisTodos,
+      trimestreFiltro: triFiltroCanonical,
+      anoLectivo: anoFiltroCanonical,
+      nppAtivo: nppAtivoEfetivo,
+      escolaId: isVisaoRedeTodas ? 'todas' : escolaExibida.id
     });
 
-    const totalAvaliados = mediasAlunos.length;
-    const totalAprovados = mediasAlunos.filter(m => m.aprovado).length;
-    const totalReprovados = totalAvaliados - totalAprovados;
+    const desistentes = resumoPauta.desistentesOuTransferidos;
+    const taxaAbandono = totalMatriculados > 0 ? ((desistentes / totalMatriculados) * 100).toFixed(1) : '0.0';
+
+    const totalAvaliados = resumoPauta.totalAvaliados;
+    const totalAprovados = resumoPauta.aprovados;
+    const totalReprovados = resumoPauta.recurso + resumoPauta.reprovados;
     const taxaAprovacao = totalAvaliados > 0 ? ((totalAprovados / totalAvaliados) * 100).toFixed(1) : '0.0';
-    const mediaGeralEscola = totalAvaliados > 0 ? String(Math.round(somaMediasGerais / totalAvaliados)) : '—';
+    const mediaGeralEscola = totalAvaliados > 0 ? String(Math.round(resumoPauta.mediaNotas)) : '—';
 
     // Distribuição de notas normalizada na escala /20 para classificar Primário (0-10) e Secundário (0-20) com rigor MED
     let excelente = 0;
@@ -553,12 +552,19 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     let insuficiente = 0;
 
     alunosFiltrados.forEach(aluno => {
-      if (aluno.estado === 'Desistente') return;
+      if (aluno.estado === 'Desistente' || aluno.estado === 'Transferido') return;
       const turma = turmas.find(t => t.id === aluno.turmaId);
       const escala = obterInformacaoEscala(turma?.classe || aluno.classeId);
       const notasAluno = notasFiltradas.filter(n => n.alunoId === aluno.id);
       if (notasAluno.length === 0) return;
-      const soma = notasAluno.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0);
+      const soma = notasAluno.reduce((acc, n) => {
+        const pt = typeof n.npt === 'number' ? n.npt : (typeof n.provaTrimestral === 'number' ? n.provaTrimestral : undefined);
+        const temInputs = typeof n.mac === 'number' || typeof pt === 'number' || (nppAtivoEfetivo && typeof n.npp === 'number');
+        const val = !nppAtivoEfetivo && temInputs
+          ? calcularNotaTrimestralDinamica(typeof n.mac === 'number' ? n.mac : 0, undefined, pt, regrasMAC[0], Number(n.trimestre) || 1, turma?.classe, false).mediaTrimestral
+          : (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0);
+        return acc + val;
+      }, 0);
       const media = soma / notasAluno.length;
       const norm20 = escala.escalaMaxima === 10 ? media * 2 : media;
       if (norm20 >= 17.5) excelente++;
@@ -585,76 +591,69 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         insuficiente: { count: insuficiente, pct: totalAvaliados > 0 ? ((insuficiente / totalAvaliados) * 100).toFixed(1) : '0' }
       }
     };
-  }, [alunosFiltrados, turmas, notasFiltradas]);
+  }, [alunosFiltrados, turmas, turmasFiltradas, notasFiltradas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo, isVisaoRedeTodas, escolaExibida.id]);
 
-  // Rendimento Comparativo por Classe
+  // Rendimento Comparativo por Classe — Alinhado com Pautas Gerais
   const rendimentoPorClasse = useMemo(() => {
-    const mapaClasses: Record<string, { classe: string; matriculados: number; avaliados: number; aprovados: number; somaMedias: number }> = {};
-
+    const mapaTurmasPorClasse = new Map<string, Turma[]>();
     turmasFiltradas.forEach(t => {
       const cls = t.classe || 'Outra';
-      if (!mapaClasses[cls]) {
-        mapaClasses[cls] = { classe: cls, matriculados: 0, avaliados: 0, aprovados: 0, somaMedias: 0 };
-      }
-      const alunosTurma = alunos.filter(a => a.turmaId === t.id);
-      mapaClasses[cls].matriculados += alunosTurma.length;
-
-      const escala = obterInformacaoEscala(cls);
-
-      alunosTurma.forEach(a => {
-        if (a.estado === 'Desistente') return;
-        const notasAluno = notasFiltradas.filter(n => n.alunoId === a.id);
-        if (notasAluno.length > 0) {
-          const soma = notasAluno.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0);
-          const media = soma / notasAluno.length;
-          mapaClasses[cls].avaliados++;
-          mapaClasses[cls].somaMedias += media;
-          if (media >= escala.notaAprovacao) {
-            mapaClasses[cls].aprovados++;
-          }
-        }
-      });
+      const arr = mapaTurmasPorClasse.get(cls);
+      if (arr) arr.push(t);
+      else mapaTurmasPorClasse.set(cls, [t]);
     });
 
-    return Object.values(mapaClasses).map(c => {
-      const taxa = c.avaliados > 0 ? ((c.aprovados / c.avaliados) * 100).toFixed(1) : '0.0';
-      const media = c.avaliados > 0 ? String(Math.round(c.somaMedias / c.avaliados)) : '—';
+    return Array.from(mapaTurmasPorClasse.entries()).map(([classe, turmasCls]) => {
+      const turmaIds = new Set(turmasCls.map(t => t.id));
+      const alunosCls = alunosFiltrados.filter(a => turmaIds.has(a.turmaId));
+      const resCls = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosCls,
+        notasConsolidadas: notasFiltradas,
+        turmas: turmasCls,
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: nppAtivoEfetivo,
+        escolaId: isVisaoRedeTodas ? 'todas' : escolaExibida.id
+      });
+      const taxa = resCls.totalAvaliados > 0 ? ((resCls.aprovados / resCls.totalAvaliados) * 100).toFixed(1) : '0.0';
+      const media = resCls.totalAvaliados > 0 ? String(Math.round(resCls.mediaNotas)) : '—';
       return {
-        ...c,
+        classe,
+        matriculados: alunosCls.length,
+        avaliados: resCls.totalAvaliados,
+        aprovados: resCls.aprovados,
+        somaMedias: resCls.mediaNotas * resCls.totalAvaliados,
         taxaAprovacao: parseFloat(taxa),
         mediaGeral: media
       };
     }).sort((a, b) => a.classe.localeCompare(b.classe, 'pt-AO', { numeric: true }));
-  }, [turmasFiltradas, alunos, notasFiltradas]);
+  }, [turmasFiltradas, alunosFiltrados, notasFiltradas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo, isVisaoRedeTodas, escolaExibida.id]);
 
-  // Ranking de Turmas
+  // Ranking de Turmas — Alinhado com Pautas Gerais
   const rankingTurmas = useMemo(() => {
     const lista = turmasFiltradas.map(t => {
-      const alunosTurma = alunos.filter(a => a.turmaId === t.id && a.estado !== 'Desistente');
-      const escala = obterInformacaoEscala(t.classe);
-      let aprovados = 0;
-      let avaliados = 0;
-      let soma = 0;
-
-      alunosTurma.forEach(a => {
-        const notasAluno = notasFiltradas.filter(n => n.alunoId === a.id);
-        if (notasAluno.length > 0) {
-          const mediaAluno = notasAluno.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0) / notasAluno.length;
-          avaliados++;
-          soma += mediaAluno;
-          if (mediaAluno >= escala.notaAprovacao) aprovados++;
-        }
+      const alunosTurma = alunos.filter(a => a.turmaId === t.id);
+      const resTurma = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosTurma,
+        notasConsolidadas: notasFiltradas,
+        turmas: [t],
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: nppAtivoEfetivo,
+        escolaId: t.escolaId || escolaExibida.id
       });
-
-      const taxa = avaliados > 0 ? (aprovados / avaliados) * 100 : 0;
-      const media = avaliados > 0 ? soma / avaliados : 0;
+      const taxa = resTurma.totalAvaliados > 0 ? (resTurma.aprovados / resTurma.totalAvaliados) * 100 : 0;
 
       return {
         turma: t,
-        avaliados,
-        aprovados,
+        avaliados: resTurma.totalAvaliados,
+        aprovados: resTurma.aprovados,
         taxaAprovacao: parseFloat(taxa.toFixed(1)),
-        mediaTurma: avaliados > 0 ? Math.round(media) : 0
+        mediaTurma: resTurma.totalAvaliados > 0 ? Math.round(resTurma.mediaNotas) : 0
       };
     }).filter(t => t.avaliados > 0);
 
@@ -663,7 +662,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     const atencaoTurmas = [...ordenadasPorTaxa].reverse().slice(0, 5);
 
     return { topTurmas, atencaoTurmas };
-  }, [turmasFiltradas, alunos, notasFiltradas]);
+  }, [turmasFiltradas, alunos, notasFiltradas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo, escolaExibida.id]);
 
   // Aproveitamento por Disciplina na Ordem Oficial Cadastrada (consolida por nome quando em Visão de Todas as Escolas)
   const aproveitamentoDisciplinas = useMemo(() => {
@@ -752,7 +751,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
   }, [isVisaoRedeTodas, disciplinasPermitidas, notasFiltradas, turmasFiltradas, alunos]);
 
   // =========================================================================
-  // MAPAS ESTATÍSTICOS DETALHADOS CONSOLIDADOS NA ESTATÍSTICA (MED ANGOLA)
+  // MAPAS ESTATÍSTICOS DETALHADOS CONSOLIDADOS NA ESTATÍSTICA (MED ANGOLA — COERENTE COM PAUTAS GERAIS)
   // =========================================================================
   const mapaRendimentoTurmas = useMemo(() => {
     return turmasFiltradas.map(t => {
@@ -761,45 +760,53 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       const matriculadosF = alunosDaTurma.filter(a => a.genero === 'F').length;
       const matriculadosTotal = alunosDaTurma.length;
 
-      const desistentes = alunosDaTurma.filter(a => a.estado === 'Desistente' || a.estado === 'Transferido');
-      const desistentesTotal = desistentes.length;
-
-      const ativos = alunosDaTurma.filter(a => a.estado !== 'Desistente' && a.estado !== 'Transferido');
-      const avaliadosTotal = ativos.length;
-      const avaliadosM = ativos.filter(a => a.genero === 'M').length;
-      const avaliadosF = ativos.filter(a => a.genero === 'F').length;
-
-      const escala = obterInformacaoEscala(t.classe);
-      const notaCorte = escala.notaAprovacao;
-
-      let aprovadosTotal = 0;
-      let aprovadosM = 0;
-      let aprovadosF = 0;
-      let reprovadosTotal = 0;
-      let somaMedias = 0;
-      let alunosComNotasContador = 0;
-
-      ativos.forEach(aluno => {
-        const notasDoAluno = notasFiltradas.filter(n => n.alunoId === aluno.id);
-        if (notasDoAluno.length > 0) {
-          const somaNotas = notasDoAluno.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0);
-          const mediaAluno = somaNotas / notasDoAluno.length;
-          somaMedias += mediaAluno;
-          alunosComNotasContador++;
-
-          if (mediaAluno >= notaCorte) {
-            aprovadosTotal++;
-            if (aluno.genero === 'M') aprovadosM++;
-            else aprovadosF++;
-          } else {
-            reprovadosTotal++;
-          }
-        }
+      const resTurma = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosDaTurma,
+        notasConsolidadas: notasFiltradas,
+        turmas: [t],
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: nppAtivoEfetivo,
+        escolaId: t.escolaId || escolaExibida.id
       });
+      const resM = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosDaTurma.filter(a => a.genero === 'M'),
+        notasConsolidadas: notasFiltradas,
+        turmas: [t],
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: nppAtivoEfetivo,
+        escolaId: t.escolaId || escolaExibida.id
+      });
+      const resF = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosDaTurma.filter(a => a.genero === 'F'),
+        notasConsolidadas: notasFiltradas,
+        turmas: [t],
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: nppAtivoEfetivo,
+        escolaId: t.escolaId || escolaExibida.id
+      });
+
+      const desistentesTotal = resTurma.desistentesOuTransferidos;
+      const avaliadosTotal = resTurma.totalAvaliados;
+      const avaliadosM = resM.totalAvaliados;
+      const avaliadosF = resF.totalAvaliados;
+
+      const aprovadosTotal = resTurma.aprovados;
+      const aprovadosM = resM.aprovados;
+      const aprovadosF = resF.aprovados;
+      const reprovadosTotal = resTurma.recurso + resTurma.reprovados;
 
       const percAprovados = avaliadosTotal > 0 ? ((aprovadosTotal / avaliadosTotal) * 100).toFixed(1) : '0.0';
       const percReprovados = avaliadosTotal > 0 ? ((reprovadosTotal / avaliadosTotal) * 100).toFixed(1) : '0.0';
-      const mediaTurma = alunosComNotasContador > 0 ? (somaMedias / alunosComNotasContador).toFixed(1) : '—';
+      const mediaTurma = avaliadosTotal > 0 ? resTurma.mediaNotas.toFixed(1) : '—';
 
       return {
         turma: t,
@@ -821,7 +828,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         ehTerminal: isClasseFinal(t.classe)
       };
     });
-  }, [turmasFiltradas, alunos, notasFiltradas, escolasMap, escolaExibida.sigla]);
+  }, [turmasFiltradas, alunos, notasFiltradas, escolasMap, escolaExibida.sigla, escolaExibida.id, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo]);
 
   const totaisGeraisMapa = useMemo(() => {
     let matriculados = 0;
@@ -1100,30 +1107,22 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         (f.role === 'Professor' || f.ehProfessor || f.categoriaProfissional?.toLowerCase().includes('prof') || f.categoriaProfissional?.toLowerCase().includes('doc'))
       ).length;
 
-      let avaliados = 0;
-      let aprovados = 0;
-      let somaMedias20 = 0;
-
-      ativos.forEach(a => {
-        const turma = propTurmas.find(t => t.id === a.turmaId);
-        const escala = obterInformacaoEscala(turma?.classe);
-        const notasA = notasBase.filter(n => {
-          if (n.alunoId !== a.id) return false;
-          if (filtroAno && filtroAno !== 'TODOS' && n.anoLectivo && n.anoLectivo !== filtroAno) return false;
-          if (filtroTrimestre !== 'anual' && n.trimestre && String(n.trimestre) !== filtroTrimestre) return false;
-          return true;
-        });
-        if (notasA.length > 0) {
-          const media = notasA.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0) / notasA.length;
-          const mediaNorm20 = escala.escalaMaxima === 10 ? media * 2 : media;
-          avaliados++;
-          somaMedias20 += mediaNorm20;
-          if (media >= escala.notaAprovacao) aprovados++;
-        }
+      const resEsc = calcularAproveitamentoPautaGeralAlunos({
+        alunos: alunosEsc,
+        notasConsolidadas: notasBase.filter(n => !n.escolaId || n.escolaId === esc.id || alunosEsc.some(a => a.id === n.alunoId)),
+        turmas: turmasEsc,
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: esc.nppAtivo !== false,
+        escolaId: esc.id
       });
 
+      const avaliados = resEsc.totalAvaliados;
+      const aprovados = resEsc.aprovados;
       const taxaAprovacao = avaliados > 0 ? parseFloat(((aprovados / avaliados) * 100).toFixed(1)) : 0;
-      const mediaGeral = avaliados > 0 ? String(Math.round(somaMedias20 / avaliados)) : '—';
+      const mediaGeral = avaliados > 0 ? String(Math.round(resEsc.mediaNotas)) : '—';
 
       const presEsc = presencasTodas.filter(p => p.escolaId === esc.id);
       const assiduidadePct = presEsc.length > 0
@@ -1147,9 +1146,9 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         assiduidadePct
       };
     });
-  }, [isAdminGeral, escolas, propTurmas, propAlunos, propNotas, propFuncionarios, filtroAno, filtroTrimestre, filtroTurno, filtroCiclo, filtroCurso, filtroSala, filtroClasse]);
+  }, [isAdminGeral, escolas, propTurmas, propAlunos, propNotas, propFuncionarios, filtroAno, filtroTrimestre, filtroTurno, filtroCiclo, filtroCurso, filtroSala, filtroClasse, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical]);
 
-  // Rendimento Agregado por Curso & Área de Formação (Exclusivo IIº Ciclo)
+  // Rendimento Agregado por Curso & Área de Formação (Exclusivo IIº Ciclo — Coerente com Pautas Gerais)
   const rendimentoPorCurso = useMemo(() => {
     const turmasSegundoCiclo = turmasFiltradas.filter(t => isSegundoCiclo(t.classe));
     if (turmasSegundoCiclo.length === 0) return [];
@@ -1160,7 +1159,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       if (c.nome) cursosConfigsMap.set(c.nome.trim().toLowerCase(), c.area || '');
     });
 
-    const grupos = new Map<string, { curso: string; area: string; turmasCount: number; matriculados: number; avaliados: number; aprovados: number; somaMedias: number }>();
+    const grupos = new Map<string, { curso: string; area: string; turmasCurso: Turma[]; alunosCurso: Aluno[] }>();
 
     turmasSegundoCiclo.forEach(t => {
       const cursoNome = (t.curso || '').trim();
@@ -1168,34 +1167,41 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       const key = cursoNome.toLowerCase();
       const areaNome = t.areaFormacao || cursosConfigsMap.get(key) || 'Especialidade';
       if (!grupos.has(key)) {
-        grupos.set(key, { curso: cursoNome, area: areaNome, turmasCount: 0, matriculados: 0, avaliados: 0, aprovados: 0, somaMedias: 0 });
+        grupos.set(key, { curso: cursoNome, area: areaNome, turmasCurso: [], alunosCurso: [] });
       }
       const g = grupos.get(key)!;
-      g.turmasCount++;
+      g.turmasCurso.push(t);
       const alunosTurma = alunos.filter(a => a.turmaId === t.id);
-      g.matriculados += alunosTurma.length;
-      const escala = obterInformacaoEscala(t.classe);
-
-      alunosTurma.forEach(a => {
-        if (a.estado === 'Desistente') return;
-        const notasA = notasFiltradas.filter(n => n.alunoId === a.id);
-        if (notasA.length > 0) {
-          const media = notasA.reduce((acc, n) => acc + (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0), 0) / notasA.length;
-          g.avaliados++;
-          g.somaMedias += media;
-          if (media >= escala.notaAprovacao) g.aprovados++;
-        }
-      });
+      g.alunosCurso.push(...alunosTurma);
     });
 
     return Array.from(grupos.values())
-      .map(g => ({
-        ...g,
-        taxaAprovacao: g.avaliados > 0 ? Number(((g.aprovados / g.avaliados) * 100).toFixed(1)) : 0,
-        mediaGeral: g.avaliados > 0 ? String(Math.round(g.somaMedias / g.avaliados)) : '—'
-      }))
+      .map(g => {
+        const resC = calcularAproveitamentoPautaGeralAlunos({
+          alunos: g.alunosCurso,
+          notasConsolidadas: notasFiltradas,
+          turmas: g.turmasCurso,
+          regrasMAC,
+          juris: jurisTodos,
+          trimestreFiltro: triFiltroCanonical,
+          anoLectivo: anoFiltroCanonical,
+          nppAtivo: nppAtivoEfetivo,
+          escolaId: isVisaoRedeTodas ? 'todas' : escolaExibida.id
+        });
+        return {
+          curso: g.curso,
+          area: g.area,
+          turmasCount: g.turmasCurso.length,
+          matriculados: g.alunosCurso.length,
+          avaliados: resC.totalAvaliados,
+          aprovados: resC.aprovados,
+          somaMedias: resC.mediaNotas * resC.totalAvaliados,
+          taxaAprovacao: resC.totalAvaliados > 0 ? Number(((resC.aprovados / resC.totalAvaliados) * 100).toFixed(1)) : 0,
+          mediaGeral: resC.totalAvaliados > 0 ? String(Math.round(resC.mediaNotas)) : '—'
+        };
+      })
       .sort((a, b) => b.matriculados - a.matriculados || a.curso.localeCompare(b.curso, 'pt'));
-  }, [isVisaoRedeTodas, escolaExibida.id, turmasFiltradas, alunos, notasFiltradas]);
+  }, [isVisaoRedeTodas, escolaExibida.id, turmasFiltradas, alunos, notasFiltradas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo]);
 
   // Ações
   const handleImprimir = () => {
@@ -1204,7 +1210,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       imprimirElementoDiretamente(
         el,
         `Estatisticas_MED_${isVisaoRedeTodas ? 'Rede_Nacional' : (escolaExibida.sigla || escolaExibida.nome || 'Escola')}`,
-        { orientation: 'portrait', format: 'a4', marginMm: 8 }
+        { orientation: orientacaoPdf, format: 'a4', marginMm: 8 }
       );
     } else {
       window.print();
@@ -1219,7 +1225,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       const ok = await downloadElementAsPdf(
         'estatisticas-painel-oficial-doc',
         `Estatisticas_${escSlug}_${anoSlug}_T${filtroTrimestre}`,
-        { orientation: 'portrait', format: 'a4', marginMm: 8, scale: 2.1 }
+        { orientation: orientacaoPdf, format: 'a4', marginMm: 8, scale: 2.1 }
       );
       if (ok) {
         setStatsFeedback('Relatório estatístico exportado em PDF com sucesso.');
@@ -1687,6 +1693,18 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center space-x-1.5 bg-slate-100 px-2 py-1 rounded-xl border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Folha:</span>
+              <select
+                value={orientacaoPdf}
+                onChange={(e) => setOrientacaoPdf(e.target.value as 'portrait' | 'landscape')}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Orientação da folha A4 para PDF e impressão"
+              >
+                <option value="portrait">Retrato (A4 Vertical)</option>
+                <option value="landscape">Paisagem (A4 Horizontal)</option>
+              </select>
+            </div>
             <button
               type="button"
               onClick={handleExportarExcel}

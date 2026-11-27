@@ -586,9 +586,19 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   const [confirmFiltroClasseAnterior, setConfirmFiltroClasseAnterior] = useState('TODAS');
   const [confirmFiltroAnoAnterior, setConfirmFiltroAnoAnterior] = useState('ANTERIORES');
   const [confirmAvaliacao, setConfirmAvaliacao] = useState<AvaliacaoProgressaoAluno | null>(null);
+  const [erroConfirmacaoModal, setErroConfirmacaoModal] = useState<string | null>(null);
+  const [confirmModo, setConfirmModo] = useState<'individual' | 'automatica_turma'>('individual');
+  const [autoAnoOrigem, setAutoAnoOrigem] = useState<string>('');
+  const [autoTurmaOrigemId, setAutoTurmaOrigemId] = useState<string>('');
+  const [autoAnoDestino, setAutoAnoDestino] = useState<string>(escola.anoLectivoActivo || '');
+  const [autoOverridesTurma, setAutoOverridesTurma] = useState<Record<string, string>>({});
   const [showReceiptSheetModal, setShowReceiptSheetModal] = useState(false);
   const [receiptSheetInitialSlots, setReceiptSheetInitialSlots] = useState<Partial<ReciboMatriculaSlot>[] | undefined>(undefined);
   const [emitirReciboAoSalvarMatricula, setEmitirReciboAoSalvarMatricula] = useState(false);
+  const recibosMatriculaPorFolha = useMemo(
+    () => dbService.getRecibosMatriculaPorFolhaA4(escola.id),
+    [escola.id, showReceiptSheetModal]
+  );
 
   // Sub-abas do Histórico Escolar Completo
   const [subAbaHistorico, setSubAbaHistorico] = useState<'notas' | 'ocorrencias' | 'faltas' | 'dividas' | 'resumo'>('notas');
@@ -670,6 +680,20 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
   }, [turmas, modalAnoLectivo, modalClasse]);
 
   const turmaSelecionadaModal = turmas.find(t => t.id === turmaId) || turmasDoModal[0];
+
+  const calcularOcupacaoTurma = (t: Turma | undefined | null, alunoExcluirId?: string) => {
+    if (!t) return { ocupadas: 0, capacidade: 45, livres: 45, lotada: false };
+    const capacidade = Math.max(1, Number(t.capacidade) || 45);
+    const ocupadas = alunosOriginais.filter(a => {
+      if (a.turmaId !== t.id) return false;
+      if (alunoExcluirId && a.id === alunoExcluirId) return false;
+      if (a.estado === 'Desistente' || a.estado === 'Transferido') return false;
+      if (t.anoLectivo && a.anoLectivo && a.anoLectivo !== t.anoLectivo) return false;
+      return true;
+    }).length;
+    const livres = Math.max(0, capacidade - ocupadas);
+    return { ocupadas, capacidade, livres, lotada: ocupadas >= capacidade };
+  };
 
   // Reconhecimento completo de Classes, Turmas, Turnos e Cursos do Ano Letivo Ativo para Confirmação
   const anoConfirmacaoEfetivo = confirmAnoLectivo || escola.anoLectivoActivo || '';
@@ -818,6 +842,200 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     turmas,
     anoConfirmacaoEfetivo,
     classesComTurmasNoAnoDestino
+  ]);
+
+  const anosOrigemAutoConfirmacao = useMemo(() => {
+    const set = new Set<string>();
+    turmasOriginais.forEach(t => {
+      if (t.anoLectivo) set.add(t.anoLectivo);
+    });
+    alunosOriginais.forEach(a => {
+      const ano = a.anoLectivo || a.anoMatricula;
+      if (ano) set.add(ano);
+    });
+    anosLectivosDisponiveis.forEach(a => set.add(a));
+    return Array.from(set).filter(Boolean).sort().reverse();
+  }, [turmasOriginais, alunosOriginais, anosLectivosDisponiveis]);
+
+  const turmasOrigemAutoConfirmacao = useMemo(() => {
+    const base = !autoAnoOrigem
+      ? turmasOriginais
+      : turmasOriginais.filter(t => !t.anoLectivo || t.anoLectivo === autoAnoOrigem);
+    return [...base].sort((a, b) => a.nome.localeCompare(b.nome, 'pt', { numeric: true, sensitivity: 'base' }));
+  }, [turmasOriginais, autoAnoOrigem]);
+
+  const turmasDestinoAutoConfirmacao = useMemo(() => {
+    const alvo = autoAnoDestino || escola.anoLectivoActivo || '';
+    const base = !alvo
+      ? turmasOriginais
+      : turmasOriginais.filter(t => !t.anoLectivo || t.anoLectivo === alvo);
+    return [...base].sort((a, b) => a.nome.localeCompare(b.nome, 'pt', { numeric: true, sensitivity: 'base' }));
+  }, [turmasOriginais, autoAnoDestino, escola.anoLectivoActivo]);
+
+  const parseNascimentoMs = (dataStr?: string): number => {
+    const s = String(dataStr || '').trim();
+    if (!s) return -Infinity;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      const ms = Date.parse(s.slice(0, 10));
+      return isNaN(ms) ? -Infinity : ms;
+    }
+    const mPt = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (mPt) {
+      const ms = Date.parse(`${mPt[3]}-${mPt[2]}-${mPt[1]}`);
+      return isNaN(ms) ? -Infinity : ms;
+    }
+    const ms = Date.parse(s);
+    return isNaN(ms) ? -Infinity : ms;
+  };
+
+  const calcularIdadeExibicao = (dataStr?: string): string => {
+    const ms = parseNascimentoMs(dataStr);
+    if (!isFinite(ms)) return 'S/D';
+    const hoje = new Date();
+    const nasc = new Date(ms);
+    let idade = hoje.getFullYear() - nasc.getFullYear();
+    const m = hoje.getMonth() - nasc.getMonth();
+    if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
+    return idade >= 0 && idade < 120 ? `${idade} anos` : 'S/D';
+  };
+
+  const planoConfirmacaoAutomatica = useMemo(() => {
+    if (!showConfirmacaoModal || confirmModo !== 'automatica_turma' || !autoTurmaOrigemId) {
+      return [];
+    }
+    const anoDestinoEfetivo = autoAnoDestino || escola.anoLectivoActivo || '';
+    const notasCons = dbService.getNotasConsolidadas();
+    const juris = dbService.getJuris();
+    const classesDestinoDisp = ordenarClassesMED(turmasDestinoAutoConfirmacao.map(t => t.classe));
+
+    const candidatos = alunosOriginais.filter(al => {
+      if (al.turmaId !== autoTurmaOrigemId) return false;
+      if (al.estado === 'Transferido') return false;
+      const anoAl = al.anoLectivo || al.anoMatricula || '';
+      if (autoAnoOrigem && anoAl && anoAl !== autoAnoOrigem) return false;
+      if (anoDestinoEfetivo && autoAnoOrigem && anoDestinoEfetivo !== autoAnoOrigem && anoAl === anoDestinoEfetivo) {
+        return false;
+      }
+      return true;
+    });
+
+    const avaliados = candidatos.map(al => {
+      const av = avaliarProgressaoAluno({
+        aluno: al,
+        turmas: turmasOriginais,
+        notasConsolidadas: notasCons,
+        juris,
+        historicoCompleto: dbService.getHistoricoEscolarCompleto(al.id),
+        anoDestino: anoDestinoEfetivo,
+        classesDisponiveisAnoDestino: classesDestinoDisp
+      });
+      const finalistaConcluinte = av.situacao === 'Aprovado' && !av.deveAvancar;
+      const classeDestino =
+        av.situacao === 'Aprovado'
+          ? normalizarClasse(av.classeSugerida)
+          : normalizarClasse(av.classeAnterior);
+
+      return {
+        aluno: al,
+        avaliacao: av,
+        finalistaConcluinte,
+        classeDestino,
+        nascMs: parseNascimentoMs(al.dataNascimento),
+        idadeLabel: calcularIdadeExibicao(al.dataNascimento)
+      };
+    });
+
+    // Ordenar sempre do MAIS NOVO (maior timestamp de nascimento / menor idade) para o MAIS VELHO
+    avaliados.sort((a, b) => {
+      if (a.finalistaConcluinte !== b.finalistaConcluinte) return a.finalistaConcluinte ? 1 : -1;
+      if (b.nascMs !== a.nascMs) return b.nascMs - a.nascMs;
+      return a.aluno.nomeCompleto.localeCompare(b.aluno.nomeCompleto, 'pt', { sensitivity: 'base' });
+    });
+
+    // Mapa vivo de vagas livres por turma de destino
+    const vagasLivresMap = new Map<string, number>();
+    turmasDestinoAutoConfirmacao.forEach(t => {
+      vagasLivresMap.set(t.id, calcularOcupacaoTurma(t).livres);
+    });
+
+    // Primeiro descontar overrides manuais válidos
+    const alocadoMap = new Map<string, string>();
+    avaliados.forEach(item => {
+      if (item.finalistaConcluinte) return;
+      const overrideId = autoOverridesTurma[item.aluno.id];
+      if (overrideId) {
+        const livres = vagasLivresMap.get(overrideId) || 0;
+        if (livres > 0) {
+          alocadoMap.set(item.aluno.id, overrideId);
+          vagasLivresMap.set(overrideId, livres - 1);
+        }
+      }
+    });
+
+    // Alocar sequencialmente os restantes por menor idade nas primeiras turmas disponíveis
+    return avaliados.map(item => {
+      if (item.finalistaConcluinte) {
+        return {
+          ...item,
+          turmaDestino: null as Turma | null,
+          semVaga: false,
+          statusAlocacao: 'Finalista Concluinte'
+        };
+      }
+
+      const overrideId = alocadoMap.get(item.aluno.id);
+      if (overrideId) {
+        const tObj = turmasDestinoAutoConfirmacao.find(t => t.id === overrideId) || null;
+        return {
+          ...item,
+          turmaDestino: tObj,
+          semVaga: !tObj,
+          statusAlocacao: tObj ? 'Confirmado (Manual)' : 'Sem Vaga Disponível'
+        };
+      }
+
+      const cursoAluno = (item.aluno.curso || '').trim().toLowerCase();
+      const candidatasTurma = turmasDestinoAutoConfirmacao.filter(t => {
+        if (normalizarClasse(t.classe) !== item.classeDestino) return false;
+        if (isSegundoCiclo(item.classeDestino) && cursoAluno) {
+          return (t.curso || '').trim().toLowerCase() === cursoAluno;
+        }
+        return true;
+      });
+      const fallbackTurmas =
+        candidatasTurma.length > 0
+          ? candidatasTurma
+          : turmasDestinoAutoConfirmacao.filter(t => normalizarClasse(t.classe) === item.classeDestino);
+
+      const turmaDisponivel = fallbackTurmas.find(t => (vagasLivresMap.get(t.id) || 0) > 0) || null;
+      if (turmaDisponivel) {
+        vagasLivresMap.set(turmaDisponivel.id, (vagasLivresMap.get(turmaDisponivel.id) || 1) - 1);
+        return {
+          ...item,
+          turmaDestino: turmaDisponivel,
+          semVaga: false,
+          statusAlocacao: 'Vaga Reservada'
+        };
+      }
+
+      return {
+        ...item,
+        turmaDestino: null as Turma | null,
+        semVaga: true,
+        statusAlocacao: 'Sem Vaga Disponível'
+      };
+    });
+  }, [
+    showConfirmacaoModal,
+    confirmModo,
+    autoTurmaOrigemId,
+    autoAnoOrigem,
+    autoAnoDestino,
+    autoOverridesTurma,
+    alunosOriginais,
+    turmasOriginais,
+    turmasDestinoAutoConfirmacao,
+    escola.anoLectivoActivo
   ]);
 
   const filteredAlunos = alunos.filter(a => {
@@ -1165,6 +1383,57 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     const escolaIdFinal = escola?.id || escolaAtiva?.id || editingAluno?.escolaId || '';
     const turmaIdFinal = turmaId || turmaSelecionada?.id || turmas[0]?.id || '';
 
+    // 1. Prevenir duplicação de cadastro de estudantes (BI, Matrícula, Processo ou Nome + Data Nascimento)
+    const normTxt = (v?: string) =>
+      String(v || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    const normDoc = (v?: string) => String(v || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+    const docNovo = normDoc(numeroDocumento);
+    const matNova = normTxt(codigoMatricula);
+    const procNovo = normTxt(numeroProcesso);
+    const nomeNovo = normTxt(nomeCompleto);
+    const nascNovo = String(dataNascimento || '').trim();
+
+    const duplicado = alunosOriginais.find(a => {
+      if (editingAluno && a.id === editingAluno.id) return false;
+      if (escolaIdFinal && a.escolaId && a.escolaId !== escolaIdFinal) return false;
+
+      const aDoc = normDoc(a.numeroDocumento || a.numeroBI);
+      if (docNovo && aDoc && docNovo === aDoc) return true;
+      if (matNova && normTxt(a.codigoMatricula) === matNova) return true;
+      if (procNovo && normTxt(a.numeroProcesso) === procNovo) return true;
+      if (normTxt(a.nomeCompleto) === nomeNovo && nascNovo && String(a.dataNascimento || '').trim() === nascNovo) {
+        return true;
+      }
+      if (!nascNovo && normTxt(a.nomeCompleto) === nomeNovo && normTxt(a.nomeEncarregado || a.encarregadoNome) === normTxt(nomeEncarregado)) {
+        return true;
+      }
+      return false;
+    });
+
+    if (duplicado) {
+      setErroModalAluno(
+        `Cadastro duplicado detectado! Já existe um estudante registado com dados coincidentes: "${duplicado.nomeCompleto}" (${duplicado.codigoMatricula || 'S/M'}${duplicado.numeroDocumento || duplicado.numeroBI ? ` • Doc: ${duplicado.numeroDocumento || duplicado.numeroBI}` : ''}). Use "Confirmar Matrícula" para renovar alunos já cadastrados.`
+      );
+      return;
+    }
+
+    // 2. Controlo rigoroso de vagas por turma
+    if (turmaSelecionada && estado !== 'Desistente' && estado !== 'Transferido') {
+      const occ = calcularOcupacaoTurma(turmaSelecionada, editingAluno?.id);
+      if (occ.lotada) {
+        setErroModalAluno(
+          `A turma ${turmaSelecionada.nome} (${turmaSelecionada.turno}) já atingiu a capacidade máxima de ${occ.capacidade} vagas (${occ.ocupadas}/${occ.capacidade} ocupadas). Selecione outra turma com vagas disponíveis.`
+        );
+        return;
+      }
+    }
+
     // Persistir automaticamente novas províncias, municípios, países, nacionalidades ou naturalidades digitados
     const ehPaisAngola = !paisOrigem.trim() || paisOrigem.trim().toLowerCase() === 'angola';
     if (ehPaisAngola && provinciaOrigem.trim()) {
@@ -1362,6 +1631,9 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleOpenConfirmacao = () => {
     setErroAlunoGeral(null);
+    setErroConfirmacaoModal(null);
+    setConfirmModo('individual');
+    setAutoOverridesTurma({});
     if (alunos.length === 0) {
       setErroAlunoGeral('Não há alunos cadastrados no sistema para confirmação de matrícula.');
       setTimeout(() => setErroAlunoGeral(null), 4500);
@@ -1369,6 +1641,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     }
     const anoDestino = escola.anoLectivoActivo || (selectedAnoLectivoFilter !== 'TODOS' ? selectedAnoLectivoFilter : '') || anosLectivosDisponiveis[0] || '';
     setConfirmAnoLectivo(anoDestino);
+    setAutoAnoDestino(anoDestino);
     setConfirmSearchTerm('');
     setConfirmFiltroClasseAnterior('TODAS');
 
@@ -1379,6 +1652,21 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
     });
     setConfirmFiltroAnoAnterior(alunosAnosAnteriores.length > 0 ? 'ANTERIORES' : 'TODOS');
 
+    const anosOrig = Array.from(
+      new Set(
+        alunosOriginais
+          .map(a => a.anoLectivo || a.anoMatricula || turmasOriginais.find(t => t.id === a.turmaId)?.anoLectivo || '')
+          .filter(Boolean)
+      )
+    )
+      .sort()
+      .reverse();
+    const anoOrigemDefault = anosOrig.find(a => a !== anoDestino) || anosOrig[0] || '';
+    setAutoAnoOrigem(anoOrigemDefault);
+    const turmaOrigemDefault =
+      turmasOriginais.find(t => !anoOrigemDefault || !t.anoLectivo || t.anoLectivo === anoOrigemDefault)?.id || '';
+    setAutoTurmaOrigemId(turmaOrigemDefault);
+
     const primeiro = alunosAnosAnteriores[0] || alunos[0];
     setConfirmAlunoId(primeiro.id);
     handleSelectAlunoConfirmacao(primeiro.id, anoDestino);
@@ -1387,11 +1675,23 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
 
   const handleExecutarConfirmacao = (e: React.FormEvent) => {
     e.preventDefault();
+    setErroConfirmacaoModal(null);
     const al = alunos.find(a => a.id === confirmAlunoId);
     if (!al) return;
 
     const anoAlvo = confirmAnoLectivo || escola.anoLectivoActivo || '';
     const turmaNova = turmas.find(t => t.id === confirmTurmaId);
+
+    if (turmaNova) {
+      const occ = calcularOcupacaoTurma(turmaNova, al.id);
+      if (occ.lotada) {
+        setErroConfirmacaoModal(
+          `A turma ${turmaNova.nome} já está lotada (${occ.ocupadas}/${occ.capacidade} vagas ocupadas). Escolha outra turma com vagas disponíveis.`
+        );
+        return;
+      }
+    }
+
     const turmaAnteriorObj = turmas.find(t => t.id === al.turmaId);
     const classeAnteriorNorm = normalizarClasse(al.classeId || turmaAnteriorObj?.classe || '');
     const anoAnteriorReal = al.anoLectivo || al.anoMatricula || turmaAnteriorObj?.anoLectivo || '';
@@ -1472,6 +1772,103 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
         currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto
       )
     ]);
+    setShowReceiptSheetModal(true);
+  };
+
+  const handleExecutarConfirmacaoAutomatica = () => {
+    setErroConfirmacaoModal(null);
+    const anoDestinoEfetivo = autoAnoDestino || escola.anoLectivoActivo || '';
+    const itensValidos = planoConfirmacaoAutomatica.filter(
+      item => !item.finalistaConcluinte && item.turmaDestino
+    );
+
+    if (itensValidos.length === 0) {
+      setErroConfirmacaoModal(
+        'Nenhum estudante elegível possui turma de destino com vaga disponível para confirmação automática.'
+      );
+      return;
+    }
+
+    const ordemPorTurma = new Map<string, number>();
+    turmasDestinoAutoConfirmacao.forEach(t => {
+      const maxOrd = alunosOriginais
+        .filter(a => a.turmaId === t.id)
+        .reduce((mx, a) => Math.max(mx, Number(a.numeroOrdem) || 0), 0);
+      ordemPorTurma.set(t.id, maxOrd);
+    });
+
+    const atendenteNome = currentUser?.nomeCompleto || dbService.getCurrentUser()?.nomeCompleto;
+    const slotsConfirmados: Partial<ReciboMatriculaSlot>[] = [];
+    const prefixoAno = anoDestinoEfetivo ? anoDestinoEfetivo.split('/')[0] : String(new Date().getFullYear());
+
+    itensValidos.forEach((item, idx) => {
+      const al = item.aluno;
+      const tDest = item.turmaDestino!;
+      const av = item.avaliacao;
+      const proxOrdem = (ordemPorTurma.get(tDest.id) || 0) + 1;
+      ordemPorTurma.set(tDest.id, proxOrdem);
+
+      const historicoAtualizado = [...(al.historicoAnterior || [])];
+      if (av.classeAnterior && av.anoAnterior && av.anoAnterior !== anoDestinoEfetivo) {
+        const jaTem = historicoAtualizado.some(
+          h => normalizarClasse(h.classe) === normalizarClasse(av.classeAnterior) && h.anoLectivo === av.anoAnterior
+        );
+        if (!jaTem) {
+          const aprov = av.situacao === 'Aprovado' || (av.situacao === 'SemRegisto' && av.deveAvancar);
+          historicoAtualizado.push({
+            classe: normalizarClasse(av.classeAnterior),
+            anoLectivo: av.anoAnterior,
+            mediaFinal: av.mediaCalculada ?? 0,
+            aprovado: Boolean(aprov),
+            concluido: Boolean(aprov)
+          });
+        }
+      }
+
+      const turnoLower = String(tDest.turno || '').toLowerCase();
+      const periodoMapeado: 'Matinal' | 'Vespertino' | 'Noturno' =
+        turnoLower.includes('tarde') || turnoLower.includes('vesp')
+          ? 'Vespertino'
+          : turnoLower.includes('noite') || turnoLower.includes('notur')
+          ? 'Noturno'
+          : 'Matinal';
+
+      const alunoAtualizado: Aluno = {
+        ...al,
+        classeId: item.classeDestino,
+        turmaId: tDest.id,
+        numeroOrdem: proxOrdem,
+        periodo: periodoMapeado,
+        curso: isSegundoCiclo(item.classeDestino) ? tDest.curso || al.curso : '',
+        codigoMatricula: al.codigoMatricula || `${prefixoAno}/MED-${1000 + idx}`,
+        estado: 'Ativo',
+        anoLectivo: anoDestinoEfetivo,
+        anoMatricula: anoDestinoEfetivo,
+        propinaStatus: 'Regularizada',
+        historicoAnterior: historicoAtualizado
+      };
+
+      onSalvarAluno(alunoAtualizado);
+      slotsConfirmados.push(
+        converterAlunoParaSlot(
+          alunoAtualizado,
+          turmasOriginais,
+          escola,
+          idx,
+          'Confirmacao',
+          av.classeAnterior,
+          atendenteNome
+        )
+      );
+    });
+
+    dbService.registarLog(
+      'Confirmação Automática em Lote',
+      `${slotsConfirmados.length} estudante(s) confirmado(s) automaticamente para o ano ${anoDestinoEfetivo}, ordenados por menor idade e distribuídos pelas vagas disponíveis.`
+    );
+
+    setShowConfirmacaoModal(false);
+    setReceiptSheetInitialSlots(slotsConfirmados);
     setShowReceiptSheetModal(true);
   };
 
@@ -2758,10 +3155,10 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   setShowReceiptSheetModal(true);
                 }}
                 className="px-3.5 py-2 text-xs font-bold text-indigo-950 bg-indigo-50 border-2 border-indigo-500 rounded-lg hover:bg-indigo-100 transition-colors inline-flex items-center space-x-1.5 cursor-pointer shadow-2xs"
-                title="Inserir até 3 nomes e baixar os recibos de matrícula/confirmação numa única folha A4"
+                title={`Inserir nomes e baixar os recibos de matrícula/confirmação (${recibosMatriculaPorFolha} por folha A4)`}
               >
                 <Receipt className="h-4 w-4 text-indigo-700" />
-                <span>Recibos (3 por A4)</span>
+                <span>Recibos ({recibosMatriculaPorFolha} por A4)</span>
               </button>
 
               <button
@@ -4490,21 +4887,33 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                       {turmasDoModal.length === 0 ? (
                         <option value="">Nenhuma turma para {modalClasse} em {modalAnoLectivo}</option>
                       ) : (
-                        turmasDoModal.map((t: Turma) => (
-                          <option key={`modal-t-${t.id}`} value={t.id}>
-                            {t.nome} ({t.turno})
-                          </option>
-                        ))
+                        turmasDoModal.map((t: Turma) => {
+                          const occ = calcularOcupacaoTurma(t, editingAluno?.id);
+                          return (
+                            <option key={`modal-t-${t.id}`} value={t.id}>
+                              {t.nome} ({t.turno}) — {occ.ocupadas}/{occ.capacidade} ({occ.lotada ? 'LOTADA' : `${occ.livres} vagas`})
+                            </option>
+                          );
+                        })
                       )}
                     </select>
                   </div>
 
                   <div>
-                    <label className="font-semibold text-gray-700 block mb-1">Sala Associada</label>
-                    <div className="w-full p-2 border border-gray-200 bg-white rounded-md text-xs font-bold text-blue-800 flex items-center justify-between shadow-2xs">
-                      <span>{getSalaDaTurma(turmaSelecionadaModal)}</span>
-                      <span className="text-[10px] text-gray-500 font-normal">Cap: {turmaSelecionadaModal?.capacidade || 45} vagas</span>
-                    </div>
+                    <label className="font-semibold text-gray-700 block mb-1">Sala & Vagas da Turma</label>
+                    {(() => {
+                      const occSel = calcularOcupacaoTurma(turmaSelecionadaModal, editingAluno?.id);
+                      return (
+                        <div className={`w-full p-2 border rounded-md text-xs font-bold flex items-center justify-between shadow-2xs ${
+                          occSel.lotada ? 'border-red-300 bg-red-50 text-red-800' : 'border-gray-200 bg-white text-blue-800'
+                        }`}>
+                          <span>{getSalaDaTurma(turmaSelecionadaModal)}</span>
+                          <span className={`text-[10px] font-bold ${occSel.lotada ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {occSel.ocupadas}/{occSel.capacidade} • {occSel.lotada ? 'LOTADA' : `${occSel.livres} livres`}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -4792,7 +5201,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   className="px-4 py-2 text-xs font-bold text-emerald-900 bg-emerald-100 border border-emerald-400 rounded-lg hover:bg-emerald-200 shadow-2xs inline-flex items-center space-x-1.5 cursor-pointer"
                 >
                   <Receipt className="h-3.5 w-3.5 text-emerald-700" />
-                  <span>Salvar e Emitir Recibo (3 por A4)</span>
+                  <span>Salvar e Emitir Recibo ({recibosMatriculaPorFolha} por A4)</span>
                 </button>
                 <button
                   type="submit"
@@ -4812,7 +5221,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
       {/* ========================================================================= */}
       {showConfirmacaoModal && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 border-2 border-emerald-600 shadow-2xl space-y-4 my-8 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-6 border-2 border-emerald-600 shadow-2xl space-y-4 my-8 max-h-[92vh] overflow-y-auto">
             <div className="border-b pb-3 border-gray-200 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg">
@@ -4823,7 +5232,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     Confirmação de Matrícula (Renovação Oficial)
                   </h3>
                   <p className="text-xs text-gray-500">
-                    Pesquise pelo nome ou classe anterior. O sistema reconhece automaticamente aprovação, reprovação ou desistência e carrega classes, turmas, turnos e cursos do ano letivo ativo.
+                    Individual ou automática por turma do ano passado (aprovados avançam, reprovados/desistentes mantêm a classe, ordenados por menor idade conforme vagas).
                   </p>
                 </div>
               </div>
@@ -4836,6 +5245,287 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
               </button>
             </div>
 
+            {/* Alternador de Modo: Individual vs Automática por Turma */}
+            <div className="flex flex-wrap gap-2 bg-gray-100 p-1.5 rounded-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmModo('individual');
+                  setErroConfirmacaoModal(null);
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  confirmModo === 'individual'
+                    ? 'bg-white text-emerald-800 shadow-xs border border-emerald-200'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Confirmação Individual
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmModo('automatica_turma');
+                  setErroConfirmacaoModal(null);
+                }}
+                className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                  confirmModo === 'automatica_turma'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Confirmação Automática por Turma (Menor Idade & Vagas)
+              </button>
+            </div>
+
+            {erroConfirmacaoModal && (
+              <div className="p-3 bg-red-50 border border-red-300 text-red-900 rounded-xl text-xs font-bold flex items-center justify-between gap-2">
+                <span>{erroConfirmacaoModal}</span>
+                <button
+                  type="button"
+                  onClick={() => setErroConfirmacaoModal(null)}
+                  className="text-red-700 hover:text-red-950 font-black px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {confirmModo === 'automatica_turma' ? (
+              <div className="space-y-4 text-xs">
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      Ano Letivo de Origem (Ano Passado)
+                    </label>
+                    <select
+                      value={autoAnoOrigem}
+                      onChange={e => {
+                        const novoAno = e.target.value;
+                        setAutoAnoOrigem(novoAno);
+                        const matchT = turmasOriginais.find(t => !novoAno || !t.anoLectivo || t.anoLectivo === novoAno);
+                        setAutoTurmaOrigemId(matchT?.id || '');
+                        setAutoOverridesTurma({});
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      <option value="">Todos os Anos</option>
+                      {anosOrigemAutoConfirmacao.map(ano => (
+                        <option key={`auto-orig-${ano}`} value={ano}>
+                          Ano {ano}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      Turma do Ano Passado *
+                    </label>
+                    <select
+                      value={autoTurmaOrigemId}
+                      onChange={e => {
+                        setAutoTurmaOrigemId(e.target.value);
+                        setAutoOverridesTurma({});
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-white font-bold"
+                    >
+                      {turmasOrigemAutoConfirmacao.length === 0 ? (
+                        <option value="">Nenhuma turma encontrada</option>
+                      ) : (
+                        turmasOrigemAutoConfirmacao.map(t => {
+                          const qtd = alunosOriginais.filter(
+                            a =>
+                              a.turmaId === t.id &&
+                              a.estado !== 'Transferido' &&
+                              (!autoAnoOrigem || !a.anoLectivo || a.anoLectivo === autoAnoOrigem)
+                          ).length;
+                          return (
+                            <option key={`auto-t-orig-${t.id}`} value={t.id}>
+                              {t.nome} ({t.classe} • {t.turno}) — {qtd} aluno(s)
+                            </option>
+                          );
+                        })
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                      Ano Letivo de Destino (Novo Ano) *
+                    </label>
+                    <select
+                      value={autoAnoDestino}
+                      onChange={e => {
+                        setAutoAnoDestino(e.target.value);
+                        setAutoOverridesTurma({});
+                      }}
+                      className="w-full p-2 border border-emerald-400 rounded-lg bg-white font-bold text-emerald-950"
+                    >
+                      {anosLectivosDisponiveis.map(ano => (
+                        <option key={`auto-dest-${ano}`} value={ano}>
+                          Ano {ano} {ano === escola.anoLectivoActivo ? '(Ativo)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Resumo do Plano */}
+                {(() => {
+                  const totalEleg = planoConfirmacaoAutomatica.length;
+                  const alocados = planoConfirmacaoAutomatica.filter(i => !i.finalistaConcluinte && i.turmaDestino).length;
+                  const semVaga = planoConfirmacaoAutomatica.filter(i => i.semVaga).length;
+                  const aprovados = planoConfirmacaoAutomatica.filter(i => i.avaliacao.situacao === 'Aprovado').length;
+                  const repetentes = planoConfirmacaoAutomatica.filter(
+                    i => i.avaliacao.situacao === 'Reprovado' || i.avaliacao.situacao === 'Desistente'
+                  ).length;
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase block">Elegíveis</span>
+                        <strong className="text-base font-black text-slate-900">{totalEleg}</strong>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-center">
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase block">Aprovados</span>
+                        <strong className="text-base font-black text-emerald-900">{aprovados}</strong>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-center">
+                        <span className="text-[10px] font-bold text-amber-700 uppercase block">Repetentes</span>
+                        <strong className="text-base font-black text-amber-900">{repetentes}</strong>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-center">
+                        <span className="text-[10px] font-bold text-blue-700 uppercase block">Com Vaga</span>
+                        <strong className="text-base font-black text-blue-900">{alocados}</strong>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-center">
+                        <span className="text-[10px] font-bold text-rose-700 uppercase block">Sem Vaga</span>
+                        <strong className="text-base font-black text-rose-900">{semVaga}</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Tabela de Pré-Visualização Ordenada por Menor Idade */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="max-h-72 overflow-y-auto overflow-x-auto">
+                    <table className="w-full text-left text-[11px]">
+                      <thead className="bg-gray-100 text-gray-800 font-black uppercase text-[10px] sticky top-0 border-b border-gray-200">
+                        <tr>
+                          <th className="p-2 w-8 text-center">#</th>
+                          <th className="p-2">Estudante (Menor Idade → Maior)</th>
+                          <th className="p-2">Idade / Nasc.</th>
+                          <th className="p-2">Situação</th>
+                          <th className="p-2">Progressão</th>
+                          <th className="p-2">Turma Destino ({autoAnoDestino || 'Ativo'})</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {planoConfirmacaoAutomatica.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-6 text-center text-gray-500 font-semibold">
+                              Nenhum estudante encontrado na turma selecionada para confirmar.
+                            </td>
+                          </tr>
+                        ) : (
+                          planoConfirmacaoAutomatica.map((item, idx) => {
+                            const turmasCompativeis = turmasDestinoAutoConfirmacao.filter(
+                              t => normalizarClasse(t.classe) === item.classeDestino
+                            );
+                            const badgeSit =
+                              item.avaliacao.situacao === 'Aprovado'
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : item.avaliacao.situacao === 'Reprovado'
+                                ? 'bg-rose-100 text-rose-900'
+                                : item.avaliacao.situacao === 'Desistente'
+                                ? 'bg-amber-100 text-amber-900'
+                                : 'bg-blue-100 text-blue-900';
+
+                            return (
+                              <tr key={`auto-row-${item.aluno.id}`} className="hover:bg-gray-50">
+                                <td className="p-2 text-center font-mono font-bold text-gray-500">{idx + 1}</td>
+                                <td className="p-2 font-bold text-gray-900">
+                                  <div>{item.aluno.nomeCompleto}</div>
+                                  <div className="text-[10px] font-mono text-gray-500">{item.aluno.codigoMatricula}</div>
+                                </td>
+                                <td className="p-2 whitespace-nowrap">
+                                  <span className="font-bold text-gray-800">{item.idadeLabel}</span>
+                                  <span className="block text-[9.5px] text-gray-500">
+                                    {item.aluno.dataNascimento ? formatarDataAngolana(item.aluno.dataNascimento) : '—'}
+                                  </span>
+                                </td>
+                                <td className="p-2">
+                                  <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${badgeSit}`}>
+                                    {item.avaliacao.situacao}
+                                  </span>
+                                </td>
+                                <td className="p-2 font-bold whitespace-nowrap">
+                                  {item.avaliacao.classeAnterior} → {item.classeDestino}
+                                </td>
+                                <td className="p-2 min-w-[180px]">
+                                  {item.finalistaConcluinte ? (
+                                    <span className="px-2 py-0.5 bg-purple-100 text-purple-900 rounded font-bold text-[10px]">
+                                      Concluinte de Ciclo
+                                    </span>
+                                  ) : (
+                                    <select
+                                      value={autoOverridesTurma[item.aluno.id] || item.turmaDestino?.id || ''}
+                                      onChange={e =>
+                                        setAutoOverridesTurma(prev => ({
+                                          ...prev,
+                                          [item.aluno.id]: e.target.value
+                                        }))
+                                      }
+                                      className={`w-full p-1.5 border rounded font-bold text-[11px] ${
+                                        item.semVaga && !autoOverridesTurma[item.aluno.id]
+                                          ? 'border-rose-400 bg-rose-50 text-rose-900'
+                                          : 'border-emerald-300 bg-emerald-50/40 text-emerald-950'
+                                      }`}
+                                    >
+                                      <option value="">Sem vaga / Não alocar</option>
+                                      {turmasCompativeis.map(td => {
+                                        const occ = calcularOcupacaoTurma(td);
+                                        return (
+                                          <option key={`auto-opt-${item.aluno.id}-${td.id}`} value={td.id}>
+                                            {td.nome} ({td.turno}) • {occ.ocupadas}/{occ.capacidade} ({occ.livres} livres)
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmacaoModal(false)}
+                    className="px-4 py-2 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={planoConfirmacaoAutomatica.filter(i => !i.finalistaConcluinte && i.turmaDestino).length === 0}
+                    onClick={handleExecutarConfirmacaoAutomatica}
+                    className="px-6 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg shadow-sm flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>
+                      Confirmar Lote ({planoConfirmacaoAutomatica.filter(i => !i.finalistaConcluinte && i.turmaDestino).length} Alunos) & Emitir Recibos ({recibosMatriculaPorFolha}/A4)
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
             {/* 1. Pesquisa por Nome ou Classe do Ano Letivo Passado */}
             <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2.5">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -5103,11 +5793,14 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                             </option>
                           );
                         }
-                        return turmasDaClasse.map((t: Turma) => (
-                          <option key={t.id} value={t.id}>
-                            {t.nome} ({t.turno} • Sala {t.sala || '01'}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''})
-                          </option>
-                        ));
+                        return turmasDaClasse.map((t: Turma) => {
+                          const occ = calcularOcupacaoTurma(t, confirmAlunoId);
+                          return (
+                            <option key={t.id} value={t.id}>
+                              {t.nome} ({t.turno} • {occ.ocupadas}/{occ.capacidade} • {occ.lotada ? 'LOTADA' : `${occ.livres} vagas`}{isSegundoCiclo(t.classe) && t.curso ? ` • ${t.curso}` : ''})
+                            </option>
+                          );
+                        });
                       })()}
                     </select>
                   </div>
@@ -5189,7 +5882,7 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                   className="px-3.5 py-2 text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg inline-flex items-center space-x-1.5 cursor-pointer"
                 >
                   <Receipt className="h-3.5 w-3.5" />
-                  <span>Emitir 3 Recibos numa Folha A4</span>
+                  <span>Emitir {recibosMatriculaPorFolha} Recibo(s) numa Folha A4</span>
                 </button>
 
                 <div className="flex items-center space-x-2">
@@ -5206,11 +5899,13 @@ export const StudentsView: React.FC<StudentsViewProps> = ({
                     className="px-6 py-2 text-xs font-black text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg shadow-sm flex items-center space-x-1.5 cursor-pointer"
                   >
                     <CheckCircle2 className="h-4 w-4" />
-                    <span>Gravar Confirmação & Gerar Recibo (3/A4)</span>
+                    <span>Gravar Confirmação & Gerar Recibo ({recibosMatriculaPorFolha}/A4)</span>
                   </button>
                 </div>
               </div>
             </form>
+            </>
+            )}
           </div>
         </div>
       )}

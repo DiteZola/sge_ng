@@ -179,6 +179,7 @@ export const PedagogicalReportsBuilder: React.FC<PedagogicalReportsBuilderProps>
   const [feedback, setFeedback] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [visualizacaoFoco, setVisualizacaoFoco] = useState<'dividido' | 'preview'>('dividido');
+  const [orientacaoPdf, setOrientacaoPdf] = useState<'portrait' | 'landscape'>('portrait');
 
   const notificar = (texto: string, tipo: 'sucesso' | 'erro' = 'sucesso') => {
     setFeedback({ tipo, texto });
@@ -1151,7 +1152,7 @@ export const PedagogicalReportsBuilder: React.FC<PedagogicalReportsBuilderProps>
           ? `Relatorio_Final_Coordenacao_${(coordAtual?.tipoCoordenacao || 'Geral').replace(/\s+/g, '_')}_${anoLectivo}`
           : `Relatorio_Docente_${(professorAtual?.nomeCompleto || 'Professor').replace(/\s+/g, '_')}_${periodoEfetivo}_${anoLectivo}`;
       await downloadElementAsPdf(previewElementId, `${slugBase}.pdf`, {
-        orientation: 'portrait',
+        orientation: orientacaoPdf,
         scale: 2,
         marginMm: 10
       });
@@ -1164,7 +1165,7 @@ export const PedagogicalReportsBuilder: React.FC<PedagogicalReportsBuilderProps>
     const el = document.getElementById(previewElementId);
     if (el) {
       imprimirElementoDiretamente(el, tituloDocumento || 'Relatorio_Pedagogico', {
-        orientation: 'portrait',
+        orientation: orientacaoPdf,
         marginMm: 10
       });
     }
@@ -1255,6 +1256,18 @@ export const PedagogicalReportsBuilder: React.FC<PedagogicalReportsBuilderProps>
               <Eye className="w-4 h-4" />
               <span>{visualizacaoFoco === 'dividido' ? 'Ecrã Inteiro (Pré-visualização)' : 'Voltar à Edição + Pré-visualização'}</span>
             </button>
+            <div className="flex items-center space-x-1.5 bg-slate-100 px-2 py-1 rounded-xl border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Folha:</span>
+              <select
+                value={orientacaoPdf}
+                onChange={(e) => setOrientacaoPdf(e.target.value as 'portrait' | 'landscape')}
+                className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                title="Orientação da folha A4"
+              >
+                <option value="portrait">Retrato (A4 Vertical)</option>
+                <option value="landscape">Paisagem (A4 Horizontal)</option>
+              </select>
+            </div>
             <button
               type="button"
               onClick={handleBaixarPdf}
@@ -1817,7 +1830,7 @@ export const PedagogicalReportsBuilder: React.FC<PedagogicalReportsBuilderProps>
           <div className="bg-slate-200/70 p-3 sm:p-6 rounded-2xl overflow-x-auto">
             <div
               id={previewElementId}
-              className="bg-white text-black mx-auto max-w-[210mm] p-8 sm:p-10 shadow-xl border border-slate-300 space-y-6 font-serif"
+              className={`bg-white text-black mx-auto ${orientacaoPdf === 'landscape' ? 'max-w-[297mm]' : 'max-w-[210mm]'} p-8 sm:p-10 shadow-xl border border-slate-300 space-y-6 font-serif`}
             >
               {/* CABEÇALHO OFICIAL MED ANGOLA */}
               <div className="text-center border-b-2 border-black pb-4 space-y-1">

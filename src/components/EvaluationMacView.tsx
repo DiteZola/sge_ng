@@ -233,6 +233,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     return '1';
   });
   const [buscaAlunoTabela, setBuscaAlunoTabela] = useState<string>('');
+  const [pautaOrientacaoPdf, setPautaOrientacaoPdf] = useState<'landscape' | 'portrait'>('landscape');
 
   const cursosDisponiveisClasse = useMemo(() => {
     if (!isSegundoCiclo(selectedClasse)) return [];
@@ -509,8 +510,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     return isClasseFinal(turmaAtiva?.classe, regraVigente);
   }, [turmaAtiva?.classe, regraVigente]);
 
-  // Se a Prova do Professor (NPP) está ativa nas configurações da escola
-  const provaProfessorAtiva = Boolean(escola.nppAtivo);
+  // Se a Prova do Professor (NPP) está ativa nas configurações da escola (ativa por padrão salvo desativação explícita)
+  const provaProfessorAtiva = escola.nppAtivo !== false;
 
   // Alunos desta turma com suporte a pesquisa rápida e segura
   const alunosDaTurma = useMemo(() => {
@@ -1037,7 +1038,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       const nomeFicheiro = `Pauta_Oficial_MED_${turmaNomeLimpo}_${discNomeLimpo}_${selectedTrimestre}T_${anoLimpo}`;
       
       const ok = await downloadElementAsPdf(el, nomeFicheiro, {
-        orientation: 'landscape',
+        orientation: pautaOrientacaoPdf,
         scale: 2.4,
         marginMm: 6
       });
@@ -1249,10 +1250,14 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       normTriEval(c.trimestre) === normTriEval(selectedTrimestre)
     );
 
+    if (retificacaoTipoNota === 'NPP' && !provaProfessorAtiva) {
+      return;
+    }
+
     let registroRetificado: NotaTrimestralConsolidada;
     if (idx >= 0) {
       if (retificacaoTipoNota === 'MAC') notasConsolid[idx].mac = notaFinalValida;
-      else if (retificacaoTipoNota === 'NPP') notasConsolid[idx].npp = notaFinalValida;
+      else if (retificacaoTipoNota === 'NPP' && provaProfessorAtiva) notasConsolid[idx].npp = notaFinalValida;
       else if (retificacaoTipoNota === 'NPT') {
         notasConsolid[idx].npt = notaFinalValida;
         notasConsolid[idx].provaTrimestral = notaFinalValida;
@@ -1263,7 +1268,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       if (retificacaoTipoNota === 'MAC' || retificacaoTipoNota === 'NPP' || retificacaoTipoNota === 'NPT') {
         const calcTri = calcularNotaTrimestralDinamica(
           notasConsolid[idx].mac || 0,
-          notasConsolid[idx].npp,
+          provaProfessorAtiva ? notasConsolid[idx].npp : undefined,
           extrairNptConsolidada(notasConsolid[idx]),
           regraVigente,
           Number(selectedTrimestre),
@@ -1293,7 +1298,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
         trimestre: selectedTrimestre as any,
         anoLectivo: escola.anoLectivoActivo || '',
         mac: retificacaoTipoNota === 'MAC' ? notaFinalValida : 0,
-        npp: retificacaoTipoNota === 'NPP' ? notaFinalValida : undefined,
+        npp: retificacaoTipoNota === 'NPP' && provaProfessorAtiva ? notaFinalValida : undefined,
         provaTrimestral: retificacaoTipoNota === 'NPT' ? notaFinalValida : undefined,
         npt: retificacaoTipoNota === 'NPT' ? notaFinalValida : undefined,
         mediaTrimestral: notaFinalValida,
@@ -1380,7 +1385,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
     const existente = idx >= 0 ? notasConsolid[idx] : null;
     const macVal = dados.mac !== undefined ? dados.mac : (existente?.mac || 0);
-    const nppVal = 'npp' in dados ? dados.npp : existente?.npp;
+    const nppVal = provaProfessorAtiva
+      ? ('npp' in dados ? dados.npp : existente?.npp)
+      : existente?.npp;
     const existentePt = extrairNptConsolidada(existente);
     const ptVal = 'provaTrimestral' in dados ? dados.provaTrimestral : existentePt;
     // A nota de exame é ESTRITAMENTE reservada para classes finais (6ª, 9ª, 12ª, 13ª)
@@ -1393,7 +1400,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     // Média Trimestral (MT) rigorosamente conforme regra/fórmula configurada para o nível e trimestre
     const calcTriDinamico = calcularNotaTrimestralDinamica(
       macVal,
-      nppVal,
+      provaProfessorAtiva ? nppVal : undefined,
       ptVal,
       regraVigente,
       Number(selectedTrimestre),
@@ -1492,6 +1499,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
 
   // Inserção da Prova do Professor (NPP) quando ativada nas configurações escolares
   const handleNppChange = (alunoId: string, valorStr: string, resMAC: any) => {
+    if (!provaProfessorAtiva) return;
     setNppDigitadas(prev => ({ ...prev, [alunoId]: valorStr }));
     const chaveErro = `npp-${alunoId}`;
     if (valorStr.trim() === '') {
@@ -2125,8 +2133,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                         : (notaConsol?.npp !== undefined && notaConsol?.npp !== null ? String(notaConsol.npp) : '');
                       const isNppInvalid = !!notasInvalidas[chaveNpp];
                       const nppErroMsg = notasInvalidas[chaveNpp];
-                      const nppNum = nppVal !== '' ? parseFloat(nppVal.replace(/,/g, '.')) : undefined;
-                      const temNpp = nppNum !== undefined && !isNaN(nppNum);
+                      const nppNum = provaProfessorAtiva && nppVal !== '' ? parseFloat(nppVal.replace(/,/g, '.')) : undefined;
+                      const temNpp = provaProfessorAtiva && nppNum !== undefined && !isNaN(nppNum);
 
                       // Prova Trimestral (PT / NPT) pelo Professor
                       const chavePt = `pt-${aluno.id}`;
@@ -3227,13 +3235,25 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
               <p className="text-xs text-gray-500">Registo oficial de aproveitamento por turma e disciplina</p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+                <span className="text-[10px] font-bold text-slate-500 uppercase px-1.5">Folha:</span>
+                <select
+                  value={pautaOrientacaoPdf}
+                  onChange={(e) => setPautaOrientacaoPdf(e.target.value as 'landscape' | 'portrait')}
+                  className="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-slate-800"
+                  title="Orientação da folha A4 da Pauta"
+                >
+                  <option value="landscape">Paisagem (A4 Horizontal)</option>
+                  <option value="portrait">Retrato (A4 Vertical)</option>
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={handleExportarPautaPdf}
                 disabled={isExportingPdf}
                 className="px-4 py-2 text-xs sm:text-sm font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-xl inline-flex items-center space-x-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                title="Descarregar pauta oficial formatada em PDF Paisagem (A4)"
+                title="Descarregar pauta oficial formatada em PDF (A4)"
               >
                 {isExportingPdf ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -3259,7 +3279,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 onClick={() => {
                   const el = document.getElementById('pauta-oficial-para-exportacao');
                   if (el) {
-                    imprimirElementoDiretamente(el, `Pauta Oficial - ${escola.nomeOficial}`);
+                    imprimirElementoDiretamente(el, `Pauta Oficial - ${escola.nomeOficial}`, {
+                      orientation: pautaOrientacaoPdf
+                    });
                   } else {
                     window.print();
                   }
@@ -3825,7 +3847,7 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                   >
                     <option value="MT">Média Trimestral (MT)</option>
                     <option value="MAC">Avaliação Contínua (MAC)</option>
-                    <option value="NPP">Prova do Professor (NPP)</option>
+                    {provaProfessorAtiva && <option value="NPP">Prova do Professor (NPP)</option>}
                     <option value="NPT">Prova Trimestral (NPT)</option>
                   </select>
                 </div>

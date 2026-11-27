@@ -40,7 +40,8 @@ import {
   History,
   CalendarCheck,
   Wallet,
-  ClipboardCheck
+  ClipboardCheck,
+  PackageCheck
 } from 'lucide-react';
 import { UserRole, Funcionario } from '../types';
 import { dbService } from '../services/storage';
@@ -84,6 +85,8 @@ export type NavTab =
   // OUTROS
   | 'biblioteca'
   | 'patrimonio'
+  | 'estoque_limpeza'
+  | 'mapa_ferias'
   // SISTEMA
   | 'usuarios_perfis'
   | 'configuracoes'
@@ -149,7 +152,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'dashboard',
           label: userRole === 'AdminGeral' ? 'Painel Central Ministerial' : 'Painel de Controlo',
           icon: LayoutDashboard,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'AuxiliarLimpeza', 'Encarregado'],
           badge: userRole === 'AdminGeral' ? 'Macro' : undefined
         }
       ]
@@ -180,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'calendario_escolar',
           label: 'Calendário Escolar Oficial',
           icon: CalendarDays,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'AuxiliarLimpeza', 'Encarregado'],
           badge: 'MED'
         },
         {
@@ -297,6 +300,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: ShieldAlert,
           roles: ['DiretorGeral', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'CoordenadorDisciplina', 'ChefeSecretaria', 'Secretaria', 'Secretario', 'SecretarioEscolar', 'Professor'],
           badge: 'Executivo'
+        },
+        {
+          id: 'mapa_ferias',
+          label: 'Mapa de Férias (Adm. & Limpeza)',
+          icon: CalendarDays,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Secretaria', 'Tesoureiro', 'Bibliotecario', 'TecnicoTI', 'Estagiario', 'AuxiliarLimpeza'],
+          badge: 'RH'
         }
       ]
     },
@@ -389,7 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'comunicacao',
           label: 'Comunicação & Mensagens Internas',
           icon: MessageSquare,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'Encarregado', 'SecretarioEscolar', 'CoordenadorDisciplina', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'AuxiliarLimpeza'],
           badge: 'Mensagens'
         },
         {
@@ -404,6 +414,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Boxes,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'Tesoureiro', 'TecnicoTI'],
           badge: 'Inventário'
+        },
+        {
+          id: 'estoque_limpeza',
+          label: 'Estoque de Limpeza',
+          icon: PackageCheck,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorAdministrativo', 'SubdirectorAdministrativo', 'AuxiliarLimpeza'],
+          badge: 'Materiais'
         }
       ]
     },
@@ -460,14 +477,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'minhas_financas',
           label: 'Minhas Finanças',
           icon: Wallet,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'AuxiliarLimpeza'],
           badge: 'Pessoal'
         },
         {
           id: 'meu_perfil',
           label: 'Meu Perfil & Senha',
           icon: User,
-          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'Encarregado'],
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'SubdirectorAdministrativo', 'SubdiretorAdministrativo', 'CoordenadorTurno', 'CoordenadorDisciplina', 'Professor', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar', 'Tesoureiro', 'Bibliotecario', 'Estagiario', 'TecnicoTI', 'AuxiliarLimpeza', 'Encarregado'],
           badge: 'Ativo'
         }
       ]

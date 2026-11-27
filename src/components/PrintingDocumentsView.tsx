@@ -574,7 +574,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
   }, [escola.id, escola.trimestreActivo]);
   const [pautaDisciplinaId, setPautaDisciplinaId] = useState<string>('');
   const [pautaModoExibicao, setPautaModoExibicao] = useState<'sintetica' | 'analitica'>('sintetica');
-  const provaProfessorAtiva = Boolean(escola.nppAtivo);
+  const provaProfessorAtiva = escola.nppAtivo !== false;
 
   // Resolução Unificada dos Responsáveis e Assinaturas Oficiais com Diferenciação Rigorosa de Género
   const funcionariosEscola = useMemo(() => dbService.getFuncionarios(escola.id), [escola.id]);
@@ -1261,7 +1261,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           : typeof fonte?.mac === 'number'
           ? fonte.mac
           : null;
-      const nppNum = typeof fonte?.npp === 'number' ? fonte.npp : null;
+      const nppNum = provaProfessorAtiva && typeof fonte?.npp === 'number' ? fonte.npp : null;
       const nptNum = extrairNptSeguro(fonte);
 
       const hasInputs =
@@ -1271,7 +1271,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
         nptNum !== null;
 
       let mtNum: number | null = null;
-      if (noTri && typeof noTri.notaFinal === 'number') {
+      if (noTri && typeof noTri.notaFinal === 'number' && (provaProfessorAtiva || !hasInputs)) {
         mtNum = noTri.notaFinal;
       } else if (hasInputs) {
         const regraTri = obterRegraParaClasse(alvoNorm || classeAtualAlNorm, triNum, turmaAl?.nivelEnsino);
@@ -1314,7 +1314,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
           mt2: trimestreAlvo === '2' ? resT.mtNum : null,
           mt3: trimestreAlvo === '3' ? resT.mtNum : null,
           notaExame: exameNum,
-          valorFinal: resT.noTri && typeof resT.noTri.notaFinal === 'number' ? resT.noTri.notaFinal : resT.mtNum,
+          valorFinal: resT.noTri && typeof resT.noTri.notaFinal === 'number' && (provaProfessorAtiva || resT.mtNum === null) ? resT.noTri.notaFinal : resT.mtNum,
           faltas: Number(resT.fonte?.faltas || 0),
           comportamentoConceito: resT.fonte?.comportamentoConceito,
           assiduidadeConceito: resT.fonte?.assiduidadeConceito
@@ -1355,7 +1355,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
         : 0;
 
       let valorFinal: number | null = null;
-      if (typeof noFinal?.notaFinal === 'number') {
+      if (typeof noFinal?.notaFinal === 'number' && (provaProfessorAtiva || mtsValidos.length === 0)) {
         valorFinal = noFinal.notaFinal;
       } else if (mtsValidos.length > 0) {
         valorFinal = calcularMediaFinal3Trimestre(
