@@ -64,12 +64,13 @@ import { dbService } from '../services/storage';
 import { securityEngine, AlertaSegurancaVisual } from '../services/securityEngine';
 import { InsigniaAngola } from '../constants/insignia';
 import { StudentRankingSection } from './StudentRankingSection';
+import { SchoolTrimesterProgressionChart } from './SchoolTrimesterProgressionChart';
 
 const ParentStudentReportView = React.lazy(() =>
   import('./ParentStudentReportView').then((m) => ({ default: m.ParentStudentReportView }))
 );
 import { downloadExcelFile, downloadJsonFile } from '../utils/curriculoAngola';
-import { obterInformacaoEscala, calcularAproveitamentoPautaGeralAlunos } from '../services/macEngine';
+import { obterInformacaoEscala, calcularAproveitamentoPautaGeralAlunos, calcularMediaGeralDaClasse } from '../services/macEngine';
 import { normalizarClasse, TODAS_CLASSES_OFICIAIS_MED } from '../services/academicHierarchyService';
 import { ordenarClassesMED } from '../utils/enrollmentProgression';
 import {
@@ -1039,11 +1040,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Subaba de visualização das Estatísticas Oficiais MED
   const [visaoEstatistica, setVisaoEstatistica] = useState<'escola' | 'niveis' | 'classes'>('escola');
 
-  // 1. Estatísticas Completas por Classe (Matriculados, Avaliados, Aprovados, Reprovados, Desistentes e Percentagens)
+  // 1. Estatísticas Completas por Classe (Matriculados, Avaliados, Aprovados, Reprovados, Desistentes e Médias por Disciplina Necessária)
   const estatisticasPorClasse = useMemo(() => {
-    const classesCfg = dbService.getClassesConfigs(escola.id, escola.anoLectivoActivo).filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome));
+    const anoAtivo = (escola.anoLectivoActivo || '').trim();
+    const classesCfg = dbService.getClassesConfigs(escola.id, anoAtivo).filter(c => c.ativa !== false).map(c => normalizarClasse(c.nome));
     const classesTurmas = turmas.map(t => normalizarClasse(t.classe)).filter(Boolean);
     const classesNomes = ordenarClassesMED([...TODAS_CLASSES_OFICIAIS_MED, ...classesCfg, ...classesTurmas]);
+    const disciplinasDoAno = dbService.getDisciplinas(escola.id, anoAtivo);
+    const regrasMAC = dbService.obterRegrasMAC();
+    const juris = dbService.getJuris();
+    const regimePeriodos = dbService.getRegimePeriodosAtivo(escola.id, anoAtivo);
+    const periodosConfig = dbService.getPeriodosLetivos(escola.id, anoAtivo);
+
     return classesNomes.map(cls => {
       const clsNorm = normalizarClasse(cls);
       const turmasDestaClasse = turmas.filter(t => normalizarClasse(t.classe) === clsNorm);
@@ -1074,12 +1082,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const masc = alunosDestaClasse.filter(a => a.genero === 'M').length;
       const fem = alunosDestaClasse.filter(a => a.genero === 'F').length;
 
-      const valoresNotasClasse = notasDestaClasse
-        .map(n => (typeof n.notaFinal === 'number' && n.notaFinal > 0 ? n.notaFinal : n.mediaTrimestral))
-        .filter((v): v is number => typeof v === 'number' && !isNaN(v) && v > 0);
-      const mediaRealClasse = valoresNotasClasse.length > 0
-        ? (valoresNotasClasse.reduce((acc, v) => acc + v, 0) / valoresNotasClasse.length).toFixed(1)
-        : '—';
+      // Média Geral da Classe calculada a partir das médias de todas as disciplinas necessárias da classe
+      const resMedia = calcularMediaGeralDaClasse({
+        classe: cls,
+        turmasDaClasse: turmasDestaClasse,
+        alunosDaClasse: alunosDestaClasse,
+        disciplinas: disciplinasDoAno,
+        notasConsolidadas,
+        regrasMAC,
+        juris,
+        trimestreFiltro: 'anual',
+        anoLectivo: anoAtivo || undefined,
+        nppAtivo: escola.nppAtivo !== false,
+        regimePeriodos,
+        periodosConfig,
+        escolaId: escola.id
+      });
+      const mediaRealClasse = resMedia.mediaGeral !== null ? resMedia.mediaGeral.toFixed(1) : '—';
 
       return {
         classe: cls,
@@ -1097,10 +1116,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         percReprovados,
         percDesistentes,
         taxaAprovacao: percAprovados,
-        mediaGeral: mediaRealClasse
+        mediaGeral: mediaRealClasse,
+        disciplinasComNotas: resMedia.disciplinasComNotas,
+        totalDisciplinasNecessarias: resMedia.totalDisciplinasNecessarias
       };
     }).filter(c => c.matriculados > 0 || c.numTurmas > 0);
-  }, [alunos, turmas, notasConsolidadas]);
+  }, [alunos, turmas, notasConsolidadas, escola.id, escola.anoLectivoActivo, escola.nppAtivo]);
 
   // 2. Estatísticas Completas por Nível de Ensino
   const estatisticasPorNivel = useMemo(() => {
@@ -3236,6 +3257,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
+                {/* Gráfico Recharts: Progressão das Médias da Escola por Trimestre (Ano Letivo Ativo) */}
+                <SchoolTrimesterProgressionChart
+                  escola={escola}
+                  alunos={alunos}
+                  turmas={turmas}
+                  notasConsolidadas={notasConsolidadas}
+                  onNavigatePautas={() => onNavigate('pautas')}
+                />
+
                 {/* Gráfico 3: Rendimento Académico por Turma */}
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-2xs">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
@@ -3731,7 +3761,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             {c.desistentes} <span className="text-[10px] text-amber-600 dark:text-amber-400">({c.percDesistentes}%)</span>
                           </td>
                           <td className="p-3 text-center font-mono font-bold text-gray-800 dark:text-slate-100 tabular-nums">
-                            {c.mediaGeral}
+                            <div>{c.mediaGeral}</div>
+                            {c.totalDisciplinasNecessarias > 0 && (
+                              <div className="text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                                {c.disciplinasComNotas}/{c.totalDisciplinasNecessarias} disc.
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 w-40">
                             <div className="w-full h-2.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden flex">

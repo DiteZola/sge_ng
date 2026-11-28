@@ -180,14 +180,20 @@ class OfflineStorageEngine {
 
         request.onsuccess = (event) => {
           this.db = (event.target as IDBOpenDBRequest).result;
-          // Solicitar persistência nativa do navegador para evitar limpeza automática pelo SO
-          this.solicitarPersistenciaNativa().catch(() => {});
-          // Primeiro hidratar cache de mídia / funcionários do IndexedDB, depois espelhar localStorage
+          // Solicitar persistência nativa e hidratar dados críticos primeiro; espelhar localStorage em tempo ocioso
           setTimeout(() => {
+            this.solicitarPersistenciaNativa().catch(() => {});
             this.hidratarArmazenamentoDoIndexedDB().finally(() => {
-              this.syncLocalStorageToIndexedDB();
+              const agendarEspelhamento = () => {
+                this.syncLocalStorageToIndexedDB();
+              };
+              if (typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function') {
+                (window as any).requestIdleCallback(agendarEspelhamento, { timeout: 3000 });
+              } else {
+                setTimeout(agendarEspelhamento, 2200);
+              }
             });
-          }, 50);
+          }, 30);
           resolve(true);
         };
 
@@ -320,26 +326,33 @@ class OfflineStorageEngine {
     } catch {}
   }
 
-  // Copia as entidades do localStorage para o IndexedDB numa única transação rápida
+  // Copia apenas entidades alteradas do localStorage para o IndexedDB numa única transação rápida
   private async syncLocalStorageToIndexedDB() {
     if (!this.db) return;
     try {
       const keys = Object.keys(localStorage).filter(k => k.startsWith('sge_') && k !== 'sge_ls_timestamps');
       if (keys.length === 0) return;
-      const existing = await this.lerTodosDoIndexedDB<{ key: string; updatedAt?: string }>(STORE_ENTITIES);
-      const idbTsMap = new Map(existing.map(r => [r.key, r.updatedAt ? Date.parse(r.updatedAt) || 0 : 0]));
+      const existing = await this.lerTodosDoIndexedDB<{ key: string; value?: string; updatedAt?: string }>(STORE_ENTITIES);
+      const idbMap = new Map(existing.map(r => [r.key, r]));
       const lsTsMap = this.obterTimestampsLocalStorage();
-      const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
-      const store = tx.objectStore(STORE_ENTITIES);
+      const pendentesParaGravar: Array<{ key: string; value: string; updatedAt: string }> = [];
       const now = new Date().toISOString();
       for (const k of keys) {
         const val = localStorage.getItem(k);
         if (!val) continue;
-        const tIdb = idbTsMap.get(k) || 0;
+        const idbRec = idbMap.get(k);
+        if (idbRec?.value === val) continue; // já idêntico no IndexedDB — evitar escrita desnecessária
+        const tIdb = idbRec?.updatedAt ? Date.parse(idbRec.updatedAt) || 0 : 0;
         const tLs = lsTsMap[k] ? Date.parse(lsTsMap[k]) || 0 : 0;
         // Só sobrescreve o IndexedDB se não houver versão mais recente já guardada no IndexedDB
         if (tIdb > tLs + 500 && k !== 'sge_pending_sync_queue') continue;
-        store.put({ key: k, value: val, updatedAt: lsTsMap[k] || now });
+        pendentesParaGravar.push({ key: k, value: val, updatedAt: lsTsMap[k] || now });
+      }
+      if (pendentesParaGravar.length === 0) return;
+      const tx = this.db.transaction(STORE_ENTITIES, 'readwrite');
+      const store = tx.objectStore(STORE_ENTITIES);
+      for (const item of pendentesParaGravar) {
+        store.put(item);
       }
     } catch (e) {
       console.warn('[SGE Offline] Erro ao espelhar localStorage para IndexedDB:', e);
@@ -677,8 +690,48 @@ class OfflineStorageEngine {
     } catch {}
   }
 
+  private async hidratarBlobsMediaEmSegundoPlano(blobsPendentes: StoredMediaEntry[]): Promise<void> {
+    if (!blobsPendentes || blobsPendentes.length === 0) return;
+    let mudouMidia = false;
+    for (let i = 0; i < blobsPendentes.length; i++) {
+      const m = blobsPendentes[i];
+      if (!m?.blob || !m.entityType || !m.entityId) continue;
+      const cacheKey = `${m.entityType}:${m.entityId}`;
+      if (this.mediaCache.has(cacheKey)) continue;
+      try {
+        const b64 = await blobToBase64(m.blob);
+        if (b64) {
+          this.mediaCache.set(cacheKey, b64);
+          mudouMidia = true;
+        }
+      } catch {}
+      // Ceder frame a cada 4 imagens para não travar interações
+      if ((i + 1) % 4 === 0) {
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+    if (!mudouMidia || typeof localStorage === 'undefined') return;
+
+    try {
+      const curRaw = localStorage.getItem('sge_current_user');
+      if (curRaw && curRaw !== 'undefined' && curRaw !== 'null') {
+        const cur = JSON.parse(curRaw);
+        const foto = cur?.id ? this.mediaCache.get(`funcionario:${cur.id}`) : undefined;
+        if (cur && (!cur.fotoUrl || cur.fotoUrl === '__idb_media__' || cur.fotoUrl.startsWith('blob:')) && foto) {
+          cur.fotoUrl = foto;
+          localStorage.setItem('sge_current_user', JSON.stringify(cur));
+          localStorage.setItem('sge_user', JSON.stringify(cur));
+        }
+      }
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
+    }
+  }
+
   /**
-   * Hidrata fotos, entidades críticas e fila de pendências guardadas no IndexedDB para a memória e localStorage no arranque.
+   * Hidrata entidades críticas primeiro e fotos/mídias em segundo plano sem bloquear o arranque.
    */
   public hidratarArmazenamentoDoIndexedDB(): Promise<boolean> {
     if (this.hydrationPromise) return this.hydrationPromise;
@@ -688,30 +741,36 @@ class OfflineStorageEngine {
         if (!ready || !this.db) return false;
 
         let mudouAlgumDado = false;
-        const medias = await this.lerTodosDoIndexedDB<StoredMediaEntry>(STORE_MEDIA);
+
+        // Ler lojas em paralelo numa única fase rápida (evita loops síncronos de FileReader antes dos dados principais)
+        const [allIdbEntities, funcsIdb, medias] = await Promise.all([
+          typeof localStorage !== 'undefined'
+            ? this.lerTodosDoIndexedDB<{ key: string; value: string; updatedAt?: string }>(STORE_ENTITIES)
+            : Promise.resolve([]),
+          this.lerTodosDoIndexedDB<any>(STORE_FUNCIONARIOS),
+          this.lerTodosDoIndexedDB<StoredMediaEntry>(STORE_MEDIA)
+        ]);
+
+        const blobsPendentes: StoredMediaEntry[] = [];
         for (const m of medias) {
-          let b64 = m.base64 || '';
-          if (!b64 && m.blob) {
-            b64 = await blobToBase64(m.blob);
-          }
-          if (b64 && m.entityType && m.entityId) {
-            this.mediaCache.set(`${m.entityType}:${m.entityId}`, b64);
+          if (m.base64 && m.entityType && m.entityId) {
+            this.mediaCache.set(`${m.entityType}:${m.entityId}`, m.base64);
+          } else if (m.blob && m.entityType && m.entityId) {
+            blobsPendentes.push(m);
           }
         }
 
         // Restaurar TODAS as chaves sge_* espelhadas no IndexedDB caso o localStorage esteja vazio, desatualizado ou tenha excedido a quota
         if (typeof localStorage !== 'undefined') {
           const lsTimestamps = this.obterTimestampsLocalStorage();
-          const allIdbEntities = await this.lerTodosDoIndexedDB<{ key: string; value: string; updatedAt?: string }>(STORE_ENTITIES);
+          let pendRecValue: string | null = null;
           for (const rec of allIdbEntities) {
             try {
-              if (
-                !rec ||
-                !rec.key ||
-                !rec.key.startsWith('sge_') ||
-                rec.key === 'sge_pending_sync_queue' ||
-                rec.key === 'sge_ls_timestamps'
-              ) {
+              if (!rec || !rec.key || !rec.key.startsWith('sge_') || rec.key === 'sge_ls_timestamps') {
+                continue;
+              }
+              if (rec.key === 'sge_pending_sync_queue') {
+                pendRecValue = rec.value;
                 continue;
               }
               const curVal = localStorage.getItem(rec.key);
@@ -749,11 +808,10 @@ class OfflineStorageEngine {
             } catch {}
           }
 
-          // Restaurar e mesclar fila de pendências de sincronização guardada no IndexedDB
+          // Restaurar e mesclar fila de pendências já lida no batch acima (zero consulta extra ao IDB)
           try {
-            const pendRec = await this.lerUmDoIndexedDB<{ key: string; value: string }>(STORE_ENTITIES, 'sge_pending_sync_queue');
-            if (pendRec?.value) {
-              const idbQueue = JSON.parse(pendRec.value);
+            if (pendRecValue) {
+              const idbQueue = JSON.parse(pendRecValue);
               if (Array.isArray(idbQueue) && idbQueue.length > 0) {
                 const lsRaw = localStorage.getItem('sge_pending_sync_queue');
                 const lsQueue: PendingSyncItem[] = lsRaw ? JSON.parse(lsRaw) : [];
@@ -788,7 +846,6 @@ class OfflineStorageEngine {
           } catch {}
         }
 
-        const funcsIdb = await this.lerTodosDoIndexedDB<any>(STORE_FUNCIONARIOS);
         if (funcsIdb.length > 0 && typeof localStorage !== 'undefined') {
           let funcsLocal: any[] = [];
           try {
@@ -800,6 +857,7 @@ class OfflineStorageEngine {
           } catch {}
 
           const mapLocal = new Map<string, any>(funcsLocal.filter(Boolean).map(f => [f.id, f]));
+          let funcsMudou = false;
           for (const fIdb of funcsIdb) {
             if (!fIdb?.id) continue;
             const fotoCache = this.mediaCache.get(`funcionario:${fIdb.id}`);
@@ -808,23 +866,27 @@ class OfflineStorageEngine {
 
             if (!existing) {
               mapLocal.set(fIdb.id, { ...fIdb, fotoUrl: fotoIdb });
+              funcsMudou = true;
               mudouAlgumDado = true;
             } else {
               const tLocal = existing.atualizadoEm ? Date.parse(String(existing.atualizadoEm)) : 0;
               const tIdb = fIdb.atualizadoEm ? Date.parse(String(fIdb.atualizadoEm)) : 0;
               if (tIdb > tLocal) {
                 mapLocal.set(fIdb.id, { ...existing, ...fIdb, fotoUrl: fotoIdb || existing.fotoUrl || '' });
+                funcsMudou = true;
                 mudouAlgumDado = true;
               } else if ((!existing.fotoUrl || existing.fotoUrl === '__idb_media__' || existing.fotoUrl.startsWith('blob:')) && fotoIdb) {
                 mapLocal.set(fIdb.id, { ...existing, fotoUrl: fotoIdb });
+                funcsMudou = true;
                 mudouAlgumDado = true;
               }
             }
           }
 
-          if (mudouAlgumDado) {
+          if (funcsMudou) {
             try {
               localStorage.setItem('sge_funcionarios', JSON.stringify(Array.from(mapLocal.values())));
+              invalidateLocalCache('sge_funcionarios');
             } catch {}
           }
 
@@ -846,8 +908,8 @@ class OfflineStorageEngine {
           } catch {}
         }
 
-        // Hidratar fotos de alunos caso localStorage tenha placeholder __idb_media__
-        if (typeof localStorage !== 'undefined') {
+        // Hidratar fotos de alunos que já possuem base64 em cache
+        if (typeof localStorage !== 'undefined' && this.mediaCache.size > 0) {
           try {
             const alRaw = localStorage.getItem('sge_alunos');
             if (alRaw && alRaw !== 'undefined' && alRaw !== 'null') {
@@ -865,6 +927,7 @@ class OfflineStorageEngine {
                 if (alChanged) {
                   try {
                     localStorage.setItem('sge_alunos', JSON.stringify(alHydrated));
+                    invalidateLocalCache('sge_alunos');
                   } catch {}
                   mudouAlgumDado = true;
                 }
@@ -876,6 +939,14 @@ class OfflineStorageEngine {
         if (mudouAlgumDado && typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
         }
+
+        // Converter Blobs de fotos sem base64 apenas em segundo plano/tempo ocioso
+        if (blobsPendentes.length > 0) {
+          setTimeout(() => {
+            this.hidratarBlobsMediaEmSegundoPlano(blobsPendentes).catch(() => {});
+          }, 300);
+        }
+
         return mudouAlgumDado;
       } catch (e) {
         console.warn('[SGE Offline] Aviso na hidratação do IndexedDB:', e);
@@ -1519,6 +1590,78 @@ class OfflineStorageEngine {
     try {
       this.persistirPendencias([]);
     } catch {}
+  }
+
+  public flushEspelhoSync(): void {
+    try {
+      this.flushMirrorQueueSync();
+    } catch {}
+  }
+
+  /**
+   * Remove em cascata todos os dados locais no IndexedDB (mídias, PDFs, funcionários, entidades e fila pendente)
+   * pertencentes a uma escola eliminada.
+   */
+  public async limparDadosEscolaNoIndexedDB(
+    escolaId: string,
+    funcIds: string[] = [],
+    alunoIds: string[] = [],
+    bibIds: string[] = []
+  ): Promise<void> {
+    if (!escolaId) return;
+    try {
+      const funcSet = new Set(funcIds.filter(Boolean));
+      const alunoSet = new Set(alunoIds.filter(Boolean));
+      const bibSet = new Set(bibIds.filter(Boolean));
+
+      // 1. Limpar cache de mídia em memória
+      this.mediaCache.delete(`escola:${escolaId}`);
+      for (const fId of funcSet) this.mediaCache.delete(`funcionario:${fId}`);
+      for (const aId of alunoSet) this.mediaCache.delete(`aluno:${aId}`);
+
+      // 2. Remover pendências offline antigas (exceto a própria remoção da escola) para não ressuscitar documentos
+      try {
+        const atuais = this.obterPendencias();
+        const filtradas = atuais.filter((p) => {
+          const ent = (p.entidade || '').toLowerCase();
+          const dId = p.docId || p.dados?.id;
+          if (ent === 'escolas' && dId === escolaId && (p.acao === 'ELIMINAR' || p.acao === 'ELIMINAR_ESCOLA_CASCATA')) {
+            return true;
+          }
+          if (p.dados?.escolaId === escolaId) return false;
+          if (ent === 'escolas' && dId === escolaId) return false;
+          if (ent === 'funcionarios' && dId && funcSet.has(dId)) return false;
+          if (ent === 'alunos' && dId && alunoSet.has(dId)) return false;
+          if (ent === 'biblioteca' && dId && bibSet.has(dId)) return false;
+          if (dId && (dId === escolaId || dId.startsWith(`${escolaId}_`))) return false;
+          return true;
+        });
+        if (filtradas.length !== atuais.length) {
+          this.persistirPendencias(filtradas);
+        }
+      } catch {}
+
+      await this.dbReadyPromise;
+      if (!this.db) return;
+
+      // 3. Remover chaves específicas e caches no IndexedDB
+      const entityKeysToDelete = [
+        `sge_calendario_${escolaId}`,
+        `sge_calendario_tipos_${escolaId}`
+      ];
+      await Promise.allSettled([
+        this.eliminarDoIndexedDB(STORE_MEDIA, `escola:${escolaId}`),
+        ...entityKeysToDelete.map(k => this.eliminarDoIndexedDB(STORE_ENTITIES, k)),
+        ...Array.from(funcSet).flatMap(fId => [
+          this.eliminarDoIndexedDB(STORE_FUNCIONARIOS, fId),
+          this.eliminarDoIndexedDB(STORE_MEDIA, `funcionario:${fId}`)
+        ]),
+        ...Array.from(alunoSet).map(aId => this.eliminarDoIndexedDB(STORE_MEDIA, `aluno:${aId}`)),
+        ...Array.from(bibSet).map(bId => this.eliminarDoIndexedDB(STORE_PDFS, bId))
+      ]);
+    } catch (e) {
+      console.warn('[SGE Offline] Erro ao limpar dados da escola no IndexedDB:', e);
+    }
   }
 }
 

@@ -64,6 +64,7 @@ import {
 import { dbService } from '../services/storage';
 import { InsigniaAngola } from '../constants/insignia';
 import { StudentRankingSection } from './StudentRankingSection';
+import { SchoolTrimesterProgressionChart } from './SchoolTrimesterProgressionChart';
 import { obterInformacaoEscala } from '../services/macEngine';
 
 export interface DesempenhoDisciplinaDash {
@@ -567,6 +568,15 @@ export const SubdiretorPedagogicoDashboard: React.FC<SharedRoleDashboardProps> =
           )}
         </div>
       </div>
+
+      {/* Progressão das Médias da Escola por Trimestre (Ano Letivo Ativo) */}
+      <SchoolTrimesterProgressionChart
+        escola={escola}
+        alunos={alunos}
+        turmas={turmas}
+        notasConsolidadas={notasConsolidadas}
+        onNavigatePautas={() => onNavigate('pautas')}
+      />
 
       {/* PRIORIDADE 5: Performance & Assiduidade Gráficos + Ranking */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

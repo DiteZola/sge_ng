@@ -31,6 +31,7 @@ import {
 import { dbService } from '../services/storage';
 import { processarFotoUpload } from '../utils/imageCompressor';
 import { firebaseSyncEngine } from '../services/firebaseSyncEngine';
+import { cryptoService } from '../services/cryptoService';
 import { useTheme, ThemeMode } from '../services/themeService';
 
 interface UserProfileViewProps {
@@ -173,9 +174,26 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         return;
       }
       const senhaValida = currentUser.password || '';
-      if (senhaValida && senhaAtual && senhaAtual !== senhaValida) {
-        setMensagemErro('A palavra-passe atual indicada está incorreta.');
-        return;
+      if (senhaValida && senhaAtual) {
+        let senhaAtualCorreta = senhaAtual.trim() === senhaValida.trim();
+        if (!senhaAtualCorreta && cryptoService.isEncriptado(senhaValida)) {
+          try {
+            const partes = senhaValida.split(':');
+            const checksum = partes[partes.length - 1];
+            if (checksum && checksum.length === 64) {
+              const sha = await cryptoService.calcularSHA256(senhaAtual.trim());
+              if (sha.toLowerCase() === checksum.toLowerCase()) senhaAtualCorreta = true;
+            }
+            if (!senhaAtualCorreta) {
+              const decifrada = await cryptoService.decriptarTexto(senhaValida);
+              if (decifrada && decifrada.trim() === senhaAtual.trim()) senhaAtualCorreta = true;
+            }
+          } catch {}
+        }
+        if (!senhaAtualCorreta) {
+          setMensagemErro('A palavra-passe atual indicada está incorreta.');
+          return;
+        }
       }
     }
 
@@ -251,13 +269,19 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         atualizacoes.password = novaSenha;
       }
 
-      const resultado = dbService.atualizarPerfilUtilizador(currentUser.id, atualizacoes);
+      const resultado = dbService.atualizarPerfilUtilizador(
+        currentUser.id,
+        atualizacoes,
+        novaSenha ? novaSenha.trim() : undefined,
+        senhaAtual ? senhaAtual.trim() : undefined
+      );
       
       if (resultado.sucesso && resultado.usuarioAtualizado) {
-        await firebaseSyncEngine.salvarPerfilUsuario(resultado.usuarioAtualizado);
+        const usuarioPersistido = resultado.usuarioAtualizado;
+        await firebaseSyncEngine.salvarPerfilUsuario(usuarioPersistido);
+        (onProfileUpdated || onSalvarPerfil)?.(usuarioPersistido);
         window.dispatchEvent(new CustomEvent('sge_dados_atualizados_remoto'));
 
-        (onProfileUpdated || onSalvarPerfil)?.(resultado.usuarioAtualizado);
         setMensagemSucesso('Dados completos do perfil e ficha de funcionário atualizados com sucesso!');
         setSenhaAtual('');
         setNovaSenha('');
@@ -424,7 +448,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
       </div>
 
       {/* Formulário Principal */}
-      <form onSubmit={handleSalvarPerfil} className="space-y-6">
+      <form noValidate onSubmit={handleSalvarPerfil} className="space-y-6">
         {/* 1. Dados Pessoais & Identificação Civil */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 shadow-xs space-y-4">
           <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -1141,7 +1165,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </label>
             <div className="flex flex-wrap gap-2">
               <input 
-                type="url" 
+                type="text" 
                 value={fotoUrl}
                 onChange={(e) => setFotoUrl(e.target.value)}
                 placeholder="https://exemplo.com/minha-foto.jpg ou carregue ficheiro"
@@ -1301,6 +1325,20 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             );
           })()}
         </div>
+
+        {/* Mensagem de feedback próxima ao botão para visualização imediata */}
+        {mensagemSucesso && (
+          <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 px-4 py-3 rounded-xl text-xs flex items-center space-x-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{mensagemSucesso}</span>
+          </div>
+        )}
+        {mensagemErro && (
+          <div className="bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-3 rounded-xl text-xs flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+            <span>{mensagemErro}</span>
+          </div>
+        )}
 
         {/* Botão de Gravação */}
         <div className="flex items-center justify-end space-x-3 pt-2">

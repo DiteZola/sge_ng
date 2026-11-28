@@ -74,49 +74,30 @@ export default defineConfig(() => {
       tailwindcss(),
       sgeBuildVersionPlugin(APP_BUILD_VERSION, BUILD_TIMESTAMP),
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
         manifest: false,
-        includeAssets: [
-          'favicon.ico',
-          'favicon-16x16.png',
-          'favicon-32x32.png',
-          'apple-touch-icon.png',
-          'icon.svg',
-          'pwa-192x192.png',
-          'pwa-512x512.png',
-          'pwa-maskable-512x512.png',
-          'manifest.json',
-          'robots.txt',
-          'sitemap.xml',
-          'sw-notifications.js'
-        ],
+        includeAssets: [],
         workbox: {
           maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
           importScripts: ['./sw-notifications.js'],
-          // Pre-cache apenas do shell essencial no arranque; módulos pesados carregam e ficam em cache sob demanda/pós-login
+          // Pre-cache completo do shell e módulos da aplicação para garantir funcionamento 100% offline-first em raiz e /documentos
           globPatterns: [
             'index.html',
+            '404.html',
             'manifest.json',
             'sw-notifications.js',
+            'robots.txt',
+            'sitemap.xml',
             '*.{ico,png,svg}',
             '**/*.css',
-            'assets/index-*.js',
-            'assets/storage-*.js',
-            'assets/vendor-*.js',
-            'assets/DashboardView-*.js',
-            'assets/PrintingDocumentsView-*.js',
-            'assets/PatrimonyView-*.js',
-            'assets/pdfGenerator-*.js',
-            'assets/directorHelper-*.js',
-            'assets/dateFormat-*.js',
-            'assets/qrCodeUtils-*.js'
+            'assets/*.js'
           ],
           globIgnores: ['**/version.json'],
           navigateFallback: 'index.html',
           navigateFallbackDenylist: [/robots\.txt$/i, /sitemap\.xml$/i, /version\.json$/i],
           cleanupOutdatedCaches: true,
-          skipWaiting: true,
-          clientsClaim: true,
+          skipWaiting: false,
+          clientsClaim: false,
           runtimeCaching: [
             {
               urlPattern: /\/version\.json(\?.*)?$/i,
@@ -186,6 +167,18 @@ export default defineConfig(() => {
             }
             if (/[\\/]node_modules[\\/]lucide-react[\\/]/.test(id)) {
               return 'vendor-icons';
+            }
+            if (/[\\/]node_modules[\\/](jspdf|html2canvas|canvg|dompurify|fflate)[\\/]/.test(id)) {
+              return 'vendor-pdf';
+            }
+            if (/[\\/]node_modules[\\/]xlsx[\\/]/.test(id)) {
+              return 'vendor-xlsx';
+            }
+            if (/[\\/]node_modules[\\/](recharts|d3-|victory-vendor)[\\/]/.test(id)) {
+              return 'vendor-charts';
+            }
+            if (/[\\/]node_modules[\\/](html5-qrcode|qrcode)[\\/]/.test(id)) {
+              return 'vendor-qr';
             }
           },
         },

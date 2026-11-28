@@ -1276,7 +1276,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
       } else if (hasInputs) {
         const regraTri = obterRegraParaClasse(alvoNorm || classeAtualAlNorm, triNum, turmaAl?.nivelEnsino);
         mtNum = calcularNotaTrimestralDinamica(
-          macNum ?? 0,
+          macNum ?? undefined,
           nppNum ?? undefined,
           nptNum ?? undefined,
           regraTri,
@@ -1350,21 +1350,23 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
     if (mtsValidos.length > 0 || noFinal) {
       const regraAnual = obterRegraParaClasse(alvoNorm || classeAtualAlNorm, 3, turmaAl?.nivelEnsino);
       const ehFinalCalc = isClasseFinal(alvoNorm || classeAtualAlNorm, regraAnual);
-      const avgFallback = mtsValidos.length > 0
-        ? mtsValidos.reduce((a, b) => a + b, 0) / mtsValidos.length
-        : 0;
+      const notaRecurso =
+        typeof (r3 as any)?.notaRecurso === 'number' ? (r3 as any).notaRecurso :
+        typeof (noFinal as any)?.notaRecurso === 'number' ? (noFinal as any).notaRecurso :
+        typeof (ult as any)?.notaRecurso === 'number' ? (ult as any).notaRecurso : undefined;
 
       let valorFinal: number | null = null;
       if (typeof noFinal?.notaFinal === 'number' && (provaProfessorAtiva || mtsValidos.length === 0)) {
         valorFinal = noFinal.notaFinal;
       } else if (mtsValidos.length > 0) {
         valorFinal = calcularMediaFinal3Trimestre(
-          mt1 ?? avgFallback,
-          mt2 ?? avgFallback,
-          mt3 ?? avgFallback,
+          mt1,
+          mt2,
+          mt3,
           ehFinalCalc && notaExame !== null ? notaExame : undefined,
           regraAnual,
-          alvoNorm || classeAtualAlNorm
+          alvoNorm || classeAtualAlNorm,
+          notaRecurso
         ).mediaFinal;
       } else if (typeof ult?.notaFinal === 'number') {
         valorFinal = ult.notaFinal;
@@ -3302,41 +3304,48 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     isCompact4 ? 'pb-1.5 mb-1.5' : isHalf2 ? 'pb-1.5 mb-1.5' : 'pb-3 mb-2.5'
                   }`}
                 >
-                  {/* VISTO DO DIRECTOR GERAL */}
+                  {/* VISTO DO DIRECTOR GERAL (100% Centralizado no Retângulo) */}
                   {exibirAssinDiretorDoc ? (
-                    <div
-                      className={`border border-black rounded bg-white text-left shrink-0 ${
-                        isCompact4 ? 'w-[96px] p-1' : isHalf2 ? 'w-[118px] p-1' : 'w-[138px] p-1.5'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-black uppercase text-[7px] tracking-wide">VISTO</span>
-                        {!isCompact4 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAssinaturaPreview(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl || '');
-                              setShowAssinaturaModal(true);
-                            }}
-                            className="no-print text-[7px] text-blue-700 font-bold hover:underline cursor-pointer"
-                          >
-                            Alterar
-                          </button>
-                        )}
+                    <div className="flex flex-col items-center shrink-0">
+                      <div
+                        data-boletim-visto="true"
+                        className={`border border-black rounded bg-white text-center flex flex-col items-center justify-center ${
+                          isCompact4 ? 'w-[104px] px-1.5 py-1.5' : isHalf2 ? 'w-[128px] px-2 py-1.5' : 'w-[150px] px-2.5 py-2'
+                        }`}
+                      >
+                        <div className="w-full text-center font-black uppercase text-[7.5px] tracking-wide leading-[1.25]">
+                          VISTO
+                        </div>
+                        <p className="w-full text-center text-[6.5px] font-bold text-gray-800 whitespace-normal break-words leading-[1.25] mt-0.5">
+                          {tituloDiretorGeral}
+                        </p>
+                        <div className={`w-full ${isCompact4 ? 'h-4' : 'h-5'} my-1 flex items-center justify-center border-b border-gray-600`}>
+                          {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
+                            <img
+                              src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
+                              alt="Assinatura Director"
+                              className={`${isCompact4 ? 'max-h-3.5' : 'max-h-4'} mx-auto object-contain`}
+                            />
+                          ) : (
+                            <span className="text-[6px] text-gray-400 italic font-mono">[Assinatura]</span>
+                          )}
+                        </div>
+                        <p className="w-full text-center text-[6.5px] font-bold text-gray-950 whitespace-normal break-words leading-[1.25]">
+                          {nomeDiretorGeral}
+                        </p>
                       </div>
-                      <p className="text-[6.5px] font-bold text-gray-800 whitespace-normal break-words leading-[1.15]">{tituloDiretorGeral}</p>
-                      <div className={`${isCompact4 ? 'h-4' : 'h-5'} my-0.5 flex items-center justify-center border-b border-gray-400`}>
-                        {Boolean((escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl)?.trim()) ? (
-                          <img
-                            src={escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl}
-                            alt="Assinatura Director"
-                            className={`${isCompact4 ? 'max-h-3.5' : 'max-h-4'} object-contain`}
-                          />
-                        ) : (
-                          <span className="text-[6px] text-gray-400 italic font-mono">[Assinatura]</span>
-                        )}
-                      </div>
-                      <p className="text-[6.5px] font-bold text-gray-950 whitespace-normal break-words leading-[1.15]">{nomeDiretorGeral}</p>
+                      {!isCompact4 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssinaturaPreview(escola.assinaturaDiretorUrl || escola.configuracaoPasses?.assinaturaDiretorUrl || '');
+                            setShowAssinaturaModal(true);
+                          }}
+                          className="no-print mt-0.5 text-[7.5px] text-blue-700 font-bold hover:underline cursor-pointer"
+                        >
+                          Alterar assinatura
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="w-4" />
@@ -3403,8 +3412,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                     )}
                     <div className={isCompact4 ? 'mt-1' : 'mt-1.5'}>
                       <span
-                        className={`inline-block font-black uppercase border border-black bg-gray-50 ${
-                          isCompact4 ? 'text-[7.5px] px-1.5 py-0.5' : isHalf2 ? 'text-[9px] px-2.5 py-0.5' : 'text-xs px-3 py-1'
+                        className={`inline-flex items-center justify-center font-black uppercase border border-black bg-gray-50 leading-[1.3] ${
+                          isCompact4 ? 'text-[7.5px] px-2 py-0.5' : isHalf2 ? 'text-[9px] px-2.5 py-1' : 'text-xs px-3 py-1'
                         }`}
                       >
                         {resolverTextoDiretor(tituloBoletimOficial, { aluno: alunoAlvo, turma: turmaAl, anoLectivo: anoAl })} — {boletimTrimestre === 'anual' ? 'ANUAL' : `${boletimTrimestre}º TRIMESTRE`} • {anoAl}
@@ -3430,7 +3439,7 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                 {/* Identificação Estruturada do Estudante (Apenas campos selecionados pela Direcção) */}
                 <div
                   data-pdf-fixed-student="true"
-                  data-pdf-student-grid={isCompact4 ? '3' : '4'}
+                  data-pdf-student-row="true"
                   className={`flex items-center gap-2 border-b border-black ${isCompact4 ? 'pb-1.5' : 'pb-2'}`}
                 >
                   {camposDoc.mostrarFoto && alunoAlvo.fotoUrl && !isCompact4 && (
@@ -3440,23 +3449,30 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                       className="h-11 w-9 object-cover rounded border border-gray-400 shrink-0"
                     />
                   )}
-                  <div className={`flex-1 grid ${
-                    isCompact4 ? 'grid-cols-3 gap-x-2 gap-y-1 text-[8px]' : 'grid-cols-4 gap-2 text-[10px]'
-                  }`}>
-                    <div className="col-span-2">
+                  <div
+                    data-pdf-student-grid={isCompact4 ? '3' : '4'}
+                    className={`flex-1 min-w-0 grid ${
+                      isCompact4 ? 'grid-cols-3 gap-x-2 gap-y-1 text-[8px]' : 'grid-cols-4 gap-x-3 gap-y-1.5 text-[10px]'
+                    }`}
+                  >
+                    <div className="col-span-2 min-w-0 pr-2">
                       <span className="text-gray-600">{alunoAlvo.genero === 'F' ? 'Aluna: ' : 'Aluno: '}</span>
                       <strong className="uppercase">{alunoAlvo.nomeCompleto}</strong>
                     </div>
-                    {camposDoc.mostrarNumeroProcessoMatricula && (
-                      <div>
-                        <span className="text-gray-600">Matrícula: </span>
-                        <strong className="font-mono">{alunoAlvo.codigoMatricula || alunoAlvo.numeroProcesso || '—'}</strong>
-                      </div>
-                    )}
                     {camposDoc.mostrarNumeroOrdem && !isCompact4 && (
-                      <div>
+                      <div className="text-center whitespace-nowrap">
                         <span className="text-gray-600">N.º Ordem: </span>
                         <strong className="font-mono">{alunoAlvo.numeroOrdem || '—'}</strong>
+                      </div>
+                    )}
+                    {camposDoc.mostrarNumeroProcessoMatricula && (
+                      <div
+                        className={`${
+                          !isCompact4 && !camposDoc.mostrarNumeroOrdem ? 'col-span-2 ' : ''
+                        }text-right justify-self-end whitespace-nowrap`}
+                      >
+                        <span className="text-gray-600">Matrícula: </span>
+                        <strong className="font-mono">{alunoAlvo.codigoMatricula || alunoAlvo.numeroProcesso || '—'}</strong>
                       </div>
                     )}
                     <div>
@@ -3496,124 +3512,161 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                   </div>
                 </div>
 
-                {/* Tabela de Disciplinas e Notas Sem Estouro Horizontal nem Truncamento */}
-                <div className={`${isCompact4 ? 'pt-1.5' : 'pt-2'} overflow-x-auto`}>
-                  <table
-                    className={`w-full table-auto border border-black border-collapse text-left ${
-                      isCompact4 ? 'text-[8px]' : isHalf2 ? 'text-[9.5px]' : 'text-[10.5px]'
-                    }`}
-                  >
-                    <thead className="bg-gray-100 font-bold border-b border-black text-center">
-                      {boletimTrimestre === 'anual' ? (
-                        <tr>
-                          <th className={`${isCompact4 ? 'p-1 min-w-[95px]' : 'p-1.5 min-w-[140px]'} border-r border-black text-left whitespace-normal break-words`}>DISCIPLINA</th>
-                          <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>1ºT</th>
-                          <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>2ºT</th>
-                          <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>3ºT</th>
-                          <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black bg-gray-200 whitespace-nowrap`}>MFD</th>
-                          {camposDoc.mostrarFaltas && (
-                            <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>Faltas</th>
-                          )}
-                          {camposDoc.mostrarSituacaoFinal && (
-                            <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} whitespace-nowrap`}>Sit.</th>
-                          )}
-                        </tr>
-                      ) : (
-                        <tr>
-                          <th className={`${isCompact4 ? 'p-1 min-w-[95px]' : 'p-1.5 min-w-[140px]'} border-r border-black text-left whitespace-normal break-words`}>DISCIPLINA</th>
-                          {camposDoc.mostrarMacNppNptDetalhado && (
-                            <>
-                              <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>MAC{boletimTrimestre}</th>
-                              {provaProfessorAtiva && (
-                                <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>NPP{boletimTrimestre}</th>
+                {/* Tabela de Disciplinas e Notas Sem Cortes, Sem Sobreposição de Linhas e Células Centralizadas */}
+                <div className={`${isCompact4 ? 'pt-1.5' : 'pt-2'} w-full`}>
+                  {(() => {
+                    const totalColunasTabela =
+                      boletimTrimestre === 'anual'
+                        ? 1 + 4 + (camposDoc.mostrarFaltas ? 1 : 0) + (camposDoc.mostrarSituacaoFinal ? 1 : 0)
+                        : 1 +
+                          (camposDoc.mostrarMacNppNptDetalhado ? (provaProfessorAtiva ? 3 : 2) : 0) +
+                          1 +
+                          (camposDoc.mostrarFaltas ? 1 : 0) +
+                          (camposDoc.mostrarComportamento && !isCompact4 ? 1 : 0);
+                    const headPadDisc = isCompact4 ? 'px-1.5 py-1' : isHalf2 ? 'px-2 py-1.5' : 'px-2.5 py-2';
+                    const headPadNum = isCompact4 ? 'px-1 py-1' : isHalf2 ? 'px-1.5 py-1.5' : 'px-2 py-2';
+                    const cellPadDisc = isCompact4 ? 'px-1.5 py-1' : isHalf2 ? 'px-2 py-1.5' : 'px-2.5 py-1.5';
+                    const cellPadNum = isCompact4 ? 'px-1 py-1' : isHalf2 ? 'px-1.5 py-1.5' : 'px-2 py-1.5';
+
+                    return (
+                      <table
+                        className={`w-full table-auto border border-black border-collapse ${
+                          isCompact4 ? 'text-[8px]' : isHalf2 ? 'text-[9.5px]' : 'text-[10.5px]'
+                        }`}
+                      >
+                        <thead className="bg-gray-100 font-bold text-center">
+                          {boletimTrimestre === 'anual' ? (
+                            <tr>
+                              <th className={`${headPadDisc} ${isCompact4 ? 'min-w-[88px]' : 'min-w-[130px]'} border border-black text-left align-middle whitespace-normal break-words leading-[1.3]`}>DISCIPLINA</th>
+                              <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>1ºT</th>
+                              <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>2ºT</th>
+                              <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>3ºT</th>
+                              <th className={`${headPadNum} border border-black bg-gray-200 text-center align-middle whitespace-nowrap leading-[1.3]`}>MFD</th>
+                              {camposDoc.mostrarFaltas && (
+                                <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>Faltas</th>
                               )}
-                              <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>NPT{boletimTrimestre}</th>
-                            </>
-                          )}
-                          <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black bg-gray-200 whitespace-nowrap`}>MT{boletimTrimestre}</th>
-                          {camposDoc.mostrarFaltas && (
-                            <th className={`${isCompact4 ? 'p-0.5' : 'p-1'} border-r border-black whitespace-nowrap`}>N.º F</th>
-                          )}
-                          {camposDoc.mostrarComportamento && !isCompact4 && <th className="p-1 whitespace-nowrap">Comport.</th>}
-                        </tr>
-                      )}
-                    </thead>
-                    <tbody className="divide-y divide-black">
-                      {linhasNotas.length > 0 ? (
-                        <>
-                          {linhasNotas.map(({ disc, mac, npp, npt, mt1, mt2, mt3, valorFinal, faltas, comportamentoConceito }) => {
-                            const cellPad = isCompact4 ? 'px-1 py-0.5' : isHalf2 ? 'px-1.5 py-0.5' : 'px-2 py-1';
-                            if (boletimTrimestre === 'anual') {
-                              const obsDisc = obterObservacaoDisciplina(valorFinal, classeAl, alunoAlvo.estado, regraAlvo);
-                              return (
-                                <tr key={disc.id}>
-                                  <td className={`${cellPad} border-r border-black font-semibold whitespace-normal break-words leading-tight`}>{disc.nome}</td>
-                                  <td className={`${cellPad} border-r border-black text-center font-mono`}>{mt1 !== null ? mt1.toFixed(1) : '—'}</td>
-                                  <td className={`${cellPad} border-r border-black text-center font-mono`}>{mt2 !== null ? mt2.toFixed(1) : '—'}</td>
-                                  <td className={`${cellPad} border-r border-black text-center font-mono`}>{mt3 !== null ? mt3.toFixed(1) : '—'}</td>
-                                  <td className={`${cellPad} border-r border-black text-center font-mono font-black bg-gray-50`}>{valorFinal !== null ? Math.round(valorFinal) : '—'}</td>
-                                  {camposDoc.mostrarFaltas && (
-                                    <td className={`${cellPad} border-r border-black text-center font-mono`}>{faltas}</td>
+                              {camposDoc.mostrarSituacaoFinal && (
+                                <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>Sit.</th>
+                              )}
+                            </tr>
+                          ) : (
+                            <tr>
+                              <th className={`${headPadDisc} ${isCompact4 ? 'min-w-[88px]' : 'min-w-[130px]'} border border-black text-left align-middle whitespace-normal break-words leading-[1.3]`}>DISCIPLINA</th>
+                              {camposDoc.mostrarMacNppNptDetalhado && (
+                                <>
+                                  <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>MAC{boletimTrimestre}</th>
+                                  {provaProfessorAtiva && (
+                                    <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>NPP{boletimTrimestre}</th>
                                   )}
-                                  {camposDoc.mostrarSituacaoFinal && (
-                                    <td className={`${cellPad} text-center font-bold whitespace-normal`}>
-                                      {obsDisc.categoria === 'Pendente' ? '—' : obterSituacaoTextoPorGenero(obsDisc.texto, alunoAlvo.genero)}
+                                  <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>NPT{boletimTrimestre}</th>
+                                </>
+                              )}
+                              <th className={`${headPadNum} border border-black bg-gray-200 text-center align-middle whitespace-nowrap leading-[1.3]`}>MT{boletimTrimestre}</th>
+                              {camposDoc.mostrarFaltas && (
+                                <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>N.º F</th>
+                              )}
+                              {camposDoc.mostrarComportamento && !isCompact4 && (
+                                <th className={`${headPadNum} border border-black text-center align-middle whitespace-nowrap leading-[1.3]`}>Comport.</th>
+                              )}
+                            </tr>
+                          )}
+                        </thead>
+                        <tbody>
+                          {linhasNotas.length > 0 ? (
+                            <>
+                              {linhasNotas.map(({ disc, mac, npp, npt, mt1, mt2, mt3, valorFinal, faltas, comportamentoConceito }) => {
+                                if (boletimTrimestre === 'anual') {
+                                  const obsDisc = obterObservacaoDisciplina(valorFinal, classeAl, alunoAlvo.estado, regraAlvo);
+                                  return (
+                                    <tr key={disc.id}>
+                                      <td className={`${cellPadDisc} border border-black text-left align-middle font-semibold whitespace-normal break-words leading-[1.35]`}>
+                                        {disc.nome}
+                                      </td>
+                                      <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                        {mt1 !== null ? mt1.toFixed(1) : '—'}
+                                      </td>
+                                      <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                        {mt2 !== null ? mt2.toFixed(1) : '—'}
+                                      </td>
+                                      <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                        {mt3 !== null ? mt3.toFixed(1) : '—'}
+                                      </td>
+                                      <td className={`${cellPadNum} border border-black text-center align-middle font-mono font-black tabular-nums bg-gray-50 leading-[1.35]`}>
+                                        {valorFinal !== null ? Math.round(valorFinal) : '—'}
+                                      </td>
+                                      {camposDoc.mostrarFaltas && (
+                                        <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                          {faltas}
+                                        </td>
+                                      )}
+                                      {camposDoc.mostrarSituacaoFinal && (
+                                        <td className={`${cellPadNum} border border-black text-center align-middle font-bold whitespace-normal break-words leading-[1.35]`}>
+                                          {obsDisc.categoria === 'Pendente' ? '—' : obterSituacaoTextoPorGenero(obsDisc.texto, alunoAlvo.genero)}
+                                        </td>
+                                      )}
+                                    </tr>
+                                  );
+                                }
+                                return (
+                                  <tr key={disc.id}>
+                                    <td className={`${cellPadDisc} border border-black text-left align-middle font-semibold whitespace-normal break-words leading-[1.35]`}>
+                                      {disc.nome}
                                     </td>
-                                  )}
-                                </tr>
-                              );
-                            }
-                            return (
-                              <tr key={disc.id}>
-                                <td className={`${cellPad} border-r border-black font-semibold whitespace-normal break-words leading-tight`}>{disc.nome}</td>
-                                {camposDoc.mostrarMacNppNptDetalhado && (
-                                  <>
-                                    <td className={`${cellPad} border-r border-black text-center font-mono`}>{mac !== null ? mac.toFixed(1) : '—'}</td>
-                                    {provaProfessorAtiva && (
-                                      <td className={`${cellPad} border-r border-black text-center font-mono`}>{npp !== null ? npp.toFixed(1) : '—'}</td>
+                                    {camposDoc.mostrarMacNppNptDetalhado && (
+                                      <>
+                                        <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                          {mac !== null ? mac.toFixed(1) : '—'}
+                                        </td>
+                                        {provaProfessorAtiva && (
+                                          <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                            {npp !== null ? npp.toFixed(1) : '—'}
+                                          </td>
+                                        )}
+                                        <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                          {npt !== null ? npt.toFixed(1) : '—'}
+                                        </td>
+                                      </>
                                     )}
-                                    <td className={`${cellPad} border-r border-black text-center font-mono`}>{npt !== null ? npt.toFixed(1) : '—'}</td>
-                                  </>
-                                )}
-                                <td className={`${cellPad} border-r border-black text-center font-mono font-black bg-gray-50`}>{valorFinal !== null ? valorFinal.toFixed(1) : '—'}</td>
-                                {camposDoc.mostrarFaltas && (
-                                  <td className={`${cellPad} border-r border-black text-center font-mono`}>{faltas}</td>
-                                )}
-                                {camposDoc.mostrarComportamento && !isCompact4 && (
-                                  <td className={`${cellPad} text-center whitespace-normal break-words leading-tight`}>{comportamentoConceito || alunoAlvo.comportamentoConceito || '—'}</td>
-                                )}
+                                    <td className={`${cellPadNum} border border-black text-center align-middle font-mono font-black tabular-nums bg-gray-50 leading-[1.35]`}>
+                                      {valorFinal !== null ? valorFinal.toFixed(1) : '—'}
+                                    </td>
+                                    {camposDoc.mostrarFaltas && (
+                                      <td className={`${cellPadNum} border border-black text-center align-middle font-mono tabular-nums leading-[1.35]`}>
+                                        {faltas}
+                                      </td>
+                                    )}
+                                    {camposDoc.mostrarComportamento && !isCompact4 && (
+                                      <td className={`${cellPadNum} border border-black text-center align-middle whitespace-normal break-words leading-[1.35]`}>
+                                        {comportamentoConceito || alunoAlvo.comportamentoConceito || '—'}
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })}
+                              {/* Comportamento (Geral) imediatamente após todas as disciplinas */}
+                              <tr className="bg-emerald-50/70 font-bold">
+                                <td className={`${cellPadDisc} border border-black text-left align-middle uppercase leading-[1.35]`}>
+                                  Comportamento (Geral)
+                                </td>
+                                <td
+                                  colSpan={Math.max(1, totalColunasTabela - 1)}
+                                  className={`${cellPadNum} border border-black text-center align-middle font-black text-emerald-950 leading-[1.35]`}
+                                >
+                                  {comportamentoGeralTexto}
+                                </td>
                               </tr>
-                            );
-                          })}
-                          {/* Comportamento (Geral) imediatamente após todas as disciplinas */}
-                          <tr className="bg-emerald-50/70 font-bold border-t-2 border-black">
-                            <td className={`${isCompact4 ? 'px-1 py-0.5' : isHalf2 ? 'px-1.5 py-0.5' : 'px-2 py-1'} border-r border-black uppercase`}>
-                              Comportamento (Geral)
-                            </td>
-                            <td
-                              colSpan={
-                                boletimTrimestre === 'anual'
-                                  ? 4 + (camposDoc.mostrarFaltas ? 1 : 0) + (camposDoc.mostrarSituacaoFinal ? 1 : 0)
-                                  : (camposDoc.mostrarMacNppNptDetalhado ? (provaProfessorAtiva ? 3 : 2) : 0) +
-                                    1 +
-                                    (camposDoc.mostrarFaltas ? 1 : 0) +
-                                    (camposDoc.mostrarComportamento && !isCompact4 ? 1 : 0)
-                              }
-                              className={`${isCompact4 ? 'px-1 py-0.5' : isHalf2 ? 'px-1.5 py-0.5' : 'px-2 py-1'} text-center font-black text-emerald-950`}
-                            >
-                              {comportamentoGeralTexto}
-                            </td>
-                          </tr>
-                        </>
-                      ) : (
-                        <tr>
-                          <td colSpan={7} className="p-3 text-center text-gray-500">
-                            Nenhuma disciplina configurada para esta classe.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                            </>
+                          ) : (
+                            <tr>
+                              <td colSpan={totalColunasTabela} className="p-3 border border-black text-center align-middle text-gray-500">
+                                Nenhuma disciplina configurada para esta classe.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -3627,8 +3680,8 @@ export const PrintingDocumentsView: React.FC<PrintingDocumentsViewProps> = ({
                           {boletimTrimestre === 'anual' ? 'Média Geral Anual:' : `Média Geral (${boletimTrimestre}º Tri):`}
                         </span>
                         <span
-                          className={`font-mono font-black text-blue-900 bg-blue-50 border border-blue-400 rounded ${
-                            isCompact4 ? 'px-1.5 py-0.5 text-[9.5px]' : 'px-2 py-0.5 text-sm'
+                          className={`inline-flex items-center justify-center font-mono font-black text-blue-900 bg-blue-50 border border-blue-400 rounded leading-[1.3] ${
+                            isCompact4 ? 'px-1.5 py-0.5 text-[9.5px]' : 'px-2.5 py-1 text-sm'
                           }`}
                         >
                           {mediaGeralStr !== '—' ? `${mediaGeralStr} / ${escalaAl.escalaMaxima} Val.` : '—'}

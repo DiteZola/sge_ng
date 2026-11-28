@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar, 
+  CalendarClock,
   Layers, 
   BookOpen, 
   UserCheck, 
@@ -81,9 +82,11 @@ import {
 } from '../services/academicHierarchyService';
 import { sanitizeSearchInput } from '../utils/securitySanitizer';
 import { ExcelSchoolDataImportModal } from './ExcelSchoolDataImportModal';
+import { AcademicPeriodsManager } from './AcademicPeriodsManager';
 
 export type AcademicSubTab = 
   | 'anos' 
+  | 'periodos'
   | 'classes' 
   | 'cursos' 
   | 'disciplinas' 
@@ -2060,6 +2063,7 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
         <div className="flex flex-wrap gap-1.5">
           {[
             { id: 'anos' as AcademicSubTab, label: 'Ano Letivo', icon: Calendar, badge: `${anosConfigs.length}` },
+            { id: 'periodos' as AcademicSubTab, label: 'Períodos Letivos', icon: CalendarClock, badge: 'Trim./Sem.' },
             { id: 'classes' as AcademicSubTab, label: 'Classes', icon: Layers, badge: `${classesConfigs.length}` },
             { id: 'cursos' as AcademicSubTab, label: 'Cursos (IIº Ciclo)', icon: GraduationCap },
             { id: 'disciplinas' as AcademicSubTab, label: 'Disciplinas', icon: BookOpen, badge: `${disciplinas.length}` },
@@ -2346,6 +2350,18 @@ export const AcademicManagementView: React.FC<AcademicManagementViewProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* 1B. ABA PERÍODOS LETIVOS (TRIMESTRES / SEMESTRES) */}
+      {activeSubTab === 'periodos' && (
+        <AcademicPeriodsManager
+          escola={escola}
+          turmas={turmas}
+          disciplinas={disciplinas}
+          juris={juris}
+          onSalvarEscola={onSalvarEscola}
+          onAnoLectivoAlterado={onAnoLectivoAlterado}
+        />
       )}
 
       {/* 2. ABA CLASSES */}

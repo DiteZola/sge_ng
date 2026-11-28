@@ -51,6 +51,7 @@ export type NavTab =
   | 'dashboard'
   // ACADÊMICO
   | 'ano_lectivo'
+  | 'periodos_letivos'
   | 'calendario_escolar'
   | 'classes'
   | 'cursos'
@@ -178,6 +179,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Calendar,
           roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico'],
           badge: 'Gestão'
+        },
+        {
+          id: 'periodos_letivos',
+          label: 'Períodos Letivos',
+          icon: CalendarDays,
+          roles: ['AdminGeral', 'DiretorGeral', 'SubdiretorPedagogico', 'CoordenadorPedagogico', 'CoordenadorTurno', 'Secretaria', 'ChefeSecretaria', 'Secretario', 'SecretarioEscolar'],
+          badge: 'Trim./Sem.'
         },
         {
           id: 'calendario_escolar',

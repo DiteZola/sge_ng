@@ -39,7 +39,10 @@ import {
   HistoricoEscolarCompleto,
   ConfiguracaoSistema,
   AnoLectivoConfig,
+  Trimestre,
   PeriodoTrimestre,
+  PeriodoLetivoConfig,
+  RegimePeriodosLetivos,
   TurnoConfig,
   ClasseEscolar,
   SolicitacaoApoioTecnico,
@@ -109,8 +112,9 @@ import {
   removeCachedLocalEntry,
   getComputedCache
 } from './localCache';
+import { turnosHorariosConflitam } from '../utils/scheduleGenerator';
 
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   ESCOLAS: 'sge_escolas',
   DELEGACOES_PODERES: 'sge_delegacoes_poderes',
   ACOES_DELEGADAS_LOGS: 'sge_acoes_delegadas_logs',
@@ -817,42 +821,13 @@ export const DEFAULT_HORARIOS: HorarioAulaItem[] = [];
 
 export const DEFAULT_PRESENCAS_ALUNOS: PresencaAlunoItem[] = [];
 
-// Initializer
-export function inicializarArmazenamento(): void {
+const LEGACY_PURGE_FLAG = 'sge_legacy_purge_v2_done';
+
+function executarPurgaLegadoAssincrona(): void {
   if (typeof window === 'undefined') return;
-
-  // Se já há utilizador autenticado ou dados registados no dispositivo, preserva integralmente a sessão
-  const isAuth = localStorage.getItem('sge_authenticated') === 'true';
-  const hasUser = !!localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-  const rawFuncs = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
-  const funcs = (rawFuncs && rawFuncs !== 'undefined' && rawFuncs !== 'null') ? JSON.parse(rawFuncs) : [];
-  const temAdmin = Array.isArray(funcs) && funcs.some((f: any) => f.role === 'AdminGeral' && f.ativo !== false);
-
-  if (isAuth || hasUser || temAdmin || (Array.isArray(funcs) && funcs.length > 0)) {
-    localStorage.setItem('sge_admin_configured', 'true');
-    localStorage.setItem(STORAGE_KEYS.SETUP_MASTER_LOCK, 'true');
-    localStorage.setItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, 'true');
-  }
-
-  // Apenas inicializar configuração base se inexistente (getLocal já devolve DEFAULT_* para listas vazias, evitando 30 escritas e eventos no arranque)
-  if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA)) {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(DEFAULT_CONFIGURACAO_SISTEMA));
-    } catch {}
-  }
-  
-  // Limpar chaves corrompidas ou strings "undefined" / "null"
   try {
-    const rawCurrentUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    if (rawCurrentUser === 'undefined' || rawCurrentUser === 'null') {
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    }
-  } catch {
-    // noop
-  }
+    if (localStorage.getItem(LEGACY_PURGE_FLAG) === 'true') return;
 
-  // Sanitização e purga de dados legados de demonstração no armazenamento do navegador
-  try {
     const rawStoredEscolas = localStorage.getItem(STORAGE_KEYS.ESCOLAS);
     if (rawStoredEscolas && rawStoredEscolas !== 'undefined' && rawStoredEscolas !== 'null') {
       try {
@@ -871,11 +846,10 @@ export function inicializarArmazenamento(): void {
       try {
         const parsedFuncs: Funcionario[] = JSON.parse(rawStoredFuncs);
         if (Array.isArray(parsedFuncs) && parsedFuncs.length > 0) {
-          // Remover contas de demonstração conhecidas e nomes fictícios
           const MOCK_NAMES = ['manuel zola', 'dr. manuel zola', 'manuel almeida lula', 'garcia antónio vunge', 'esperança maria kwanza'];
-          const funcsReais = parsedFuncs.filter(f => 
-            !f.id.startsWith('func-00') && 
-            f.id !== 'func-subadmin-01' && 
+          const funcsReais = parsedFuncs.filter(f =>
+            !f.id.startsWith('func-00') &&
+            f.id !== 'func-subadmin-01' &&
             f.id !== 'test_admin' &&
             !f.id.startsWith('func-admin-179') &&
             f.id !== 'func-1790329119660' &&
@@ -893,13 +867,13 @@ export function inicializarArmazenamento(): void {
       try {
         const parsedTurmas = JSON.parse(rawStoredTurmas);
         if (Array.isArray(parsedTurmas)) {
-          const turmasReais = parsedTurmas.filter((t: any) => 
-            !t.id.startsWith('turma-1a') && 
-            !t.id.startsWith('turma-6a') && 
-            !t.id.startsWith('turma-7a') && 
-            !t.id.startsWith('turma-9a') && 
-            !t.id.startsWith('turma-12a') && 
-            !t.id.startsWith('turma-ini') && 
+          const turmasReais = parsedTurmas.filter((t: any) =>
+            !t.id.startsWith('turma-1a') &&
+            !t.id.startsWith('turma-6a') &&
+            !t.id.startsWith('turma-7a') &&
+            !t.id.startsWith('turma-9a') &&
+            !t.id.startsWith('turma-12a') &&
+            !t.id.startsWith('turma-ini') &&
             !t.id.startsWith('turma-mag') &&
             !t.id.startsWith('turma-151')
           );
@@ -916,7 +890,7 @@ export function inicializarArmazenamento(): void {
         const parsedAlunos = JSON.parse(rawStoredAlunos);
         if (Array.isArray(parsedAlunos)) {
           const MOCK_STUDENT_NAMES = ['kiese manuel domingos', 'ndilu manuel sebastião', 'manuel gonçalves', 'madalena fineza nzinga', 'afonso domingos cambuta'];
-          const alunosReais = parsedAlunos.filter((a: any) => 
+          const alunosReais = parsedAlunos.filter((a: any) =>
             !a.id.startsWith('aluno-00') &&
             !a.id.startsWith('aluno-goncalves') &&
             !a.id.startsWith('aluno-ndilu') &&
@@ -936,7 +910,7 @@ export function inicializarArmazenamento(): void {
       try {
         const parsedNotas = JSON.parse(rawStoredNotas);
         if (Array.isArray(parsedNotas)) {
-          const notasReais = parsedNotas.filter((n: any) => 
+          const notasReais = parsedNotas.filter((n: any) =>
             !n.id?.startsWith('cons-0') &&
             !n.id?.startsWith('cons-goncalves') &&
             !n.id?.startsWith('cons-ndilu')
@@ -953,7 +927,7 @@ export function inicializarArmazenamento(): void {
       try {
         const parsedNotasCons = JSON.parse(rawStoredNotasCons);
         if (Array.isArray(parsedNotasCons)) {
-          const notasConsReais = parsedNotasCons.filter((n: any) => 
+          const notasConsReais = parsedNotasCons.filter((n: any) =>
             !n.id?.startsWith('cons-0') &&
             !n.id?.startsWith('cons-goncalves') &&
             !n.id?.startsWith('cons-ndilu')
@@ -965,7 +939,6 @@ export function inicializarArmazenamento(): void {
       } catch {}
     }
 
-    // Purga apenas funcionários com nomes fictícios ou de teste antigos se não houver escolas
     const escolasAtuais = dbService.getEscolas();
     if (escolasAtuais.length === 0) {
       const funcs = dbService.getFuncionarios();
@@ -974,18 +947,69 @@ export function inicializarArmazenamento(): void {
         setLocal(STORAGE_KEYS.FUNCIONARIOS, funcsReais);
       }
     }
+
+    localStorage.setItem(LEGACY_PURGE_FLAG, 'true');
   } catch (e) {
     console.warn('Erro ao purgar dados de teste no armazenamento local:', e);
   }
 }
 
-// Auto-inicialização leve do armazenamento e hidratação IndexedDB sem bloquear o primeiro frame
+// Initializer ultra-rápido (sem parse síncrono de listas pesadas antes da primeira pintura)
+export function inicializarArmazenamento(): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const rawCurrentUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    if (rawCurrentUser === 'undefined' || rawCurrentUser === 'null') {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    }
+
+    const isAuth = localStorage.getItem('sge_authenticated') === 'true';
+    const hasUser = !!localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    if (isAuth || hasUser) {
+      if (localStorage.getItem('sge_admin_configured') !== 'true') {
+        localStorage.setItem('sge_admin_configured', 'true');
+      }
+      if (localStorage.getItem(STORAGE_KEYS.SETUP_MASTER_LOCK) !== 'true') {
+        localStorage.setItem(STORAGE_KEYS.SETUP_MASTER_LOCK, 'true');
+      }
+      if (localStorage.getItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO) !== 'true') {
+        localStorage.setItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, 'true');
+      }
+    } else if (localStorage.getItem('sge_admin_configured') !== 'true') {
+      const rawFuncs = localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS);
+      if (rawFuncs && rawFuncs !== 'undefined' && rawFuncs !== 'null' && rawFuncs !== '[]') {
+        try {
+          const funcs = JSON.parse(rawFuncs);
+          const temAdmin = Array.isArray(funcs) && funcs.some((f: any) => f.role === 'AdminGeral' && f.ativo !== false);
+          if (temAdmin || (Array.isArray(funcs) && funcs.length > 0)) {
+            localStorage.setItem('sge_admin_configured', 'true');
+            localStorage.setItem(STORAGE_KEYS.SETUP_MASTER_LOCK, 'true');
+            localStorage.setItem(STORAGE_KEYS.SETUP_INICIAL_CONCLUIDO, 'true');
+          }
+        } catch {}
+      }
+    }
+
+    if (!localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA)) {
+      localStorage.setItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA, JSON.stringify(DEFAULT_CONFIGURACAO_SISTEMA));
+    }
+
+    // Purga de dados legados apenas uma vez por dispositivo e em tempo ocioso (zero bloqueio no arranque)
+    if (localStorage.getItem(LEGACY_PURGE_FLAG) !== 'true') {
+      if (typeof (window as any).requestIdleCallback === 'function') {
+        (window as any).requestIdleCallback(() => executarPurgaLegadoAssincrona(), { timeout: 1500 });
+      } else {
+        setTimeout(() => executarPurgaLegadoAssincrona(), 120);
+      }
+    }
+  } catch {}
+}
+
+// Auto-inicialização leve do armazenamento sem bloquear o primeiro frame
 if (typeof window !== 'undefined') {
   try {
     inicializarArmazenamento();
-    setTimeout(() => {
-      offlineStorage.hidratarArmazenamentoDoIndexedDB();
-    }, 80);
   } catch (err) {
     console.warn('[Storage] Inicialização de contingência:', err);
   }
@@ -1740,42 +1764,113 @@ export const dbService = {
     escolas = escolas.filter(e => e.id !== escolaId);
     setLocal(STORAGE_KEYS.ESCOLAS, escolas);
 
-    // 2. Apagar em cascata todas as coleções de dados concernentes a esta escola
-    const filterOutSchool = (key: string) => {
+    // 2. Identificar IDs relacionais desta escola antes de limpar as coleções
+    const alunosRemovidosIds = new Set<string>();
+    const turmasRemovidasIds = new Set<string>();
+    const avaliacoesRemovidasIds = new Set<string>();
+    const funcsRemovidosIds = new Set<string>();
+    const bibRemovidosIds = new Set<string>();
+    const mensagensRemovidasIds: string[] = [];
+    const notasEstRemovidasIds: string[] = [];
+    const notasConsRemovidasIds: string[] = [];
+    const docConfigKeysRemovidas: string[] = [];
+
+    try {
+      const todosAlunos = getLocal<Aluno[]>(STORAGE_KEYS.ALUNOS, []);
+      const alunosRest = todosAlunos.filter(a => {
+        if (a && a.escolaId === escolaId) {
+          if (a.id) alunosRemovidosIds.add(a.id);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.ALUNOS, alunosRest);
+    } catch {}
+
+    try {
+      const todasTurmas = getLocal<Turma[]>(STORAGE_KEYS.TURMAS, []);
+      const turmasRest = todasTurmas.filter(t => {
+        if (t && t.escolaId === escolaId) {
+          if (t.id) turmasRemovidasIds.add(t.id);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.TURMAS, turmasRest);
+    } catch {}
+
+    try {
+      const todasAv = getLocal<AvaliacaoCriada[]>(STORAGE_KEYS.AVALIACOES, []);
+      const avRest = todasAv.filter(av => {
+        if (av && (av.escolaId === escolaId || turmasRemovidasIds.has(av.turmaId))) {
+          if (av.id) avaliacoesRemovidasIds.add(av.id);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.AVALIACOES, avRest);
+    } catch {}
+
+    // Funcionários: remover apenas funcionários exclusivos desta escola (preservando AdminGeral)
+    try {
+      const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
+      const filtrados = funcs.filter(f => {
+        if (f && f.role !== 'AdminGeral' && f.escolaId === escolaId) {
+          if (f.id) funcsRemovidosIds.add(f.id);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.FUNCIONARIOS, filtrados);
+    } catch {}
+
+    try {
+      const bibs = getLocal<DocumentoBiblioteca[]>(STORAGE_KEYS.BIBLIOTECA, []);
+      const bibRest = bibs.filter(b => {
+        if (b && b.escolaId === escolaId) {
+          if (b.id) bibRemovidosIds.add(b.id);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.BIBLIOTECA, bibRest);
+    } catch {}
+
+    // Helper genérico para filtrar arrays por escolaId (ou critério extra relacional)
+    const filterOutSchool = (key: string, extraMatch?: (item: any) => boolean) => {
       try {
         const items = getLocal<any[]>(key, []);
         if (Array.isArray(items)) {
-          const filtrados = items.filter(item => item && item.escolaId !== escolaId);
-          setLocal(key, filtrados);
+          const filtrados = items.filter(item => {
+            if (!item) return false;
+            if (item.escolaId === escolaId || (extraMatch && extraMatch(item))) {
+              return false;
+            }
+            return true;
+          });
+          if (filtrados.length !== items.length) {
+            setLocal(key, filtrados);
+          }
         }
-      } catch (e) {
-        // Ignorar
-      }
+      } catch {}
     };
 
-    filterOutSchool(STORAGE_KEYS.ALUNOS);
-    filterOutSchool(STORAGE_KEYS.TURMAS);
     filterOutSchool(STORAGE_KEYS.DISCIPLINAS);
-    filterOutSchool(STORAGE_KEYS.ATRIBUICOES);
-    filterOutSchool(STORAGE_KEYS.TERMOS_EXAME);
-    filterOutSchool(STORAGE_KEYS.TRANSACOES_FINANCEIRAS);
+    filterOutSchool(STORAGE_KEYS.ATRIBUICOES, (a) => turmasRemovidasIds.has(a.turmaId));
+    filterOutSchool(STORAGE_KEYS.TERMOS_EXAME, (t) => turmasRemovidasIds.has(t.turmaId));
+    filterOutSchool(STORAGE_KEYS.TRANSACOES_FINANCEIRAS, (t) => alunosRemovidosIds.has(t.alunoId));
     filterOutSchool(STORAGE_KEYS.DESPESAS_ESCOLARES);
     filterOutSchool(STORAGE_KEYS.PATRIMONIO);
-    filterOutSchool(STORAGE_KEYS.NOTAS_CONSOLIDADAS);
-    filterOutSchool(STORAGE_KEYS.AVALIACOES);
-    filterOutSchool(STORAGE_KEYS.NOTAS);
-    filterOutSchool(STORAGE_KEYS.SOLICITACOES_NOTA);
-    filterOutSchool(STORAGE_KEYS.JURIS);
-    filterOutSchool(STORAGE_KEYS.PRESENCAS);
-    filterOutSchool(STORAGE_KEYS.PRESENCAS_ALUNOS);
-    filterOutSchool(STORAGE_KEYS.HORARIOS);
-    filterOutSchool(STORAGE_KEYS.MENSAGENS);
-    filterOutSchool(STORAGE_KEYS.BIBLIOTECA);
+    filterOutSchool(STORAGE_KEYS.SOLICITACOES_NOTA, (s) => alunosRemovidosIds.has(s.alunoId));
+    filterOutSchool(STORAGE_KEYS.JURIS, (j) => turmasRemovidasIds.has(j.turmaId));
+    filterOutSchool(STORAGE_KEYS.PRESENCAS, (p) => funcsRemovidosIds.has(p.funcionarioId));
+    filterOutSchool(STORAGE_KEYS.PRESENCAS_ALUNOS, (pa) => alunosRemovidosIds.has(pa.alunoId) || turmasRemovidasIds.has(pa.turmaId));
+    filterOutSchool(STORAGE_KEYS.HORARIOS, (h) => turmasRemovidasIds.has(h.turmaId));
     filterOutSchool(STORAGE_KEYS.BIBLIOTECA_ACESSOS);
-    filterOutSchool(STORAGE_KEYS.RECIBOS);
+    filterOutSchool(STORAGE_KEYS.RECIBOS, (r) => alunosRemovidosIds.has(r.alunoId));
     filterOutSchool(STORAGE_KEYS.DELEGACOES_PODERES);
     filterOutSchool(STORAGE_KEYS.ACOES_DELEGADAS_LOGS);
-    filterOutSchool(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO);
+    filterOutSchool(STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, (r) => alunosRemovidosIds.has(r.alunoId) || turmasRemovidasIds.has(r.turmaId));
     filterOutSchool(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS);
     filterOutSchool(STORAGE_KEYS.TURNOS_CONFIGS);
     filterOutSchool(STORAGE_KEYS.CLASSES_CONFIGS);
@@ -1786,20 +1881,171 @@ export const dbService = {
     filterOutSchool(STORAGE_KEYS.TIPOS_AVALIACAO);
     filterOutSchool(STORAGE_KEYS.SOLICITACOES_APOIO);
     filterOutSchool(STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS);
+    filterOutSchool(STORAGE_KEYS.COORDENACOES, (c) => Boolean(c.turmaId && turmasRemovidasIds.has(c.turmaId)));
+    filterOutSchool(STORAGE_KEYS.TIPOS_COORDENACAO);
+    filterOutSchool(STORAGE_KEYS.RELATORIOS_PEDAGOGICOS);
+    filterOutSchool(STORAGE_KEYS.PLANOS_ATIVIDADES);
+    filterOutSchool(STORAGE_KEYS.HORARIOS_PROVAS, (h) => turmasRemovidasIds.has(h.turmaId));
+    filterOutSchool(STORAGE_KEYS.MAPAS_FISCALIZACAO, (m) => turmasRemovidasIds.has(m.turmaId));
+    filterOutSchool(STORAGE_KEYS.ATAS_PROVAS, (a) => turmasRemovidasIds.has(a.turmaId));
+    filterOutSchool(STORAGE_KEYS.MAPAS_FERIAS, (f) => funcsRemovidosIds.has(f.funcionarioId));
+    filterOutSchool(STORAGE_KEYS.ESTOQUE_LIMPEZA);
+    filterOutSchool(STORAGE_KEYS.MOVIMENTOS_LIMPEZA);
+    filterOutSchool(STORAGE_KEYS.EMOLUMENTOS_CONFIG);
+    filterOutSchool(STORAGE_KEYS.SESSOES_ATIVAS, (s) => funcsRemovidosIds.has(s.userId));
+    filterOutSchool(STORAGE_KEYS.AUDITORIA, (l) => funcsRemovidosIds.has(l.usuarioId));
 
-    // Funcionários: remover apenas funcionários exclusivos desta escola (preservando o AdminGeral)
+    // Notas individuais e consolidadas (podem não ter escolaId explícito)
     try {
-      const funcs = getLocal<Funcionario[]>(STORAGE_KEYS.FUNCIONARIOS, []);
-      const filtrados = funcs.filter(f => f.role === 'AdminGeral' || f.escolaId !== escolaId);
-      setLocal(STORAGE_KEYS.FUNCIONARIOS, filtrados);
-    } catch (e) {
-      // Ignorar
+      const todasNotas = getLocal<NotaEstudante[]>(STORAGE_KEYS.NOTAS, []);
+      const notasRest = todasNotas.filter(n => {
+        if (!n) return false;
+        const match = n.escolaId === escolaId || alunosRemovidosIds.has(n.alunoId) || avaliacoesRemovidasIds.has(n.avaliacaoId);
+        if (match) {
+          notasEstRemovidasIds.push(n.id || `${n.avaliacaoId}_${n.alunoId}`);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.NOTAS, notasRest);
+    } catch {}
+
+    try {
+      const todasCons = getLocal<NotaTrimestralConsolidada[]>(STORAGE_KEYS.NOTAS_CONSOLIDADAS, []);
+      const consRest = todasCons.filter(nc => {
+        if (!nc) return false;
+        const match = (nc as any).escolaId === escolaId || alunosRemovidosIds.has(nc.alunoId) || turmasRemovidasIds.has(nc.turmaId);
+        if (match) {
+          notasConsRemovidasIds.push(nc.id || `${nc.alunoId}_${nc.disciplinaId}_${nc.trimestre}_${nc.anoLectivo || 'padrao'}`);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.NOTAS_CONSOLIDADAS, consRest);
+    } catch {}
+
+    // Mensagens internas relacionadas à escola ou aos seus utilizadores
+    try {
+      const msgs = getLocal<MensagemInterna[]>(STORAGE_KEYS.MENSAGENS, []);
+      const msgsRest = msgs.filter(m => {
+        if (!m) return false;
+        const match = (m as any).escolaId === escolaId || Boolean(m.remetenteId && funcsRemovidosIds.has(m.remetenteId)) || Boolean(m.destinatarioId && funcsRemovidosIds.has(m.destinatarioId));
+        if (match) {
+          if (m.id) mensagensRemovidasIds.push(m.id);
+          return false;
+        }
+        return true;
+      });
+      setLocal(STORAGE_KEYS.MENSAGENS, msgsRest);
+    } catch {}
+
+    // Limpar mapas indexados por escolaId / alunoId / userId
+    try {
+      const histMap = getLocal<Record<string, HistoricoEscolarCompleto>>(STORAGE_KEYS.HISTORICO_COMPLETO, {});
+      let changedHist = false;
+      for (const aId of alunosRemovidosIds) {
+        if (histMap[aId]) {
+          delete histMap[aId];
+          changedHist = true;
+        }
+      }
+      Object.keys(histMap).forEach(k => {
+        if ((histMap[k] as any)?.escolaId === escolaId) {
+          delete histMap[k];
+          alunosRemovidosIds.add(k);
+          changedHist = true;
+        }
+      });
+      if (changedHist) setLocal(STORAGE_KEYS.HISTORICO_COMPLETO, histMap);
+    } catch {}
+
+    try {
+      const finMap = getLocal<Record<string, DadosFinancasPessoaisUsuario>>(STORAGE_KEYS.FINANCAS_PESSOAIS, {});
+      let changedFin = false;
+      for (const fId of funcsRemovidosIds) {
+        if (finMap[fId]) {
+          delete finMap[fId];
+          changedFin = true;
+        }
+      }
+      if (changedFin) setLocal(STORAGE_KEYS.FINANCAS_PESSOAIS, finMap);
+    } catch {}
+
+    try {
+      const docCfgMap = getLocal<Record<string, ConfiguracaoDocumentoCustomizado>>(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, {});
+      let changedDocCfg = false;
+      Object.keys(docCfgMap).forEach(k => {
+        if (k.startsWith(`${escolaId}_`) || (docCfgMap[k] as any)?.escolaId === escolaId) {
+          delete docCfgMap[k];
+          docConfigKeysRemovidas.push(k);
+          changedDocCfg = true;
+        }
+      });
+      if (changedDocCfg) setLocal(STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, docCfgMap);
+    } catch {}
+
+    const deleteFromSchoolMap = (key: string) => {
+      try {
+        const map = getLocal<Record<string, any>>(key, {});
+        if (map && Object.prototype.hasOwnProperty.call(map, escolaId)) {
+          delete map[escolaId];
+          setLocal(key, map);
+        }
+      } catch {}
+    };
+    deleteFromSchoolMap(STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS);
+    deleteFromSchoolMap(STORAGE_KEYS.CONFIGURACOES_PASSES);
+    deleteFromSchoolMap(STORAGE_KEYS.DELEGACOES_COBRANCA);
+
+    // Limpar Eventos Escolares e Calendário desta escola no localStorage
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const rawEv = localStorage.getItem('sge_eventos_escolares');
+        if (rawEv) {
+          const evts = JSON.parse(rawEv);
+          if (Array.isArray(evts)) {
+            localStorage.setItem('sge_eventos_escolares', JSON.stringify(evts.filter((ev: any) => ev?.escolaId !== escolaId)));
+          }
+        }
+        localStorage.removeItem(`sge_calendario_${escolaId}`);
+        localStorage.removeItem(`sge_calendario_tipos_${escolaId}`);
+      } catch {}
     }
 
-    // 3. Sincronizar eliminação no Firestore Cloud
-    firebaseSyncEngine.eliminarEscola(escolaId);
+    // Atualizar rótulos globais de anos letivos que não pertençam a nenhuma outra escola restante
+    try {
+      const configsRestantes = getLocal<AnoLectivoConfig[]>(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS, []);
+      const anosEmUso = new Set(configsRestantes.map(c => c.rotulo).filter(Boolean));
+      const anosAtuais = getLocal<string[]>(STORAGE_KEYS.ANOS_LECTIVOS, []);
+      const anosFiltrados = anosAtuais.filter(a => anosEmUso.has(a));
+      if (anosFiltrados.length !== anosAtuais.length) {
+        setLocal(STORAGE_KEYS.ANOS_LECTIVOS, anosFiltrados);
+        firebaseSyncEngine.salvarAnosLectivosLista(anosFiltrados);
+      }
+    } catch {}
 
-    // 4. Se a escola ativa era a eliminada, selecionar a próxima escola disponível
+    // 3. Limpar IndexedDB (mídias, PDFs, funcionários e calendários desta escola) + fila offline antiga
+    const idsRelacionados = {
+      alunosIds: Array.from(alunosRemovidosIds),
+      funcionariosIds: Array.from(funcsRemovidosIds),
+      avaliacoesIds: Array.from(avaliacoesRemovidasIds),
+      notasEstudantesIds: notasEstRemovidasIds,
+      notasConsolidadasIds: notasConsRemovidasIds,
+      bibliotecaIds: Array.from(bibRemovidosIds),
+      mensagensIds: mensagensRemovidasIds,
+      docConfigKeys: docConfigKeysRemovidas
+    };
+    offlineStorage.limparDadosEscolaNoIndexedDB(
+      escolaId,
+      idsRelacionados.funcionariosIds,
+      idsRelacionados.alunosIds,
+      idsRelacionados.bibliotecaIds
+    ).catch(() => {});
+
+    // 4. Sincronizar eliminação total em cascata no Firestore Cloud
+    firebaseSyncEngine.eliminarEscola(escolaId, idsRelacionados);
+
+    // 5. Se a escola ativa era a eliminada, selecionar a próxima escola disponível
     const idAtivo = getLocal<string>(STORAGE_KEYS.ACTIVE_ESCOLA_ID, '');
     if (idAtivo === escolaId) {
       if (escolas.length > 0) {
@@ -1809,7 +2055,12 @@ export const dbService = {
       }
     }
 
-    dbService.registarLog('Eliminação Total de Escola', `Escola "${esc.nomeOficial}" e todas as suas coleções de dados (alunos, turmas, notas, finanças, presenças, património e colaboradores) foram eliminadas do sistema.`);
+    const proxEscolaId = escolas.length > 0 ? escolas[0].id : 'sistema';
+    dbService.registarLog(
+      'Eliminação Total de Escola',
+      `Escola "${esc.nomeOficial}" e todas as suas coleções de dados (alunos, turmas, disciplinas, notas, pautas, horários, finanças, recibos, património, limpeza, atas e colaboradores) foram eliminadas em cascata.`,
+      proxEscolaId
+    );
     return true;
   },
 
@@ -2361,6 +2612,258 @@ export const dbService = {
       target.estado = estado;
       dbService.salvarAnoLectivoConfig(target);
     }
+  },
+  gerarPeriodosLetivosPadrao: (
+    regime: RegimePeriodosLetivos = 'Trimestral',
+    anoRotulo?: string,
+    dataInicio?: string,
+    dataFim?: string
+  ): PeriodoLetivoConfig[] => {
+    const partes = (anoRotulo || '').split('/');
+    const anoIni = partes[0] && /^\d{4}$/.test(partes[0]) ? partes[0] : String(new Date().getFullYear());
+    const anoFim = partes[1] && /^\d{4}$/.test(partes[1]) ? partes[1] : String(Number(anoIni) + 1);
+    const ini = dataInicio || `${anoIni}-09-01`;
+    const fim = dataFim || `${anoFim}-07-15`;
+
+    if (regime === 'Semestral') {
+      return [
+        {
+          id: 'periodo-sem-1',
+          numero: 1,
+          tipo: 'Semestre',
+          trimestre: '1',
+          nome: '1º Semestre',
+          dataInicio: ini,
+          dataFim: `${anoFim}-02-15`,
+          estado: 'Aberto',
+          pesoPercentual: 50,
+          bloquearLancamentoSeFechado: false
+        },
+        {
+          id: 'periodo-sem-2',
+          numero: 2,
+          tipo: 'Semestre',
+          trimestre: '2',
+          nome: '2º Semestre',
+          dataInicio: `${anoFim}-02-23`,
+          dataFim: fim,
+          estado: 'Fechado',
+          pesoPercentual: 50,
+          bloquearLancamentoSeFechado: false
+        }
+      ];
+    }
+
+    return [
+      {
+        id: 'periodo-trim-1',
+        numero: 1,
+        tipo: 'Trimestre',
+        trimestre: '1',
+        nome: '1º Trimestre',
+        dataInicio: ini,
+        dataFim: `${anoIni}-12-19`,
+        estado: 'Aberto',
+        pesoPercentual: 33.3,
+        bloquearLancamentoSeFechado: false
+      },
+      {
+        id: 'periodo-trim-2',
+        numero: 2,
+        tipo: 'Trimestre',
+        trimestre: '2',
+        nome: '2º Trimestre',
+        dataInicio: `${anoFim}-01-05`,
+        dataFim: `${anoFim}-04-10`,
+        estado: 'Fechado',
+        pesoPercentual: 33.3,
+        bloquearLancamentoSeFechado: false
+      },
+      {
+        id: 'periodo-trim-3',
+        numero: 3,
+        tipo: 'Trimestre',
+        trimestre: '3',
+        nome: '3º Trimestre',
+        dataInicio: `${anoFim}-04-27`,
+        dataFim: fim,
+        estado: 'Fechado',
+        pesoPercentual: 33.4,
+        bloquearLancamentoSeFechado: false
+      }
+    ];
+  },
+  getRegimePeriodosAtivo: (escolaId?: string, anoLectivo?: string): RegimePeriodosLetivos => {
+    const escolaAlvo = escolaId && escolaId !== 'todas'
+      ? (dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva())
+      : dbService.getEscolaAtiva();
+    const anoAlvo = (anoLectivo || escolaAlvo?.anoLectivoActivo || '').trim();
+    const configs = dbService.getAnosLectivosConfigs(escolaAlvo?.id);
+    const cfg = configs.find(c => (c.rotulo || c.ano || '').trim() === anoAlvo);
+    if (cfg?.regimePeriodos === 'Semestral' || cfg?.regimePeriodos === 'Trimestral') {
+      return cfg.regimePeriodos;
+    }
+    if (escolaAlvo?.regimePeriodos === 'Semestral' || escolaAlvo?.regimePeriodos === 'Trimestral') {
+      return escolaAlvo.regimePeriodos;
+    }
+    return 'Trimestral';
+  },
+  getPeriodosLetivos: (escolaId?: string, anoLectivo?: string): PeriodoLetivoConfig[] => {
+    const escolaAlvo = escolaId && escolaId !== 'todas'
+      ? (dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva())
+      : dbService.getEscolaAtiva();
+    const anoAlvo = (anoLectivo || escolaAlvo?.anoLectivoActivo || '').trim();
+    const configs = dbService.getAnosLectivosConfigs(escolaAlvo?.id);
+    const cfg = configs.find(c => (c.rotulo || c.ano || '').trim() === anoAlvo);
+    const regime = dbService.getRegimePeriodosAtivo(escolaAlvo?.id, anoAlvo);
+
+    if (cfg?.periodos && cfg.periodos.length > 0) {
+      const esperados = regime === 'Semestral' ? [1, 2] : [1, 2, 3];
+      const padrao = dbService.gerarPeriodosLetivosPadrao(regime, anoAlvo, cfg.dataInicio, cfg.dataFim);
+      return esperados.map((num, idx) => {
+        const encontrado = cfg.periodos!.find(p => Number(p.numero) === num || String(p.trimestre).startsWith(String(num)));
+        const base = padrao[idx];
+        return encontrado
+          ? {
+              ...base,
+              ...encontrado,
+              numero: num as 1 | 2 | 3,
+              tipo: regime === 'Semestral' ? 'Semestre' : 'Trimestre',
+              trimestre: String(num) as Trimestre
+            }
+          : base;
+      });
+    }
+
+    if (cfg?.trimestres && cfg.trimestres.length > 0 && regime === 'Trimestral') {
+      const padrao = dbService.gerarPeriodosLetivosPadrao('Trimestral', anoAlvo, cfg.dataInicio, cfg.dataFim);
+      return ([1, 2, 3] as const).map((num, idx) => {
+        const tr = cfg.trimestres.find(t => String(t.trimestre).startsWith(String(num)));
+        const base = padrao[idx];
+        return tr
+          ? {
+              ...base,
+              nome: tr.nome || base.nome,
+              dataInicio: tr.dataInicio || base.dataInicio,
+              dataFim: tr.dataFim || base.dataFim,
+              estado: tr.estado || base.estado,
+              pesoPercentual: typeof tr.pesoPercentual === 'number' ? tr.pesoPercentual : base.pesoPercentual
+            }
+          : base;
+      });
+    }
+
+    return dbService.gerarPeriodosLetivosPadrao(regime, anoAlvo, cfg?.dataInicio, cfg?.dataFim);
+  },
+  salvarPeriodosLetivos: (
+    escolaId: string,
+    anoLectivo: string,
+    regime: RegimePeriodosLetivos,
+    periodos: PeriodoLetivoConfig[],
+    calculoSegmentadoAtivo: boolean = true
+  ): AnoLectivoConfig => {
+    const escolaAlvo = dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva();
+    const targetEscolaId = escolaAlvo?.id && escolaAlvo.id !== 'todas' ? escolaAlvo.id : escolaId;
+    const anoLimpo = (anoLectivo || escolaAlvo?.anoLectivoActivo || '').trim() || String(new Date().getFullYear());
+    const configs = dbService.getAnosLectivosConfigs(targetEscolaId);
+    const existente = configs.find(c => (c.rotulo || c.ano || '').trim() === anoLimpo);
+
+    const periodosNormalizados: PeriodoLetivoConfig[] = periodos.map((p, i) => {
+      const num = (p.numero || (i + 1)) as 1 | 2 | 3;
+      return {
+        ...p,
+        id: p.id || `periodo-${regime === 'Semestral' ? 'sem' : 'trim'}-${num}`,
+        numero: num,
+        tipo: regime === 'Semestral' ? 'Semestre' : 'Trimestre',
+        trimestre: String(num) as Trimestre,
+        nome: p.nome?.trim() || `${num}º ${regime === 'Semestral' ? 'Semestre' : 'Trimestre'}`,
+        estado: p.estado === 'Fechado' ? 'Fechado' : 'Aberto',
+        pesoPercentual: typeof p.pesoPercentual === 'number' && !isNaN(p.pesoPercentual)
+          ? Math.max(0, Math.min(100, Number(p.pesoPercentual)))
+          : (regime === 'Semestral' ? 50 : (num === 3 ? 33.4 : 33.3))
+      };
+    });
+
+    const trimestresCompat: PeriodoTrimestre[] = periodosNormalizados.map(p => ({
+      trimestre: p.trimestre,
+      nome: p.nome,
+      dataInicio: p.dataInicio,
+      dataFim: p.dataFim,
+      estado: p.estado,
+      pesoPercentual: p.pesoPercentual
+    }));
+
+    const slugRotulo = anoLimpo.replace(/[^0-9a-zA-Z]/g, '-');
+    const atualizado: AnoLectivoConfig = existente
+      ? {
+          ...existente,
+          regimePeriodos: regime,
+          periodos: periodosNormalizados,
+          trimestres: trimestresCompat,
+          calculoSegmentadoAtivo,
+          atualizadoEm: new Date().toISOString()
+        }
+      : {
+          id: targetEscolaId ? `ano-${targetEscolaId}-${slugRotulo}` : `ano-${slugRotulo}`,
+          escolaId: targetEscolaId,
+          rotulo: anoLimpo,
+          ano: anoLimpo,
+          dataInicio: periodosNormalizados[0]?.dataInicio || `${anoLimpo.split('/')[0] || new Date().getFullYear()}-09-01`,
+          dataFim: periodosNormalizados[periodosNormalizados.length - 1]?.dataFim || `${anoLimpo.split('/')[1] || new Date().getFullYear() + 1}-07-15`,
+          estado: 'Aberto',
+          regimePeriodos: regime,
+          periodos: periodosNormalizados,
+          trimestres: trimestresCompat,
+          calculoSegmentadoAtivo,
+          criadoEm: new Date().toISOString().split('T')[0],
+          atualizadoEm: new Date().toISOString()
+        };
+
+    dbService.salvarAnoLectivoConfig(atualizado);
+
+    if (escolaAlvo && escolaAlvo.id === targetEscolaId && (escolaAlvo.anoLectivoActivo || '').trim() === anoLimpo) {
+      const triAtual = Number(String(escolaAlvo.trimestreActivo || '1').replace(/[^0-9]/g, '')) || 1;
+      const triAjustado = regime === 'Semestral' && triAtual > 2 ? '2' : String(Math.min(3, Math.max(1, triAtual)));
+      dbService.salvarEscola({
+        ...escolaAlvo,
+        regimePeriodos: regime,
+        trimestreActivo: triAjustado as Trimestre
+      });
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('sge_periodos_letivos_alterados', { detail: { escolaId: targetEscolaId, anoLectivo: anoLimpo, regime } }));
+      } catch {}
+    }
+
+    dbService.registarLog(
+      'Gestão de Períodos Letivos',
+      `Períodos letivos (${regime}) do ano ${anoLimpo} configurados (${periodosNormalizados.length} períodos, cálculo segmentado ${calculoSegmentadoAtivo ? 'ativo' : 'padrão'}).`,
+      targetEscolaId
+    );
+    return atualizado;
+  },
+  definirPeriodoLetivoAtivo: (escolaId: string, numeroPeriodo: 1 | 2 | 3) => {
+    const escolaAlvo = dbService.getEscolaPorId(escolaId) || dbService.getEscolaAtiva();
+    if (!escolaAlvo || !escolaAlvo.id) return;
+    const regime = dbService.getRegimePeriodosAtivo(escolaAlvo.id, escolaAlvo.anoLectivoActivo);
+    const numEfetivo = regime === 'Semestral' && numeroPeriodo > 2 ? 2 : numeroPeriodo;
+    dbService.salvarEscola({
+      ...escolaAlvo,
+      regimePeriodos: regime,
+      trimestreActivo: String(numEfetivo) as Trimestre
+    });
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('sge_periodos_letivos_alterados', { detail: { escolaId: escolaAlvo.id, trimestreActivo: String(numEfetivo) } }));
+      } catch {}
+    }
+    dbService.registarLog(
+      'Ativação de Período Letivo',
+      `Período letivo ativo definido para ${numEfetivo}º ${regime === 'Semestral' ? 'Semestre' : 'Trimestre'}.`,
+      escolaAlvo.id
+    );
   },
   contarDadosDoAnoLectivo: (escolaId: string, anoRotulo: string): Record<string, number> => {
     const matchAnoEsc = (esc?: string, ano?: string) => (!escolaId || escolaId === 'todas' || esc === escolaId) && ano === anoRotulo;
@@ -3242,26 +3745,40 @@ export const dbService = {
     senhaAtual?: string
   ): { sucesso: boolean; mensagem: string; usuarioAtualizado?: Funcionario } => {
     const funcs = dbService.getFuncionariosBruto();
-    const idx = funcs.findIndex(f => f.id === funcionarioId);
+    const current = dbService.getCurrentUser();
+    let idx = funcs.findIndex(f => f.id === funcionarioId);
+    if (idx < 0 && current) {
+      idx = funcs.findIndex(f =>
+        (current.email && f.email && f.email.trim().toLowerCase() === current.email.trim().toLowerCase()) ||
+        (current.numeroBI && f.numeroBI && f.numeroBI.trim().toUpperCase() === current.numeroBI.trim().toUpperCase())
+      );
+    }
+    if (idx < 0 && current && (current.id === funcionarioId || !funcionarioId)) {
+      funcs.push({ ...current });
+      idx = funcs.length - 1;
+    }
     if (idx < 0) {
       return { sucesso: false, mensagem: 'Utilizador não encontrado no sistema.' };
     }
 
-    const func = funcs[idx];
+    const func: Funcionario = { ...funcs[idx] };
     if (isAdminGeralUserObj(func) && isSessaoAutenticadaNaoAdminGeral()) {
       return { sucesso: false, mensagem: 'Acesso negado: não possui permissão para alterar o perfil do Administrador Geral.' };
     }
 
-    // Se forneceu nova senha, validar senha atual
-    if (novaSenha && novaSenha.trim()) {
-      if (func.password && senhaAtual && func.password !== senhaAtual) {
+    // Se forneceu nova senha (via argumento explícito ou dados.password), validar senha atual quando aplicável
+    const novaSenhaEfetiva = (novaSenha && novaSenha.trim())
+      ? novaSenha.trim()
+      : (typeof dados.password === 'string' && dados.password.trim() ? dados.password.trim() : '');
+    if (novaSenhaEfetiva) {
+      if (func.password && senhaAtual && !cryptoService.isEncriptado(func.password) && func.password !== senhaAtual) {
         return { sucesso: false, mensagem: 'A palavra-passe atual inserida está incorreta.' };
       }
-      func.password = novaSenha.trim();
+      func.password = novaSenhaEfetiva;
     }
 
     const rawFotoInput: unknown = (dados as any).fotoBlob ?? dados.fotoUrl;
-    if (dados.nomeCompleto) func.nomeCompleto = dados.nomeCompleto.trim();
+    if (dados.nomeCompleto !== undefined && dados.nomeCompleto.trim()) func.nomeCompleto = dados.nomeCompleto.trim();
     if (dados.telefone !== undefined) func.telefone = dados.telefone.trim();
     if (dados.telefoneAlternativo !== undefined) func.telefoneAlternativo = dados.telefoneAlternativo.trim();
     if (dados.email !== undefined) func.email = dados.email.trim();
@@ -3372,6 +3889,7 @@ export const dbService = {
 
     funcs[idx] = func;
     setLocal(STORAGE_KEYS.FUNCIONARIOS, funcs);
+    offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(funcs));
     // Enfileiramento síncrono pré-mídia para nunca perder a mutação offline mesmo em fecho/reload imediato
     offlineStorage.adicionarPendencia(
       'funcionarios',
@@ -3404,14 +3922,19 @@ export const dbService = {
       }
     }
 
-    // Se for o utilizador atualmente autenticado, atualizar sessão ativa
-    const current = dbService.getCurrentUser();
-    if (current && current.id === funcionarioId) {
+    // Se for o utilizador atualmente autenticado, atualizar sessão ativa imediatamente
+    if (
+      !current ||
+      current.id === funcionarioId ||
+      current.id === func.id ||
+      (current.email && func.email && current.email.toLowerCase() === func.email.toLowerCase())
+    ) {
       dbService.setCurrentUser(func);
+      offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.CURRENT_USER, JSON.stringify(func));
     }
 
-    // Persistência imediata no IndexedDB (Base64 + Blob) e sincronização garantida com o Firebase
-    normalizarEPersistirFuncionarioAsync(func, rawFotoInput);
+    // Persistência imediata no IndexedDB (Base64 + Blob); o envio ao Firebase é coordenado pelo caller ou caso a foto seja comprimida
+    normalizarEPersistirFuncionarioAsync(func, rawFotoInput, true);
 
     dbService.registarLog(
       'Atualização de Perfil',
@@ -8488,49 +9011,48 @@ export const dbService = {
     const horarios = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
     const escolaAtiva = dbService.getEscolaAtiva();
     const escRef = item.escolaId ? dbService.getEscolaPorId(item.escolaId) : escolaAtiva;
+    const escAlvoId = item.escolaId || escRef?.id || escolaAtiva?.id || '';
     const anoItem = item.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '';
+    const turmasEsc = getLocal<Turma[]>(STORAGE_KEYS.TURMAS, DEFAULT_TURMAS);
+    const turnosCfg = dbService.getTurnosConfigs(escAlvoId, anoItem);
+    const turnoItem = turmasEsc.find(t => t.id === item.turmaId)?.turno || '';
     
     for (const h of horarios) {
       if (idIgnorar && h.id === idIgnorar) continue;
+      if (escAlvoId && h.escolaId && h.escolaId !== escAlvoId) continue;
       if (anoItem && h.anoLectivo && h.anoLectivo !== anoItem) continue;
+      if (h.diaSemana !== item.diaSemana || h.numeroTempo !== item.numeroTempo) continue;
 
-      // 1. Conflito do mesmo professor na mesma hora em turmas distintas
-      if (
-        h.diaSemana === item.diaSemana &&
-        h.numeroTempo === item.numeroTempo &&
-        h.professorId === item.professorId
-      ) {
+      // 3. Conflito de tempo na mesma turma (sempre conflito)
+      if (h.turmaId === item.turmaId) {
+        return {
+          temConflito: true,
+          motivo: `A turma já possui aula de ${h.disciplinaNome} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
+        };
+      }
+
+      const turnoH = turmasEsc.find(t => t.id === h.turmaId)?.turno || '';
+      const turnosChocam = turnosHorariosConflitam(turnoItem, turnoH, turnosCfg, true);
+      if (!turnosChocam) continue;
+
+      // 1. Conflito do mesmo professor na mesma hora em turmas de turno incompatível
+      if (h.professorId === item.professorId) {
         const profConflito = dbService.getFuncionarios(item.escolaId).find(f => f.id === item.professorId);
         const tituloProf = profConflito?.genero === 'F' ? 'A Professora' : 'O Professor';
         return {
           temConflito: true,
-          motivo: `${tituloProf} ${h.professorNome} já tem aula atribuída na ${h.classe} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
+          motivo: `${tituloProf} ${h.professorNome} já tem aula atribuída na ${h.classe}${turnoH ? ` (${turnoH})` : ''} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
         };
       }
 
-      // 2. Conflito da mesma sala no mesmo horário
+      // 2. Conflito da mesma sala no mesmo horário e turno
       if (
-        h.diaSemana === item.diaSemana &&
-        h.numeroTempo === item.numeroTempo &&
-        h.escolaId === item.escolaId &&
         h.sala.trim().toLowerCase() === item.sala.trim().toLowerCase() &&
         h.turmaId !== item.turmaId
       ) {
         return {
           temConflito: true,
-          motivo: `A ${h.sala} já está ocupada pela turma ${h.classe} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
-        };
-      }
-
-      // 3. Conflito de tempo na mesma turma
-      if (
-        h.diaSemana === item.diaSemana &&
-        h.numeroTempo === item.numeroTempo &&
-        h.turmaId === item.turmaId
-      ) {
-        return {
-          temConflito: true,
-          motivo: `A turma já possui aula de ${h.disciplinaNome} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
+          motivo: `A ${h.sala} já está ocupada pela turma ${h.classe}${turnoH ? ` (${turnoH})` : ''} na ${h.diaSemana}, no ${h.numeroTempo}º tempo!`
         };
       }
     }
@@ -8559,6 +9081,41 @@ export const dbService = {
     setLocal(STORAGE_KEYS.HORARIOS, horarios);
     firebaseSyncEngine.salvarHorario(itemComTs);
     return { sucesso: true };
+  },
+
+  salvarHorariosLote: (novosHorarios: HorarioAulaItem[], idsSubstituidos: string[] = []): void => {
+    const nowIso = new Date().toISOString();
+    const escolaAtiva = dbService.getEscolaAtiva();
+    const subsSet = new Set(idsSubstituidos.filter(Boolean));
+    const atuais = getLocal<HorarioAulaItem[]>(STORAGE_KEYS.HORARIOS, DEFAULT_HORARIOS);
+
+    const normalizados = novosHorarios.map(item => {
+      const escRef = item.escolaId ? dbService.getEscolaPorId(item.escolaId) : escolaAtiva;
+      return {
+        ...item,
+        anoLectivo: item.anoLectivo || escRef?.anoLectivoActivo || escolaAtiva?.anoLectivoActivo || '',
+        atualizadoEm: item.atualizadoEm || nowIso
+      };
+    });
+
+    const novosIdsSet = new Set(normalizados.map(n => n.id));
+    const preservados = atuais.filter(h => !subsSet.has(h.id) && !novosIdsSet.has(h.id));
+    const resultadoFinal = [...preservados, ...normalizados];
+    setLocal(STORAGE_KEYS.HORARIOS, resultadoFinal);
+
+    if (idsSubstituidos.length > 0) {
+      firebaseSyncEngine.eliminarHorariosLote(idsSubstituidos);
+    }
+    if (normalizados.length > 0) {
+      firebaseSyncEngine.salvarHorariosLote(normalizados);
+    }
+
+    const escIdLog = normalizados[0]?.escolaId || escolaAtiva?.id;
+    dbService.registarLog(
+      'Horário Automático Anti-Conflitos',
+      `Gerado e gravado lote de ${normalizados.length} tempo(s) letivo(s) sem conflitos (${idsSubstituidos.length} substituídos).`,
+      escIdLog
+    );
   },
 
   eliminarHorario: (id: string): void => {

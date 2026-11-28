@@ -1358,7 +1358,7 @@ export const AdminGlobalSchoolsView: React.FC<AdminGlobalSchoolsViewProps> = ({
             </div>
 
             <p className="text-xs text-gray-600 leading-relaxed">
-              Atenção: A eliminação da escola <strong>"{escolaSelecionada.nomeOficial}"</strong> removerá o registo da instituição do sistema central.
+              Atenção: A eliminação definitiva da escola <strong>"{escolaSelecionada.nomeOficial}"</strong> apagará irreversivelmente a instituição e <strong>todos os seus dados</strong> (alunos, professores/diretor, turmas, disciplinas, notas, pautas, horários, finanças, recibos, património, estoque de limpeza, atas, calendário e ficheiros) neste dispositivo e na nuvem Firebase.
             </p>
 
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">

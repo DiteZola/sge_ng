@@ -68,6 +68,7 @@ export interface Escola {
   chefeSecretariaNome?: string;
   anoLectivoActivo: string;
   trimestreActivo: Trimestre;
+  regimePeriodos?: RegimePeriodosLetivos;
   estadoAno: EstadoAno;
   ativo: boolean;
   estadoEscola?: 'Ativa' | 'Suspensa' | 'Inativa';
@@ -1293,6 +1294,8 @@ export interface ConfiguracaoSistema {
 // ESTRUTURAS DE GESTÃO DE ANOS LECTIVOS & CALENDÁRIO
 // ==========================================
 
+export type RegimePeriodosLetivos = 'Trimestral' | 'Semestral';
+
 export interface PeriodoTrimestre {
   trimestre: Trimestre;
   nome: string; // "Iº Trimestre", "IIº Trimestre", "IIIº Trimestre"
@@ -1300,6 +1303,14 @@ export interface PeriodoTrimestre {
   dataFim: string;
   estado: 'Aberto' | 'Fechado';
   pesoPercentual?: number;
+}
+
+export interface PeriodoLetivoConfig extends PeriodoTrimestre {
+  id?: string;
+  numero: 1 | 2 | 3;
+  tipo: 'Trimestre' | 'Semestre';
+  bloquearLancamentoSeFechado?: boolean;
+  descricao?: string;
 }
 
 export interface AnoLectivoConfig {
@@ -1311,6 +1322,9 @@ export interface AnoLectivoConfig {
   dataFim: string;
   estado: EstadoAno; // 'Aberto' | 'Fechado' | 'Congelado'
   trimestres: PeriodoTrimestre[];
+  regimePeriodos?: RegimePeriodosLetivos;
+  periodos?: PeriodoLetivoConfig[];
+  calculoSegmentadoAtivo?: boolean;
   descricao?: string;
   criadoEm: string;
   atualizadoEm?: string;

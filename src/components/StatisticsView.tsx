@@ -50,7 +50,8 @@ import { OfficialQrCode, gerarPayloadQrDocumento } from '../utils/qrCodeUtils';
 import {
   obterInformacaoEscala,
   calcularAproveitamentoPautaGeralAlunos,
-  calcularNotaTrimestralDinamica
+  calcularNotaTrimestralDinamica,
+  calcularMediaGeralDaClasse
 } from '../services/macEngine';
 import { hojeAngolano, formatarDataHoraAngolana } from '../utils/dateFormat';
 
@@ -561,7 +562,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         const pt = typeof n.npt === 'number' ? n.npt : (typeof n.provaTrimestral === 'number' ? n.provaTrimestral : undefined);
         const temInputs = typeof n.mac === 'number' || typeof pt === 'number' || (nppAtivoEfetivo && typeof n.npp === 'number');
         const val = !nppAtivoEfetivo && temInputs
-          ? calcularNotaTrimestralDinamica(typeof n.mac === 'number' ? n.mac : 0, undefined, pt, regrasMAC[0], Number(n.trimestre) || 1, turma?.classe, false).mediaTrimestral
+          ? calcularNotaTrimestralDinamica(typeof n.mac === 'number' ? n.mac : undefined, undefined, pt, regrasMAC[0], Number(n.trimestre) || 1, turma?.classe, false).mediaTrimestral
           : (n.mediaTrimestral ?? n.notaFinal ?? n.mac ?? 0);
         return acc + val;
       }, 0);
@@ -593,7 +594,7 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
     };
   }, [alunosFiltrados, turmas, turmasFiltradas, notasFiltradas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo, isVisaoRedeTodas, escolaExibida.id]);
 
-  // Rendimento Comparativo por Classe — Alinhado com Pautas Gerais
+  // Rendimento Comparativo por Classe — Alinhado com Pautas Gerais e Médias de Disciplinas Necessárias
   const rendimentoPorClasse = useMemo(() => {
     const mapaTurmasPorClasse = new Map<string, Turma[]>();
     turmasFiltradas.forEach(t => {
@@ -602,6 +603,10 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
       if (arr) arr.push(t);
       else mapaTurmasPorClasse.set(cls, [t]);
     });
+
+    const anoRef = anoFiltroCanonical && anoFiltroCanonical !== 'todos' ? anoFiltroCanonical : escolaExibida.anoLectivoActivo;
+    const regimePeriodos = dbService.getRegimePeriodosAtivo(escolaExibida.id, anoRef);
+    const periodosConfig = dbService.getPeriodosLetivos(escolaExibida.id, anoRef);
 
     return Array.from(mapaTurmasPorClasse.entries()).map(([classe, turmasCls]) => {
       const turmaIds = new Set(turmasCls.map(t => t.id));
@@ -617,19 +622,39 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         nppAtivo: nppAtivoEfetivo,
         escolaId: isVisaoRedeTodas ? 'todas' : escolaExibida.id
       });
+      const resMediaCls = calcularMediaGeralDaClasse({
+        classe,
+        turmasDaClasse: turmasCls,
+        alunosDaClasse: alunosCls,
+        disciplinas: disciplinasPermitidas,
+        notasConsolidadas: notasFiltradas,
+        regrasMAC,
+        juris: jurisTodos,
+        trimestreFiltro: triFiltroCanonical,
+        anoLectivo: anoFiltroCanonical,
+        nppAtivo: nppAtivoEfetivo,
+        regimePeriodos,
+        periodosConfig,
+        escolaId: isVisaoRedeTodas ? 'todas' : escolaExibida.id
+      });
       const taxa = resCls.totalAvaliados > 0 ? ((resCls.aprovados / resCls.totalAvaliados) * 100).toFixed(1) : '0.0';
-      const media = resCls.totalAvaliados > 0 ? String(Math.round(resCls.mediaNotas)) : '—';
+      const media = resMediaCls.mediaGeral !== null
+        ? resMediaCls.mediaGeral.toFixed(1)
+        : (resCls.totalAvaliados > 0 ? resCls.mediaNotas.toFixed(1) : '—');
+      const mediaNum = resMediaCls.mediaGeral !== null ? resMediaCls.mediaGeral : resCls.mediaNotas;
       return {
         classe,
         matriculados: alunosCls.length,
         avaliados: resCls.totalAvaliados,
         aprovados: resCls.aprovados,
-        somaMedias: resCls.mediaNotas * resCls.totalAvaliados,
+        somaMedias: mediaNum * resCls.totalAvaliados,
         taxaAprovacao: parseFloat(taxa),
-        mediaGeral: media
+        mediaGeral: media,
+        disciplinasComNotas: resMediaCls.disciplinasComNotas,
+        totalDisciplinasNecessarias: resMediaCls.totalDisciplinasNecessarias
       };
     }).sort((a, b) => a.classe.localeCompare(b.classe, 'pt-AO', { numeric: true }));
-  }, [turmasFiltradas, alunosFiltrados, notasFiltradas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo, isVisaoRedeTodas, escolaExibida.id]);
+  }, [turmasFiltradas, alunosFiltrados, notasFiltradas, disciplinasPermitidas, regrasMAC, jurisTodos, triFiltroCanonical, anoFiltroCanonical, nppAtivoEfetivo, isVisaoRedeTodas, escolaExibida.id, escolaExibida.anoLectivoActivo]);
 
   // Ranking de Turmas — Alinhado com Pautas Gerais
   const rankingTurmas = useMemo(() => {

@@ -94,6 +94,11 @@ const FIXED_PDF_LAYOUT_CSS = `
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+  [data-pdf-student-grid] {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
   [data-pdf-student-grid="2"] {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -106,14 +111,40 @@ const FIXED_PDF_LAYOUT_CSS = `
     display: grid !important;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
+  [data-pdf-student-grid="5"] {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
   [data-pdf-student-grid="6"] {
     display: grid !important;
     grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
   }
+  [data-pdf-student-grid] > .col-span-2 {
+    grid-column: span 2 / span 2 !important;
+  }
+  [data-pdf-student-grid] > .col-span-3 {
+    grid-column: span 3 / span 3 !important;
+  }
+  [data-pdf-student-grid] > .col-span-4 {
+    grid-column: span 4 / span 4 !important;
+  }
+  [data-pdf-student-grid] > .text-right {
+    text-align: right !important;
+  }
+  [data-pdf-student-grid] > .text-center {
+    text-align: center !important;
+  }
+  [data-pdf-student-grid] > .justify-self-end {
+    justify-self: end !important;
+  }
+  [data-pdf-student-grid] > .whitespace-nowrap {
+    white-space: nowrap !important;
+  }
   [data-pdf-student-row="true"] {
     display: flex !important;
     flex-direction: row !important;
-    align-items: flex-start !important;
+    align-items: center !important;
+    width: 100% !important;
   }
   [data-pdf-fixed-signatures="true"],
   [data-pdf-fixed-qr="true"],
@@ -156,6 +187,7 @@ const FIXED_PDF_LAYOUT_CSS = `
   [data-doc-root="true"] table,
   .documento-oficial-print table {
     border-collapse: collapse !important;
+    box-sizing: border-box !important;
   }
   [data-doc-root="true"] th,
   [data-doc-root="true"] td,
@@ -163,6 +195,21 @@ const FIXED_PDF_LAYOUT_CSS = `
   .documento-oficial-print td {
     overflow: visible !important;
     text-overflow: clip !important;
+    vertical-align: middle !important;
+    line-height: 1.35 !important;
+    box-sizing: border-box !important;
+  }
+  [data-boletim-visto="true"] {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+  [data-boletim-visto="true"] p,
+  [data-boletim-visto="true"] span,
+  [data-boletim-visto="true"] div {
+    text-align: center !important;
   }
   .boletins-grid-4 {
     display: grid !important;

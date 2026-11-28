@@ -1414,8 +1414,8 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
     if (String(selectedTrimestre) === '3') {
       const n1Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1');
       const n2Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2');
-      const mt1 = n1Al?.mediaTrimestral ?? mediaTri;
-      const mt2 = n2Al?.mediaTrimestral ?? mediaTri;
+      const mt1 = typeof n1Al?.mediaTrimestral === 'number' ? n1Al.mediaTrimestral : undefined;
+      const mt2 = typeof n2Al?.mediaTrimestral === 'number' ? n2Al.mediaTrimestral : undefined;
       const calcMf = calcularMediaFinal3Trimestre(
         mt1,
         mt2,
@@ -1426,10 +1426,13 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
       );
       notaFinal = calcMf.mediaFinal;
     } else if (ehClasseFinal && exameVal !== undefined && exameVal !== null && !isNaN(exameVal)) {
+      const n1Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1');
+      const n2Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2');
+      const n3Al = notasConsolid.find(c => c.alunoId === alunoId && correspondeDiscEval(c) && normTriEval(c.trimestre) === '3');
       const calcMf = calcularMediaFinal3Trimestre(
-        mediaTri,
-        mediaTri,
-        mediaTri,
+        String(selectedTrimestre) === '1' ? mediaTri : n1Al?.mediaTrimestral,
+        String(selectedTrimestre) === '2' ? mediaTri : n2Al?.mediaTrimestral,
+        n3Al?.mediaTrimestral,
         exameVal,
         regraVigente,
         turmaAtiva?.classe || selectedClasse
@@ -2180,9 +2183,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                       const n1Al = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '1');
                       const n2Al = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '2');
                       const n3Al = notasConsolidadas.find(c => c.alunoId === aluno.id && correspondeDiscEval(c) && normTriEval(c.trimestre) === '3');
-                      const mt1Real = Number(selectedTrimestre) === 1 ? mediaTrimestralCalculada : (n1Al?.mediaTrimestral ?? mediaTrimestralCalculada);
-                      const mt2Real = Number(selectedTrimestre) === 2 ? mediaTrimestralCalculada : (n2Al?.mediaTrimestral ?? mediaTrimestralCalculada);
-                      const mt3Real = Number(selectedTrimestre) === 3 ? mediaTrimestralCalculada : (n3Al?.mediaTrimestral ?? mediaTrimestralCalculada);
+                      const mt1Real = Number(selectedTrimestre) === 1 ? mediaTrimestralCalculada : n1Al?.mediaTrimestral;
+                      const mt2Real = Number(selectedTrimestre) === 2 ? mediaTrimestralCalculada : n2Al?.mediaTrimestral;
+                      const mt3Real = Number(selectedTrimestre) === 3 ? mediaTrimestralCalculada : n3Al?.mediaTrimestral;
 
                       const calcMFLinha = calcularMediaFinal3Trimestre(
                         mt1Real,
@@ -3414,9 +3417,9 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                       const mediaTrim = temInputsLive ? calcTrim.mediaTrimestral : (notaCons?.mediaTrimestral ?? calcTrim.mediaTrimestral);
 
                       // Média Final usando MT1, MT2, MT3 reais da disciplina
-                      const mt1Real = triAtivoStr === '1' ? mediaTrim : (n1Cons?.mediaTrimestral ?? mediaTrim);
-                      const mt2Real = triAtivoStr === '2' ? mediaTrim : (n2Cons?.mediaTrimestral ?? mediaTrim);
-                      const mt3Real = triAtivoStr === '3' ? mediaTrim : (n3Cons?.mediaTrimestral ?? mediaTrim);
+                      const mt1Real = triAtivoStr === '1' ? mediaTrim : n1Cons?.mediaTrimestral;
+                      const mt2Real = triAtivoStr === '2' ? mediaTrim : n2Cons?.mediaTrimestral;
+                      const mt3Real = triAtivoStr === '3' ? mediaTrim : n3Cons?.mediaTrimestral;
                       const calcMF = calcularMediaFinal3Trimestre(
                         mt1Real,
                         mt2Real,
@@ -3509,14 +3512,15 @@ export const EvaluationMacView: React.FC<EvaluationMacViewProps> = ({
                 const mTrim = (resMAC.totalAvaliacoesUtilizadas > 0 || typeof nAt?.npp === 'number' || typeof ptResumo === 'number' || typeof nAt?.mac === 'number')
                   ? calcT.mediaTrimestral
                   : (nAt?.mediaTrimestral ?? calcT.mediaTrimestral);
-                const mfC = calcularMediaFinal3Trimestre(
-                  triStrR === '1' ? mTrim : (n1?.mediaTrimestral ?? mTrim),
-                  triStrR === '2' ? mTrim : (n2?.mediaTrimestral ?? mTrim),
-                  triStrR === '3' ? mTrim : (n3?.mediaTrimestral ?? mTrim),
+                const calcMfRes = calcularMediaFinal3Trimestre(
+                  triStrR === '1' ? mTrim : n1?.mediaTrimestral,
+                  triStrR === '2' ? mTrim : n2?.mediaTrimestral,
+                  triStrR === '3' ? mTrim : n3?.mediaTrimestral,
                   ehClasseFinal ? (nAt?.notaExame ?? n3?.notaExame) : undefined,
                   regraVigente,
                   turmaAtiva.classe
                 );
+                const mfC = calcMfRes;
                 const vFinal = Number(selectedTrimestre) === 3 ? mfC.mediaFinal : mTrim;
                 const temNotasResumo = resMAC.totalAvaliacoesUtilizadas > 0 || nAt !== undefined || n1 !== undefined || n2 !== undefined;
                 const obs = obterObservacaoDisciplina(

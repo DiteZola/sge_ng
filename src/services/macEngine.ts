@@ -7,7 +7,10 @@ import {
   NotaTrimestralConsolidada,
   ComissaoJuri,
   Turma,
-  Aluno 
+  Aluno,
+  Disciplina,
+  PeriodoLetivoConfig,
+  RegimePeriodosLetivos
 } from '../types';
 
 /**
@@ -304,7 +307,7 @@ export function isClasseFinal(classe?: string, regra?: RegraCalculoMAC): boolean
  * Normas MED Angola ou Fórmulas Criadas pelo Director Geral / Administrador
  */
 export function calcularNotaTrimestralDinamica(
-  mac: number,
+  mac: number | null | undefined,
   npp: number | undefined,
   npt: number | undefined,
   regra?: RegraCalculoMAC,
@@ -313,37 +316,44 @@ export function calcularNotaTrimestralDinamica(
   nppAtivo: boolean = true
 ): { mediaTrimestral: number; formulaAplicada: string } {
   const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
+  const temMac = typeof mac === 'number' && !isNaN(mac) && mac >= 0;
+  const temNpp = nppAtivo && typeof npp === 'number' && !isNaN(npp) && npp >= 0;
+  const temNpt = typeof npt === 'number' && !isNaN(npt) && npt >= 0;
 
-  // Se a Prova do Professor (NPP) estiver desativada nas configurações escolares:
-  // Apenas MAC e a Prova Trimestral (PT / NPT) são consideradas: MT = (MAC + PT) / 2
-  if (!nppAtivo) {
-    const ptVal = npt !== undefined && npt >= 0 ? npt : mac;
-    const mt = (mac + ptVal) / 2;
+  if (!temMac && !temNpp && !temNpt) {
     return {
-      mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
-      formulaAplicada: 'Padrão MED (NPP Desativado): (MAC + PT) / 2'
+      mediaTrimestral: 0,
+      formulaAplicada: 'Sem componentes lançadas no trimestre'
     };
   }
 
-  const nppVal = npp !== undefined ? npp : mac;
-  const nptVal = npt !== undefined && npt >= 0 ? npt : nppVal;
+  const macVal = temMac ? mac! : (temNpp ? npp! : npt!);
+  const nppVal = temNpp ? npp! : macVal;
+  const nptVal = temNpt ? npt! : (temNpp ? nppVal : macVal);
+
+  const parsePeso = (val: unknown, fallback: number): number => {
+    if (val === undefined || val === null || val === '') return fallback;
+    const num = Number(val);
+    return !isNaN(num) && num >= 0 ? num : fallback;
+  };
 
   // 1. Verificar se há fórmula personalizada expressa para o trimestre em questão
-  const formulaTrimestreEspecifica = 
-    trimestre === 3 
+  const formulaTrimestreEspecifica =
+    trimestre === 3
       ? (regra?.formula3Trimestre || regra?.formulaTerceiroTrimestre)
-      : (trimestre === 1 
-          ? (regra?.formula1Trimestre || regra?.formulaPrimeirosTrimestres) 
+      : (trimestre === 1
+          ? (regra?.formula1Trimestre || regra?.formulaPrimeirosTrimestres)
           : (regra?.formula2Trimestre || regra?.formulaPrimeirosTrimestres));
 
   const formulaTexto = formulaTrimestreEspecifica || regra?.formulaTrimestral || regra?.formulaCustom;
 
-  if (formulaTexto) {
+  if (formulaTexto && (!formulaTexto.toUpperCase().includes('NPP') || nppAtivo)) {
     const res = avaliarExpressaoNota(formulaTexto, {
-      MAC: mac,
+      MAC: macVal,
       NPP: nppVal,
       NPT: nptVal,
-      PA: mac
+      PT: nptVal,
+      PA: macVal
     });
     if (res !== null) {
       const finalVal = Math.min(escala, Math.max(0, Math.round(res * 10) / 10));
@@ -354,76 +364,121 @@ export function calcularNotaTrimestralDinamica(
     }
   }
 
-  // 2. Verificar pesos diferenciados do 3º Trimestre vs 1º/2º Trimestres ou padrão (quando não for estritamente ARITMETICA_SIMPLES)
-  const pesosAplicaveis = 
-    trimestre === 3 
+  // 2. Verificar pesos diferenciados do 3º Trimestre vs 1º/2º Trimestres ou padrão
+  const pesosAplicaveis =
+    trimestre === 3
       ? (regra?.pesosTerceiroTrimestre || regra?.pesosTrimestre)
       : (regra?.pesosPrimeirosTrimestres || regra?.pesosTrimestre);
 
   if (pesosAplicaveis && regra?.formulaTipo !== 'ARITMETICA_SIMPLES') {
-    const wMac = Number(pesosAplicaveis.mac) || 1;
-    const wNpp = Number(pesosAplicaveis.npp) || 1;
-    const wNpt = npt !== undefined && npt >= 0 ? (Number(pesosAplicaveis.npt) || 1) : 0;
+    const wMac = temMac ? parsePeso(pesosAplicaveis.mac, 1) : 0;
+    const wNpp = temNpp ? parsePeso(pesosAplicaveis.npp, 1) : 0;
+    const wNpt = temNpt ? parsePeso(pesosAplicaveis.npt, 1) : 0;
     const totalPesos = wMac + wNpp + wNpt;
     if (totalPesos > 0) {
-      const mtPond = ((mac * wMac) + (nppVal * wNpp) + ((npt ?? 0) * wNpt)) / totalPesos;
+      const mtPond = (((mac ?? 0) * wMac) + ((npp ?? 0) * wNpp) + ((npt ?? 0) * wNpt)) / totalPesos;
       const finalVal = Math.min(escala, Math.max(0, Math.round(mtPond * 10) / 10));
       return {
         mediaTrimestral: finalVal,
-        formulaAplicada: `Ponderação Direção (${trimestre}º Trim.): MAC(${wMac}) + NPP(${wNpp}) + NPT(${wNpt})`
+        formulaAplicada: `Ponderação Direção (${trimestre}º Trim.): MAC(${wMac})${nppAtivo ? ` + NPP(${wNpp})` : ''} + PT(${wNpt})`
       };
     }
   }
 
-  // 3. Se possui Prova Trimestral (NPT) lançada - Padrão Oficial do Ministério da Educação (MED)
-  if (npt !== undefined && npt >= 0) {
-    const mt = (mac + nppVal + npt) / 3;
+  // 3. Se a Prova do Professor (NPP) estiver desativada nas configurações escolares:
+  // Apenas MAC e Prova Trimestral (PT / NPT) efetivamente lançadas são consideradas
+  if (!nppAtivo) {
+    const compsSemNpp = [temMac ? mac! : null, temNpt ? npt! : null].filter((v): v is number => v !== null);
+    const mt = compsSemNpp.reduce((a, b) => a + b, 0) / compsSemNpp.length;
     return {
       mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
-      formulaAplicada: 'Padrão MED: (MAC + NPP + PT) / 3'
+      formulaAplicada: compsSemNpp.length === 2
+        ? 'Padrão MED (NPP Desativado): (MAC + PT) / 2'
+        : 'Padrão MED (NPP Desativado — Lançamento Parcial)'
     };
   }
 
-  // 4. Se ainda só tem MAC e NPP
-  const mt = (mac + nppVal) / 2;
+  // 4. Média aritmética rigorosa apenas das componentes efetivamente lançadas (MAC, NPP, PT)
+  const componentesLancados: Array<{ rotulo: string; valor: number }> = [];
+  if (temMac) componentesLancados.push({ rotulo: 'MAC', valor: mac! });
+  if (temNpp) componentesLancados.push({ rotulo: 'NPP', valor: npp! });
+  if (temNpt) componentesLancados.push({ rotulo: 'PT', valor: npt! });
+
+  const mt = componentesLancados.reduce((acc, c) => acc + c.valor, 0) / componentesLancados.length;
+  const formulaRotulo = componentesLancados.length > 1
+    ? `Padrão MED: (${componentesLancados.map(c => c.rotulo).join(' + ')}) / ${componentesLancados.length}`
+    : `Padrão MED (${componentesLancados[0].rotulo} Parcial)`;
+
   return {
     mediaTrimestral: Math.min(escala, Math.max(0, Math.round(mt * 10) / 10)),
-    formulaAplicada: 'Padrão MED: (MAC + NPP) / 2'
+    formulaAplicada: formulaRotulo
   };
 }
 
 /**
- * Calcula a Média Final (MF) e Média Geral com suporte a:
- * - Fórmulas de classes normais/não-finais (MT1, MT2, MT3) com pesos ou expressões
+ * Calcula a Média Final (MF) e Média de Frequência (MDF) com suporte a:
+ * - Trimestres parciais ou completos (MT1, MT2, MT3) com pesos reais re-normalizados
  * - Classes finais com Exame / Prova Global (MDF + Exame)
- * - Ponderações configuradas pelo Diretor / Administrador Geral
+ * - Exame de Recurso quando aplicável
  */
 export function calcularMediaFinal3Trimestre(
-  mt1: number,
-  mt2: number,
-  mt3: number,
+  mt1: number | null | undefined,
+  mt2: number | null | undefined,
+  mt3: number | null | undefined,
   exameFinal?: number,
   regra?: RegraCalculoMAC,
-  classe: string = '7ª'
-): { mediaFinal: number; status: 'Aprovado' | 'Recurso' | 'Reprovado'; formulaDetalhe: string } {
+  classe: string = '7ª',
+  notaRecurso?: number
+): { mediaFinal: number; mdf: number; status: 'Aprovado' | 'Recurso' | 'Reprovado'; formulaDetalhe: string } {
   const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
   const notaAprovacao = regra?.notaMinimaAprovacao || (escala === 10 ? 5 : 10);
   const notaMinRecurso = regra?.notaMinimaExameRecurso || (escala === 10 ? 4 : 7);
 
-  // Média de Frequência Anual (MDF)
-  let mtGeral = (mt1 + mt2 + mt3) / 3;
+  const v1 = typeof mt1 === 'number' && !isNaN(mt1) ? mt1 : null;
+  const v2 = typeof mt2 === 'number' && !isNaN(mt2) ? mt2 : null;
+  const v3 = typeof mt3 === 'number' && !isNaN(mt3) ? mt3 : null;
+  const trimestresPresentes = [
+    v1 !== null ? { idx: 1, val: v1 } : null,
+    v2 !== null ? { idx: 2, val: v2 } : null,
+    v3 !== null ? { idx: 3, val: v3 } : null
+  ].filter((x): x is { idx: number; val: number } => x !== null);
+
+  if (trimestresPresentes.length === 0) {
+    const recVal = typeof notaRecurso === 'number' && !isNaN(notaRecurso) ? Math.min(escala, Math.max(0, Math.round(notaRecurso))) : 0;
+    const exVal = typeof exameFinal === 'number' && !isNaN(exameFinal) ? Math.min(escala, Math.max(0, Math.round(exameFinal))) : 0;
+    const base = Math.max(recVal, exVal);
+    return {
+      mediaFinal: base,
+      mdf: 0,
+      status: classe === 'Iniciação' ? 'Aprovado' : (base >= notaAprovacao ? 'Aprovado' : base >= notaMinRecurso ? 'Recurso' : 'Reprovado'),
+      formulaDetalhe: 'Sem médias trimestrais lançadas'
+    };
+  }
+
+  const parsePesoT = (val: unknown, fallback: number): number => {
+    if (val === undefined || val === null || val === '') return fallback;
+    const num = Number(val);
+    return !isNaN(num) && num >= 0 ? num : fallback;
+  };
+
+  // Média de Frequência Anual (MDF) calculada estritamente sobre os trimestres disponíveis
+  let mtGeral = trimestresPresentes.reduce((a, b) => a + b.val, 0) / trimestresPresentes.length;
+  let detalhe = trimestresPresentes.length === 3
+    ? 'Média das Médias Trimestrais: (MT1 + MT2 + MT3) / 3'
+    : `Média de Frequência Parcial (${trimestresPresentes.length} Trimestre${trimestresPresentes.length > 1 ? 's' : ''})`;
+
   if (regra?.pesosTrimestresMF && regra?.formulaTipo !== 'ARITMETICA_SIMPLES') {
-    const w1 = Number(regra.pesosTrimestresMF.t1) || 1;
-    const w2 = Number(regra.pesosTrimestresMF.t2) || 1;
-    const w3 = Number(regra.pesosTrimestresMF.t3) || 1;
+    const w1 = v1 !== null ? parsePesoT(regra.pesosTrimestresMF.t1, 1) : 0;
+    const w2 = v2 !== null ? parsePesoT(regra.pesosTrimestresMF.t2, 1) : 0;
+    const w3 = v3 !== null ? parsePesoT(regra.pesosTrimestresMF.t3, 1) : 0;
     const totalW = w1 + w2 + w3;
     if (totalW > 0) {
-      mtGeral = (mt1 * w1 + mt2 * w2 + mt3 * w3) / totalW;
+      mtGeral = ((v1 ?? 0) * w1 + (v2 ?? 0) * w2 + (v3 ?? 0) * w3) / totalW;
+      detalhe = `Ponderação Trimestral: T1(${w1}) + T2(${w2}) + T3(${w3})`;
     }
   }
 
   let mf = mtGeral;
-  let detalhe = 'Média das Médias Trimestrais: (MT1 + MT2 + MT3) / 3';
 
   // Identificar se a classe é uma classe de exame final (ex: 6ª, 9ª, 12ª, 13ª ou configurada na regra)
   const classesFinaisPadrao = ['6ª', '9ª', '12ª', '13ª'];
@@ -431,13 +486,13 @@ export function calcularMediaFinal3Trimestre(
   const ehClasseFinal = classesFinais.some(cf => classe.toLowerCase().includes(cf.toLowerCase()));
 
   // 1. Se for classe final e houver exame ou cálculo de exame configurado
-  if ((ehClasseFinal || regra?.tipoCalculo3Trimestre === 'PONDERADO_EXAME') && exameFinal !== undefined && exameFinal >= 0) {
+  if ((ehClasseFinal || regra?.tipoCalculo3Trimestre === 'PONDERADO_EXAME') && exameFinal !== undefined && !isNaN(exameFinal) && exameFinal >= 0) {
     if (regra?.formulaClassesFinaisExame) {
       const res = avaliarExpressaoNota(regra.formulaClassesFinaisExame, {
         MDF: mtGeral,
-        MT1: mt1,
-        MT2: mt2,
-        MT3: mt3,
+        MT1: v1 ?? mtGeral,
+        MT2: v2 ?? mtGeral,
+        MT3: v3 ?? mtGeral,
         NE: exameFinal,
         EXAME: exameFinal
       });
@@ -446,33 +501,54 @@ export function calcularMediaFinal3Trimestre(
         detalhe = `Classe Final com Exame (Fórmula): ${regra.formulaClassesFinaisExame}`;
       }
     } else {
-      const pesoNE = regra?.pesoNEClassesFinais || (regra?.pesoExameFinal ? (regra.pesoExameFinal > 1 ? regra.pesoExameFinal : regra.pesoExameFinal * 100) : 60);
-      const pesoMDF = regra?.pesoMDFClassesFinais || (regra?.pesoMediasTrimestrais ? (regra.pesoMediasTrimestrais > 1 ? regra.pesoMediasTrimestrais : regra.pesoMediasTrimestrais * 100) : 40);
-      const fracNE = pesoNE / (pesoNE + pesoMDF);
-      const fracMDF = pesoMDF / (pesoNE + pesoMDF);
-      mf = (mtGeral * fracMDF) + (exameFinal * fracNE);
-      detalhe = `Classe Final: ${Math.round(fracMDF * 100)}% Frequência (MDF) + ${Math.round(fracNE * 100)}% Exame (NE)`;
+      const pesoNE = parsePesoT(
+        regra?.pesoNEClassesFinais ?? (regra?.pesoExameFinal !== undefined ? (regra.pesoExameFinal > 1 ? regra.pesoExameFinal : regra.pesoExameFinal * 100) : undefined),
+        60
+      );
+      const pesoMDF = parsePesoT(
+        regra?.pesoMDFClassesFinais ?? (regra?.pesoMediasTrimestrais !== undefined ? (regra.pesoMediasTrimestrais > 1 ? regra.pesoMediasTrimestrais : regra.pesoMediasTrimestrais * 100) : undefined),
+        40
+      );
+      const somaPesosExame = pesoNE + pesoMDF;
+      if (somaPesosExame > 0) {
+        const fracNE = pesoNE / somaPesosExame;
+        const fracMDF = pesoMDF / somaPesosExame;
+        mf = (mtGeral * fracMDF) + (exameFinal * fracNE);
+        detalhe = `Classe Final: ${Math.round(fracMDF * 100)}% Frequência (MDF) + ${Math.round(fracNE * 100)}% Exame (NE)`;
+      }
     }
-  } else if (regra?.formulaMediaGeralClasse) {
+  } else if (regra?.formulaMediaGeralClasse && trimestresPresentes.length === 3) {
     // 2. Classes Não Finais: Fórmula da Média Geral personalizada
     const res = avaliarExpressaoNota(regra.formulaMediaGeralClasse, {
-      MT1: mt1,
-      MT2: mt2,
-      MT3: mt3
+      MDF: mtGeral,
+      MT1: v1!,
+      MT2: v2!,
+      MT3: v3!
     });
     if (res !== null) {
       mf = res;
       detalhe = `Classes Não Finais (Fórmula): ${regra.formulaMediaGeralClasse}`;
     }
-  } else if (regra?.pesosTrimestresMF) {
-    const w1 = Number(regra.pesosTrimestresMF.t1) || 1;
-    const w2 = Number(regra.pesosTrimestresMF.t2) || 1;
-    const w3 = Number(regra.pesosTrimestresMF.t3) || 1;
-    mf = (mt1 * w1 + mt2 * w2 + mt3 * w3) / (w1 + w2 + w3);
-    detalhe = `Classes Não Finais: Ponderação T1(${w1}) + T2(${w2}) + T3(${w3})`;
+  } else if (regra?.pesosTrimestresMF && regra?.formulaTipo !== 'ARITMETICA_SIMPLES') {
+    const w1 = v1 !== null ? parsePesoT(regra.pesosTrimestresMF.t1, 1) : 0;
+    const w2 = v2 !== null ? parsePesoT(regra.pesosTrimestresMF.t2, 1) : 0;
+    const w3 = v3 !== null ? parsePesoT(regra.pesosTrimestresMF.t3, 1) : 0;
+    const totalW = w1 + w2 + w3;
+    if (totalW > 0) {
+      mf = ((v1 ?? 0) * w1 + (v2 ?? 0) * w2 + (v3 ?? 0) * w3) / totalW;
+      detalhe = `Classes Não Finais: Ponderação T1(${w1}) + T2(${w2}) + T3(${w3})`;
+    }
+  }
+
+  if (typeof notaRecurso === 'number' && !isNaN(notaRecurso) && notaRecurso >= 0) {
+    if (notaRecurso > mf) {
+      mf = notaRecurso;
+      detalhe = `${detalhe} • Atualizada por Exame de Recurso (${notaRecurso}v)`;
+    }
   }
 
   mf = Math.min(escala, Math.max(0, Math.round(mf)));
+  const mdfArred = Math.min(escala, Math.max(0, Math.round(mtGeral * 10) / 10));
 
   let status: 'Aprovado' | 'Recurso' | 'Reprovado' = 'Aprovado';
   if (classe === 'Iniciação') {
@@ -485,7 +561,7 @@ export function calcularMediaFinal3Trimestre(
     status = 'Reprovado';
   }
 
-  return { mediaFinal: mf, status, formulaDetalhe: detalhe };
+  return { mediaFinal: mf, mdf: mdfArred, status, formulaDetalhe: detalhe };
 }
 
 
@@ -569,7 +645,7 @@ export function obterObservacaoDisciplina(
   }
 
   const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
-  const notaAprov = regra?.notaMinimaAprovacao ?? (escala === 10 ? 5 : 9.5);
+  const notaAprov = regra?.notaMinimaAprovacao ?? (escala === 10 ? 4.5 : 9.5);
   const notaRec = regra?.notaMinimaExameRecurso ?? (escala === 10 ? 4 : 7);
 
   if (notaFinal >= notaAprov) {
@@ -613,7 +689,7 @@ export function obterObservacaoPautaGeral(
   }
 
   const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
-  const notaAprov = regra?.notaMinimaAprovacao ?? (escala === 10 ? 5 : 9.5);
+  const notaAprov = regra?.notaMinimaAprovacao ?? (escala === 10 ? 4.5 : 9.5);
   const totalNegativas = validas.filter(n => n < notaAprov).length;
 
   if (totalNegativas === 0) {
@@ -739,7 +815,7 @@ export function calcularAproveitamentoPautaGeralAlunos(params: {
           mediasPorDisc.set(discKey, rec.mediaTrimestral);
         } else if (temInputs) {
           const calc = calcularNotaTrimestralDinamica(
-            typeof rec.mac === 'number' ? rec.mac : 0,
+            typeof rec.mac === 'number' ? rec.mac : undefined,
             nppAtivo && typeof rec.npp === 'number' ? rec.npp : undefined,
             pt,
             regra,
@@ -759,7 +835,7 @@ export function calcularAproveitamentoPautaGeralAlunos(params: {
           const temInputs = typeof rec.mac === 'number' || typeof pt === 'number' || (nppAtivo && typeof rec.npp === 'number');
           if (temInputs) {
             return calcularNotaTrimestralDinamica(
-              typeof rec.mac === 'number' ? rec.mac : 0,
+              typeof rec.mac === 'number' ? rec.mac : undefined,
               nppAtivo && typeof rec.npp === 'number' ? rec.npp : undefined,
               pt,
               regra,
@@ -778,20 +854,21 @@ export function calcularAproveitamentoPautaGeralAlunos(params: {
         const mts = [mt1, mt2, mt3].filter((v): v is number => v !== null && !isNaN(v));
         const recFinal = recs.find((r) => String(r.trimestre) === '3') || recs[recs.length - 1];
         const exame = typeof recFinal?.notaExame === 'number' ? recFinal.notaExame : undefined;
+        const recursoNota = typeof (recFinal as any)?.notaRecurso === 'number' ? (recFinal as any).notaRecurso : undefined;
 
-        if (mts.length === 3 && (isClasseFinal(classeAl, regra) || typeof exame === 'number')) {
+        if (mts.length > 0) {
           mediasPorDisc.set(
             discKey,
-            calcularMediaFinal3Trimestre(mt1!, mt2!, mt3!, exame, regra, classeAl).mediaFinal
+            calcularMediaFinal3Trimestre(
+              mt1,
+              mt2,
+              mt3,
+              (isClasseFinal(classeAl, regra) || typeof exame === 'number') ? exame : undefined,
+              regra,
+              classeAl,
+              recursoNota
+            ).mediaFinal
           );
-        } else if (mts.length === 3) {
-          mediasPorDisc.set(
-            discKey,
-            calcularMediaFinal3Trimestre(mt1!, mt2!, mt3!, undefined, regra, classeAl).mediaFinal
-          );
-        } else if (mts.length > 0) {
-          const avg = mts.reduce((a, b) => a + b, 0) / mts.length;
-          mediasPorDisc.set(discKey, Math.round(avg * 10) / 10);
         } else if (typeof recFinal?.notaFinal === 'number' && !isNaN(recFinal.notaFinal)) {
           mediasPorDisc.set(discKey, recFinal.notaFinal);
         }
@@ -859,6 +936,574 @@ export function calcularAproveitamentoPautaGeralAlunos(params: {
     taxaAprovacao,
     taxaInsucesso,
     mediaNotas,
+  };
+}
+
+export interface MediaDisciplinaClasse {
+  disciplinaId: string;
+  disciplinaNome: string;
+  media: number | null;
+  alunosAvaliados: number;
+}
+
+export interface ResultadoMediaGeralClasse {
+  classe: string;
+  mediaGeral: number | null;
+  totalDisciplinasNecessarias: number;
+  disciplinasComNotas: number;
+  disciplinasPendentes: number;
+  coberturaPct: number;
+  totalAlunosAvaliados: number;
+  mediasPorDisciplina: MediaDisciplinaClasse[];
+}
+
+function normalizarClasseSimples(cls?: string): string {
+  const s = String(cls || '').trim().toLowerCase();
+  if (!s) return '';
+  if (s.includes('inicia')) return 'iniciação';
+  const m = s.match(/(\d{1,2})/);
+  return m ? `${m[1]}ª` : s;
+}
+
+function normalizarNomeDisc(nome?: string): string {
+  return String(nome || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function obterDisciplinasDaClasseComCurso(
+  disciplinas: Disciplina[],
+  classe: string,
+  turmasDaClasse: Turma[]
+): Disciplina[] {
+  const clsNorm = normalizarClasseSimples(classe);
+  if (!clsNorm) return [];
+
+  const cursosTurmas = Array.from(
+    new Set(
+      turmasDaClasse
+        .map((t) => normalizarNomeDisc(t.curso))
+        .filter(Boolean)
+    )
+  );
+  const ehSegundoCiclo = ['10ª', '11ª', '12ª', '13ª'].includes(clsNorm);
+  const ehPrimeiroCiclo = ['7ª', '8ª', '9ª'].includes(clsNorm);
+
+  const mapPorId = new Map<string, Disciplina>();
+  for (const d of disciplinas) {
+    if (!d) continue;
+    const classesDisc = Array.isArray(d.classes) && d.classes.length > 0
+      ? d.classes.map(normalizarClasseSimples)
+      : d.classe
+        ? [normalizarClasseSimples(d.classe)]
+        : [];
+
+    let pertenceClasse = classesDisc.includes(clsNorm);
+    if (!pertenceClasse && classesDisc.length === 0 && d.nivelEnsino) {
+      if (d.nivelEnsino === 'Iniciacao' && clsNorm === 'iniciação') pertenceClasse = true;
+      else if (d.nivelEnsino === 'Primario' && ['1ª', '2ª', '3ª', '4ª', '5ª', '6ª'].includes(clsNorm)) pertenceClasse = true;
+      else if (d.nivelEnsino === 'ICiclo' && ehPrimeiroCiclo) pertenceClasse = true;
+      else if ((d.nivelEnsino === 'IICiclo' || d.nivelEnsino === 'EnsinoTecnico') && ehSegundoCiclo) pertenceClasse = true;
+    }
+
+    if (!pertenceClasse) continue;
+
+    if (
+      ehSegundoCiclo &&
+      cursosTurmas.length > 0 &&
+      d.componente !== 'Geral' &&
+      Array.isArray(d.cursos) &&
+      d.cursos.length > 0 &&
+      !d.cursos.includes('TODOS')
+    ) {
+      const cursosDisc = d.cursos.map(normalizarNomeDisc);
+      const casaCurso = cursosTurmas.some((cT) => cursosDisc.some((cD) => cD === cT || cD.includes(cT) || cT.includes(cD)));
+      if (!casaCurso) continue;
+    }
+
+    const chave = d.id || normalizarNomeDisc(d.nome);
+    if (chave && !mapPorId.has(chave)) {
+      mapPorId.set(chave, d);
+    }
+  }
+  return Array.from(mapPorId.values());
+}
+
+function extrairNumeroPeriodo(raw: unknown): 1 | 2 | 3 | null {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+  if (s === '1' || s.startsWith('1')) return 1;
+  if (s === '2' || s.startsWith('2')) return 2;
+  if (s === '3' || s.startsWith('3')) return 3;
+  return null;
+}
+
+function calcularValorDisciplinaPeriodo(
+  recs: NotaTrimestralConsolidada[],
+  trimestreFiltro: '1' | '2' | '3' | 'anual',
+  classe: string,
+  regra: RegraCalculoMAC | undefined,
+  nppAtivo: boolean,
+  regimePeriodos: RegimePeriodosLetivos = 'Trimestral',
+  periodosConfig: PeriodoLetivoConfig[] = []
+): number | null {
+  const resolvePeriodo = (periodoNum: 1 | 2 | 3): number | null => {
+    const rec = recs.find((r) => extrairNumeroPeriodo(r.trimestre) === periodoNum);
+    if (!rec) return null;
+    const pt = typeof rec.npt === 'number' ? rec.npt : (typeof rec.provaTrimestral === 'number' ? rec.provaTrimestral : undefined);
+    const temInputs = typeof rec.mac === 'number' || typeof pt === 'number' || (nppAtivo && typeof rec.npp === 'number');
+    if (temInputs) {
+      return calcularNotaTrimestralDinamica(
+        typeof rec.mac === 'number' ? rec.mac : undefined,
+        nppAtivo && typeof rec.npp === 'number' ? rec.npp : undefined,
+        pt,
+        regra,
+        periodoNum,
+        classe,
+        nppAtivo
+      ).mediaTrimestral;
+    }
+    const cand = typeof rec.mediaTrimestral === 'number' ? rec.mediaTrimestral : rec.notaFinal;
+    return typeof cand === 'number' && !isNaN(cand) ? cand : null;
+  };
+
+  if (trimestreFiltro !== 'anual') {
+    const num = Number(trimestreFiltro) as 1 | 2 | 3;
+    if (regimePeriodos === 'Semestral' && num === 2) {
+      // No regime semestral, notas lançadas no 2º período ou herdadas como 2º/3º trimestre integram o 2º Semestre
+      const v2 = resolvePeriodo(2);
+      if (v2 !== null) return v2;
+      return resolvePeriodo(3);
+    }
+    return resolvePeriodo(num);
+  }
+
+  // Cálculo anual segmentado pelos períodos letivos configurados
+  const periodosNumeros: Array<1 | 2 | 3> = regimePeriodos === 'Semestral' ? [1, 2] : [1, 2, 3];
+  const valoresPorPeriodo = periodosNumeros.map((num) => {
+    let val = resolvePeriodo(num);
+    if (val === null && regimePeriodos === 'Semestral' && num === 2) {
+      val = resolvePeriodo(3);
+    }
+    const cfg = periodosConfig.find((p) => Number(p.numero) === num || extrairNumeroPeriodo(p.trimestre) === num);
+    const peso = typeof cfg?.pesoPercentual === 'number' && cfg.pesoPercentual > 0 ? cfg.pesoPercentual : 1;
+    return { num, val, peso };
+  });
+
+  const presentes = valoresPorPeriodo.filter((x) => x.val !== null);
+  if (presentes.length === 0) {
+    const recFinal = recs.find((r) => extrairNumeroPeriodo(r.trimestre) === 3) || recs[recs.length - 1];
+    return typeof recFinal?.notaFinal === 'number' && !isNaN(recFinal.notaFinal) ? recFinal.notaFinal : null;
+  }
+
+  // Verificar se há regra ponderada / exame ou pesos segmentados definidos nos períodos letivos
+  const temPesosPersonalizados = periodosConfig.some((p) => typeof p.pesoPercentual === 'number' && p.pesoPercentual > 0);
+  const recFinal = recs.find((r) => extrairNumeroPeriodo(r.trimestre) === (regimePeriodos === 'Semestral' ? 2 : 3)) || recs[recs.length - 1];
+  const exame = typeof recFinal?.notaExame === 'number' ? recFinal.notaExame : undefined;
+  const recursoNota = typeof (recFinal as any)?.notaRecurso === 'number' ? (recFinal as any).notaRecurso : undefined;
+
+  if (regimePeriodos === 'Semestral') {
+    let somaPonderada = 0;
+    let somaPesos = 0;
+    presentes.forEach((p) => {
+      somaPonderada += (p.val as number) * p.peso;
+      somaPesos += p.peso;
+    });
+    const mdfSem = somaPesos > 0 ? somaPonderada / somaPesos : 0;
+    const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
+    if ((isClasseFinal(classe, regra) || typeof exame === 'number') && typeof exame === 'number' && !isNaN(exame)) {
+      const pesoNE = regra?.pesoNEClassesFinais ?? 60;
+      const pesoMDF = regra?.pesoMDFClassesFinais ?? 40;
+      const tot = pesoNE + pesoMDF;
+      const mf = tot > 0 ? (mdfSem * pesoMDF + exame * pesoNE) / tot : mdfSem;
+      const finalComRecurso = typeof recursoNota === 'number' && recursoNota > mf ? recursoNota : mf;
+      return Math.min(escala, Math.max(0, Math.round(finalComRecurso * 10) / 10));
+    }
+    const finalComRecurso = typeof recursoNota === 'number' && recursoNota > mdfSem ? recursoNota : mdfSem;
+    return Math.min(escala, Math.max(0, Math.round(finalComRecurso * 10) / 10));
+  }
+
+  // Regime Trimestral
+  if (temPesosPersonalizados && (!regra || regra.formulaTipo === 'ARITMETICA_SIMPLES') && typeof exame !== 'number') {
+    let somaPonderada = 0;
+    let somaPesos = 0;
+    presentes.forEach((p) => {
+      somaPonderada += (p.val as number) * p.peso;
+      somaPesos += p.peso;
+    });
+    if (somaPesos > 0) {
+      const escala = obterEscalaMaximaPorNivel(regra?.nivelEnsino, classe);
+      const val = somaPonderada / somaPesos;
+      return Math.min(escala, Math.max(0, Math.round(val * 10) / 10));
+    }
+  }
+
+  return calcularMediaFinal3Trimestre(
+    valoresPorPeriodo[0]?.val ?? null,
+    valoresPorPeriodo[1]?.val ?? null,
+    valoresPorPeriodo[2]?.val ?? null,
+    (isClasseFinal(classe, regra) || typeof exame === 'number') ? exame : undefined,
+    regra,
+    classe,
+    recursoNota
+  ).mediaFinal;
+}
+
+/**
+ * Calcula a Média Geral de uma Classe tendo em conta TODAS as disciplinas necessárias da classe:
+ * 1) Identifica todas as disciplinas curriculares obrigatórias/necessárias da classe (mais quaisquer disciplinas avaliadas).
+ * 2) Calcula a média de cada disciplina entre os estudantes avaliados da classe.
+ * 3) Calcula a Média Geral da Classe a partir das médias de todas as disciplinas com notas lançadas,
+ *    informando também quantas disciplinas obrigatórias já possuem notas vs pendentes.
+ */
+export function calcularMediaGeralDaClasse(params: {
+  classe: string;
+  turmasDaClasse: Turma[];
+  alunosDaClasse: Aluno[];
+  disciplinas: Disciplina[];
+  notasConsolidadas: NotaTrimestralConsolidada[];
+  regrasMAC?: RegraCalculoMAC[];
+  juris?: ComissaoJuri[];
+  trimestreFiltro?: '1' | '2' | '3' | 'anual';
+  anoLectivo?: string;
+  nppAtivo?: boolean;
+  regimePeriodos?: RegimePeriodosLetivos;
+  periodosConfig?: PeriodoLetivoConfig[];
+  escolaId?: string;
+}): ResultadoMediaGeralClasse {
+  const {
+    classe,
+    turmasDaClasse,
+    alunosDaClasse,
+    disciplinas,
+    notasConsolidadas,
+    regrasMAC = [],
+    juris = [],
+    trimestreFiltro = 'anual',
+    anoLectivo,
+    nppAtivo = true,
+    regimePeriodos = 'Trimestral',
+    periodosConfig = [],
+    escolaId,
+  } = params;
+
+  const alunosAtivos = alunosDaClasse.filter((a) => a.estado !== 'Desistente' && a.estado !== 'Transferido');
+  const alunosIds = new Set(alunosAtivos.map((a) => a.id));
+
+  const regra =
+    regrasMAC.find((r) => (!escolaId || r.escolaId === escolaId) && normalizarClasseSimples(r.classe) === normalizarClasseSimples(classe)) ||
+    regrasMAC[0];
+
+  const notasDoEscopo = notasConsolidadas.filter((n) => {
+    if (!alunosIds.has(n.alunoId)) return false;
+    if (escolaId && escolaId !== 'todas' && n.escolaId && n.escolaId !== escolaId) return false;
+    if (anoLectivo && anoLectivo !== 'todos' && n.anoLectivo && n.anoLectivo !== anoLectivo) return false;
+    return true;
+  });
+
+  // 1. Disciplinas obrigatórias configuradas para esta classe/cursos
+  const discsConfiguradas = obterDisciplinasDaClasseComCurso(disciplinas, classe, turmasDaClasse);
+  const discMap = new Map<string, { id: string; nome: string; nomesNorm: Set<string> }>();
+
+  for (const d of discsConfiguradas) {
+    const nomeNorm = normalizarNomeDisc(d.nome);
+    const key = d.id || nomeNorm;
+    if (!key) continue;
+    discMap.set(key, { id: d.id, nome: d.nome, nomesNorm: new Set([nomeNorm]) });
+  }
+
+  // Incluir também disciplinas presentes nas notas desta classe caso ainda não estejam na matriz filtrada
+  const nomeParaChave = new Map<string, string>();
+  discMap.forEach((v, k) => {
+    v.nomesNorm.forEach((nn) => nomeParaChave.set(nn, k));
+  });
+
+  for (const n of notasDoEscopo) {
+    const idDisc = (n.disciplinaId || '').trim();
+    const nomeDisc = (n.disciplinaNome || '').trim();
+    const nn = normalizarNomeDisc(nomeDisc);
+    if (idDisc && discMap.has(idDisc)) continue;
+    if (nn && nomeParaChave.has(nn)) continue;
+    const discGlobal = disciplinas.find((d) => d.id === idDisc || (nn && normalizarNomeDisc(d.nome) === nn));
+    const chave = discGlobal?.id || idDisc || nn;
+    if (!chave) continue;
+    discMap.set(chave, {
+      id: discGlobal?.id || idDisc || chave,
+      nome: discGlobal?.nome || nomeDisc || chave,
+      nomesNorm: new Set([normalizarNomeDisc(discGlobal?.nome || nomeDisc || chave)])
+    });
+    if (nn) nomeParaChave.set(nn, chave);
+  }
+
+  // Agrupar notas por (alunoId -> disciplinaKey -> NotaTrimestralConsolidada[])
+  const notasPorAlunoDisc = new Map<string, Map<string, NotaTrimestralConsolidada[]>>();
+  for (const n of notasDoEscopo) {
+    const idDisc = (n.disciplinaId || '').trim();
+    const nn = normalizarNomeDisc(n.disciplinaNome);
+    const chave = (idDisc && discMap.has(idDisc) ? idDisc : nomeParaChave.get(nn)) || idDisc || nn;
+    if (!chave) continue;
+
+    let mapaAl = notasPorAlunoDisc.get(n.alunoId);
+    if (!mapaAl) {
+      mapaAl = new Map();
+      notasPorAlunoDisc.set(n.alunoId, mapaAl);
+    }
+    const lista = mapaAl.get(chave);
+    if (lista) lista.push(n);
+    else mapaAl.set(chave, [n]);
+  }
+
+  // 2. Calcular média por disciplina necessária
+  const alunosAvaliadosGeral = new Set<string>();
+  const mediasPorDisciplina: MediaDisciplinaClasse[] = [];
+
+  discMap.forEach((discInfo, discKey) => {
+    let somaDisc = 0;
+    let qtdDisc = 0;
+
+    for (const al of alunosAtivos) {
+      const mapaAl = notasPorAlunoDisc.get(al.id);
+      const recs = mapaAl?.get(discKey) || [];
+      let valor = recs.length > 0
+        ? calcularValorDisciplinaPeriodo(recs, trimestreFiltro, classe, regra, nppAtivo, regimePeriodos, periodosConfig)
+        : null;
+
+      // Considerar deliberações homologadas da Comissão de Júri no cálculo anual
+      if (trimestreFiltro === 'anual') {
+        const juriAl = juris.find(
+          (j) =>
+            (j.pautaHomologada || j.estado === 'Validada') &&
+            (!anoLectivo || anoLectivo === 'todos' || !j.anoLectivo || j.anoLectivo === anoLectivo) &&
+            (j.turmasIds?.includes(al.turmaId) || normalizarClasseSimples(j.classe) === normalizarClasseSimples(classe))
+        );
+        const alt = juriAl?.deliberacoes?.[al.id]?.notasAlteradas?.find(
+          (x) => x.disciplinaId === discInfo.id || discInfo.nomesNorm.has(normalizarNomeDisc(x.disciplinaNome))
+        );
+        if (alt && typeof alt.novaNota === 'number' && !isNaN(alt.novaNota)) {
+          valor = alt.novaNota;
+        }
+      }
+
+      if (valor !== null && !isNaN(valor)) {
+        somaDisc += valor;
+        qtdDisc += 1;
+        alunosAvaliadosGeral.add(al.id);
+      }
+    }
+
+    mediasPorDisciplina.push({
+      disciplinaId: discInfo.id,
+      disciplinaNome: discInfo.nome,
+      media: qtdDisc > 0 ? Math.round((somaDisc / qtdDisc) * 10) / 10 : null,
+      alunosAvaliados: qtdDisc,
+    });
+  });
+
+  // 3. Média Geral da Classe calculada a partir das médias das suas disciplinas
+  const mediasDisciplinasValidas = mediasPorDisciplina
+    .map((m) => m.media)
+    .filter((v): v is number => v !== null && !isNaN(v));
+
+  const totalDisciplinasNecessarias = mediasPorDisciplina.length;
+  const disciplinasComNotas = mediasDisciplinasValidas.length;
+  const disciplinasPendentes = Math.max(0, totalDisciplinasNecessarias - disciplinasComNotas);
+  const coberturaPct = totalDisciplinasNecessarias > 0
+    ? Math.round((disciplinasComNotas / totalDisciplinasNecessarias) * 100)
+    : 0;
+
+  const mediaGeral = disciplinasComNotas > 0
+    ? Math.round((mediasDisciplinasValidas.reduce((acc, v) => acc + v, 0) / disciplinasComNotas) * 10) / 10
+    : null;
+
+  return {
+    classe,
+    mediaGeral,
+    totalDisciplinasNecessarias,
+    disciplinasComNotas,
+    disciplinasPendentes,
+    coberturaPct,
+    totalAlunosAvaliados: alunosAvaliadosGeral.size,
+    mediasPorDisciplina,
+  };
+}
+
+export interface ResultadoPeriodoSegmentado {
+  numero: 1 | 2 | 3;
+  nome: string;
+  estado: 'Aberto' | 'Fechado';
+  pesoPercentual: number;
+  mediaGeral: number | null;
+  totalAlunosAvaliados: number;
+  taxaAprovacao: number;
+  disciplinasComNotas: number;
+}
+
+export interface ResultadoSegmentadoAnoLetivo {
+  regime: RegimePeriodosLetivos;
+  periodos: ResultadoPeriodoSegmentado[];
+  mediaAnualSegmentada: number | null;
+}
+
+/**
+ * Calcula médias segmentadas ao longo do ano letivo (por Trimestres ou Semestres configurados),
+ * respeitando os pesos percentuais e permitindo análise contínua por período e anual.
+ */
+export function calcularMediasSegmentadasAnoLetivo(params: {
+  regime: RegimePeriodosLetivos;
+  periodosConfig: PeriodoLetivoConfig[];
+  alunos: Aluno[];
+  turmas: Turma[];
+  disciplinas: Disciplina[];
+  notasConsolidadas: NotaTrimestralConsolidada[];
+  regrasMAC?: RegraCalculoMAC[];
+  juris?: ComissaoJuri[];
+  anoLectivo?: string;
+  nppAtivo?: boolean;
+  escolaId?: string;
+  classeFiltro?: string;
+}): ResultadoSegmentadoAnoLetivo {
+  const {
+    regime,
+    periodosConfig,
+    alunos,
+    turmas,
+    disciplinas,
+    notasConsolidadas,
+    regrasMAC = [],
+    juris = [],
+    anoLectivo,
+    nppAtivo = true,
+    escolaId,
+    classeFiltro,
+  } = params;
+
+  const numeros: Array<1 | 2 | 3> = regime === 'Semestral' ? [1, 2] : [1, 2, 3];
+  const turmasFiltradas = classeFiltro
+    ? turmas.filter((t) => normalizarClasseSimples(t.classe) === normalizarClasseSimples(classeFiltro))
+    : turmas;
+  const turmaIds = new Set(turmasFiltradas.map((t) => t.id));
+  const alunosFiltrados = classeFiltro
+    ? alunos.filter((a) => normalizarClasseSimples(a.classeId) === normalizarClasseSimples(classeFiltro) || turmaIds.has(a.turmaId))
+    : alunos;
+
+  const resultadosPeriodos: ResultadoPeriodoSegmentado[] = numeros.map((num) => {
+    const cfg = periodosConfig.find((p) => Number(p.numero) === num || extrairNumeroPeriodo(p.trimestre) === num);
+    const triStr = String(num) as '1' | '2' | '3';
+    const peso = typeof cfg?.pesoPercentual === 'number' && cfg.pesoPercentual > 0
+      ? cfg.pesoPercentual
+      : (regime === 'Semestral' ? 50 : (num === 3 ? 33.4 : 33.3));
+
+    const classesMap = new Map<string, Turma[]>();
+    turmasFiltradas.forEach((t) => {
+      const c = t.classe || 'Outra';
+      const arr = classesMap.get(c);
+      if (arr) arr.push(t);
+      else classesMap.set(c, [t]);
+    });
+
+    let somaMediasNorm = 0;
+    let qtdClassesComMedia = 0;
+    let totalDiscComNotas = 0;
+
+    if (classeFiltro) {
+      const resCls = calcularMediaGeralDaClasse({
+        classe: classeFiltro,
+        turmasDaClasse: turmasFiltradas,
+        alunosDaClasse: alunosFiltrados,
+        disciplinas,
+        notasConsolidadas,
+        regrasMAC,
+        juris,
+        trimestreFiltro: triStr,
+        anoLectivo,
+        nppAtivo,
+        regimePeriodos: regime,
+        periodosConfig,
+        escolaId,
+      });
+      if (resCls.mediaGeral !== null) {
+        somaMediasNorm = resCls.mediaGeral;
+        qtdClassesComMedia = 1;
+      }
+      totalDiscComNotas = resCls.disciplinasComNotas;
+    } else {
+      classesMap.forEach((tCls, clsNome) => {
+        const tClsIds = new Set(tCls.map((t) => t.id));
+        const alCls = alunosFiltrados.filter((a) => tClsIds.has(a.turmaId) || normalizarClasseSimples(a.classeId) === normalizarClasseSimples(clsNome));
+        const resCls = calcularMediaGeralDaClasse({
+          classe: clsNome,
+          turmasDaClasse: tCls,
+          alunosDaClasse: alCls,
+          disciplinas,
+          notasConsolidadas,
+          regrasMAC,
+          juris,
+          trimestreFiltro: triStr,
+          anoLectivo,
+          nppAtivo,
+          regimePeriodos: regime,
+          periodosConfig,
+          escolaId,
+        });
+        if (resCls.mediaGeral !== null) {
+          const escala = obterEscalaMaximaPorNivel(tCls[0]?.nivelEnsino, clsNome);
+          somaMediasNorm += escala === 10 ? resCls.mediaGeral * 2 : resCls.mediaGeral;
+          qtdClassesComMedia += 1;
+        }
+        totalDiscComNotas += resCls.disciplinasComNotas;
+      });
+    }
+
+    const aprovResumo = calcularAproveitamentoPautaGeralAlunos({
+      alunos: alunosFiltrados,
+      notasConsolidadas,
+      turmas: turmasFiltradas,
+      regrasMAC,
+      juris,
+      trimestreFiltro: triStr,
+      anoLectivo,
+      nppAtivo,
+      escolaId,
+    });
+
+    let mediaPeriodo: number | null = null;
+    if (qtdClassesComMedia > 0) {
+      const raw = somaMediasNorm / qtdClassesComMedia;
+      const ehTodasPrimario = !classeFiltro && turmasFiltradas.length > 0 && turmasFiltradas.every((t) => obterEscalaMaximaPorNivel(t.nivelEnsino, t.classe) === 10);
+      mediaPeriodo = Math.round((ehTodasPrimario ? raw / 2 : raw) * 10) / 10;
+    }
+
+    return {
+      numero: num,
+      nome: cfg?.nome || `${num}º ${regime === 'Semestral' ? 'Semestre' : 'Trimestre'}`,
+      estado: cfg?.estado || 'Aberto',
+      pesoPercentual: peso,
+      mediaGeral: mediaPeriodo,
+      totalAlunosAvaliados: aprovResumo.totalAvaliados,
+      taxaAprovacao: aprovResumo.taxaAprovacao,
+      disciplinasComNotas: totalDiscComNotas,
+    };
+  });
+
+  const periodosComMedia = resultadosPeriodos.filter((p) => p.mediaGeral !== null);
+  let mediaAnualSegmentada: number | null = null;
+  if (periodosComMedia.length > 0) {
+    let somaPond = 0;
+    let somaPesos = 0;
+    periodosComMedia.forEach((p) => {
+      const w = p.pesoPercentual > 0 ? p.pesoPercentual : 1;
+      somaPond += (p.mediaGeral as number) * w;
+      somaPesos += w;
+    });
+    mediaAnualSegmentada = somaPesos > 0 ? Math.round((somaPond / somaPesos) * 10) / 10 : null;
+  }
+
+  return {
+    regime,
+    periodos: resultadosPeriodos,
+    mediaAnualSegmentada,
   };
 }
 

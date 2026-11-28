@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition, lazy, Suspense } from 'react';
 import { ShieldCheck, ShieldAlert, ArrowLeft, LifeBuoy, LogOut } from 'lucide-react';
-import { dbService, DEFAULT_ADMIN_GERAL_PRODUCAO } from './services/storage';
+import { dbService, DEFAULT_ADMIN_GERAL_PRODUCAO, STORAGE_KEYS } from './services/storage';
+import { getCachedRawMarker } from './services/localCache';
 import { verificarIntegridadeSistema, SystemIntegrityStatus } from './services/firebaseClient';
 import { 
   Escola, 
@@ -22,19 +23,31 @@ import {
   UserRole
 } from './types';
 
-import { Header } from './components/Header';
-import { Sidebar, NavTab } from './components/Sidebar';
+import type { NavTab } from './components/Sidebar';
 import { securityEngine } from './services/securityEngine';
 import { cryptoService } from './services/cryptoService';
 import { firebaseSyncEngine } from './services/firebaseSyncEngine';
 import { offlineStorage } from './services/offlineStorage';
-import { LoginView } from './components/LoginView';
 import { Footer } from './components/Footer';
-import { SyncProgressBarAndNotification } from './components/SyncProgressBarAndNotification';
-import { PWAInstallNotification } from './components/PWAInstallNotification';
 import { notificationService } from './services/notificationService';
-import { SystemInitialSetupView } from './components/SystemInitialSetupView';
 import { useTheme } from './services/themeService';
+
+const loadHeaderModule = () => import('./components/Header').then(m => ({ default: m.Header }));
+const loadSidebarModule = () => import('./components/Sidebar').then(m => ({ default: m.Sidebar }));
+const loadLoginModule = () => import('./components/LoginView').then(m => ({ default: m.LoginView }));
+
+const Header = lazy(loadHeaderModule);
+const Sidebar = lazy(loadSidebarModule);
+const LoginView = lazy(loadLoginModule);
+const SyncProgressBarAndNotification = lazy(() =>
+  import('./components/SyncProgressBarAndNotification').then(m => ({ default: m.SyncProgressBarAndNotification }))
+);
+const PWAInstallNotification = lazy(() =>
+  import('./components/PWAInstallNotification').then(m => ({ default: m.PWAInstallNotification }))
+);
+const SystemInitialSetupView = lazy(() =>
+  import('./components/SystemInitialSetupView').then(m => ({ default: m.SystemInitialSetupView }))
+);
 
 // Registro centralizado de importadores para pré-carregamento silencioso em segundo plano (garante uso 100% offline em todos os módulos)
 const PRELOAD_MODULE_IMPORTERS: Array<() => Promise<any>> = [];
@@ -62,14 +75,23 @@ function lazyResilient<T extends React.ComponentType<any>>(
             <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
               Este módulo ainda não estava armazenado em cache antes de perder a ligação à internet. Os seus dados estão 100% protegidos no dispositivo. Tente novamente ou regresse ao Painel Principal.
             </p>
-            <div className="flex items-center justify-center gap-2 pt-2">
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-amber-700 text-white text-xs font-bold rounded-lg hover:bg-amber-800 transition-colors cursor-pointer"
+                onClick={() => window.dispatchEvent(new CustomEvent('sge_navigate_dashboard'))}
+                className="px-4 py-2 bg-blue-700 text-white text-xs font-bold rounded-lg hover:bg-blue-800 transition-colors cursor-pointer"
               >
-                Tentar Novamente
+                Voltar ao Painel Principal
               </button>
+              {(typeof navigator === 'undefined' || navigator.onLine) && (
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="px-4 py-2 bg-amber-700 text-white text-xs font-bold rounded-lg hover:bg-amber-800 transition-colors cursor-pointer"
+                >
+                  Recarregar (Online)
+                </button>
+              )}
             </div>
           </div>
         )) as unknown as T;
@@ -306,60 +328,86 @@ export default function App() {
     return currentUser;
   }, [modoApoioAtivo, interinidadeAtiva, currentUser]);
 
-  // Função centralizada para recarregar todos os dados do banco local após sincronização com o Firebase
+  const lastRawMarkersRef = useRef<Record<string, string | null>>({});
+
+  // Função centralizada para recarregar apenas coleções que realmente mudaram (evita tempestades de re-render no arranque)
   const recarregarDados = useCallback(() => {
-    setEscolas(dbService.getEscolas());
+    const markers = lastRawMarkersRef.current;
+    const hasChanged = (key: string): boolean => {
+      const cur = getCachedRawMarker(key);
+      if (markers[key] === cur && key in markers) return false;
+      markers[key] = cur;
+      return true;
+    };
+
     const escAtiva = dbService.getEscolaAtiva();
-    setEscola(escAtiva);
-    setAnosLectivos(dbService.getAnosLectivos(escAtiva?.id));
-    const funcsFrescos = dbService.getFuncionariosBruto();
-    setFuncionarios(dbService.obterFuncionarios());
+    const escMudou = hasChanged(STORAGE_KEYS.ESCOLAS) || hasChanged(STORAGE_KEYS.ACTIVE_ESCOLA_ID);
+    const anosMudou = hasChanged(STORAGE_KEYS.ANOS_LECTIVOS) || hasChanged(STORAGE_KEYS.ANOS_LECTIVOS_CONFIGS) || escMudou;
+    const funcsMudou = hasChanged(STORAGE_KEYS.FUNCIONARIOS);
+    const funcsFrescos = funcsMudou ? dbService.getFuncionariosBruto() : null;
 
     const autenticado = typeof localStorage !== 'undefined' && localStorage.getItem('sge_authenticated') === 'true';
-    if (!autenticado) return;
 
-    setTurmas(dbService.obterTurmas());
-    setAlunos(dbService.obterAlunos());
-    setDisciplinas(dbService.obterDisciplinas());
-    setNotasConsolidadas(dbService.obterNotasConsolidadas());
-    setAtribuicoes(dbService.obterAtribuicoes());
-    setJuris(dbService.obterJuris());
-    setNotas(dbService.obterNotas());
-    setAvaliacoes(dbService.obterAvaliacoes());
-    setAssiduidade(dbService.obterAssiduidade());
-    setSolicitacoes(dbService.obterSolicitacoes());
-    setMensagens(dbService.obterMensagens());
-    setLivros(dbService.obterLivros());
-    setLogs(dbService.obterLogs());
-    setTiposAvaliacao(dbService.obterTiposAvaliacao());
-    setRegrasMAC(dbService.obterRegrasMAC());
+    startTransition(() => {
+      if (escMudou) {
+        setEscolas(dbService.getEscolas());
+        setEscola(escAtiva);
+      }
+      if (anosMudou) {
+        setAnosLectivos(dbService.getAnosLectivos(escAtiva?.id));
+      }
+      if (funcsMudou) {
+        setFuncionarios(dbService.obterFuncionarios());
+      }
 
-    // Garantir que a sessão e perfil do utilizador autenticado refletem imediatamente alterações remotas (ex.: fotografia ou reatribuição de escola)
-    const userLogado = dbService.getCurrentUser();
-    if (userLogado && userLogado.id && userLogado.nomeCompleto) {
-      const remotoMaisRecente = funcsFrescos.find(f => f.id === userLogado.id);
-      if (remotoMaisRecente) {
-        const tsLocal = userLogado.atualizadoEm ? Date.parse(userLogado.atualizadoEm) || 0 : 0;
-        const tsRemoto = remotoMaisRecente.atualizadoEm ? Date.parse(remotoMaisRecente.atualizadoEm) || 0 : 0;
-        if (tsRemoto >= tsLocal && JSON.stringify(remotoMaisRecente) !== JSON.stringify(userLogado)) {
-          dbService.setCurrentUser(remotoMaisRecente);
-          setAuthenticatedUser(remotoMaisRecente);
-          if (
-            remotoMaisRecente.role !== 'AdminGeral' &&
-            remotoMaisRecente.escolaId &&
-            remotoMaisRecente.escolaId !== 'todas' &&
-            remotoMaisRecente.escolaId !== escAtiva?.id
-          ) {
-            dbService.setEscolaAtiva(remotoMaisRecente.escolaId);
-            const novaEscAtiva = dbService.getEscolaAtiva();
-            setEscola(novaEscAtiva);
-            setAnosLectivos(dbService.getAnosLectivos(novaEscAtiva?.id));
+      if (!autenticado) return;
+
+      if (hasChanged(STORAGE_KEYS.TURMAS)) setTurmas(dbService.obterTurmas());
+      if (hasChanged(STORAGE_KEYS.ALUNOS)) setAlunos(dbService.obterAlunos());
+      if (hasChanged(STORAGE_KEYS.DISCIPLINAS)) setDisciplinas(dbService.obterDisciplinas());
+      if (hasChanged(STORAGE_KEYS.NOTAS_CONSOLIDADAS)) setNotasConsolidadas(dbService.obterNotasConsolidadas());
+      if (hasChanged(STORAGE_KEYS.ATRIBUICOES)) setAtribuicoes(dbService.obterAtribuicoes());
+      if (hasChanged(STORAGE_KEYS.JURIS)) setJuris(dbService.obterJuris());
+      if (hasChanged(STORAGE_KEYS.NOTAS)) setNotas(dbService.obterNotas());
+      if (hasChanged(STORAGE_KEYS.AVALIACOES)) setAvaliacoes(dbService.obterAvaliacoes());
+      if (hasChanged(STORAGE_KEYS.PRESENCAS)) setAssiduidade(dbService.obterAssiduidade());
+      if (hasChanged(STORAGE_KEYS.SOLICITACOES_NOTA)) setSolicitacoes(dbService.obterSolicitacoes());
+      if (hasChanged(STORAGE_KEYS.MENSAGENS)) setMensagens(dbService.obterMensagens());
+      if (hasChanged(STORAGE_KEYS.BIBLIOTECA)) setLivros(dbService.obterLivros());
+      if (hasChanged(STORAGE_KEYS.AUDITORIA)) setLogs(dbService.obterLogs());
+      if (hasChanged(STORAGE_KEYS.TIPOS_AVALIACAO)) setTiposAvaliacao(dbService.obterTiposAvaliacao());
+      if (hasChanged(STORAGE_KEYS.REGRAS_MAC)) setRegrasMAC(dbService.obterRegrasMAC());
+
+      // Garantir que a sessão e perfil do utilizador autenticado refletem imediatamente alterações remotas
+      if (funcsMudou || hasChanged(STORAGE_KEYS.CURRENT_USER)) {
+        const userLogado = dbService.getCurrentUser();
+        if (userLogado && userLogado.id && userLogado.nomeCompleto) {
+          const listaFuncs = funcsFrescos || dbService.getFuncionariosBruto();
+          const remotoMaisRecente = listaFuncs.find(f => f.id === userLogado.id);
+          if (remotoMaisRecente) {
+            const tsLocal = userLogado.atualizadoEm ? Date.parse(userLogado.atualizadoEm) || 0 : 0;
+            const tsRemoto = remotoMaisRecente.atualizadoEm ? Date.parse(remotoMaisRecente.atualizadoEm) || 0 : 0;
+            if (tsRemoto >= tsLocal && JSON.stringify(remotoMaisRecente) !== JSON.stringify(userLogado)) {
+              dbService.setCurrentUser(remotoMaisRecente);
+              setAuthenticatedUser(remotoMaisRecente);
+              if (
+                remotoMaisRecente.role !== 'AdminGeral' &&
+                remotoMaisRecente.escolaId &&
+                remotoMaisRecente.escolaId !== 'todas' &&
+                remotoMaisRecente.escolaId !== escAtiva?.id
+              ) {
+                dbService.setEscolaAtiva(remotoMaisRecente.escolaId);
+                const novaEscAtiva = dbService.getEscolaAtiva();
+                setEscola(novaEscAtiva);
+                setAnosLectivos(dbService.getAnosLectivos(novaEscAtiva?.id));
+              }
+              return;
+            }
           }
-          return;
+          setAuthenticatedUser(userLogado);
         }
       }
-      setAuthenticatedUser(userLogado);
-    }
+    });
   }, []);
 
   // Listener para status online/offline e verificação rápida do Administrador Geral no Firebase
@@ -469,8 +517,11 @@ export default function App() {
       const escAtiva = dbService.getEscolaAtiva();
       const usrAtivo = dbService.getCurrentUser();
       if (usrAtivo && usrAtivo.id) {
-        notificationService.verificarNovidadesRemotas(escAtiva.id, usrAtivo);
-        notificationService.sincronizarAgendaComServiceWorker(escAtiva, usrAtivo).catch(() => {});
+        setTimeout(() => {
+          if (!ativo) return;
+          notificationService.verificarNovidadesRemotas(escAtiva.id, usrAtivo);
+          notificationService.sincronizarAgendaComServiceWorker(escAtiva, usrAtivo).catch(() => {});
+        }, 120);
       }
       if (dbService.temAdminGeral()) {
         setTemAdminGeral(true);
@@ -480,8 +531,7 @@ export default function App() {
     };
     window.addEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
 
-    // Inicializar Service Worker de Notificações e escuta de navegação por clique em push/alerta
-    notificationService.inicializarServiceWorker();
+    // Escuta de navegação por clique em push/alerta (SW já inicializado após a primeira pintura no main.tsx)
     const unsubNavNotif = notificationService.subscreverNavegacao(({ tab, subTab }) => {
       if (!ativo) return;
       setActiveTab(tab as NavTab);
@@ -496,8 +546,15 @@ export default function App() {
       }
     });
 
+    const handleNavigateDashboard = () => {
+      if (!ativo) return;
+      setActiveTab('dashboard');
+    };
+    window.addEventListener('sge_navigate_dashboard', handleNavigateDashboard);
+
     const handleOnline = () => {
       setIntegrity(verificarIntegridadeSistema());
+      firebaseSyncEngine.processarPendenciasOffline().catch(() => {});
       if (!dbService.temAdminGeral()) {
         verificarAdmin();
       }
@@ -525,15 +582,22 @@ export default function App() {
       unsubStatus();
       unsubNavNotif();
       window.removeEventListener('sge_dados_atualizados_remoto', handleRemoteUpdate);
+      window.removeEventListener('sge_navigate_dashboard', handleNavigateDashboard);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, [recarregarDados, setActiveTab]);
 
-  // Pré-carregamento silencioso de módulos offline APENAS após autenticação e janela de ociosidade (mantém dispositivos novos ultra-rápidos no arranque)
+  // Pré-carregamento prioritário e silencioso de módulos offline (Header/Sidebar primeiro; restantes módulos em tempo ocioso)
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      loadLoginModule().catch(() => {});
+      return;
+    }
     let ativo = true;
+
+    loadHeaderModule().catch(() => {});
+    loadSidebarModule().catch(() => {});
 
     const precarregarModulosOffline = () => {
       if (!ativo || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
@@ -551,18 +615,18 @@ export default function App() {
         const slice = PRELOAD_MODULE_IMPORTERS.slice(idx, idx + 2);
         Promise.allSettled(slice.map((fn) => fn().catch(() => null))).finally(() => {
           if (ativo) {
-            setTimeout(() => runBatch(idx + 2), 450);
+            setTimeout(() => runBatch(idx + 2), 260);
           }
         });
       };
       if (typeof (window as any).requestIdleCallback === 'function') {
-        (window as any).requestIdleCallback(() => runBatch(0), { timeout: 3000 });
+        (window as any).requestIdleCallback(() => runBatch(0), { timeout: 2500 });
       } else {
         runBatch(0);
       }
     };
 
-    const startTimer = setTimeout(precarregarModulosOffline, 1200);
+    const startTimer = setTimeout(precarregarModulosOffline, 1400);
     window.addEventListener('online', precarregarModulosOffline);
     return () => {
       ativo = false;
@@ -666,6 +730,7 @@ export default function App() {
       'dashboard',
       'admin_escolas',
       'ano_lectivo',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'provas_fiscalizacao',
@@ -716,6 +781,7 @@ export default function App() {
     DiretorGeral: [
       'dashboard',
       'ano_lectivo',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'provas_fiscalizacao',
@@ -767,6 +833,7 @@ export default function App() {
     SubdiretorPedagogico: [
       'dashboard',
       'ano_lectivo',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'provas_fiscalizacao',
@@ -806,6 +873,7 @@ export default function App() {
     CoordenadorPedagogico: [
       'dashboard',
       'ano_lectivo',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'provas_fiscalizacao',
@@ -922,6 +990,7 @@ export default function App() {
     ],
     Secretaria: [
       'dashboard',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'classes',
@@ -955,6 +1024,7 @@ export default function App() {
     ],
     ChefeSecretaria: [
       'dashboard',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'classes',
@@ -991,6 +1061,7 @@ export default function App() {
     ],
     Secretario: [
       'dashboard',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'classes',
@@ -1024,6 +1095,7 @@ export default function App() {
     ],
     CoordenadorTurno: [
       'dashboard',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'provas_fiscalizacao',
@@ -1058,6 +1130,7 @@ export default function App() {
     ],
     SecretarioEscolar: [
       'dashboard',
+      'periodos_letivos',
       'calendario_escolar',
       'plano_atividades',
       'classes',
@@ -1218,6 +1291,9 @@ export default function App() {
     setFuncionarios(dbService.obterFuncionarios());
     setAtribuicoes(dbService.getAtribuicoes());
     setNotasConsolidadas(dbService.getNotasConsolidadas());
+    setAssiduidade(dbService.obterAssiduidade());
+    setMensagens(dbService.obterMensagens());
+    setSolicitacoes(dbService.obterSolicitacoes());
     setLogs(dbService.obterLogs());
   };
 
@@ -1865,7 +1941,13 @@ export default function App() {
   // que NÃO existe conta de Administrador Geral (e se a internet NÃO estiver lenta nem offline).
   if (mostrarSetupInicial && !isAuthenticated) {
     return (
-      <>
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#0F2942] flex items-center justify-center text-white text-xs font-semibold">
+            A preparar configuração inicial...
+          </div>
+        }
+      >
         <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
         <SystemInitialSetupView
           onSetupConcluido={(novoAdmin) => {
@@ -1883,14 +1965,22 @@ export default function App() {
             }
           }}
         />
-      </>
+      </Suspense>
     );
   }
 
   // Ecrã Oficial de Autenticação se não houver sessão ativa (virgem e sem secção de configuração do administrador)
   if (!isAuthenticated) {
     return (
-      <>
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#0F2942] flex flex-col items-center justify-center text-white font-sans p-6">
+            <div className="text-2xl font-extrabold tracking-tight mb-1">SGE-NG</div>
+            <div className="text-xs text-slate-300 mb-5">Sistema Integrado de Gestão Escolar de Angola</div>
+            <div className="w-8 h-8 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+          </div>
+        }
+      >
         <PWAInstallNotification />
         <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
         <LoginView
@@ -1903,50 +1993,52 @@ export default function App() {
           funcionarios={funcionarios}
           onLogin={handleLogin}
         />
-      </>
+      </Suspense>
     );
   }
 
   return (
     <div className="min-h-screen w-full overflow-x-clip bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-blue-100 dark:selection:bg-blue-900/60 selection:text-blue-900 dark:selection:text-blue-100 transition-colors duration-200">
       {/* Barra de Progresso e Notificação de Sincronização em Tempo Real com o Firebase */}
-      <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
-
-      {/* Notificação Flutuante de Instalação PWA */}
-      <PWAInstallNotification />
+      <Suspense fallback={null}>
+        <SyncProgressBarAndNotification onSyncComplete={recarregarDados} />
+        <PWAInstallNotification />
+      </Suspense>
 
       {/* Header Superior Seguro */}
-      <Header
-        escola={escola}
-        escolas={escolas}
-        onSelectEscola={handleSelectEscola}
-        anosLectivos={anosLectivos}
-        onSelectAnoLectivo={handleSelectAnoLectivo}
-        onSelectTrimestre={handleSelectTrimestre}
-        currentUser={effectiveUser}
-        integrity={integrity}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-        onOpenPublicPortal={() => setActiveTab('alunos')}
-        onNavigateToPerfil={() => setActiveTab('meu_perfil')}
-        onNavigateToComunicacao={isEncarregadoPortal ? undefined : () => setActiveTab('comunicacao')}
-        onNavigateToTab={isEncarregadoPortal ? undefined : (tab, subTab) => {
-          setActiveTab(tab as NavTab);
-          if (subTab === 'solicitacoes' || subTab === 'auditoria_direcao') {
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: subTab }));
-            }, 80);
-          } else if (tab === 'biblioteca' || subTab === 'biblioteca') {
-            setTimeout(() => {
-              window.dispatchEvent(new CustomEvent('sge_open_comm_subtab', { detail: 'biblioteca' }));
-            }, 80);
-          }
-        }}
-        onLogout={handleLogout}
-        onOpenSecurityEngine={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
-        onOpenTour={isEncarregadoPortal ? undefined : () => setShowTourModal(true)}
-        parentReadOnly={isEncarregadoPortal}
-      />
+      <Suspense fallback={<div className="h-16 w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0" />}>
+        <Header
+          escola={escola}
+          escolas={escolas}
+          onSelectEscola={handleSelectEscola}
+          anosLectivos={anosLectivos}
+          onSelectAnoLectivo={handleSelectAnoLectivo}
+          onSelectTrimestre={handleSelectTrimestre}
+          currentUser={effectiveUser}
+          integrity={integrity}
+          mobileMenuOpen={mobileMenuOpen}
+          setMobileMenuOpen={setMobileMenuOpen}
+          onOpenPublicPortal={() => setActiveTab('alunos')}
+          onNavigateToPerfil={() => setActiveTab('meu_perfil')}
+          onNavigateToComunicacao={isEncarregadoPortal ? undefined : () => setActiveTab('comunicacao')}
+          onNavigateToTab={isEncarregadoPortal ? undefined : (tab, subTab) => {
+            setActiveTab(tab as NavTab);
+            if (subTab === 'solicitacoes' || subTab === 'auditoria_direcao') {
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('sge_open_evaluation_subtab', { detail: subTab }));
+              }, 80);
+            } else if (tab === 'biblioteca' || subTab === 'biblioteca') {
+              setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('sge_open_comm_subtab', { detail: 'biblioteca' }));
+              }, 80);
+            }
+          }}
+          onLogout={handleLogout}
+          onOpenSecurityEngine={effectiveUser.role === 'AdminGeral' ? () => setShowSecurityModal(true) : undefined}
+          onOpenTour={isEncarregadoPortal ? undefined : () => setShowTourModal(true)}
+          parentReadOnly={isEncarregadoPortal}
+        />
+      </Suspense>
 
       {/* Alerta de Regras do Firestore (quando o projeto externo sge4-8b772 tem regras travadas) */}
       {firebasePermissaoNegada && !dispensarAvisoRegras && (
@@ -2031,16 +2123,18 @@ export default function App() {
       <div className="flex-1 flex w-full max-w-[1600px] mx-auto min-w-0">
         {/* Sidebar de Navegação Oficial categorizada por grupos e RBAC (Oculta totalmente para Encarregado) */}
         {!isEncarregadoPortal && (
-          <Sidebar
-            activeTab={activeTabEfetiva}
-            onTabChange={(tab) => setActiveTab(tab)}
-            userRole={effectiveUser.role}
-            mobileMenuOpen={mobileMenuOpen}
-            setMobileMenuOpen={setMobileMenuOpen}
-            currentUser={effectiveUser}
-            onLogout={handleLogout}
-            onOpenTour={() => setShowTourModal(true)}
-          />
+          <Suspense fallback={<aside className="hidden lg:block w-64 shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800" />}>
+            <Sidebar
+              activeTab={activeTabEfetiva}
+              onTabChange={(tab) => setActiveTab(tab)}
+              userRole={effectiveUser.role}
+              mobileMenuOpen={mobileMenuOpen}
+              setMobileMenuOpen={setMobileMenuOpen}
+              currentUser={effectiveUser}
+              onLogout={handleLogout}
+              onOpenTour={() => setShowTourModal(true)}
+            />
+          </Suspense>
         )}
 
         {/* Content Area com Proteção de Rotas RBAC */}
@@ -2089,8 +2183,8 @@ export default function App() {
                 />
               )}
 
-              {/* 2. ACADÊMICO (Ano Letivo, Classes, Cursos, Disciplinas, Turmas, Turnos) */}
-              {(activeTab === 'ano_lectivo' || activeTab === 'classes' || activeTab === 'cursos' || activeTab === 'disciplinas' || activeTab === 'turmas' || activeTab === 'turnos' || activeTab === 'academico') && (
+              {/* 2. ACADÊMICO (Ano Letivo, Períodos Letivos, Classes, Cursos, Disciplinas, Turmas, Turnos) */}
+              {(activeTab === 'ano_lectivo' || activeTab === 'periodos_letivos' || activeTab === 'classes' || activeTab === 'cursos' || activeTab === 'disciplinas' || activeTab === 'turmas' || activeTab === 'turnos' || activeTab === 'academico') && (
                 <AcademicManagementView
                   escola={escola}
                   turmas={turmasDoAnoActivo}
@@ -2110,6 +2204,7 @@ export default function App() {
                   onSalvarJuri={handleSalvarJuri}
                   onNavigateToJury={() => setActiveTab('comissao_juri')}
                   initialSubTab={
+                    activeTab === 'periodos_letivos' ? 'periodos' :
                     activeTab === 'classes' ? 'classes' :
                     activeTab === 'cursos' ? 'cursos' :
                     activeTab === 'disciplinas' ? 'disciplinas' :
@@ -2160,6 +2255,7 @@ export default function App() {
                   turmas={turmasDoAnoActivo}
                   disciplinas={disciplinasDoAnoActivo}
                   funcionarios={funcionariosDaEscola}
+                  atribuicoes={atribuicoesDoAnoActivo}
                 />
               )}
 

@@ -52,6 +52,18 @@ export function getCacheGeneration(): number {
   return cacheGeneration;
 }
 
+export function getCachedRawMarker(key: string): string | null {
+  try {
+    if (memoryPrimaryKeys.has(key) && memoryMap.has(key)) {
+      return memoryMap.get(key)!.raw;
+    }
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export function invalidateLocalCache(key?: string): void {
   if (key) {
     memoryMap.delete(key);

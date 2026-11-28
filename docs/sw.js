@@ -79,7 +79,10 @@ define(['./workbox-39895644'], (function (workbox) { 'use strict';
    */
   workbox.precacheAndRoute([{
     "url": "index.html",
-    "revision": "a73c237536bcd87c407fff59a63ac8ad"
+    "revision": "abd1b6db3d36a1aaee6364dfd4e4b4a9"
+  }, {
+    "url": "404.html",
+    "revision": "7f0a2d2b9413f6d835a99c170e8e012e"
   }, {
     "url": "manifest.json",
     "revision": "e443656b619d7fe9e8b90e788bb8af7b"
@@ -111,13 +114,13 @@ define(['./workbox-39895644'], (function (workbox) { 'use strict';
     "url": "apple-touch-icon.png",
     "revision": "80f4d91273c38518c75fd2e474d0cc75"
   }, {
-    "url": "assets/index-DpNbIwb7.css",
+    "url": "assets/index-DsdwM-sA.css",
     "revision": null
   }, {
-    "url": "assets/index-BzfedX6e.js",
+    "url": "assets/xlsx-iJMskejc.js",
     "revision": null
   }, {
-    "url": "assets/storage-DqwFtj2Q.js",
+    "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
     "revision": null
   }, {
     "url": "assets/vendor-react-DRlaIapH.js",
@@ -129,25 +132,166 @@ define(['./workbox-39895644'], (function (workbox) { 'use strict';
     "url": "assets/vendor-firebase-Dfr8U4TP.js",
     "revision": null
   }, {
-    "url": "assets/DashboardView-47Bej7iz.js",
+    "url": "assets/storage-zulq66wS.js",
     "revision": null
   }, {
-    "url": "assets/PrintingDocumentsView-DTxIqUvT.js",
+    "url": "assets/rolldown-runtime-hePW80VL.js",
     "revision": null
   }, {
-    "url": "assets/PatrimonyView-IA0Wj_IP.js",
+    "url": "assets/qrCodeUtils-C4kEAAug.js",
     "revision": null
   }, {
-    "url": "assets/pdfGenerator-BJLDq570.js",
+    "url": "assets/purify.es-Bvo9QlJ8.js",
     "revision": null
   }, {
-    "url": "assets/directorHelper-CKcLL8Hu.js",
+    "url": "assets/pdfGenerator-bAAx5AjR.js",
+    "revision": null
+  }, {
+    "url": "assets/pautaExcelExporter-DJzAonJi.js",
+    "revision": null
+  }, {
+    "url": "assets/index.es-CA-g2Vj5.js",
+    "revision": null
+  }, {
+    "url": "assets/index-BfcQSiQK.js",
+    "revision": null
+  }, {
+    "url": "assets/imageCompressor-BY9DaNCq.js",
+    "revision": null
+  }, {
+    "url": "assets/enrollmentProgression-C0ryb8eP.js",
+    "revision": null
+  }, {
+    "url": "assets/directorHelper-Bju6QvYB.js",
     "revision": null
   }, {
     "url": "assets/dateFormat-QE49f7CD.js",
     "revision": null
   }, {
-    "url": "assets/qrCodeUtils-C4kEAAug.js",
+    "url": "assets/curriculoAngola-J8OT4QRI.js",
+    "revision": null
+  }, {
+    "url": "assets/VacationMapView-BBigOJxm.js",
+    "revision": null
+  }, {
+    "url": "assets/UserProfileView-DjHGgLW_.js",
+    "revision": null
+  }, {
+    "url": "assets/TechnicalSupportView-BNCo-6T9.js",
+    "revision": null
+  }, {
+    "url": "assets/SystemAuditBackupView-CJU2LiA9.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentsView-BqcPKXLV.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentRankingSection-DbJmMDKM.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentPassesView-BDrROEmw.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentClassListPdfDocument-CeFQc5pJ.js",
+    "revision": null
+  }, {
+    "url": "assets/StudentAttendanceReportView-Cmh0mO68.js",
+    "revision": null
+  }, {
+    "url": "assets/StatisticsView-OAy-wH5N.js",
+    "revision": null
+  }, {
+    "url": "assets/SchoolPassCard-D346RraG.js",
+    "revision": null
+  }, {
+    "url": "assets/SchoolCalendarView-DbLthFUA.js",
+    "revision": null
+  }, {
+    "url": "assets/ScheduleTimetableView-BcY2qA0W.js",
+    "revision": null
+  }, {
+    "url": "assets/ReportsView-CC8dVKOx.js",
+    "revision": null
+  }, {
+    "url": "assets/RealtimeSecurityModal-CKxp3RQQ.js",
+    "revision": null
+  }, {
+    "url": "assets/QrScannerModal-Bl_9bX74.js",
+    "revision": null
+  }, {
+    "url": "assets/ProvasFiscalizacaoView-Dj4OqgxA.js",
+    "revision": null
+  }, {
+    "url": "assets/PrintingDocumentsView-DgJp9PEy.js",
+    "revision": null
+  }, {
+    "url": "assets/PieChart-GExtoi5L.js",
+    "revision": null
+  }, {
+    "url": "assets/PatrimonyView-DevlM0Hz.js",
+    "revision": null
+  }, {
+    "url": "assets/ParentStudentReportView-BYDqqSj4.js",
+    "revision": null
+  }, {
+    "url": "assets/ModalJustificarFaltaFuncionario-CifgFuM7.js",
+    "revision": null
+  }, {
+    "url": "assets/MinhasFinancasView-CsZQxZNF.js",
+    "revision": null
+  }, {
+    "url": "assets/LegalPoliciesModal-CfAOrwve.js",
+    "revision": null
+  }, {
+    "url": "assets/JuryCommissionView-rk3ZiKW0.js",
+    "revision": null
+  }, {
+    "url": "assets/InitialSetupModal-DUZmdI4Z.js",
+    "revision": null
+  }, {
+    "url": "assets/HumanResourcesView-Dl7AN60o.js",
+    "revision": null
+  }, {
+    "url": "assets/GuidedTourModal-C4ZJNCc8.js",
+    "revision": null
+  }, {
+    "url": "assets/FeeReceiptsA4Sheet-B_2IfA0G.js",
+    "revision": null
+  }, {
+    "url": "assets/ExecutiveDirectionView-D_X_BgW5.js",
+    "revision": null
+  }, {
+    "url": "assets/EvaluationMacView-D7u06SCH.js",
+    "revision": null
+  }, {
+    "url": "assets/DocumentTemplateConfigModal-SFhqyJc0.js",
+    "revision": null
+  }, {
+    "url": "assets/DashboardView-CRYi2peX.js",
+    "revision": null
+  }, {
+    "url": "assets/CommunicationLibraryView-P0f21iH2.js",
+    "revision": null
+  }, {
+    "url": "assets/CleaningStockView-BnNtQiZy.js",
+    "revision": null
+  }, {
+    "url": "assets/ArchitectureDocsView-Blpfe_iQ.js",
+    "revision": null
+  }, {
+    "url": "assets/AngolaDateInput-BC1-1xS3.js",
+    "revision": null
+  }, {
+    "url": "assets/AdministrativeFinanceView-D_Pe38rQ.js",
+    "revision": null
+  }, {
+    "url": "assets/AdminGlobalSchoolsView-Cf6trudF.js",
+    "revision": null
+  }, {
+    "url": "assets/ActivityPlanView-5XRqLJvI.js",
+    "revision": null
+  }, {
+    "url": "assets/AcademicManagementView-CoIbmQx2.js",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",

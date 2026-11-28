@@ -694,6 +694,106 @@ class FirebaseSyncEngine {
   }
 
   /**
+   * Executa eliminações em lote via writeBatch respeitando o limite de 400 operações por batch
+   * com fallback individual em caso de erro pontual.
+   */
+  private async executarWriteBatchDeletes(refs: Array<ReturnType<typeof doc>>): Promise<{ ok: boolean; deletedCount: number }> {
+    if (!firestoreDb || !refs || refs.length === 0) return { ok: true, deletedCount: 0 };
+    const MAX_OPS = 400;
+    let allOk = true;
+    let deletedCount = 0;
+
+    for (let i = 0; i < refs.length; i += MAX_OPS) {
+      const slice = refs.slice(i, i + MAX_OPS);
+      try {
+        const batch = writeBatch(firestoreDb);
+        for (const r of slice) batch.delete(r);
+        const res = await withTimeout(batch.commit(), 8000);
+        if (res === FIRESTORE_TIMEOUT_TOKEN) {
+          throw new Error('Timeout ao eliminar lote no Firestore');
+        }
+        deletedCount += slice.length;
+      } catch (err) {
+        this.registrarErroPermissao(err);
+        const indiv = await withTimeout(Promise.allSettled(slice.map(r => deleteDoc(r))), 8000);
+        if (indiv === FIRESTORE_TIMEOUT_TOKEN) {
+          allOk = false;
+        } else {
+          indiv.forEach(r => {
+            if (r.status === 'fulfilled') deletedCount++;
+            else allOk = false;
+          });
+        }
+      }
+    }
+    return { ok: allOk, deletedCount };
+  }
+
+  /**
+   * Eliminação em Lote com fallback automático para a fila offline
+   */
+  public async eliminarLoteDireto(
+    colecao: string,
+    ids: string[],
+    extraColecoes?: string[],
+    descricaoBase?: string
+  ): Promise<boolean> {
+    const cleanIds = Array.from(new Set((ids || []).filter(Boolean)));
+    if (cleanIds.length === 0) return true;
+
+    if (!this.canUseFirestore() || !firestoreDb) {
+      offlineStorage.adicionarPendenciasEmLote(
+        cleanIds.map(docId => ({
+          entidade: colecao,
+          acao: 'ELIMINAR',
+          descricao: `${descricaoBase || `Remoção em ${colecao}`} (${docId})`,
+          dados: { id: docId },
+          docId,
+          extraColecoes
+        }))
+      );
+      this.queueDirtyDuringFlush = true;
+      this.notificarStatus();
+      this.agendarProcessamentoPendencias(true);
+      return false;
+    }
+
+    const refs: Array<ReturnType<typeof doc>> = [];
+    for (const docId of cleanIds) {
+      refs.push(doc(firestoreDb, colecao, docId));
+      if (extraColecoes) {
+        for (const extraCol of extraColecoes) {
+          refs.push(doc(firestoreDb, extraCol, docId));
+        }
+      }
+    }
+
+    const res = await this.executarWriteBatchDeletes(refs);
+    if (res.ok) {
+      cleanIds.forEach(docId => offlineStorage.removerPendenciaPorDocumento(colecao, docId));
+      this.registrarIdsSincronizados(colecao, [], cleanIds);
+      this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+      this.notificarStatus();
+      return true;
+    }
+
+    offlineStorage.adicionarPendenciasEmLote(
+      cleanIds.map(docId => ({
+        entidade: colecao,
+        acao: 'ELIMINAR',
+        descricao: `${descricaoBase || `Remoção em ${colecao}`} (${docId})`,
+        dados: { id: docId },
+        docId,
+        extraColecoes
+      }))
+    );
+    this.queueDirtyDuringFlush = true;
+    this.notificarStatus();
+    this.agendarProcessamentoPendencias(true);
+    return false;
+  }
+
+  /**
    * Eliminação Imediata e Garantida no Firestore + fila offline caso desconectado
    */
   public async eliminarDocumentoDireto(
@@ -785,7 +885,15 @@ class FirebaseSyncEngine {
                   return;
                 }
 
-                if (p.acao === 'ELIMINAR') {
+                if (p.acao === 'ELIMINAR_ESCOLA_CASCATA') {
+                  const okEsc = await this.eliminarEscola(docId, p.dados?.idsRelacionados);
+                  if (okEsc) {
+                    offlineStorage.removerPendencia(p.id);
+                    syncedCount++;
+                  } else {
+                    failedCount++;
+                  }
+                } else if (p.acao === 'ELIMINAR') {
                   const delTasks = [deleteDoc(doc(firestoreDb!, col, docId))];
                   if (p.extraColecoes) {
                     for (const ec of p.extraColecoes) {
@@ -1532,7 +1640,7 @@ class FirebaseSyncEngine {
       registrarEscutaMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId);
       registrarEscutaMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d);
       registrarEscutaMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId);
-    }, 1800);
+    }, 3000);
   }
 
   /**
@@ -1701,26 +1809,64 @@ class FirebaseSyncEngine {
       if (typeof window === 'undefined') return;
       const funcs = safeParseJson<Funcionario[]>(localStorage.getItem(STORAGE_KEYS.FUNCIONARIOS), []);
       const idx = funcs.findIndex(f => f.id === user.id || (f.email && user.email && f.email.toLowerCase() === user.email.toLowerCase()));
-      if (idx >= 0) {
-        funcs[idx] = { 
-          ...funcs[idx], 
-          ...user,
-          password: user.password || funcs[idx].password || '',
-          fotoUrl: user.fotoUrl !== undefined ? user.fotoUrl : (funcs[idx].fotoUrl || '')
-        };
-      } else {
-        funcs.push(user);
-      }
-      localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(funcs));
+      const fotoResolvida =
+        user.fotoUrl === '__idb_media__'
+          ? (offlineStorage.obterMidiaEmCache('funcionario', user.id) || '')
+          : (user.fotoUrl !== undefined ? user.fotoUrl : (idx >= 0 ? (funcs[idx].fotoUrl || '') : ''));
 
-      const curRaw = localStorage.getItem('sge_user') || localStorage.getItem('sge_current_user');
+      const mergedFunc: Funcionario = idx >= 0
+        ? {
+            ...funcs[idx],
+            ...user,
+            password: user.password || funcs[idx].password || '',
+            fotoUrl: fotoResolvida
+          }
+        : { ...user, fotoUrl: fotoResolvida };
+
+      if (idx >= 0) {
+        funcs[idx] = mergedFunc;
+      } else {
+        funcs.push(mergedFunc);
+      }
+
+      if (fotoResolvida && !fotoResolvida.startsWith('blob:') && fotoResolvida !== '__idb_media__') {
+        offlineStorage.definirMidiaEmCache('funcionario', mergedFunc.id, fotoResolvida);
+        offlineStorage.salvarMidia('funcionario', mergedFunc.id, fotoResolvida, mergedFunc.atualizadoEm);
+      }
+
+      const slimmedFuncs = funcs.map((item) => {
+        if (item?.id && typeof item.fotoUrl === 'string' && item.fotoUrl.length > 2048 && item.fotoUrl !== '__idb_media__') {
+          offlineStorage.definirMidiaEmCache('funcionario', item.id, item.fotoUrl);
+          return { ...item, fotoUrl: '__idb_media__' };
+        }
+        return item;
+      });
+      const serializedFuncs = JSON.stringify(slimmedFuncs);
+      try {
+        localStorage.setItem(STORAGE_KEYS.FUNCIONARIOS, serializedFuncs);
+      } catch {
+        // fallback já tratado em IndexedDB
+      }
+      invalidateLocalCache(STORAGE_KEYS.FUNCIONARIOS);
+      offlineStorage.gravarChaveNoIndexedDB(STORAGE_KEYS.FUNCIONARIOS, JSON.stringify(funcs));
+      offlineStorage.salvarFuncionarioNoIndexedDB(mergedFunc);
+
+      const curRaw = localStorage.getItem('sge_current_user') || localStorage.getItem('sge_user');
       if (curRaw) {
         try {
           const cur = JSON.parse(curRaw);
           if (cur.id === user.id || (cur.email && user.email && cur.email.toLowerCase() === user.email.toLowerCase())) {
-            const mergedCur = { ...cur, ...user };
-            localStorage.setItem('sge_user', JSON.stringify(mergedCur));
-            localStorage.setItem('sge_current_user', JSON.stringify(mergedCur));
+            const mergedCur = { ...cur, ...mergedFunc };
+            const slimCur = mergedCur.fotoUrl && mergedCur.fotoUrl.length > 2048
+              ? { ...mergedCur, fotoUrl: '__idb_media__' }
+              : mergedCur;
+            try {
+              localStorage.setItem('sge_user', JSON.stringify(slimCur));
+              localStorage.setItem('sge_current_user', JSON.stringify(slimCur));
+            } catch {}
+            invalidateLocalCache('sge_current_user');
+            invalidateLocalCache('sge_user');
+            offlineStorage.gravarChaveNoIndexedDB('sge_current_user', JSON.stringify(mergedCur));
           }
         } catch {}
       }
@@ -1757,7 +1903,7 @@ class FirebaseSyncEngine {
   }
 
   public async buscarConfiguracaoSistema(): Promise<ConfiguracaoSistema | null> {
-    if (typeof window !== 'undefined' && Date.now() - this.lastConfigFetchTs < 5000) {
+    if (typeof window !== 'undefined' && Date.now() - this.lastConfigFetchTs < 30000) {
       const cached = safeParseJson<ConfiguracaoSistema | null>(localStorage.getItem(STORAGE_KEYS.CONFIGURACAO_SISTEMA), null);
       if (cached) return cached;
     }
@@ -2231,57 +2377,69 @@ class FirebaseSyncEngine {
         this.agendarNotificacaoRemota(true);
 
         // ============================================================
-        // ONDA 3 (COMPLEMENTAR SILENCIOSA): Finanças, Biblioteca, Júris, Planos, Auditoria
+        // ONDA 3 (COMPLEMENTAR SILENCIOSA EM LOTES CONTROLADOS): Finanças, Biblioteca, Júris, Planos, Auditoria
         // ============================================================
         const runSecondaryWave = async () => {
-          await Promise.allSettled([
-            this.puxarColecaoArray<any>("juris", STORAGE_KEYS.JURIS, { filterValid: (j) => Boolean(j && j.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("termos_exame", STORAGE_KEYS.TERMOS_EXAME, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("mensagens", STORAGE_KEYS.MENSAGENS, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("solicitacoes_apoio", STORAGE_KEYS.SOLICITACOES_APOIO, { filterValid: (s) => Boolean(s && s.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("areas_formacao", STORAGE_KEYS.AREAS_FORMACAO, { filterValid: (a) => Boolean(a && a.id) }),
-            this.puxarColecaoArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, { filterValid: (s) => Boolean(s && s.id) }),
-            this.puxarColecaoArray<any>("solicitacoes_nota", STORAGE_KEYS.SOLICITACOES_NOTA, { filterValid: (s) => Boolean(s && s.id) }),
-            this.puxarColecaoArray<any>("presencas", STORAGE_KEYS.PRESENCAS, {
+          if (!aguardarSecundarias) {
+            await new Promise((r) => setTimeout(r, 320));
+          }
+          const secondaryTasks: Array<() => Promise<any>> = [
+            () => this.puxarColecaoArray<any>("juris", STORAGE_KEYS.JURIS, { filterValid: (j) => Boolean(j && j.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("termos_exame", STORAGE_KEYS.TERMOS_EXAME, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("mensagens", STORAGE_KEYS.MENSAGENS, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("solicitacoes_apoio", STORAGE_KEYS.SOLICITACOES_APOIO, { filterValid: (s) => Boolean(s && s.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("areas_formacao", STORAGE_KEYS.AREAS_FORMACAO, { filterValid: (a) => Boolean(a && a.id) }),
+            () => this.puxarColecaoArray<any>("salas_aulas", STORAGE_KEYS.SALAS_AULAS, { filterValid: (s) => Boolean(s && s.id) }),
+            () => this.puxarColecaoArray<any>("solicitacoes_nota", STORAGE_KEYS.SOLICITACOES_NOTA, { filterValid: (s) => Boolean(s && s.id) }),
+            () => this.puxarColecaoArray<any>("presencas", STORAGE_KEYS.PRESENCAS, {
               filterValid: (p) => Boolean(p && p.funcionarioId && p.data),
               getIdFn: (p) => p.id || `${p.funcionarioId}_${p.data}`
             }),
-            this.puxarColecaoArray<any>("presencas_alunos", STORAGE_KEYS.PRESENCAS_ALUNOS, {
+            () => this.puxarColecaoArray<any>("presencas_alunos", STORAGE_KEYS.PRESENCAS_ALUNOS, {
               filterValid: (p) => Boolean(p && p.alunoId && p.data),
               getIdFn: (p) => p.id || `${p.alunoId}_${p.data}_${p.tempoLectivo}`
             }),
-            this.puxarColecaoArray<any>("biblioteca", STORAGE_KEYS.BIBLIOTECA, { filterValid: (b) => Boolean(b && b.id) }),
-            this.puxarColecaoArray<any>("biblioteca_acessos", STORAGE_KEYS.BIBLIOTECA_ACESSOS, { filterValid: (ba) => Boolean(ba && ba.id) }),
-            this.puxarColecaoArray<any>("recibos", STORAGE_KEYS.RECIBOS, { filterValid: (r) => Boolean(r && r.id) }),
-            this.puxarColecaoArray<any>("transacoes_financeiras", STORAGE_KEYS.TRANSACOES_FINANCEIRAS, { filterValid: (t) => Boolean(t && t.id) }),
-            this.puxarColecaoArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, { filterValid: (d) => Boolean(d && d.id) }),
-            this.puxarColecaoArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, { filterValid: (p) => Boolean(p && p.id) }),
-            this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
-            this.puxarColecaoArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, { filterValid: (c) => Boolean(c && c.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, { filterValid: (h) => Boolean(h && h.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("mapas_ferias", STORAGE_KEYS.MAPAS_FERIAS, { filterValid: (f) => Boolean(f && f.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("estoque_limpeza", STORAGE_KEYS.ESTOQUE_LIMPEZA, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("movimentos_estoque_limpeza", STORAGE_KEYS.MOVIMENTOS_LIMPEZA, { filterValid: (mv) => Boolean(mv && mv.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
-            this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
-            this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
-            this.puxarColecaoArray<any>("sessoes_ativas", STORAGE_KEYS.SESSOES_ATIVAS, {
+            () => this.puxarColecaoArray<any>("biblioteca", STORAGE_KEYS.BIBLIOTECA, { filterValid: (b) => Boolean(b && b.id) }),
+            () => this.puxarColecaoArray<any>("biblioteca_acessos", STORAGE_KEYS.BIBLIOTECA_ACESSOS, { filterValid: (ba) => Boolean(ba && ba.id) }),
+            () => this.puxarColecaoArray<any>("recibos", STORAGE_KEYS.RECIBOS, { filterValid: (r) => Boolean(r && r.id) }),
+            () => this.puxarColecaoArray<any>("transacoes_financeiras", STORAGE_KEYS.TRANSACOES_FINANCEIRAS, { filterValid: (t) => Boolean(t && t.id) }),
+            () => this.puxarColecaoArray<any>("despesas_escolares", STORAGE_KEYS.DESPESAS_ESCOLARES, { filterValid: (d) => Boolean(d && d.id) }),
+            () => this.puxarColecaoArray<any>("patrimonio", STORAGE_KEYS.PATRIMONIO, { filterValid: (p) => Boolean(p && p.id) }),
+            () => this.puxarColecaoArray<any>("alteracoes_notas_direcao", STORAGE_KEYS.ALTERACOES_NOTAS_DIRECAO, { filterValid: (r) => Boolean(r && r.id) }),
+            () => this.puxarColecaoArray<any>("relatorios_acontecimentos", STORAGE_KEYS.RELATORIOS_ACONTECIMENTOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("coordenacoes", STORAGE_KEYS.COORDENACOES, { filterValid: (c) => Boolean(c && c.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("tipos_coordenacao", STORAGE_KEYS.TIPOS_COORDENACAO, { filterValid: (t) => Boolean(t && t.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("relatorios_pedagogicos", STORAGE_KEYS.RELATORIOS_PEDAGOGICOS, { filterValid: (r) => Boolean(r && r.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("planos_atividades", STORAGE_KEYS.PLANOS_ATIVIDADES, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("horarios_provas", STORAGE_KEYS.HORARIOS_PROVAS, { filterValid: (h) => Boolean(h && h.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("mapas_fiscalizacao", STORAGE_KEYS.MAPAS_FISCALIZACAO, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("atas_provas", STORAGE_KEYS.ATAS_PROVAS, { filterValid: (a) => Boolean(a && a.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("mapas_ferias", STORAGE_KEYS.MAPAS_FERIAS, { filterValid: (f) => Boolean(f && f.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("estoque_limpeza", STORAGE_KEYS.ESTOQUE_LIMPEZA, { filterValid: (m) => Boolean(m && m.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("movimentos_estoque_limpeza", STORAGE_KEYS.MOVIMENTOS_LIMPEZA, { filterValid: (mv) => Boolean(mv && mv.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("delegacoes_poderes", STORAGE_KEYS.DELEGACOES_PODERES, { filterValid: (d) => Boolean(d && d.id) }),
+            () => this.puxarColecaoArray<any>("acoes_delegadas_logs", STORAGE_KEYS.ACOES_DELEGADAS_LOGS, { filterValid: (l) => Boolean(l && l.id) }),
+            () => this.puxarColecaoArray<any>("auditoria", STORAGE_KEYS.AUDITORIA, { filterValid: (l) => Boolean(l && l.id), uploadLocalIfRemoteEmpty: true }),
+            () => this.puxarColecaoArray<any>("sessoes_ativas", STORAGE_KEYS.SESSOES_ATIVAS, {
               filterValid: (s) => Boolean(s && (s.userId || s.id)),
               getIdFn: (s) => s.userId || s.id
             }),
-            this.puxarColecaoMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId),
-            this.puxarColecaoMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId),
-            this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId, undefined, (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
-            this.puxarColecaoMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId),
-            this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista })),
-            this.puxarColecaoMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId)
-          ]);
+            () => this.puxarColecaoMapa("configuracoes_financeiras", STORAGE_KEYS.CONFIGURACOES_FINANCEIRAS, (docId, d) => d.escolaId || docId),
+            () => this.puxarColecaoMapa("historico_completo", STORAGE_KEYS.HISTORICO_COMPLETO, (docId, d) => d.alunoId || docId),
+            () => this.puxarColecaoMapa("configuracoes_passes", STORAGE_KEYS.CONFIGURACOES_PASSES, (docId, d) => d.escolaId || docId, undefined, (escolaId, v) => ({ ...v, escolaId, id: escolaId })),
+            () => this.puxarColecaoMapa("configuracoes_documentos", STORAGE_KEYS.CONFIGURACOES_DOCUMENTOS, (docId, d) => (d.escolaId && d.tipoDocumento) ? `${d.escolaId}_${d.tipoDocumento}` : docId),
+            () => this.puxarColecaoMapa("delegacoes_cobranca", STORAGE_KEYS.DELEGACOES_COBRANCA, (docId, d) => d.escolaId || docId, (d) => d.lista || d, (escolaId, lista) => ({ id: escolaId, escolaId, lista })),
+            () => this.puxarColecaoMapa("financas_pessoais", STORAGE_KEYS.FINANCAS_PESSOAIS, (docId, d) => d.userId || docId)
+          ];
+
+          const BATCH_SIZE = 7;
+          for (let i = 0; i < secondaryTasks.length; i += BATCH_SIZE) {
+            const batch = secondaryTasks.slice(i, i + BATCH_SIZE);
+            await Promise.allSettled(batch.map((task) => task()));
+            if (i + BATCH_SIZE < secondaryTasks.length && !aguardarSecundarias) {
+              await new Promise((r) => setTimeout(r, 55));
+            }
+          }
           this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
           this.agendarNotificacaoRemota();
         };
@@ -3026,47 +3184,134 @@ class FirebaseSyncEngine {
     return false;
   }
 
-  public async eliminarEscola(id: string): Promise<boolean> {
+  public async eliminarEscola(
+    id: string,
+    idsRelacionados?: {
+      alunosIds?: string[];
+      funcionariosIds?: string[];
+      avaliacoesIds?: string[];
+      notasEstudantesIds?: string[];
+      notasConsolidadasIds?: string[];
+      bibliotecaIds?: string[];
+      mensagensIds?: string[];
+      docConfigKeys?: string[];
+    }
+  ): Promise<boolean> {
+    if (!id) return false;
+    const syncedClean = () => {
+      try {
+        this.registrarIdsSincronizados('escolas', [], [id]);
+        if (idsRelacionados?.alunosIds?.length) this.registrarIdsSincronizados('alunos', [], idsRelacionados.alunosIds);
+        if (idsRelacionados?.funcionariosIds?.length) this.registrarIdsSincronizados('funcionarios', [], idsRelacionados.funcionariosIds);
+      } catch {}
+    };
+
     if (this.canUseFirestore() && firestoreDb) {
       try {
         const colecoesParaApagar = [
-          "escolas", "schools", "alunos", "turmas", "disciplinas", "atribuicoes",
-          "funcionarios", "transacoes_financeiras", "despesas_escolares", "patrimonio",
+          "escolas", "schools", "alunos", "students", "turmas", "disciplinas", "atribuicoes",
+          "funcionarios", "users", "transacoes_financeiras", "despesas_escolares", "patrimonio",
           "notas", "notas_estudantes", "avaliacoes", "juris", "termos_exame",
           "presencas", "presencas_alunos", "horarios", "mensagens", "biblioteca",
-          "biblioteca_acessos", "recibos", "delegacoes_poderes", "acoes_delegadas_logs",
-          "alteracoes_notas_direcao", "anos_lectivos_configs", "turnos_configs",
-          "classes_configs", "cursos", "regras_mac", "tipos_avaliacao",
-          "solicitacoes_nota", "solicitacoes_apoio", "relatorios_acontecimentos", "coordenacoes"
+          "biblioteca_acessos", "biblioteca_arquivos", "recibos", "delegacoes_poderes",
+          "acoes_delegadas_logs", "alteracoes_notas_direcao", "anos_lectivos_configs",
+          "turnos_configs", "classes_configs", "cursos", "areas_formacao", "salas_aulas",
+          "regras_mac", "tipos_avaliacao", "solicitacoes_nota", "solicitacoes_apoio",
+          "relatorios_acontecimentos", "coordenacoes", "tipos_coordenacao",
+          "relatorios_pedagogicos", "planos_atividades", "horarios_provas",
+          "mapas_fiscalizacao", "atas_provas", "mapas_ferias", "estoque_limpeza",
+          "movimentos_estoque_limpeza", "auditoria", "sessoes_ativas",
+          "historico_completo", "financas_pessoais", "configuracoes_documentos",
+          "configuracoes_financeiras", "configuracoes_passes", "delegacoes_cobranca"
         ];
 
-        await Promise.allSettled([
-          deleteDoc(doc(firestoreDb, "escolas", id)),
-          deleteDoc(doc(firestoreDb, "schools", id)),
-          deleteDoc(doc(firestoreDb, "configuracoes_financeiras", id)),
-          deleteDoc(doc(firestoreDb, "configuracoes_passes", id)),
-          deleteDoc(doc(firestoreDb, "delegacoes_cobranca", id))
-        ]);
+        const refsParaEliminar = new Map<string, ReturnType<typeof doc>>();
+        const addRef = (col: string, docId: string) => {
+          if (!col || !docId) return;
+          refsParaEliminar.set(`${col}/${docId}`, doc(firestoreDb!, col, docId));
+        };
 
-        // Cascade queries em paralelo em vez de sequencial!
+        // 1. Documentos singleton indexados diretamente por escolaId
+        addRef("escolas", id);
+        addRef("schools", id);
+        addRef("configuracoes_financeiras", id);
+        addRef("configuracoes_passes", id);
+        addRef("delegacoes_cobranca", id);
+
+        // 2. Documentos relacionais explícitos (mesmo que não possuam escolaId gravado)
+        (idsRelacionados?.alunosIds || []).forEach(aId => {
+          addRef("alunos", aId);
+          addRef("students", aId);
+          addRef("historico_completo", aId);
+        });
+        (idsRelacionados?.funcionariosIds || []).forEach(fId => {
+          addRef("funcionarios", fId);
+          addRef("users", fId);
+          addRef("financas_pessoais", fId);
+          addRef("sessoes_ativas", fId);
+        });
+        (idsRelacionados?.avaliacoesIds || []).forEach(avId => addRef("avaliacoes", avId));
+        (idsRelacionados?.notasEstudantesIds || []).forEach(nId => addRef("notas_estudantes", nId));
+        (idsRelacionados?.notasConsolidadasIds || []).forEach(ncId => addRef("notas", ncId));
+        (idsRelacionados?.bibliotecaIds || []).forEach(bId => addRef("biblioteca", bId));
+        (idsRelacionados?.mensagensIds || []).forEach(mId => addRef("mensagens", mId));
+        (idsRelacionados?.docConfigKeys || []).forEach(k => addRef("configuracoes_documentos", k));
+
+        // 3. Consultas em paralelo por escolaId em todas as coleções
         await Promise.allSettled(
           colecoesParaApagar.map(async (colNome) => {
             try {
               const q = query(collection(firestoreDb!, colNome), where("escolaId", "==", id));
-              const snap = await getDocs(q);
-              if (!snap.empty) {
-                await Promise.allSettled(snap.docs.map(d => deleteDoc(d.ref)));
+              const snap = await withTimeout(getDocs(q), 6500);
+              if (snap !== FIRESTORE_TIMEOUT_TOKEN && !snap.empty) {
+                snap.docs.forEach(d => addRef(colNome, d.id));
               }
             } catch {}
           })
         );
-        return true;
+
+        // 4. Chunks de PDFs de biblioteca órfãos (caso docId esteja na lista)
+        if (idsRelacionados?.bibliotecaIds?.length) {
+          await Promise.allSettled(
+            idsRelacionados.bibliotecaIds.map(async (docId) => {
+              try {
+                const qChunks = query(collection(firestoreDb!, "biblioteca_arquivos"), where("docId", "==", docId));
+                const snapC = await withTimeout(getDocs(qChunks), 4500);
+                if (snapC !== FIRESTORE_TIMEOUT_TOKEN && !snapC.empty) {
+                  snapC.docs.forEach(d => addRef("biblioteca_arquivos", d.id));
+                }
+              } catch {}
+            })
+          );
+        }
+
+        const batchRes = await this.executarWriteBatchDeletes(Array.from(refsParaEliminar.values()));
+        syncedClean();
+        if (batchRes.ok) {
+          offlineStorage.removerPendenciaPorDocumento("escolas", id);
+          this.ultimaSincronizacao = new Date().toLocaleTimeString('pt-AO');
+          this.notificarStatus();
+          return true;
+        }
       } catch (e) {
-        console.warn('[SGE Firebase Sync] Erro ao eliminar escola no Firestore:', e);
+        this.registrarErroPermissao(e);
+        console.warn('[SGE Firebase Sync] Erro ao eliminar escola em cascata no Firestore:', e);
       }
     }
-    offlineStorage.adicionarPendencia("escolas", "ELIMINAR", `Eliminação de escola ${id}`, { id }, id, ["schools"]);
-    return true;
+
+    syncedClean();
+    offlineStorage.adicionarPendencia(
+      "escolas",
+      "ELIMINAR_ESCOLA_CASCATA",
+      `Eliminação total em cascata da escola ${id}`,
+      { id, idsRelacionados },
+      id,
+      ["schools"]
+    );
+    this.queueDirtyDuringFlush = true;
+    this.notificarStatus();
+    this.agendarProcessamentoPendencias(true);
+    return false;
   }
 
   public async salvarDisciplina(disc: any): Promise<boolean> {
@@ -3232,8 +3477,19 @@ class FirebaseSyncEngine {
     return this.gravarDocumentoDireto("horarios", item.id, item, undefined, `Horário ${item.id}`);
   }
 
+  public async salvarHorariosLote(itens: any[]): Promise<boolean> {
+    return this.gravarLoteDireto(
+      "horarios",
+      (itens || []).map(item => ({ id: item.id, dados: item }))
+    );
+  }
+
   public async eliminarHorario(id: string): Promise<boolean> {
     return this.eliminarDocumentoDireto("horarios", id, undefined, `Remoção de horário ${id}`);
+  }
+
+  public async eliminarHorariosLote(ids: string[]): Promise<boolean> {
+    return this.eliminarLoteDireto("horarios", ids, undefined, `Remoção de horário`);
   }
 
   private async enviarChunksPdfParaFirestore(docId: string, base64: string, escolaId?: string): Promise<number> {
@@ -3581,15 +3837,11 @@ class FirebaseSyncEngine {
   public async eliminarDadosAnoLectivoCascata(
     colecoesEIds: Array<{ colecao: string; ids: string[]; extraColecoes?: string[] }>
   ): Promise<void> {
-    for (const item of colecoesEIds) {
-      if (!item.ids || item.ids.length === 0) continue;
-      for (const docId of item.ids) {
-        if (!docId) continue;
-        try {
-          await this.eliminarDocumentoDireto(item.colecao, docId, item.extraColecoes, `Cascata Ano Letivo (${item.colecao}/${docId})`);
-        } catch {}
-      }
-    }
+    await Promise.allSettled(
+      (colecoesEIds || [])
+        .filter(item => item.ids && item.ids.length > 0)
+        .map(item => this.eliminarLoteDireto(item.colecao, item.ids, item.extraColecoes, `Cascata Ano Letivo (${item.colecao})`))
+    );
   }
 
   public async salvarSessaoAtiva(sessao: any): Promise<boolean> {
